@@ -1460,7 +1460,7 @@ const handleCodeChange = (index: number, value: string) => {
           <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
             {settingsMembers.length > 0 && (
               <div>
-                <SectionHeader label="Family Members" />
+                <SectionHeader label="Household Members" />
                 {renderMemberList()}
                 <button
                   onClick={() => openConfirmModal({
@@ -1501,7 +1501,7 @@ const handleCodeChange = (index: number, value: string) => {
             <div>
               <SectionHeader label="Invite" />
               <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: '0 0 12px 0' }}>
-                Invite family members to share your shopping list.
+                Invite household members to share your shopping list.
               </p>
               <button
                 onClick={handleTextInviteLink}
