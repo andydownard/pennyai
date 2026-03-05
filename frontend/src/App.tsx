@@ -2710,13 +2710,10 @@ const handleCodeChange = (index: number, value: string) => {
                   <span style={listStyles.deptCount}>{deptChecked}/{deptTotal}</span>
                   <span style={listStyles.deptChevron(isOpen)}>›</span>
                 </button>
-                {isOpen && [...deptItems].sort((a, b) => Number(a.checked) - Number(b.checked)).map((item, idx, arr) => {
-                  const prevItem = idx > 0 ? arr[idx - 1] : null
-                  const isFirstChecked = item.checked && prevItem && !prevItem.checked
+                {isOpen && deptItems.map((item) => {
                   return (
                   <div key={item.id} style={{
                     ...listStyles.itemRow,
-                    ...(isFirstChecked ? { borderTop: `3px solid ${BORDER}` } : {}),
                     ...(newItemIds.has(item.id) ? {
                       backgroundColor: `${BRAND}15`,
                       transition: 'background-color 1.5s ease',
