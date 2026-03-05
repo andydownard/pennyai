@@ -401,7 +401,7 @@ export default function App() {
   const [referralFriends, setReferralFriends] = useState<{ name: string; created_at: string }[]>([])
 
   // --- Admin state ---
-  const [userPhone, setUserPhone] = useState('')
+  const [isAdmin, setIsAdmin] = useState(false)
   const [adminData, setAdminData] = useState<{
     active_users: number; total_users: number; new_users: number;
     k_factor: number; leaderboard: { phone: string; name: string; points: number; referrals: number }[];
@@ -519,8 +519,8 @@ export default function App() {
     fetch('/auth/me')
       .then(res => {
         if (res.ok) {
-          res.clone().json().then((data: { phone_number?: string }) => {
-            if (data.phone_number) setUserPhone(data.phone_number)
+          res.clone().json().then((data: { is_admin?: boolean }) => {
+            if (data.is_admin) setIsAdmin(true)
           }).catch(() => {})
           tryJoinCode()
           const hash = window.location.hash.replace('#', '') as Screen
@@ -946,7 +946,7 @@ export default function App() {
       const data = await res.json()
 
       if (res.ok) {
-        if (data.phone_number) setUserPhone(data.phone_number)
+        if (data.is_admin) setIsAdmin(true)
         tryJoinCode()
         setScreen('home')
       } else {
@@ -1242,7 +1242,7 @@ const handleCodeChange = (index: number, value: string) => {
             <button style={listStyles.menuItem(active === 'about')} onClick={() => { setMenuOpen(false); setScreen('about') }}>How to text Penny</button>
             <button style={listStyles.menuItem(active === 'settings-share')} onClick={() => { setMenuOpen(false); setScreen('settings-share') }}>Share & Earn</button>
             <button style={listStyles.menuItem(active === 'settings' || active === 'settings-profile' as Screen || active === 'settings-family' as Screen)} onClick={() => { setMenuOpen(false); setScreen('settings') }}>Settings</button>
-            {userPhone === '3104861833' && (
+            {isAdmin && (
               <button style={listStyles.menuItem(active === 'admin')} onClick={() => { setMenuOpen(false); setScreen('admin') }}>Dashboard</button>
             )}
             <div style={{ height: '1px', backgroundColor: BORDER, margin: '4px 0' }} />

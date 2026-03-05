@@ -74,6 +74,7 @@ type Config struct {
 	TwilioVerifyService string // starts with "VA"
 	TwilioPhoneNumber   string // your Twilio phone number in E.164 format ("+1...")
 	AnthropicAPIKey     string // starts with "sk-ant-"
+	AdminPhone          string // phone number with admin access (10 digits, no +1)
 	Port                string // HTTP port (default "8080")
 	DBPath              string // SQLite file path (default "thriftly.db")
 }
@@ -121,6 +122,7 @@ func loadConfig() Config {
 		TwilioVerifyService: os.Getenv("TWILIO_VERIFY_SERVICE_SID"),
 		TwilioPhoneNumber:   os.Getenv("TWILIO_PHONE_NUMBER"),
 		AnthropicAPIKey:     os.Getenv("ANTHROPIC_API_KEY"),
+		AdminPhone:          os.Getenv("ADMIN_PHONE"),
 		Port:                port,
 		DBPath:              dbPath,
 	}
@@ -883,6 +885,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"logged_in":    true,
 		"user_id":      session.UserID,
 		"phone_number": session.PhoneNumber,
+		"is_admin":     s.config.AdminPhone != "" && session.PhoneNumber == s.config.AdminPhone,
 	})
 }
 
@@ -1169,7 +1172,7 @@ func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) (Session, 
 	if !ok {
 		return Session{}, false
 	}
-	if session.PhoneNumber != "3104861833" {
+	if s.config.AdminPhone == "" || session.PhoneNumber != s.config.AdminPhone {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden"})
 		return Session{}, false
 	}
