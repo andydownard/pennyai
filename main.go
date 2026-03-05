@@ -75,8 +75,11 @@ type Config struct {
 	TwilioPhoneNumber   string // your Twilio phone number in E.164 format ("+1...")
 	AnthropicAPIKey     string // starts with "sk-ant-"
 	AdminPhone          string // phone number with admin access (10 digits, no +1)
+	LogoDevToken        string // Logo.dev API token for brand logos
+	NPSIntervalDays     int    // days between NPS re-surveys (default 90)
 	Port                string // HTTP port (default "8080")
 	DBPath              string // SQLite file path (default "thriftly.db")
+	SecureCookies       bool   // set Secure flag on cookies (auto-detected from RAILWAY_ENVIRONMENT_NAME)
 }
 
 // loadDotEnv reads a .env file and sets any variables not already in the environment.
@@ -116,6 +119,13 @@ func loadConfig() Config {
 	if dbPath == "" {
 		dbPath = "thriftly.db"
 	}
+	npsInterval := 90
+	if v := os.Getenv("NPS_INTERVAL_DAYS"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			npsInterval = parsed
+		}
+	}
+
 	return Config{
 		TwilioAccountSID:    os.Getenv("TWILIO_ACCOUNT_SID"),
 		TwilioAuthToken:     os.Getenv("TWILIO_AUTH_TOKEN"),
@@ -123,8 +133,11 @@ func loadConfig() Config {
 		TwilioPhoneNumber:   os.Getenv("TWILIO_PHONE_NUMBER"),
 		AnthropicAPIKey:     os.Getenv("ANTHROPIC_API_KEY"),
 		AdminPhone:          os.Getenv("ADMIN_PHONE"),
+		LogoDevToken:        os.Getenv("LOGODEV_TOKEN"),
+		NPSIntervalDays:     npsInterval,
 		Port:                port,
 		DBPath:              dbPath,
+		SecureCookies:       os.Getenv("RAILWAY_ENVIRONMENT_NAME") != "",
 	}
 }
 
@@ -163,6 +176,19 @@ func initDB(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("enabling foreign keys: %w", err)
 	}
 
+	// WAL mode for better concurrent read performance
+	if _, err := db.Exec("PRAGMA journal_mode = WAL"); err != nil {
+		log.Printf("[warn] failed to enable WAL mode: %v", err)
+	}
+	// NORMAL sync is safe with WAL and much faster than FULL
+	if _, err := db.Exec("PRAGMA synchronous = NORMAL"); err != nil {
+		log.Printf("[warn] failed to set synchronous mode: %v", err)
+	}
+	// Wait up to 5s for locks instead of failing immediately
+	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		log.Printf("[warn] failed to set busy timeout: %v", err)
+	}
+
 	// Create the users table if it doesn't exist.
 	// "IF NOT EXISTS" means this is safe to run every time the app starts.
 	_, err = db.Exec(`
@@ -197,8 +223,22 @@ func initDB(path string) (*sql.DB, error) {
 		"ALTER TABLE list_items ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1",
 		"ALTER TABLE list_items ADD COLUMN size TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE list_items ADD COLUMN source TEXT NOT NULL DEFAULT 'app'",
+		"ALTER TABLE list_items ADD COLUMN urgent INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE list_items ADD COLUMN claimed_by INTEGER DEFAULT NULL",
+		"ALTER TABLE list_items ADD COLUMN claimed_at DATETIME DEFAULT NULL",
 	} {
 		db.Exec(stmt) // "duplicate column name" error is expected and harmless
+	}
+
+	// Indexes for common query patterns
+	for _, stmt := range []string{
+		"CREATE INDEX IF NOT EXISTS idx_household_members_household_id ON household_members(household_id)",
+		"CREATE INDEX IF NOT EXISTS idx_household_members_user_id ON household_members(user_id)",
+		"CREATE INDEX IF NOT EXISTS idx_list_items_user_id ON list_items(user_id)",
+		"CREATE INDEX IF NOT EXISTS idx_saved_lists_user_id ON saved_lists(user_id)",
+		"CREATE INDEX IF NOT EXISTS idx_saved_list_items_saved_list_id ON saved_list_items(saved_list_id)",
+	} {
+		db.Exec(stmt)
 	}
 
 	_, err = db.Exec(`
@@ -282,6 +322,7 @@ func initDB(path string) (*sql.DB, error) {
 		"ALTER TABLE users ADD COLUMN referral_code TEXT",
 		"ALTER TABLE users ADD COLUMN referral_points INTEGER DEFAULT 0",
 		"ALTER TABLE users ADD COLUMN last_active DATETIME",
+		"ALTER TABLE users ADD COLUMN login_count INTEGER NOT NULL DEFAULT 0",
 	} {
 		db.Exec(stmt)
 	}
@@ -295,12 +336,36 @@ func initDB(path string) (*sql.DB, error) {
 			detail     TEXT,
 			source     TEXT,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (item_id) REFERENCES list_items(id),
+			FOREIGN KEY (item_id) REFERENCES list_items(id) ON DELETE CASCADE,
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		)
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("creating item_modifications table: %w", err)
+	}
+
+	// Migrate item_modifications to add ON DELETE CASCADE if missing.
+	// SQLite doesn't support ALTER TABLE for constraints, so we recreate the table.
+	// Check if the existing table has ON DELETE CASCADE by looking at the schema.
+	var createSQL string
+	db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='item_modifications'").Scan(&createSQL)
+	if createSQL != "" && !strings.Contains(strings.ToUpper(createSQL), "ON DELETE CASCADE") {
+		db.Exec(`
+			CREATE TABLE IF NOT EXISTS item_modifications_new (
+				id         INTEGER PRIMARY KEY AUTOINCREMENT,
+				item_id    INTEGER NOT NULL,
+				user_id    INTEGER,
+				action     TEXT NOT NULL,
+				detail     TEXT,
+				source     TEXT,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (item_id) REFERENCES list_items(id) ON DELETE CASCADE,
+				FOREIGN KEY (user_id) REFERENCES users(id)
+			)
+		`)
+		db.Exec("INSERT INTO item_modifications_new SELECT * FROM item_modifications")
+		db.Exec("DROP TABLE item_modifications")
+		db.Exec("ALTER TABLE item_modifications_new RENAME TO item_modifications")
 	}
 
 	_, err = db.Exec(`
@@ -332,7 +397,834 @@ func initDB(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("creating redemptions table: %w", err)
 	}
 
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS nps_responses (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id    INTEGER NOT NULL,
+			score      INTEGER NOT NULL,
+			comment    TEXT NOT NULL DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating nps_responses table: %w", err)
+	}
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS sessions (
+			token        TEXT PRIMARY KEY,
+			user_id      INTEGER NOT NULL,
+			phone_number TEXT NOT NULL,
+			created_at   DATETIME NOT NULL,
+			expires_at   DATETIME NOT NULL
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating sessions table: %w", err)
+	}
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS brand_owners (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			name       TEXT UNIQUE NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating brand_owners table: %w", err)
+	}
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS brands (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			name       TEXT UNIQUE NOT NULL COLLATE NOCASE,
+			domain     TEXT NOT NULL,
+			owner_id   INTEGER,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (owner_id) REFERENCES brand_owners(id)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating brands table: %w", err)
+	}
+
+	if err := seedBrands(db); err != nil {
+		log.Printf("WARNING: failed to seed brands: %v", err)
+	}
+
+	// --- Brand logos (stored as BLOBs to survive Railway's ephemeral filesystem) ---
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS brand_logos (
+			brand_id      INTEGER PRIMARY KEY,
+			logo_data     BLOB    NOT NULL,
+			content_type  TEXT    NOT NULL DEFAULT 'image/png',
+			fetched_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			source        TEXT    NOT NULL DEFAULT 'logodev',
+			FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE CASCADE
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating brand_logos table: %w", err)
+	}
+
+	// --- Shopping trips ---
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS shopping_trips (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id      INTEGER NOT NULL,
+			household_id INTEGER NOT NULL,
+			trip_date    TEXT    NOT NULL,
+			trip_time    TEXT    DEFAULT NULL,
+			time_label   TEXT    DEFAULT NULL,
+			created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id),
+			FOREIGN KEY (household_id) REFERENCES households(id)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating shopping_trips table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_shopping_trips_household_id ON shopping_trips(household_id)")
+
 	return db, nil
+}
+
+// seedBrands populates the brands and brand_owners tables if they are empty.
+// This is idempotent — it only inserts when the brands table has no rows.
+func seedBrands(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM brands").Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Insert brand owners
+	owners := []string{
+		"Procter & Gamble", "Unilever", "Nestlé", "PepsiCo", "Coca-Cola",
+		"General Mills", "Kellogg's", "Kraft Heinz", "Colgate-Palmolive",
+		"Johnson & Johnson", "Mondelez", "Mars", "Danone", "Conagra",
+		"Campbell Soup", "Hormel", "Tyson", "Smucker's", "Church & Dwight",
+		"Reckitt", "SC Johnson", "Clorox", "Energizer", "Henkel",
+	}
+	ownerIDs := make(map[string]int64)
+	for _, name := range owners {
+		res, err := tx.Exec("INSERT INTO brand_owners (name) VALUES (?)", name)
+		if err != nil {
+			return fmt.Errorf("inserting owner %q: %w", name, err)
+		}
+		id, _ := res.LastInsertId()
+		ownerIDs[name] = id
+	}
+
+	// brand entries: name, domain, owner key
+	type brand struct {
+		name, domain, owner string
+	}
+	brands := []brand{
+		// Procter & Gamble
+		{"Tide", "tide.com", "Procter & Gamble"},
+		{"Bounty", "bountytowels.com", "Procter & Gamble"},
+		{"Charmin", "charmin.com", "Procter & Gamble"},
+		{"Pampers", "pampers.com", "Procter & Gamble"},
+		{"Gillette", "gillette.com", "Procter & Gamble"},
+		{"Downy", "downy.com", "Procter & Gamble"},
+		{"Crest", "crest.com", "Procter & Gamble"},
+		{"Oral-B", "oralb.com", "Procter & Gamble"},
+		{"Dawn", "dawn-dish.com", "Procter & Gamble"},
+		{"Febreze", "febreze.com", "Procter & Gamble"},
+		{"Swiffer", "swiffer.com", "Procter & Gamble"},
+		{"Head & Shoulders", "headandshoulders.com", "Procter & Gamble"},
+		{"Old Spice", "oldspice.com", "Procter & Gamble"},
+		{"Gain", "gainlaundry.com", "Procter & Gamble"},
+		{"Mr. Clean", "mrclean.com", "Procter & Gamble"},
+		{"Cascade", "cascadeclean.com", "Procter & Gamble"},
+		// Unilever
+		{"Dove", "dove.com", "Unilever"},
+		{"Axe", "axe.com", "Unilever"},
+		{"Hellmann's", "hellmanns.com", "Unilever"},
+		{"Knorr", "knorr.com", "Unilever"},
+		{"Ben & Jerry's", "benjerry.com", "Unilever"},
+		{"Degree", "degreedeodorant.com", "Unilever"},
+		{"Vaseline", "vaseline.com", "Unilever"},
+		{"TRESemmé", "tresemme.com", "Unilever"},
+		{"Seventh Generation", "seventhgeneration.com", "Unilever"},
+		{"Suave", "suave.com", "Unilever"},
+		{"Magnum", "magnumicecream.com", "Unilever"},
+		// Nestlé
+		{"Nescafé", "nescafe.com", "Nestlé"},
+		{"Gerber", "gerber.com", "Nestlé"},
+		{"Stouffer's", "stouffers.com", "Nestlé"},
+		{"Hot Pockets", "hotpockets.com", "Nestlé"},
+		{"DiGiorno", "digiorno.com", "Nestlé"},
+		{"Coffee Mate", "coffeemate.com", "Nestlé"},
+		{"Lean Cuisine", "leancuisine.com", "Nestlé"},
+		{"Toll House", "verybestbaking.com", "Nestlé"},
+		{"Purina", "purina.com", "Nestlé"},
+		{"Fancy Feast", "fancyfeast.com", "Nestlé"},
+		{"Häagen-Dazs", "haagendazs.com", "Nestlé"},
+		{"San Pellegrino", "sanpellegrino.com", "Nestlé"},
+		{"Perrier", "perrier.com", "Nestlé"},
+		// PepsiCo
+		{"Pepsi", "pepsi.com", "PepsiCo"},
+		{"Lay's", "lays.com", "PepsiCo"},
+		{"Doritos", "doritos.com", "PepsiCo"},
+		{"Gatorade", "gatorade.com", "PepsiCo"},
+		{"Quaker", "quakeroats.com", "PepsiCo"},
+		{"Cheetos", "cheetos.com", "PepsiCo"},
+		{"Tropicana", "tropicana.com", "PepsiCo"},
+		{"Mountain Dew", "mountaindew.com", "PepsiCo"},
+		{"Tostitos", "tostitos.com", "PepsiCo"},
+		{"Ruffles", "ruffles.com", "PepsiCo"},
+		{"Fritos", "fritos.com", "PepsiCo"},
+		{"Aquafina", "aquafina.com", "PepsiCo"},
+		{"Bubly", "bubly.com", "PepsiCo"},
+		{"SunChips", "sunchips.com", "PepsiCo"},
+		// Coca-Cola
+		{"Coca-Cola", "coca-cola.com", "Coca-Cola"},
+		{"Sprite", "sprite.com", "Coca-Cola"},
+		{"Fanta", "fanta.com", "Coca-Cola"},
+		{"Dasani", "dasani.com", "Coca-Cola"},
+		{"Minute Maid", "minutemaid.com", "Coca-Cola"},
+		{"Smartwater", "drinksmartwater.com", "Coca-Cola"},
+		{"Powerade", "powerade.com", "Coca-Cola"},
+		{"Honest Tea", "honesttea.com", "Coca-Cola"},
+		{"Topo Chico", "topochicousa.com", "Coca-Cola"},
+		{"Simply", "simplyorangejuice.com", "Coca-Cola"},
+		{"Gold Peak", "goldpeaktea.com", "Coca-Cola"},
+		{"Fairlife", "fairlife.com", "Coca-Cola"},
+		// General Mills
+		{"Cheerios", "cheerios.com", "General Mills"},
+		{"Nature Valley", "naturevalley.com", "General Mills"},
+		{"Betty Crocker", "bettycrocker.com", "General Mills"},
+		{"Pillsbury", "pillsbury.com", "General Mills"},
+		{"Yoplait", "yoplait.com", "General Mills"},
+		{"Annie's", "annies.com", "General Mills"},
+		{"Progresso", "progresso.com", "General Mills"},
+		{"Old El Paso", "oldelpaso.com", "General Mills"},
+		{"Totino's", "totinos.com", "General Mills"},
+		{"Lärabar", "larabar.com", "General Mills"},
+		{"Cascadian Farm", "cascadianfarm.com", "General Mills"},
+		{"Blue Buffalo", "bluebuffalo.com", "General Mills"},
+		{"Fiber One", "fiberone.com", "General Mills"},
+		// Kellogg's
+		{"Kellogg's", "kelloggs.com", "Kellogg's"},
+		{"Pringles", "pringles.com", "Kellogg's"},
+		{"Cheez-It", "cheezit.com", "Kellogg's"},
+		{"Pop-Tarts", "poptarts.com", "Kellogg's"},
+		{"Eggo", "eggowaffles.com", "Kellogg's"},
+		{"Rice Krispies", "ricekrispies.com", "Kellogg's"},
+		{"Frosted Flakes", "frostedflakes.com", "Kellogg's"},
+		{"Froot Loops", "frootloops.com", "Kellogg's"},
+		{"Club Crackers", "clubcrackers.com", "Kellogg's"},
+		{"RXBAR", "rxbar.com", "Kellogg's"},
+		{"MorningStar Farms", "morningstarfarms.com", "Kellogg's"},
+		// Kraft Heinz
+		{"Kraft", "kraft.com", "Kraft Heinz"},
+		{"Heinz", "heinz.com", "Kraft Heinz"},
+		{"Oscar Mayer", "oscarmayer.com", "Kraft Heinz"},
+		{"Philadelphia", "philadelphia.com", "Kraft Heinz"},
+		{"Velveeta", "velveeta.com", "Kraft Heinz"},
+		{"Jell-O", "jello.com", "Kraft Heinz"},
+		{"Kool-Aid", "koolaid.com", "Kraft Heinz"},
+		{"Capri Sun", "caprisun.com", "Kraft Heinz"},
+		{"Ore-Ida", "oreida.com", "Kraft Heinz"},
+		{"Lunchables", "lunchables.com", "Kraft Heinz"},
+		{"Grey Poupon", "greypoupon.com", "Kraft Heinz"},
+		// Colgate-Palmolive
+		{"Colgate", "colgate.com", "Colgate-Palmolive"},
+		{"Palmolive", "palmolive.com", "Colgate-Palmolive"},
+		{"Ajax", "ajaxcleaner.com", "Colgate-Palmolive"},
+		{"Irish Spring", "irishspring.com", "Colgate-Palmolive"},
+		{"Softsoap", "softsoap.com", "Colgate-Palmolive"},
+		{"Speed Stick", "speedstick.com", "Colgate-Palmolive"},
+		{"Tom's of Maine", "tomsofmaine.com", "Colgate-Palmolive"},
+		{"Hill's", "hillspet.com", "Colgate-Palmolive"},
+		// Johnson & Johnson
+		{"Band-Aid", "band-aid.com", "Johnson & Johnson"},
+		{"Tylenol", "tylenol.com", "Johnson & Johnson"},
+		{"Neutrogena", "neutrogena.com", "Johnson & Johnson"},
+		{"Listerine", "listerine.com", "Johnson & Johnson"},
+		{"Aveeno", "aveeno.com", "Johnson & Johnson"},
+		{"Johnson's Baby", "johnsonsbaby.com", "Johnson & Johnson"},
+		{"Zyrtec", "zyrtec.com", "Johnson & Johnson"},
+		{"Benadryl", "benadryl.com", "Johnson & Johnson"},
+		// Mondelez
+		{"Oreo", "oreo.com", "Mondelez"},
+		{"Ritz", "ritzcrackers.com", "Mondelez"},
+		{"Triscuit", "triscuit.com", "Mondelez"},
+		{"Wheat Thins", "wheatthins.com", "Mondelez"},
+		{"Chips Ahoy!", "chipsahoy.com", "Mondelez"},
+		{"Cadbury", "cadbury.com", "Mondelez"},
+		{"Sour Patch Kids", "sourpatchkids.com", "Mondelez"},
+		{"Swedish Fish", "swedishfish.com", "Mondelez"},
+		{"Toblerone", "toblerone.com", "Mondelez"},
+		{"belVita", "belvitabreakfast.com", "Mondelez"},
+		{"Clif Bar", "clifbar.com", "Mondelez"},
+		// Mars
+		{"M&M's", "mms.com", "Mars"},
+		{"Snickers", "snickers.com", "Mars"},
+		{"Twix", "twix.com", "Mars"},
+		{"Skittles", "skittles.com", "Mars"},
+		{"Starburst", "starburst.com", "Mars"},
+		{"Pedigree", "pedigree.com", "Mars"},
+		{"Uncle Ben's", "unclebens.com", "Mars"},
+		{"Dove Chocolate", "dovechocolate.com", "Mars"},
+		{"Kind", "kindsnacks.com", "Mars"},
+		// Danone
+		{"Dannon", "dannon.com", "Danone"},
+		{"Evian", "evian.com", "Danone"},
+		{"Oikos", "oikosyogurt.com", "Danone"},
+		{"Silk", "silk.com", "Danone"},
+		{"So Delicious", "sodeliciousdairyfree.com", "Danone"},
+		{"International Delight", "internationaldelight.com", "Danone"},
+		{"Horizon Organic", "horizon.com", "Danone"},
+		{"Activia", "activia.com", "Danone"},
+		// Conagra
+		{"Hunt's", "hunts.com", "Conagra"},
+		{"Healthy Choice", "healthychoice.com", "Conagra"},
+		{"Marie Callender's", "mariecallenders.com", "Conagra"},
+		{"Slim Jim", "slimjim.com", "Conagra"},
+		{"Reddi-Wip", "reddiwip.com", "Conagra"},
+		{"PAM", "pamcookingspray.com", "Conagra"},
+		{"Duncan Hines", "duncanhines.com", "Conagra"},
+		{"Birds Eye", "birdseye.com", "Conagra"},
+		{"Vlasic", "vlasic.com", "Conagra"},
+		{"Banquet", "banquet.com", "Conagra"},
+		// Campbell Soup
+		{"Campbell's", "campbells.com", "Campbell Soup"},
+		{"V8", "v8juice.com", "Campbell Soup"},
+		{"Goldfish", "pepperidgefarm.com", "Campbell Soup"},
+		{"Pepperidge Farm", "pepperidgefarm.com", "Campbell Soup"},
+		{"Prego", "prego.com", "Campbell Soup"},
+		{"Pace", "pacefoods.com", "Campbell Soup"},
+		{"Swanson", "swanson.com", "Campbell Soup"},
+		{"SpaghettiOs", "spaghettios.com", "Campbell Soup"},
+		{"Lance", "lance.com", "Campbell Soup"},
+		// Hormel
+		{"Hormel", "hormel.com", "Hormel"},
+		{"SPAM", "spam.com", "Hormel"},
+		{"Skippy", "skippy.com", "Hormel"},
+		{"Applegate", "applegate.com", "Hormel"},
+		{"Wholly Guacamole", "eatwholly.com", "Hormel"},
+		{"Planters", "planters.com", "Hormel"},
+		// Tyson
+		{"Tyson", "tyson.com", "Tyson"},
+		{"Jimmy Dean", "jimmydean.com", "Tyson"},
+		{"Hillshire Farm", "hillshirefarm.com", "Tyson"},
+		{"Ball Park", "ballparkbrand.com", "Tyson"},
+		{"Sara Lee", "saraleedeli.com", "Tyson"},
+		// Smucker's
+		{"Smucker's", "smuckers.com", "Smucker's"},
+		{"Jif", "jif.com", "Smucker's"},
+		{"Folgers", "folgers.com", "Smucker's"},
+		{"Café Bustelo", "cafebustelo.com", "Smucker's"},
+		{"Uncrustables", "uncrustables.com", "Smucker's"},
+		{"Meow Mix", "meowmix.com", "Smucker's"},
+		{"Milk-Bone", "milkbone.com", "Smucker's"},
+		// Church & Dwight
+		{"Arm & Hammer", "armandhammer.com", "Church & Dwight"},
+		{"OxiClean", "oxiclean.com", "Church & Dwight"},
+		{"Trojan", "trojanbrands.com", "Church & Dwight"},
+		{"Batiste", "batistehair.com", "Church & Dwight"},
+		{"Vitafusion", "vitafusion.com", "Church & Dwight"},
+		{"Orajel", "orajel.com", "Church & Dwight"},
+		// Reckitt
+		{"Lysol", "lysol.com", "Reckitt"},
+		{"Finish", "finishdishwashing.com", "Reckitt"},
+		{"Air Wick", "airwick.com", "Reckitt"},
+		{"Woolite", "woolite.com", "Reckitt"},
+		{"Mucinex", "mucinex.com", "Reckitt"},
+		{"Enfamil", "enfamil.com", "Reckitt"},
+		// SC Johnson
+		{"Windex", "windex.com", "SC Johnson"},
+		{"Ziploc", "ziploc.com", "SC Johnson"},
+		{"Glade", "glade.com", "SC Johnson"},
+		{"Scrubbing Bubbles", "scrubbingbubbles.com", "SC Johnson"},
+		{"Raid", "raid.com", "SC Johnson"},
+		{"OFF!", "off.com", "SC Johnson"},
+		{"Pledge", "pledge.com", "SC Johnson"},
+		// Clorox
+		{"Clorox", "clorox.com", "Clorox"},
+		{"Glad", "glad.com", "Clorox"},
+		{"Pine-Sol", "pinesol.com", "Clorox"},
+		{"Burt's Bees", "burtsbees.com", "Clorox"},
+		{"Kingsford", "kingsford.com", "Clorox"},
+		{"Hidden Valley", "hiddenvalley.com", "Clorox"},
+		{"Fresh Step", "freshstep.com", "Clorox"},
+		// Energizer
+		{"Energizer", "energizer.com", "Energizer"},
+		{"Duracell", "duracell.com", "Energizer"},
+		{"Schick", "schick.com", "Energizer"},
+		// Henkel
+		{"Persil", "persil.com", "Henkel"},
+		{"Dial", "dialsoap.com", "Henkel"},
+		{"Purex", "purex.com", "Henkel"},
+		{"all", "all-laundry.com", "Henkel"},
+		{"Snuggle", "snuggle.com", "Henkel"},
+		// Store brands (no owner)
+		{"Kirkland Signature", "costco.com", ""},
+		{"Great Value", "walmart.com", ""},
+		{"Trader Joe's", "traderjoes.com", ""},
+		{"Good & Gather", "target.com", ""},
+		{"Market Pantry", "target.com", ""},
+		{"365 by Whole Foods", "wholefoodsmarket.com", ""},
+		{"Member's Mark", "samsclub.com", ""},
+		{"Simple Truth", "kroger.com", ""},
+		{"O Organics", "safeway.com", ""},
+		{"Open Nature", "safeway.com", ""},
+		{"Bowl & Basket", "shoprite.com", ""},
+		{"Publix", "publix.com", ""},
+		{"H-E-B", "heb.com", ""},
+		{"Aldi", "aldi.us", ""},
+		// DTC / trending brands (no owner)
+		{"Oatly", "oatly.com", ""},
+		{"Beyond Meat", "beyondmeat.com", ""},
+		{"Impossible Foods", "impossiblefoods.com", ""},
+		{"Siete", "sietefoods.com", ""},
+		{"Liquid Death", "liquiddeath.com", ""},
+		{"Athletic Brewing", "athleticbrewing.com", ""},
+		{"Olipop", "drinkolipop.com", ""},
+		{"Poppi", "drinkpoppi.com", ""},
+		{"Banza", "eatbanza.com", ""},
+		{"Chomps", "chomps.com", ""},
+		{"RXBAR", "rxbar.com", ""},
+		{"Hu Kitchen", "hukitchen.com", ""},
+		{"Partake Foods", "partakefoods.com", ""},
+		{"Fly by Jing", "flybyjing.com", ""},
+		{"Graza", "grfraza.co", ""},
+		{"Ithaca Hummus", "ithacahummus.com", ""},
+		{"Sir Kensington's", "sirkensingtons.com", ""},
+		{"Primal Kitchen", "primalkitchen.com", ""},
+		{"Chobani", "chobani.com", ""},
+		{"Stonyfield", "stonyfield.com", ""},
+		{"Siggi's", "siggis.com", ""},
+		{"Justin's", "justins.com", ""},
+		{"Late July", "latejuly.com", ""},
+		{"Kettle Brand", "kettlebrand.com", ""},
+		{"Bob's Red Mill", "bobsredmill.com", ""},
+		{"King Arthur", "kingarthurbaking.com", ""},
+		{"Dr. Bronner's", "drbronner.com", ""},
+		{"Mrs. Meyer's", "mrsmeyers.com", ""},
+		{"Method", "methodhome.com", ""},
+		{"Grove Co.", "grove.co", ""},
+		{"Blueland", "blueland.com", ""},
+		{"Stasher", "stasherbag.com", ""},
+		{"Yeti", "yeti.com", ""},
+		{"Hydro Flask", "hydroflask.com", ""},
+		{"S'well", "swell.com", ""},
+		{"White Claw", "whiteclaw.com", ""},
+		{"Celsius", "celsius.com", ""},
+		{"Hint Water", "drinkhint.com", ""},
+		{"LaCroix", "lacroixwater.com", ""},
+		{"Spindrift", "drinkspindrift.com", ""},
+		{"Health-Ade", "health-ade.com", ""},
+		{"GT's Kombucha", "gtslivingfoods.com", ""},
+		{"Califia Farms", "califiafarms.com", ""},
+		{"Nutpods", "nutpods.com", ""},
+		{"Ripple", "ripplefoods.com", ""},
+		{"StarKist", "starkist.com", ""},
+	}
+
+	stmtBrand, err := tx.Prepare("INSERT INTO brands (name, domain, owner_id) VALUES (?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmtBrand.Close()
+
+	for _, b := range brands {
+		var ownerID interface{}
+		if b.owner != "" {
+			ownerID = ownerIDs[b.owner]
+		}
+		if _, err := stmtBrand.Exec(b.name, b.domain, ownerID); err != nil {
+			// Skip duplicates (e.g. RXBAR appears twice)
+			if strings.Contains(err.Error(), "UNIQUE") {
+				continue
+			}
+			return fmt.Errorf("inserting brand %q: %w", b.name, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// handleLogoProxy serves brand logos with a 3-layer cache:
+//   1. In-memory sync.Map (sub-ms)
+//   2. SQLite BLOB (survives restarts, persists on Railway)
+//   3. Logo.dev API fetch → store in SQLite + memory
+//   4. SVG placeholder fallback (deterministic color from brand name)
+//
+// URL: /api/logo?domain=kraft.com
+func (s *Server) handleLogoProxy(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+
+	domain := r.URL.Query().Get("domain")
+	brand := r.URL.Query().Get("brand")
+
+	// If brand name provided, resolve to domain via brands table
+	if brand != "" && domain == "" {
+		var d string
+		if err := s.db.QueryRow("SELECT domain FROM brands WHERE LOWER(name) = LOWER(?)", brand).Scan(&d); err == nil {
+			domain = d
+		} else {
+			// Guess domain from brand name
+			domain = strings.ToLower(brand)
+			domain = strings.Map(func(r rune) rune {
+				if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+					return r
+				}
+				return -1
+			}, domain) + ".com"
+		}
+	}
+
+	if domain == "" {
+		http.Error(w, "Missing domain or brand parameter", http.StatusBadRequest)
+		return
+	}
+	// Sanitize: only allow alphanumeric, dots, hyphens
+	for _, c := range domain {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-') {
+			http.Error(w, "Invalid domain", http.StatusBadRequest)
+			return
+		}
+	}
+
+	cacheKey := strings.ToLower(domain)
+
+	// Layer 1: in-memory cache
+	if cached, ok := s.logoCache.Load(cacheKey); ok {
+		cl := cached.(*cachedLogo)
+		w.Header().Set("Content-Type", cl.contentType)
+		w.Header().Set("Cache-Control", "public, max-age=604800")
+		w.Write(cl.data)
+		return
+	}
+
+	// Layer 2: SQLite BLOB
+	var logoData []byte
+	var contentType string
+	err := s.db.QueryRow(
+		"SELECT bl.logo_data, bl.content_type FROM brand_logos bl JOIN brands b ON b.id = bl.brand_id WHERE LOWER(b.domain) = LOWER(?)",
+		domain,
+	).Scan(&logoData, &contentType)
+	if err == nil && len(logoData) > 0 {
+		s.logoCache.Store(cacheKey, &cachedLogo{data: logoData, contentType: contentType})
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "public, max-age=604800")
+		w.Write(logoData)
+		return
+	}
+
+	// Layer 3: fetch from external APIs
+	var brandID int
+	var brandName string
+	s.db.QueryRow("SELECT id, name FROM brands WHERE LOWER(domain) = LOWER(?)", domain).Scan(&brandID, &brandName)
+
+	logoData, contentType = fetchBrandLogo(domain, s.config.LogoDevToken)
+	if logoData != nil {
+		// Store in SQLite if brand exists (async)
+		if brandID > 0 {
+			go func(id int, data []byte, ct string) {
+				s.db.Exec(
+					"INSERT OR REPLACE INTO brand_logos (brand_id, logo_data, content_type, fetched_at, source) VALUES (?, ?, ?, CURRENT_TIMESTAMP, 'logodev')",
+					id, data, ct,
+				)
+			}(brandID, logoData, contentType)
+		}
+		s.logoCache.Store(cacheKey, &cachedLogo{data: logoData, contentType: contentType})
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "public, max-age=604800")
+		w.Write(logoData)
+		return
+	}
+
+	// Layer 4: SVG placeholder
+	name := brandName
+	if name == "" {
+		name = strings.TrimSuffix(domain, ".com")
+	}
+	s.servePlaceholderLogo(w, name)
+}
+
+// fetchBrandLogo fetches a brand logo from Logo.dev.
+func fetchBrandLogo(domain, token string) ([]byte, string) {
+	if token == "" {
+		return nil, ""
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("https://img.logo.dev/" + url.QueryEscape(domain) + "?token=" + url.QueryEscape(token) + "&size=128&format=png")
+	if err == nil && resp.StatusCode == 200 {
+		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err == nil && len(data) > 200 {
+			ct := resp.Header.Get("Content-Type")
+			if ct == "" {
+				ct = "image/png"
+			}
+			return data, ct
+		}
+	}
+	if resp != nil {
+		resp.Body.Close()
+	}
+	return nil, ""
+}
+
+// servePlaceholderLogo returns an SVG with the brand's initials in a deterministic color.
+func (s *Server) servePlaceholderLogo(w http.ResponseWriter, name string) {
+	initials := logoInitials(name)
+	color := logoColor(name)
+	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="16" fill="%s"/>
+  <text x="64" y="64" dominant-baseline="central" text-anchor="middle"
+        font-family="system-ui,sans-serif" font-weight="600" font-size="48" fill="white">%s</text>
+</svg>`, color, initials)
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=604800")
+	w.Write([]byte(svg))
+}
+
+func logoInitials(name string) string {
+	words := strings.Fields(name)
+	if len(words) == 0 {
+		return "?"
+	}
+	if len(words) == 1 {
+		r := []rune(words[0])
+		return strings.ToUpper(string(r[0:1]))
+	}
+	return strings.ToUpper(string([]rune(words[0])[0:1]) + string([]rune(words[1])[0:1]))
+}
+
+func logoColor(name string) string {
+	colors := []string{"#4F46E5", "#7C3AED", "#DB2777", "#DC2626", "#EA580C", "#CA8A04", "#16A34A", "#0891B2"}
+	h := 0
+	for _, c := range name {
+		h = h*31 + int(c)
+	}
+	if h < 0 {
+		h = -h
+	}
+	return colors[h%len(colors)]
+}
+
+// warmLogoCache pre-fetches logos for brands missing from the brand_logos table.
+// Runs in the background after server starts.
+func (s *Server) warmLogoCache() {
+	// First, load all existing logos into memory
+	rows, err := s.db.Query("SELECT b.domain, bl.logo_data, bl.content_type FROM brand_logos bl JOIN brands b ON b.id = bl.brand_id")
+	if err == nil {
+		defer rows.Close()
+		count := 0
+		for rows.Next() {
+			var domain, ct string
+			var data []byte
+			if rows.Scan(&domain, &data, &ct) == nil {
+				s.logoCache.Store(strings.ToLower(domain), &cachedLogo{data: data, contentType: ct})
+				count++
+			}
+		}
+		if count > 0 {
+			log.Printf("[logos] loaded %d logos from database", count)
+		}
+	}
+
+	// Then fetch missing logos
+	rows2, err := s.db.Query(`
+		SELECT b.id, b.name, b.domain FROM brands b
+		LEFT JOIN brand_logos bl ON bl.brand_id = b.id
+		WHERE bl.brand_id IS NULL AND b.domain != ''
+	`)
+	if err != nil {
+		return
+	}
+	defer rows2.Close()
+
+	for rows2.Next() {
+		var id int
+		var name, domain string
+		if rows2.Scan(&id, &name, &domain) != nil {
+			continue
+		}
+		data, ct := fetchBrandLogo(domain, s.config.LogoDevToken)
+		if data != nil {
+			s.db.Exec(
+				"INSERT OR REPLACE INTO brand_logos (brand_id, logo_data, content_type, fetched_at, source) VALUES (?, ?, ?, CURRENT_TIMESTAMP, 'logodev')",
+				id, data, ct,
+			)
+			s.logoCache.Store(strings.ToLower(domain), &cachedLogo{data: data, contentType: ct})
+			log.Printf("[logos] fetched logo for %s (%s)", name, domain)
+		}
+		time.Sleep(500 * time.Millisecond) // rate limit
+	}
+	log.Printf("[logos] warm-up complete")
+}
+
+// handleTrips handles GET/POST/DELETE /api/trips for the shopping trip planner.
+func (s *Server) handleTrips(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	// Get household_id for the user
+	var householdID sql.NullInt64
+	s.db.QueryRow("SELECT household_id FROM users WHERE id = ?", session.UserID).Scan(&householdID)
+	if !householdID.Valid {
+		// User not in a household — use a synthetic household_id of -userID
+		householdID.Int64 = int64(-session.UserID)
+		householdID.Valid = true
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// Clean up old trips (older than 48 hours)
+		s.db.Exec("DELETE FROM shopping_trips WHERE trip_date < date('now', '-2 days')")
+
+		// Get all trips for the household
+		var rows *sql.Rows
+		var err error
+		if householdID.Int64 < 0 {
+			// Solo user — just their own trips
+			rows, err = s.db.Query(
+				`SELECT st.id, st.user_id, COALESCE(u.name, ''), st.trip_date, st.trip_time, st.time_label, st.created_at
+				 FROM shopping_trips st JOIN users u ON u.id = st.user_id
+				 WHERE st.user_id = ? ORDER BY st.trip_date, st.trip_time`,
+				session.UserID,
+			)
+		} else {
+			rows, err = s.db.Query(
+				`SELECT st.id, st.user_id, COALESCE(u.name, ''), st.trip_date, st.trip_time, st.time_label, st.created_at
+				 FROM shopping_trips st JOIN users u ON u.id = st.user_id
+				 WHERE st.household_id = ? ORDER BY st.trip_date, st.trip_time`,
+				householdID.Int64,
+			)
+		}
+		if err != nil {
+			dbError(w, err, "Failed to load trips")
+			return
+		}
+		defer rows.Close()
+
+		type TripResponse struct {
+			ID        int    `json:"id"`
+			UserID    int    `json:"user_id"`
+			UserName  string `json:"user_name"`
+			TripDate  string `json:"trip_date"`
+			TripTime  string `json:"trip_time"`
+			TimeLabel string `json:"time_label"`
+			IsMine    bool   `json:"is_mine"`
+			CreatedAt string `json:"created_at"`
+		}
+		trips := []TripResponse{}
+		for rows.Next() {
+			var t TripResponse
+			var tripTime, timeLabel, createdAt sql.NullString
+			if err := rows.Scan(&t.ID, &t.UserID, &t.UserName, &t.TripDate, &tripTime, &timeLabel, &createdAt); err != nil {
+				log.Printf("[trips] scan error: %v", err)
+				continue
+			}
+			t.TripTime = tripTime.String
+			t.TimeLabel = timeLabel.String
+			t.CreatedAt = createdAt.String
+			t.IsMine = t.UserID == session.UserID
+			trips = append(trips, t)
+		}
+		writeJSON(w, http.StatusOK, trips)
+
+	case http.MethodPost:
+		var req struct {
+			TripDate  string `json:"trip_date"`
+			TripTime  string `json:"trip_time"`
+			TimeLabel string `json:"time_label"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request"})
+			return
+		}
+		if req.TripDate == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "trip_date is required"})
+			return
+		}
+
+		// Delete any existing future trip for this user (one active trip per user)
+		s.db.Exec("DELETE FROM shopping_trips WHERE user_id = ? AND trip_date >= date('now', '-1 day')", session.UserID)
+
+		// Use real household_id or 0 for solo users
+		hid := householdID.Int64
+		if hid < 0 {
+			hid = 0
+		}
+
+		var tripTime, timeLabel *string
+		if req.TripTime != "" {
+			tripTime = &req.TripTime
+		}
+		if req.TimeLabel != "" {
+			timeLabel = &req.TimeLabel
+		}
+
+		result, err := s.db.Exec(
+			"INSERT INTO shopping_trips (user_id, household_id, trip_date, trip_time, time_label) VALUES (?, ?, ?, ?, ?)",
+			session.UserID, hid, req.TripDate, tripTime, timeLabel,
+		)
+		if err != nil {
+			dbError(w, err, "Failed to save trip")
+			return
+		}
+		id, _ := result.LastInsertId()
+		writeJSON(w, http.StatusOK, map[string]interface{}{"id": id, "ok": true})
+
+	case http.MethodDelete:
+		s.db.Exec("DELETE FROM shopping_trips WHERE user_id = ? AND trip_date >= date('now', '-1 day')", session.UserID)
+		writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleBrands returns a JSON map of lowercased brand name → domain.
+// No auth required — brand data is public and needed for fast page load.
+func (s *Server) handleBrands(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+
+	rows, err := s.db.Query("SELECT name, domain FROM brands")
+	if err != nil {
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	result := make(map[string]string)
+	for rows.Next() {
+		var name, domain string
+		if err := rows.Scan(&name, &domain); err != nil {
+			continue
+		}
+		result[strings.ToLower(name)] = domain
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[brands] row iteration error: %v", err)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	json.NewEncoder(w).Encode(result)
 }
 
 // User represents a row in the users table.
@@ -400,8 +1292,10 @@ func upsertUser(db *sql.DB, phone string) (User, error) {
 		user.HouseholdID = int(householdID.Int64)
 	}
 
-	// Track login activity
-	_, _ = tx.Exec("UPDATE users SET last_active = CURRENT_TIMESTAMP WHERE id = ?", user.ID)
+	// Track login activity and increment login count
+	if _, err := tx.Exec("UPDATE users SET last_active = CURRENT_TIMESTAMP, login_count = login_count + 1 WHERE id = ?", user.ID); err != nil {
+		log.Printf("[warn] failed to update login count for user %d: %v", user.ID, err)
+	}
 
 	// Auto-create household if user doesn't have one
 	if !householdID.Valid {
@@ -485,6 +1379,9 @@ func getHouseholdUserIDs(db *sql.DB, userID int) ([]int, error) {
 			ids = append(ids, id)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[household] row iteration error: %v", err)
+	}
 	if len(ids) == 0 {
 		return []int{userID}, nil
 	}
@@ -511,19 +1408,35 @@ type itemData struct {
 	Quantity                      int
 }
 
+// insertSavedListItems inserts items into saved_list_items within a transaction.
+func insertSavedListItems(tx *sql.Tx, savedListID int64, items []itemData) error {
+	for _, d := range items {
+		if _, err := tx.Exec(
+			"INSERT INTO saved_list_items (saved_list_id, name, brand, department, quantity, size) VALUES (?, ?, ?, ?, ?, ?)",
+			savedListID, d.Name, d.Brand, d.Department, d.Quantity, d.Size,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ListItem represents a row in the list_items table.
 type ListItem struct {
-	ID           int    `json:"id"`
-	Name         string `json:"name"`
-	Brand        string `json:"brand"`
-	Department   string `json:"department"`
-	Quantity     int    `json:"quantity"`
-	Size         string `json:"size"`
-	Source       string `json:"source"`
-	Checked      bool   `json:"checked"`
-	CreatedAt    string `json:"created_at"`
-	AddedByName  string `json:"added_by_name"`
-	AddedByPhone string `json:"added_by_phone"`
+	ID            int    `json:"id"`
+	Name          string `json:"name"`
+	Brand         string `json:"brand"`
+	Department    string `json:"department"`
+	Quantity      int    `json:"quantity"`
+	Size          string `json:"size"`
+	Source        string `json:"source"`
+	Checked       bool   `json:"checked"`
+	Urgent        bool   `json:"urgent"`
+	CreatedAt     string `json:"created_at"`
+	AddedByName   string `json:"added_by_name"`
+	AddedByPhone  string `json:"added_by_phone"`
+	ClaimedByID   *int   `json:"claimed_by_id"`
+	ClaimedByName string `json:"claimed_by_name"`
 }
 
 // =============================================================================
@@ -532,13 +1445,8 @@ type ListItem struct {
 // Keeps track of who's logged in. A session maps a random token (in a browser
 // cookie) to a user ID and phone number (on the server).
 //
-// Currently in-memory — server restart = everyone logs out.
-// Good enough for local development. We'll move to SQLite later.
-//
-// sync.RWMutex prevents data corruption when multiple requests arrive
-// at the same time:
-//   - RLock/RUnlock: many readers can read simultaneously
-//   - Lock/Unlock: one writer at a time, blocks all others
+// Sessions are stored in SQLite so they survive server restarts and deploys.
+// Each session expires after 30 days. Expired sessions are cleaned up hourly.
 // =============================================================================
 
 type Session struct {
@@ -548,18 +1456,15 @@ type Session struct {
 }
 
 type SessionStore struct {
-	mu       sync.RWMutex
-	sessions map[string]Session // token → session
+	db *sql.DB
 }
 
-func NewSessionStore() *SessionStore {
-	return &SessionStore{
-		sessions: make(map[string]Session),
-	}
+func NewSessionStore(db *sql.DB) *SessionStore {
+	return &SessionStore{db: db}
 }
 
-// CreateSession generates a random 64-char hex token, stores the session,
-// and returns the token.
+// CreateSession generates a random 64-char hex token, stores the session
+// in SQLite, and returns the token. Sessions expire after 30 days.
 func (s *SessionStore) CreateSession(userID int, phone string) (string, error) {
 	b := make([]byte, 32) // 32 bytes = 256 bits of randomness
 	if _, err := rand.Read(b); err != nil {
@@ -567,28 +1472,40 @@ func (s *SessionStore) CreateSession(userID int, phone string) (string, error) {
 	}
 	token := hex.EncodeToString(b)
 
-	s.mu.Lock()
-	s.sessions[token] = Session{
-		UserID:      userID,
-		PhoneNumber: phone,
-		CreatedAt:   time.Now(),
+	_, err := s.db.Exec(
+		"INSERT INTO sessions (token, user_id, phone_number, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+		token, userID, phone, time.Now().UTC(), time.Now().UTC().Add(30*24*time.Hour),
+	)
+	if err != nil {
+		return "", err
 	}
-	s.mu.Unlock()
 
 	return token, nil
 }
 
 func (s *SessionStore) GetSession(token string) (Session, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	session, ok := s.sessions[token]
-	return session, ok
+	var session Session
+	err := s.db.QueryRow(
+		"SELECT user_id, phone_number, created_at FROM sessions WHERE token = ? AND expires_at > ?",
+		token, time.Now().UTC(),
+	).Scan(&session.UserID, &session.PhoneNumber, &session.CreatedAt)
+	if err != nil {
+		return Session{}, false
+	}
+	return session, true
 }
 
 func (s *SessionStore) DeleteSession(token string) {
-	s.mu.Lock()
-	delete(s.sessions, token)
-	s.mu.Unlock()
+	if _, err := s.db.Exec("DELETE FROM sessions WHERE token = ?", token); err != nil {
+		log.Printf("[warn] failed to delete session: %v", err)
+	}
+}
+
+// CleanExpired removes expired sessions. Called periodically.
+func (s *SessionStore) CleanExpired() {
+	if _, err := s.db.Exec("DELETE FROM sessions WHERE expires_at <= ?", time.Now().UTC()); err != nil {
+		log.Printf("[warn] failed to clean expired sessions: %v", err)
+	}
 }
 
 // =============================================================================
@@ -717,6 +1634,11 @@ type ParseResponse struct {
 	Added   int           `json:"added"`
 }
 
+type cachedLogo struct {
+	data        []byte
+	contentType string
+}
+
 type Server struct {
 	config     Config
 	db         *sql.DB
@@ -724,14 +1646,14 @@ type Server struct {
 	twilio     TwilioClient
 	parseItems func(apiKey, text string, images []string) ([]ParsedItem, error)
 	smsBuffer  *messageBuffer
+	logoCache  sync.Map // domain -> *cachedLogo
 }
 
 // handleSendCode handles POST /auth/send-code
 // Request:  { "phone_number": "5551234567" }
 // Response: { "success": true }
 func (s *Server) handleSendCode(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
@@ -766,8 +1688,7 @@ func (s *Server) handleSendCode(w http.ResponseWriter, r *http.Request) {
 //
 // On success: upserts the user in the database, creates a session, sets cookie.
 func (s *Server) handleVerifyCode(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
@@ -824,6 +1745,7 @@ func (s *Server) handleVerifyCode(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,                 // JS can't read this cookie
+		Secure:   s.config.SecureCookies,
 		SameSite: http.SameSiteLaxMode, // CSRF protection
 		MaxAge:   60 * 60 * 24 * 30,    // 30 days
 	})
@@ -834,13 +1756,13 @@ func (s *Server) handleVerifyCode(w http.ResponseWriter, r *http.Request) {
 		"success":      true,
 		"user_id":      user.ID,
 		"phone_number": digits,
+		"is_admin":     s.config.AdminPhone != "" && digits == s.config.AdminPhone,
 	})
 }
 
 // handleLogout handles POST /auth/logout
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
@@ -849,10 +1771,13 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:   "session",
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
+		Name:     "session",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   s.config.SecureCookies,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
@@ -860,8 +1785,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 // handleMe handles GET /auth/me
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 
@@ -889,29 +1813,59 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// getItemByID fetches a single list item belonging to a household.
-func getItemByID(db *sql.DB, id, userID int) (ListItem, error) {
-	whereClause, whereArgs := householdItemsWhereClause(db, userID)
-	args := append([]interface{}{id}, whereArgs...)
+// listItemColumns is the shared SELECT column list for list_items queries.
+const listItemColumns = "li.id, li.name, li.brand, li.department, li.quantity, li.size, li.source, li.checked, li.urgent, li.created_at, COALESCE(u.name,''), u.phone_number, li.claimed_by, COALESCE(cu.name,'')"
+
+// listItemJoins is the shared FROM/JOIN clause for list_items queries.
+const listItemJoins = "list_items li JOIN users u ON u.id = li.user_id LEFT JOIN users cu ON cu.id = li.claimed_by"
+
+// scanListItem scans a row into a ListItem. The row must match listItemColumns.
+func scanListItem(scanner interface{ Scan(dest ...interface{}) error }) (ListItem, error) {
 	var item ListItem
-	var checked int
+	var checked, urgent int
 	var addedByName, addedByPhone sql.NullString
-	err := db.QueryRow(
-		"SELECT li.id, li.name, li.brand, li.department, li.quantity, li.size, li.source, li.checked, li.created_at, COALESCE(u.name,''), u.phone_number FROM list_items li JOIN users u ON u.id = li.user_id WHERE li.id = ? AND li."+whereClause,
-		args...,
-	).Scan(&item.ID, &item.Name, &item.Brand, &item.Department, &item.Quantity, &item.Size, &item.Source, &checked, &item.CreatedAt, &addedByName, &addedByPhone)
+	var claimedByID sql.NullInt64
+	var claimedByName sql.NullString
+	err := scanner.Scan(&item.ID, &item.Name, &item.Brand, &item.Department, &item.Quantity, &item.Size, &item.Source, &checked, &urgent, &item.CreatedAt, &addedByName, &addedByPhone, &claimedByID, &claimedByName)
 	if err != nil {
 		return ListItem{}, err
 	}
 	item.Checked = checked == 1
+	item.Urgent = urgent == 1
 	item.AddedByName = addedByName.String
 	item.AddedByPhone = addedByPhone.String
+	if claimedByID.Valid {
+		id := int(claimedByID.Int64)
+		item.ClaimedByID = &id
+		item.ClaimedByName = claimedByName.String
+	}
 	return item, nil
+}
+
+// maskPhone masks a 10-digit phone number: "3101234567" → "310***4567"
+func maskPhone(phone string) string {
+	if len(phone) == 10 {
+		return phone[:3] + "***" + phone[6:]
+	}
+	return phone
+}
+
+// getItemByID fetches a single list item belonging to a household.
+func getItemByID(db *sql.DB, id, userID int) (ListItem, error) {
+	whereClause, whereArgs := householdItemsWhereClause(db, userID)
+	args := append([]interface{}{id}, whereArgs...)
+	row := db.QueryRow(
+		"SELECT "+listItemColumns+" FROM "+listItemJoins+" WHERE li.id = ? AND li."+whereClause,
+		args...,
+	)
+	return scanListItem(row)
 }
 
 // upsertListItem adds a new item or merges into an existing unchecked item
 // with the same name (case-insensitive) across the household. Returns the
 // resulting ListItem and whether it was newly created.
+// The SELECT+UPDATE/INSERT is wrapped in a transaction to prevent duplicate
+// items from concurrent requests.
 func upsertListItem(db *sql.DB, userID int, name, brand, department, size string, quantity int, source string) (ListItem, bool, error) {
 	if quantity < 1 {
 		quantity = 1
@@ -919,62 +1873,123 @@ func upsertListItem(db *sql.DB, userID int, name, brand, department, size string
 	if department == "" {
 		department = "Other"
 	}
+	if source == "" {
+		source = "app"
+	}
 
-	// Look for an existing unchecked item with the same name across household
+	// Get household user IDs before the transaction (uses its own query)
 	whereClause, whereArgs := householdItemsWhereClause(db, userID)
+
+	tx, err := db.Begin()
+	if err != nil {
+		return ListItem{}, false, fmt.Errorf("starting transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Look for an existing item with the same name across household (checked or unchecked)
 	queryArgs := append(whereArgs, name)
 	var existingID int
 	var existingQty int
 	var existingBrand, existingSize string
-	err := db.QueryRow(
-		"SELECT id, quantity, brand, size FROM list_items WHERE "+whereClause+" AND LOWER(name) = LOWER(?) AND checked = 0",
+	var existingChecked int
+	err = tx.QueryRow(
+		"SELECT id, quantity, brand, size, checked FROM list_items WHERE "+whereClause+" AND LOWER(name) = LOWER(?)",
 		queryArgs...,
-	).Scan(&existingID, &existingQty, &existingBrand, &existingSize)
+	).Scan(&existingID, &existingQty, &existingBrand, &existingSize, &existingChecked)
+
+	var itemID int
+	var isNew bool
 
 	if err == nil {
-		// Existing unchecked item found — merge quantity
-		newQty := existingQty + quantity
-		newBrand := existingBrand
-		if newBrand == "" && brand != "" {
-			newBrand = brand
+		if existingChecked == 1 {
+			// Re-adding a checked item — uncheck it and set new quantity
+			newBrand := brand
+			if newBrand == "" {
+				newBrand = existingBrand
+			}
+			newSize := size
+			if newSize == "" {
+				newSize = existingSize
+			}
+			_, err := tx.Exec(
+				"UPDATE list_items SET checked = 0, quantity = ?, brand = ?, size = ? WHERE id = ?",
+				quantity, newBrand, newSize, existingID,
+			)
+			if err != nil {
+				return ListItem{}, false, fmt.Errorf("updating existing item: %w", err)
+			}
+			recordModification(tx, existingID, userID, "re-added", "", source)
+			itemID = existingID
+			isNew = true
+		} else {
+			// Existing unchecked item — merge quantity
+			newQty := existingQty + quantity
+			newBrand := existingBrand
+			if newBrand == "" && brand != "" {
+				newBrand = brand
+			}
+			newSize := existingSize
+			if newSize == "" && size != "" {
+				newSize = size
+			}
+			_, err := tx.Exec(
+				"UPDATE list_items SET quantity = ?, brand = ?, size = ? WHERE id = ?",
+				newQty, newBrand, newSize, existingID,
+			)
+			if err != nil {
+				return ListItem{}, false, fmt.Errorf("updating existing item: %w", err)
+			}
+			detail := fmt.Sprintf("quantity %d → %d", existingQty, newQty)
+			recordModification(tx, existingID, userID, "quantity_changed", detail, source)
+			itemID = existingID
+			// For SMS/email sources, report as "added" (not skipped) since the user
+			// can't interactively dedupe via one-way communication.
+			isNew = source == "sms" || source == "email"
 		}
-		newSize := existingSize
-		if newSize == "" && size != "" {
-			newSize = size
-		}
-		_, err := db.Exec(
-			"UPDATE list_items SET quantity = ?, brand = ?, size = ? WHERE id = ?",
-			newQty, newBrand, newSize, existingID,
+	} else {
+		// No match — insert new (attributed to the requesting user)
+		result, err := tx.Exec(
+			"INSERT INTO list_items (user_id, name, brand, department, quantity, size, source) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			userID, name, brand, department, quantity, size, source,
 		)
 		if err != nil {
-			return ListItem{}, false, fmt.Errorf("updating existing item: %w", err)
+			return ListItem{}, false, fmt.Errorf("inserting item: %w", err)
 		}
-		detail := fmt.Sprintf("quantity %d → %d", existingQty, newQty)
-		recordModification(db, existingID, userID, "quantity_changed", detail, source)
-		item, err := getItemByID(db, existingID, userID)
-		// For SMS/email sources, report as "added" (not skipped) since the user
-		// can't interactively dedupe via one-way communication.
-		if source == "sms" || source == "email" {
-			return item, true, err
-		}
-		return item, false, err
+		id, _ := result.LastInsertId()
+		recordModification(tx, int(id), userID, "added", "", source)
+		itemID = int(id)
+		isNew = true
 	}
 
-	// No match — insert new (attributed to the requesting user)
-	if source == "" {
-		source = "app"
+	if err := tx.Commit(); err != nil {
+		return ListItem{}, false, fmt.Errorf("committing upsert: %w", err)
 	}
-	result, err := db.Exec(
-		"INSERT INTO list_items (user_id, name, brand, department, quantity, size, source) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		userID, name, brand, department, quantity, size, source,
-	)
-	if err != nil {
-		return ListItem{}, false, fmt.Errorf("inserting item: %w", err)
+
+	item, err := getItemByID(db, itemID, userID)
+	return item, isNew, err
+}
+
+// stripBrandFromName removes the brand name from the item name if it appears
+// as a prefix (case-insensitive). e.g. "Budweiser Beer" with brand "Budweiser" → "Beer".
+func stripBrandFromName(name, brand string) string {
+	if brand == "" {
+		return name
 	}
-	id, _ := result.LastInsertId()
-	recordModification(db, int(id), userID, "added", "", source)
-	item, err := getItemByID(db, int(id), userID)
-	return item, true, err
+	lower := strings.ToLower(name)
+	brandLower := strings.ToLower(brand)
+	if strings.HasPrefix(lower, brandLower+" ") {
+		stripped := strings.TrimSpace(name[len(brand)+1:])
+		if stripped != "" {
+			return stripped
+		}
+	}
+	if strings.HasSuffix(lower, " "+brandLower) {
+		stripped := strings.TrimSpace(name[:len(name)-len(brand)-1])
+		if stripped != "" {
+			return stripped
+		}
+	}
+	return name
 }
 
 // addParsedItems loops over parsed items, skips empties, and upserts each one.
@@ -984,6 +1999,7 @@ func addParsedItems(db *sql.DB, userID int, parsed []ParsedItem, source string) 
 		if strings.TrimSpace(p.Name) == "" {
 			continue
 		}
+		p.Name = stripBrandFromName(p.Name, p.Brand)
 		item, isNew, err := upsertListItem(db, userID, p.Name, p.Brand, p.Department, p.Size, p.Quantity, source)
 		if err != nil {
 			log.Printf("[%s] error upserting item %q: %v", source, p.Name, err)
@@ -1038,6 +2054,10 @@ Image handling — adapt to what you see:
 - Recipe (on paper, screen, or in text): extract the ingredients as grocery items.
 - Fridge, pantry, or cupboard photo: use the user's text as context (e.g. "what am I missing", "what's running low") to suggest items that appear to be low or absent. If no text is provided, list items that appear to be running low.
 
+IMPORTANT: Do NOT break down foods into their constituent ingredients unless the user explicitly asks (e.g. "what do I need to make lasagna") or a recipe image is provided. Treat compound foods as single items:
+- "lasagna" → [{"name":"Lasagna",...}] NOT individual ingredients
+- "chicken stir fry" → [{"name":"Chicken Stir Fry",...}]
+
 Return ONLY a JSON array, no markdown, no code fences, no explanation.`
 
 	// Build message content — either plain text or multi-block (images + text)
@@ -1064,7 +2084,7 @@ Return ONLY a JSON array, no markdown, no code fences, no explanation.`
 		}
 		textContent := userText
 		if textContent == "" {
-			textContent = "Identify all grocery items in these images. If it's a recipe, extract the ingredients. If it's a fridge or pantry, list items that appear to be running low or missing."
+			textContent = "Identify all grocery items in these images. If it's a fridge or pantry, list items that appear to be running low or missing."
 		}
 		contentBlocks = append(contentBlocks, map[string]interface{}{
 			"type": "text",
@@ -1077,7 +2097,7 @@ Return ONLY a JSON array, no markdown, no code fences, no explanation.`
 
 	reqBody := map[string]interface{}{
 		"model":      "claude-haiku-4-5-20251001",
-		"max_tokens": 1024,
+		"max_tokens": 4096,
 		"system":     systemPrompt,
 		"messages": []map[string]interface{}{
 			{"role": "user", "content": messageContent},
@@ -1112,12 +2132,16 @@ Return ONLY a JSON array, no markdown, no code fences, no explanation.`
 		Content []struct {
 			Text string `json:"text"`
 		} `json:"content"`
+		StopReason string `json:"stop_reason"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
 		return nil, fmt.Errorf("decoding response: %w", err)
 	}
 	if len(apiResp.Content) == 0 {
 		return nil, fmt.Errorf("empty response from Claude")
+	}
+	if apiResp.StopReason == "max_tokens" {
+		log.Printf("[parse] WARNING: Claude response truncated (max_tokens reached)")
 	}
 
 	text := apiResp.Content[0].Text
@@ -1137,6 +2161,17 @@ Return ONLY a JSON array, no markdown, no code fences, no explanation.`
 
 	var items []ParsedItem
 	if err := json.Unmarshal([]byte(text), &items); err != nil {
+		// If truncated, try to salvage partial JSON by closing the array
+		if apiResp.StopReason == "max_tokens" {
+			// Find the last complete object by looking for the last "},"
+			if idx := strings.LastIndex(text, "},"); idx > 0 {
+				salvaged := text[:idx+1] + "]"
+				if err2 := json.Unmarshal([]byte(salvaged), &items); err2 == nil {
+					log.Printf("[parse] Salvaged %d items from truncated response", len(items))
+					return items, nil
+				}
+			}
+		}
 		return nil, fmt.Errorf("parsing Claude JSON: %w", err)
 	}
 
@@ -1181,8 +2216,7 @@ func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) (Session, 
 
 // handleAdminDashboard handles GET /api/admin/dashboard?days=30
 func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 
@@ -1200,12 +2234,20 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 	modifier := fmt.Sprintf("-%d days", days)
 
 	var activeUsers, totalUsers, newUsers int
-	s.db.QueryRow("SELECT COUNT(DISTINCT id) FROM users WHERE last_active >= datetime('now', ?)", modifier).Scan(&activeUsers)
-	s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&totalUsers)
-	s.db.QueryRow("SELECT COUNT(*) FROM users WHERE created_at >= datetime('now', ?)", modifier).Scan(&newUsers)
+	if err := s.db.QueryRow("SELECT COUNT(DISTINCT id) FROM users WHERE last_active >= datetime('now', ?)", modifier).Scan(&activeUsers); err != nil {
+		log.Printf("[admin] failed to count active users: %v", err)
+	}
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&totalUsers); err != nil {
+		log.Printf("[admin] failed to count total users: %v", err)
+	}
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM users WHERE created_at >= datetime('now', ?)", modifier).Scan(&newUsers); err != nil {
+		log.Printf("[admin] failed to count new users: %v", err)
+	}
 
 	var referralsInPeriod int
-	s.db.QueryRow("SELECT COUNT(*) FROM referrals WHERE created_at >= datetime('now', ?)", modifier).Scan(&referralsInPeriod)
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM referrals WHERE created_at >= datetime('now', ?)", modifier).Scan(&referralsInPeriod); err != nil {
+		log.Printf("[admin] failed to count referrals: %v", err)
+	}
 
 	var kFactor float64
 	if newUsers > 0 {
@@ -1220,10 +2262,10 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := s.db.Query(`
-		SELECT u.phone_number, COALESCE(u.name,''), COALESCE(u.referral_points,0),
-		       (SELECT COUNT(*) FROM referrals WHERE referrer_id = u.id) as ref_count
+		SELECT u.phone_number, COALESCE(u.name,''), COALESCE(u.referral_points,0), COUNT(r.id) as ref_count
 		FROM users u
-		WHERE (SELECT COUNT(*) FROM referrals WHERE referrer_id = u.id) > 0
+		JOIN referrals r ON r.referrer_id = u.id
+		GROUP BY u.id
 		ORDER BY COALESCE(u.referral_points,0) DESC
 		LIMIT 20
 	`)
@@ -1233,25 +2275,66 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			var e leaderEntry
 			if err := rows.Scan(&e.Phone, &e.Name, &e.Points, &e.Referrals); err == nil {
-				// Mask phone: 310***1833
-				if len(e.Phone) == 10 {
-					e.Phone = e.Phone[:3] + "***" + e.Phone[6:]
-				}
+				e.Phone = maskPhone(e.Phone)
 				leaderboard = append(leaderboard, e)
 			}
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[admin] leaderboard row iteration error: %v", err)
 		}
 	}
 	if leaderboard == nil {
 		leaderboard = []leaderEntry{}
 	}
 
+	// NPS data
+	type npsEntry struct {
+		Score     int    `json:"score"`
+		Comment   string `json:"comment"`
+		UserName  string `json:"user_name"`
+		UserPhone string `json:"user_phone"`
+		CreatedAt string `json:"created_at"`
+	}
+
+	var npsAvg float64
+	if err := s.db.QueryRow("SELECT COALESCE(AVG(score), 0) FROM nps_responses").Scan(&npsAvg); err != nil {
+		log.Printf("[admin] failed to calculate NPS average: %v", err)
+	}
+
+	npsRows, err := s.db.Query(`
+		SELECT n.score, n.comment, COALESCE(u.name,''), u.phone_number, n.created_at
+		FROM nps_responses n
+		JOIN users u ON u.id = n.user_id
+		ORDER BY n.created_at DESC
+		LIMIT 100
+	`)
+	var npsResponses []npsEntry
+	if err == nil {
+		defer npsRows.Close()
+		for npsRows.Next() {
+			var e npsEntry
+			if err := npsRows.Scan(&e.Score, &e.Comment, &e.UserName, &e.UserPhone, &e.CreatedAt); err == nil {
+				e.UserPhone = maskPhone(e.UserPhone)
+				npsResponses = append(npsResponses, e)
+			}
+		}
+		if err := npsRows.Err(); err != nil {
+			log.Printf("[admin] NPS row iteration error: %v", err)
+		}
+	}
+	if npsResponses == nil {
+		npsResponses = []npsEntry{}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"active_users": activeUsers,
-		"total_users":  totalUsers,
-		"new_users":    newUsers,
-		"k_factor":     kFactor,
-		"leaderboard":  leaderboard,
-		"days":         days,
+		"active_users":  activeUsers,
+		"total_users":   totalUsers,
+		"new_users":     newUsers,
+		"k_factor":      kFactor,
+		"leaderboard":   leaderboard,
+		"days":          days,
+		"nps_responses": npsResponses,
+		"nps_average":   npsAvg,
 	})
 }
 
@@ -1438,6 +2521,16 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(parts) == 2 && parts[1] == "urgent" && r.Method == http.MethodPatch {
+		s.handleListUrgent(w, r, id)
+		return
+	}
+
+	if len(parts) == 2 && parts[1] == "claim" && r.Method == http.MethodPatch {
+		s.handleListClaim(w, r, id)
+		return
+	}
+
 	if len(parts) == 2 && parts[1] == "history" && r.Method == http.MethodGet {
 		s.handleItemHistory(w, r, id)
 		return
@@ -1466,16 +2559,22 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Text  string `json:"text"`
-		Image string `json:"image"`
+		Text   string   `json:"text"`
+		Image  string   `json:"image"`
+		Images []string `json:"images"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
 	req.Text = strings.TrimSpace(req.Text)
 	req.Image = strings.TrimSpace(req.Image)
-	if req.Text == "" && req.Image == "" {
-		log.Printf("[parse] empty text and image")
+	// Merge: support both single image and images array
+	images := req.Images
+	if len(images) == 0 && req.Image != "" {
+		images = []string{req.Image}
+	}
+	if req.Text == "" && len(images) == 0 {
+		log.Printf("[parse] empty text and images")
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Text or image is required"})
 		return
 	}
@@ -1485,14 +2584,10 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Parsing grocery text for user %d: %q (image: %v, image_len: %d)", session.UserID, req.Text, req.Image != "", len(req.Image))
-
-	var images []string
-	if req.Image != "" {
-		images = []string{req.Image}
-	}
+	log.Printf("Parsing grocery text for user %d: len=%d (images: %d)", session.UserID, len(req.Text), len(images))
 	parsed, err := s.parseItems(s.config.AnthropicAPIKey, req.Text, images)
 	if err != nil {
+		log.Printf("[parse] error for user %d: %v", session.UserID, err)
 		dbError(w, err, "We couldn't understand that right now. Please try again.")
 		return
 	}
@@ -1522,7 +2617,7 @@ func (s *Server) handleListGet(w http.ResponseWriter, r *http.Request) {
 
 	whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID)
 	rows, err := s.db.Query(
-		"SELECT li.id, li.name, li.brand, li.department, li.quantity, li.size, li.source, li.checked, li.created_at, COALESCE(u.name,''), u.phone_number FROM list_items li JOIN users u ON u.id = li.user_id WHERE li."+whereClause+" ORDER BY li.name",
+		"SELECT "+listItemColumns+" FROM "+listItemJoins+" WHERE li."+whereClause+" ORDER BY li.name",
 		whereArgs...,
 	)
 	if err != nil {
@@ -1533,17 +2628,15 @@ func (s *Server) handleListGet(w http.ResponseWriter, r *http.Request) {
 
 	items := []ListItem{}
 	for rows.Next() {
-		var item ListItem
-		var checked int
-		var addedByName, addedByPhone sql.NullString
-		if err := rows.Scan(&item.ID, &item.Name, &item.Brand, &item.Department, &item.Quantity, &item.Size, &item.Source, &checked, &item.CreatedAt, &addedByName, &addedByPhone); err != nil {
+		item, err := scanListItem(rows)
+		if err != nil {
 			log.Printf("Error scanning row: %v", err)
 			continue
 		}
-		item.Checked = checked == 1
-		item.AddedByName = addedByName.String
-		item.AddedByPhone = addedByPhone.String
 		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[list] row iteration error: %v", err)
 	}
 
 	writeJSON(w, http.StatusOK, items)
@@ -1615,6 +2708,79 @@ func (s *Server) handleListToggle(w http.ResponseWriter, r *http.Request, id int
 	writeJSON(w, http.StatusOK, item)
 }
 
+// handleListUrgent handles PATCH /api/list/{id}/urgent
+func (s *Server) handleListUrgent(w http.ResponseWriter, r *http.Request, id int) {
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID)
+	urgentArgs := append([]interface{}{id}, whereArgs...)
+	_, err := s.db.Exec(
+		"UPDATE list_items SET urgent = NOT urgent WHERE id = ? AND "+whereClause,
+		urgentArgs...,
+	)
+	if err != nil {
+		dbError(w, err, "We couldn't save your item right now. Please try again.")
+		return
+	}
+
+	item, err := getItemByID(s.db, id, session.UserID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		return
+	}
+
+	action := "marked urgent"
+	if !item.Urgent {
+		action = "unmarked urgent"
+	}
+	recordModification(s.db, id, session.UserID, action, "", "app")
+
+	writeJSON(w, http.StatusOK, item)
+}
+
+// handleListClaim handles PATCH /api/list/{id}/claim
+func (s *Server) handleListClaim(w http.ResponseWriter, r *http.Request, id int) {
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	// Check item exists in household
+	item, err := getItemByID(s.db, id, session.UserID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		return
+	}
+
+	if item.ClaimedByID != nil && *item.ClaimedByID == session.UserID {
+		// Unclaim
+		_, err = s.db.Exec("UPDATE list_items SET claimed_by = NULL, claimed_at = NULL WHERE id = ?", id)
+		if err != nil {
+			dbError(w, err, "We couldn't save your item right now. Please try again.")
+			return
+		}
+		recordModification(s.db, id, session.UserID, "unclaimed", "", "app")
+	} else {
+		// Claim (or override)
+		_, err = s.db.Exec("UPDATE list_items SET claimed_by = ?, claimed_at = CURRENT_TIMESTAMP WHERE id = ?", session.UserID, id)
+		if err != nil {
+			dbError(w, err, "We couldn't save your item right now. Please try again.")
+			return
+		}
+		recordModification(s.db, id, session.UserID, "claimed", "", "app")
+	}
+
+	updated, err := getItemByID(s.db, id, session.UserID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
 // handleItemHistory handles GET /api/list/{id}/history
 func (s *Server) handleItemHistory(w http.ResponseWriter, r *http.Request, id int) {
 	session, ok := s.requireSession(w, r)
@@ -1657,6 +2823,9 @@ func (s *Server) handleItemHistory(w http.ResponseWriter, r *http.Request, id in
 		m.Source = source.String
 		m.UserName = userName.String
 		mods = append(mods, m)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[history] row iteration error: %v", err)
 	}
 	if mods == nil {
 		mods = []modification{}
@@ -1748,7 +2917,7 @@ func (s *Server) handleListDelete(w http.ResponseWriter, r *http.Request, id int
 	}
 
 	whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID)
-	// Delete modifications first to avoid FK constraint violation
+	// Delete modifications first to avoid FK constraint violation on older DBs without CASCADE
 	s.db.Exec("DELETE FROM item_modifications WHERE item_id = ?", id)
 	args := append([]interface{}{id}, whereArgs...)
 	_, err := s.db.Exec(
@@ -1765,8 +2934,7 @@ func (s *Server) handleListDelete(w http.ResponseWriter, r *http.Request, id int
 
 // handleListClear handles POST /api/list/clear
 func (s *Server) handleListClear(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
@@ -1776,12 +2944,66 @@ func (s *Server) handleListClear(w http.ResponseWriter, r *http.Request) {
 	}
 
 	whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID)
-	// Delete modifications first to avoid FK constraint violation
-	s.db.Exec("DELETE FROM item_modifications WHERE item_id IN (SELECT id FROM list_items WHERE "+whereClause+")", whereArgs...)
 	_, err := s.db.Exec("DELETE FROM list_items WHERE "+whereClause, whereArgs...)
 	if err != nil {
 		dbError(w, err, "We couldn't clear your list. Please try again.")
 		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// handleListRestore handles POST /api/list/restore — bulk re-insert items (used by undo)
+func (s *Server) handleListRestore(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	var items []struct {
+		Name       string `json:"name"`
+		Brand      string `json:"brand"`
+		Department string `json:"department"`
+		Quantity   int    `json:"quantity"`
+		Size       string `json:"size"`
+		Checked    bool   `json:"checked"`
+		Urgent     bool   `json:"urgent"`
+	}
+	if !decodeJSON(w, r, &items) {
+		return
+	}
+
+	for _, item := range items {
+		qty := item.Quantity
+		if qty < 1 {
+			qty = 1
+		}
+		dept := item.Department
+		if dept == "" {
+			dept = "Other"
+		}
+		checked := 0
+		if item.Checked {
+			checked = 1
+		}
+		urgent := 0
+		if item.Urgent {
+			urgent = 1
+		}
+		_, err := s.db.Exec(
+			`INSERT INTO list_items (user_id, name, brand, department, quantity, size, checked, urgent, source)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'app')`,
+			session.UserID, strings.TrimSpace(item.Name), strings.TrimSpace(item.Brand),
+			dept, qty, strings.TrimSpace(item.Size), checked, urgent,
+		)
+		if err != nil {
+			dbError(w, err, "We couldn't restore your list. Please try again.")
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
@@ -1873,6 +3095,9 @@ func (s *Server) handleSavedListsGet(w http.ResponseWriter, r *http.Request) {
 		}
 		lists = append(lists, sl)
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[saved-lists] row iteration error: %v", err)
+	}
 
 	writeJSON(w, http.StatusOK, lists)
 }
@@ -1908,8 +3133,15 @@ func (s *Server) handleSavedListsCreate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Create saved list
-	result, err := s.db.Exec(
+	// Create saved list in a transaction so items are all-or-nothing
+	tx, err := s.db.Begin()
+	if err != nil {
+		dbError(w, err, "Failed to save list")
+		return
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec(
 		"INSERT INTO saved_lists (user_id, name) VALUES (?, ?)",
 		session.UserID, req.Name,
 	)
@@ -1919,15 +3151,14 @@ func (s *Server) handleSavedListsCreate(w http.ResponseWriter, r *http.Request) 
 	}
 	savedListID, _ := result.LastInsertId()
 
-	// Insert items
-	for _, d := range itemsToSave {
-		_, err := s.db.Exec(
-			"INSERT INTO saved_list_items (saved_list_id, name, brand, department, quantity, size) VALUES (?, ?, ?, ?, ?, ?)",
-			savedListID, d.Name, d.Brand, d.Department, d.Quantity, d.Size,
-		)
-		if err != nil {
-			log.Printf("Error inserting saved list item: %v", err)
-		}
+	if err := insertSavedListItems(tx, savedListID, itemsToSave); err != nil {
+		dbError(w, err, "Failed to save list items")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		dbError(w, err, "Failed to save list")
+		return
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
@@ -1960,13 +3191,23 @@ func (s *Server) handleSavedListUpdate(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 
-	// Delete old items and insert new ones
-	s.db.Exec("DELETE FROM saved_list_items WHERE saved_list_id = ?", id)
-	for _, d := range itemsToSave {
-		s.db.Exec(
-			"INSERT INTO saved_list_items (saved_list_id, name, brand, department, quantity, size) VALUES (?, ?, ?, ?, ?, ?)",
-			id, d.Name, d.Brand, d.Department, d.Quantity, d.Size,
-		)
+	// Delete old items and insert new ones in a transaction
+	tx, err := s.db.Begin()
+	if err != nil {
+		dbError(w, err, "Failed to update saved list")
+		return
+	}
+	defer tx.Rollback()
+
+	tx.Exec("DELETE FROM saved_list_items WHERE saved_list_id = ?", id)
+	if err := insertSavedListItems(tx, int64(id), itemsToSave); err != nil {
+		dbError(w, err, "Failed to update saved list items")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		dbError(w, err, "Failed to update saved list")
+		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -2015,8 +3256,6 @@ func (s *Server) handleSavedListLoad(w http.ResponseWriter, r *http.Request, id 
 	// If mode=overwrite, clear household's active list first
 	if r.URL.Query().Get("mode") == "overwrite" {
 		whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID)
-		// Delete modifications first to avoid FK constraint violation
-		s.db.Exec("DELETE FROM item_modifications WHERE item_id IN (SELECT id FROM list_items WHERE "+whereClause+")", whereArgs...)
 		if _, err := s.db.Exec("DELETE FROM list_items WHERE "+whereClause, whereArgs...); err != nil {
 			log.Printf("Error clearing list for overwrite: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to clear list"})
@@ -2042,6 +3281,9 @@ func (s *Server) handleSavedListLoad(w http.ResponseWriter, r *http.Request, id 
 			continue
 		}
 		savedItems = append(savedItems, si)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[saved-lists] load row iteration error: %v", err)
 	}
 	rows.Close()
 
@@ -2094,21 +3336,26 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get household members
-	householdIDs, _ := getHouseholdUserIDs(s.db, session.UserID)
+	// Get household members in a single query (avoids N+1)
 	type memberInfo struct {
 		Name  string `json:"name"`
 		Phone string `json:"phone"`
 	}
 	var members []memberInfo
-	for _, uid := range householdIDs {
-		if uid == session.UserID {
-			continue
-		}
-		var mName, mPhone sql.NullString
-		err := s.db.QueryRow("SELECT COALESCE(name,''), phone_number FROM users WHERE id = ?", uid).Scan(&mName, &mPhone)
-		if err == nil {
-			members = append(members, memberInfo{Name: mName.String, Phone: mPhone.String})
+	memberRows, err := s.db.Query(
+		`SELECT COALESCE(u.name,''), u.phone_number FROM users u
+		 JOIN household_members hm ON hm.user_id = u.id
+		 WHERE hm.household_id = (SELECT household_id FROM users WHERE id = ?)
+		 AND u.id != ?`,
+		session.UserID, session.UserID,
+	)
+	if err == nil {
+		defer memberRows.Close()
+		for memberRows.Next() {
+			var mName, mPhone sql.NullString
+			if memberRows.Scan(&mName, &mPhone) == nil {
+				members = append(members, memberInfo{Name: mName.String, Phone: mPhone.String})
+			}
 		}
 	}
 	if members == nil {
@@ -2149,6 +3396,10 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	if req.Email != nil {
 		email := strings.TrimSpace(strings.ToLower(*req.Email))
 		if email != "" {
+			if !strings.Contains(email, "@") || !strings.Contains(email, ".") {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid email format"})
+				return
+			}
 			// Check uniqueness
 			var existingID int
 			err := s.db.QueryRow("SELECT id FROM users WHERE email = ? AND id != ?", email, session.UserID).Scan(&existingID)
@@ -2172,8 +3423,7 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 
 // handleVCard handles GET /api/penny.vcf
 func (s *Server) handleVCard(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 
@@ -2204,8 +3454,7 @@ END:VCARD`, phoneNumber)
 
 // handleInvite handles POST /api/settings/invite
 func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
@@ -2289,8 +3538,7 @@ func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 
 // handleLeaveHousehold handles POST /api/settings/leave-household
 func (s *Server) handleLeaveHousehold(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
@@ -2307,8 +3555,14 @@ func (s *Server) handleLeaveHousehold(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	tx.Exec("DELETE FROM household_members WHERE user_id = ?", session.UserID)
-	tx.Exec("UPDATE users SET household_id = NULL WHERE id = ?", session.UserID)
+	if _, err := tx.Exec("DELETE FROM household_members WHERE user_id = ?", session.UserID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to leave household"})
+		return
+	}
+	if _, err := tx.Exec("UPDATE users SET household_id = NULL WHERE id = ?", session.UserID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to leave household"})
+		return
+	}
 
 	if err := tx.Commit(); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to leave household"})
@@ -2326,8 +3580,7 @@ func (s *Server) handleLeaveHousehold(w http.ResponseWriter, r *http.Request) {
 
 // handleJoin handles POST /api/join
 func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
@@ -2386,7 +3639,9 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx.Exec("DELETE FROM household_members WHERE user_id = ?", session.UserID)
+	if _, err := tx.Exec("DELETE FROM household_members WHERE user_id = ?", session.UserID); err != nil {
+		log.Printf("[join] failed to delete old household member: %v", err)
+	}
 	_, err = tx.Exec(
 		"INSERT INTO household_members (household_id, user_id, role, invited_by) VALUES (?, ?, 'member', ?)",
 		householdID, session.UserID, createdBy,
@@ -2395,11 +3650,19 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[join] error inserting household member: %v", err)
 	}
 
-	tx.Exec("UPDATE invites SET used_by = ?, used_at = CURRENT_TIMESTAMP WHERE id = ?", session.UserID, inviteID)
+	if _, err := tx.Exec("UPDATE invites SET used_by = ?, used_at = CURRENT_TIMESTAMP WHERE id = ?", session.UserID, inviteID); err != nil {
+		log.Printf("[join] failed to mark invite as used: %v", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "We couldn't join you to this household. Please try again."})
 		return
+	}
+
+	// Award points to inviter for household invite
+	if createdBy > 0 {
+		s.db.Exec("UPDATE users SET referral_points = COALESCE(referral_points, 0) + 10 WHERE id = ?", createdBy)
+		log.Printf("[invite] awarded 10 points to user %d for household invite", createdBy)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
@@ -2423,8 +3686,7 @@ func extractEmail(from string) string {
 
 // handleEmailWebhook handles POST /api/email — SendGrid Inbound Parse webhook.
 func (s *Server) handleEmailWebhook(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
@@ -2469,11 +3731,16 @@ func (s *Server) handleEmailWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Collect all image attachments
+	// Collect all image attachments (max 5 MB each)
+	const maxImageSize = 5 * 1024 * 1024
 	var images []string
 	if r.MultipartForm != nil && r.MultipartForm.File != nil {
 		for _, headers := range r.MultipartForm.File {
 			for _, h := range headers {
+				if h.Size > maxImageSize {
+					log.Printf("[email] skipping oversized image %s (%d bytes)", h.Filename, h.Size)
+					continue
+				}
 				f, err := h.Open()
 				if err != nil {
 					continue
@@ -2560,9 +3827,15 @@ func downloadTwilioMedia(mediaURL, contentType, accountSID, authToken string) st
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
+	// Limit download to 5MB to prevent memory exhaustion
+	const maxMediaSize = 5 * 1024 * 1024
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxMediaSize+1))
 	if err != nil {
 		log.Printf("[sms] error reading media body: %v", err)
+		return ""
+	}
+	if len(data) > maxMediaSize {
+		log.Printf("[sms] media too large (%d bytes), skipping", len(data))
 		return ""
 	}
 
@@ -2573,8 +3846,7 @@ func downloadTwilioMedia(mediaURL, contentType, accountSID, authToken string) st
 // handleSMSWebhook handles POST /api/sms — the Twilio inbound SMS webhook.
 // It buffers incoming messages per phone number and responds with empty TwiML.
 func (s *Server) handleSMSWebhook(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
@@ -2733,7 +4005,19 @@ func (s *Server) sendSMSReply(to, body string) {
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Printf("[warn] failed to encode JSON response: %v", err)
+	}
+}
+
+// requireMethod checks that the request uses the expected HTTP method.
+// Returns true if the method matches; otherwise writes 405 and returns false.
+func requireMethod(w http.ResponseWriter, r *http.Request, method string) bool {
+	if r.Method != method {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return false
+	}
+	return true
 }
 
 // dbError logs an error and writes a JSON 500 response. Replaces 15+ identical blocks.
@@ -2744,8 +4028,13 @@ func dbError(w http.ResponseWriter, err error, msg string) {
 
 // decodeJSON reads a JSON request body into v. Returns false (and writes 400) on failure.
 func decodeJSON(w http.ResponseWriter, r *http.Request, v interface{}) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, 10*1024*1024) // 10 MB limit
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		msg := "Invalid request body"
+		if err.Error() == "http: request body too large" {
+			msg = "Request too large"
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
 		return false
 	}
 	return true
@@ -2790,6 +4079,9 @@ func collectListItems(db *sql.DB, userID int) ([]itemData, error) {
 		}
 		items = append(items, d)
 	}
+	if err := rows.Err(); err != nil {
+		return items, fmt.Errorf("row iteration: %w", err)
+	}
 	return items, nil
 }
 
@@ -2799,8 +4091,7 @@ func collectListItems(db *sql.DB, userID int) ([]itemData, error) {
 
 // handleReferral handles GET /api/referral — returns referral code, points, and friends list.
 func (s *Server) handleReferral(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 
@@ -2822,9 +4113,15 @@ func (s *Server) handleReferral(w http.ResponseWriter, r *http.Request) {
 	if !referralCode.Valid || code == "" {
 		// Generate a new referral code
 		codeBytes := make([]byte, 16)
-		rand.Read(codeBytes)
+		if _, err := rand.Read(codeBytes); err != nil {
+			log.Printf("[referral] failed to generate code: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to generate referral code"})
+			return
+		}
 		code = hex.EncodeToString(codeBytes)
-		s.db.Exec("UPDATE users SET referral_code = ? WHERE id = ?", code, session.UserID)
+		if _, err := s.db.Exec("UPDATE users SET referral_code = ? WHERE id = ?", code, session.UserID); err != nil {
+			log.Printf("[referral] failed to save referral code: %v", err)
+		}
 	}
 
 	// Get referred friends
@@ -2845,6 +4142,9 @@ func (s *Server) handleReferral(w http.ResponseWriter, r *http.Request) {
 				friends = append(friends, f)
 			}
 		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[referral] friends row iteration error: %v", err)
+		}
 	}
 	if friends == nil {
 		friends = []referredFriend{}
@@ -2860,8 +4160,7 @@ func (s *Server) handleReferral(w http.ResponseWriter, r *http.Request) {
 
 // handleReferralRedeem handles POST /api/referral/redeem — redeem 100 points for $10.
 func (s *Server) handleReferralRedeem(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
@@ -2889,8 +4188,12 @@ func (s *Server) handleReferralRedeem(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	tx.Exec("UPDATE users SET referral_points = referral_points - 100 WHERE id = ?", session.UserID)
-	tx.Exec("INSERT INTO redemptions (user_id, points, amount_cents) VALUES (?, 100, 1000)", session.UserID)
+	if _, err := tx.Exec("UPDATE users SET referral_points = referral_points - 100 WHERE id = ?", session.UserID); err != nil {
+		log.Printf("[referral] failed to deduct points: %v", err)
+	}
+	if _, err := tx.Exec("INSERT INTO redemptions (user_id, points, amount_cents) VALUES (?, 100, 1000)", session.UserID); err != nil {
+		log.Printf("[referral] failed to insert redemption: %v", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "We couldn't process your redemption. Please try again."})
@@ -2902,8 +4205,7 @@ func (s *Server) handleReferralRedeem(w http.ResponseWriter, r *http.Request) {
 
 // handleReferralClaim handles POST /api/referral/claim — called on signup with a referral code.
 func (s *Server) handleReferralClaim(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
@@ -2953,11 +4255,88 @@ func (s *Server) handleReferralClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	tx.Exec("INSERT INTO referrals (referrer_id, referred_id) VALUES (?, ?)", referrerID, session.UserID)
-	tx.Exec("UPDATE users SET referral_points = COALESCE(referral_points, 0) + 10 WHERE id = ?", referrerID)
+	if _, err := tx.Exec("INSERT INTO referrals (referrer_id, referred_id) VALUES (?, ?)", referrerID, session.UserID); err != nil {
+		log.Printf("[referral] failed to insert referral: %v", err)
+	}
+	if _, err := tx.Exec("UPDATE users SET referral_points = COALESCE(referral_points, 0) + 10 WHERE id = ?", referrerID); err != nil {
+		log.Printf("[referral] failed to update points: %v", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "We couldn't process your referral. Please try again."})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// handleNPSCheck handles GET /api/nps/check — returns whether the NPS survey should show.
+func (s *Server) handleNPSCheck(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	var loginCount int
+	if err := s.db.QueryRow("SELECT COALESCE(login_count, 0) FROM users WHERE id = ?", session.UserID).Scan(&loginCount); err != nil {
+		log.Printf("[nps] error checking login count for user %d: %v", session.UserID, err)
+	}
+	if loginCount < 3 {
+		writeJSON(w, http.StatusOK, map[string]bool{"show_nps": false})
+		return
+	}
+
+	// Check if user has a recent NPS response
+	intervalDays := fmt.Sprintf("-%d days", s.config.NPSIntervalDays)
+	var recentCount int
+	if err := s.db.QueryRow(
+		"SELECT COUNT(*) FROM nps_responses WHERE user_id = ? AND created_at >= datetime('now', ?)",
+		session.UserID, intervalDays,
+	).Scan(&recentCount); err != nil {
+		log.Printf("[nps] error checking recent responses for user %d: %v", session.UserID, err)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"show_nps": recentCount == 0})
+}
+
+// handleNPS handles POST /api/nps — submits an NPS response.
+func (s *Server) handleNPS(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Score   int    `json:"score"`
+		Comment string `json:"comment"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Score < 0 || req.Score > 10 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Score must be 0-10"})
+		return
+	}
+	if len(req.Comment) > 500 {
+		req.Comment = req.Comment[:500]
+	}
+	req.Comment = strings.TrimSpace(req.Comment)
+
+	_, err := s.db.Exec(
+		"INSERT INTO nps_responses (user_id, score, comment) VALUES (?, ?, ?)",
+		session.UserID, req.Score, req.Comment,
+	)
+	if err != nil {
+		log.Printf("[nps] error inserting response: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to save response"})
 		return
 	}
 
@@ -3003,7 +4382,7 @@ Get these from https://console.twilio.com (see README for full setup).
 	server := &Server{
 		config:   cfg,
 		db:       db,
-		sessions: NewSessionStore(),
+		sessions: NewSessionStore(db),
 		twilio: &RealTwilioClient{
 			AccountSID:    cfg.TwilioAccountSID,
 			AuthToken:     cfg.TwilioAuthToken,
@@ -3013,6 +4392,19 @@ Get these from https://console.twilio.com (see README for full setup).
 		smsBuffer:  newMessageBuffer(10 * time.Second),
 	}
 
+	// Clean expired sessions every hour
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			server.sessions.CleanExpired()
+		}
+	}()
+
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`))
+	})
 	http.HandleFunc("/auth/send-code", server.handleSendCode)
 	http.HandleFunc("/auth/verify-code", server.handleVerifyCode)
 	http.HandleFunc("/auth/logout", server.handleLogout)
@@ -3020,6 +4412,7 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/list", server.handleList)
 	http.HandleFunc("/api/list/", server.handleList)
 	http.HandleFunc("/api/list/clear", server.handleListClear)
+	http.HandleFunc("/api/list/restore", server.handleListRestore)
 	http.HandleFunc("/api/saved-lists", server.handleSavedLists)
 	http.HandleFunc("/api/saved-lists/", server.handleSavedLists)
 	http.HandleFunc("/api/settings", server.handleSettings)
@@ -3032,7 +4425,12 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/referral", server.handleReferral)
 	http.HandleFunc("/api/referral/redeem", server.handleReferralRedeem)
 	http.HandleFunc("/api/referral/claim", server.handleReferralClaim)
+	http.HandleFunc("/api/nps/check", server.handleNPSCheck)
+	http.HandleFunc("/api/nps", server.handleNPS)
 	http.HandleFunc("/api/admin/dashboard", server.handleAdminDashboard)
+	http.HandleFunc("/api/brands", server.handleBrands)
+	http.HandleFunc("/api/logo", server.handleLogoProxy)
+	http.HandleFunc("/api/trips", server.handleTrips)
 	http.HandleFunc("/privacy", handlePrivacyPolicy)
 	http.HandleFunc("/terms", handleTerms)
 
@@ -3048,8 +4446,14 @@ Get these from https://console.twilio.com (see README for full setup).
 		http.ServeFile(w, r, "static/index.html")
 	})
 
-	// Wrap with request/response logging
+	// Wrap with panic recovery and request/response logging
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rv := recover(); rv != nil {
+				log.Printf("[panic] %s %s: %v", r.Method, r.URL.Path, rv)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+			}
+		}()
 		log.Printf("[req] %s %s (Content-Length: %d)", r.Method, r.URL.Path, r.ContentLength)
 		rec := &statusRecorder{ResponseWriter: w, statusCode: 200}
 		http.DefaultServeMux.ServeHTTP(rec, r)
@@ -3057,6 +4461,8 @@ Get these from https://console.twilio.com (see README for full setup).
 			log.Printf("[res] %s %s → %d", r.Method, r.URL.Path, rec.statusCode)
 		}
 	})
+
+	go server.warmLogoCache()
 
 	log.Printf("thriftly is running on http://localhost:%s", cfg.Port)
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, handler))

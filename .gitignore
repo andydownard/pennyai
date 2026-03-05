@@ -4,3 +4,6 @@ static/
 frontend/node_modules/
 frontend/dist/
 .DS_Store
+cover.out
+coverage_detailed.out
+thriftly

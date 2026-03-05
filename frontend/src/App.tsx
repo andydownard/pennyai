@@ -15,14 +15,14 @@
 //   - Phone numbers are stored as 10 raw digits. The backend adds "+1".
 // =============================================================================
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
 // The screens the app can show
-type Screen = 'phone' | 'code' | 'home' | 'saved' | 'settings' | 'about' | 'invite' | 'settings-profile' | 'settings-family' | 'settings-share' | 'admin'
+type Screen = 'phone' | 'code' | 'home' | 'saved' | 'settings' | 'about' | 'invite' | 'settings-profile' | 'settings-share' | 'admin'
 
 // Declare gtag for TypeScript
 declare function gtag(...args: unknown[]): void
@@ -36,9 +36,12 @@ type ListItem = {
   size: string
   source: string
   checked: boolean
+  urgent: boolean
   created_at: string
   added_by_name: string
   added_by_phone: string
+  claimed_by_id: number | null
+  claimed_by_name: string
 }
 
 type SavedList = {
@@ -54,6 +57,17 @@ type ItemModification = {
   source: string
   created_at: string
   user_name: string
+}
+
+type ShoppingTrip = {
+  id: number
+  user_id: number
+  user_name: string
+  trip_date: string
+  trip_time: string
+  time_label: string
+  is_mine: boolean
+  created_at: string
 }
 
 // =============================================================================
@@ -173,7 +187,7 @@ function PennyAvatar({ size = 28 }: { size?: number }) {
       overflow: 'hidden',
       flexShrink: 0,
       backgroundColor: '#e8e4df',
-      border: size > 40 ? `2px solid ${BORDER}` : 'none',
+      border: `1px solid ${BORDER}`,
     }}>
       <img
         src="/penny.png"
@@ -186,6 +200,61 @@ function PennyAvatar({ size = 28 }: { size?: number }) {
   )
 }
 
+// Brand logo with consistent styling — renders empty box when no brand
+function BrandLogo({ brand, size = 52, opacity = 1 }: { brand?: string; size?: number; opacity?: number }) {
+  const radius = size > 60 ? '12px' : size > 48 ? '10px' : '8px'
+  const pad = size > 60 ? '4px' : size > 48 ? '3px' : '2px'
+  return (
+    <div style={{ width: size, height: size, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {brand && (
+        <img
+          src={`/api/logo?brand=${encodeURIComponent(brand)}&v=3`}
+          alt=""
+          width={size}
+          height={size}
+          loading="lazy"
+          style={{ borderRadius: radius, objectFit: 'contain' as const, backgroundColor: '#FAFAFA', border: '1px solid rgba(0,0,0,0.06)', padding: pad, opacity, transition: 'opacity 0.15s' }}
+          onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+        />
+      )}
+    </div>
+  )
+}
+
+// Toggle switch — used for urgent and claim toggles
+function ToggleSwitch({ value, onChange }: { value: boolean; onChange: () => void }) {
+  return (
+    <button
+      onClick={onChange}
+      style={{
+        width: '44px', height: '24px', borderRadius: '12px', border: 'none', cursor: 'pointer',
+        backgroundColor: value ? BRAND : '#CBD5E0', position: 'relative', transition: 'background-color 0.2s',
+        padding: 0, flexShrink: 0,
+      }}
+    >
+      <span style={{
+        position: 'absolute', top: '2px', left: value ? '22px' : '2px',
+        width: '20px', height: '20px', borderRadius: '50%', backgroundColor: WHITE,
+        transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+      }} />
+    </button>
+  )
+}
+
+// Avatar circle for household members and friends
+const avatarCircleStyle = (size = 32): React.CSSProperties => ({
+  width: `${size}px`, height: `${size}px`, borderRadius: '50%', backgroundColor: BRAND, color: WHITE,
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  fontFamily: FONT, fontSize: '15px', fontWeight: 600, flexShrink: 0,
+})
+
+// Quantity stepper button style
+const qtyBtnStyle: React.CSSProperties = {
+  width: '34px', height: '34px', border: 'none', background: 'none',
+  fontSize: '17px', color: BRAND, cursor: 'pointer',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+}
+
 // =============================================================================
 // PENNY LOADING MESSAGES
 // =============================================================================
@@ -194,6 +263,15 @@ const PENNY_STEP1 = ["Reading your list...", "Let me see what you wrote...", "Hm
 const PENNY_STEP2 = ["Checking it twice!", "Sorting by aisle...", "Ooh, good choices!", "I know just where these go..."]
 const PENNY_STEP3 = ["Adding to your list...", "Almost done!", "Stocking up!"]
 const PENNY_STEPS = [PENNY_STEP1, PENNY_STEP2, PENNY_STEP3]
+const PENNY_QUOTES = [
+  "I work hard so that shopping is effortless and affordable for you and the people you love.",
+  "I coordinate with your whole household so nothing gets forgotten and nothing gets doubled.",
+  "I make sure you get the right amount of the right things — no more, no less.",
+  "I find the best deals so you can spend less time comparing and more time living.",
+  "I keep your list organized by aisle so you can breeze through the store.",
+  "I'm always listening — text me anytime and I'll take care of the rest.",
+  "You can text or email me — I'll add it to your list!",
+]
 
 function pickRandom(arr: string[]) {
   return arr[Math.floor(Math.random() * arr.length)]
@@ -223,7 +301,20 @@ function ActionSheet({ isOpen, onClose, title, children, maxHeight }: {
 
 function SectionHeader({ label }: { label: string }) {
   return (
-    <p style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: TEXT_SECONDARY, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px' }}>{label}</p>
+    <p style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: TEXT_SECONDARY, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px' }}>{label}</p>
+  )
+}
+
+function FloatingLabelField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ textAlign: 'left' as const }}>
+      <div style={{
+        fontSize: '11px', fontWeight: 600, color: TEXT_SECONDARY,
+        textTransform: 'uppercase' as const, letterSpacing: '0.5px', fontFamily: FONT,
+        marginBottom: '6px',
+      }}>{label}</div>
+      {children}
+    </div>
   )
 }
 
@@ -232,15 +323,15 @@ function QuantityControl({ value, onChange }: {
   onChange: (newValue: number) => void
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '0', border: `1.5px solid ${BORDER}`, borderRadius: '10px', overflow: 'hidden', backgroundColor: BG, flexShrink: 0 }}>
+    <div style={{ display: 'flex', alignItems: 'center', border: `1.5px solid ${BORDER}`, borderRadius: '12px', backgroundColor: WHITE, flexShrink: 0 }}>
       <button
         onClick={() => onChange(Math.max(1, value - 1))}
-        style={{ width: '34px', height: '34px', border: 'none', background: 'none', fontSize: '18px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        style={{ width: '38px', height: '42px', border: 'none', background: 'none', fontSize: '17px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       >−</button>
-      <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT, minWidth: '24px', textAlign: 'center' }}>{value}</span>
+      <span style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, minWidth: '24px', textAlign: 'center' }}>{value}</span>
       <button
         onClick={() => onChange(value + 1)}
-        style={{ width: '34px', height: '34px', border: 'none', background: 'none', fontSize: '18px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        style={{ width: '38px', height: '42px', border: 'none', background: 'none', fontSize: '17px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       >+</button>
     </div>
   )
@@ -268,7 +359,7 @@ function ConfirmModal({ open, title, message, confirmLabel, onConfirm, onCancel,
       }}>
         <div style={{ padding: '20px 16px 0' }}>
           <div style={{ fontSize: '17px', fontWeight: 600, color: TEXT }}>{title}</div>
-          {message && <div style={{ fontSize: '13px', color: TEXT_SECONDARY, marginTop: '4px' }}>{message}</div>}
+          {message && <div style={{ fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px' }}>{message}</div>}
         </div>
         <div style={{ display: 'flex', borderTop: '1px solid #e5e5e5', marginTop: '16px' }}>
           <button onClick={onCancel} style={{
@@ -298,12 +389,54 @@ function LegalLinks() {
       >
         powered by <span style={{ fontWeight: 600 }}>thriftly</span>
       </a>
-      <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginTop: '12px', opacity: 0.45 }}>
+      <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '12px', opacity: 0.45 }}>
         <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: TEXT_SECONDARY, textDecoration: 'none' }}>Privacy</a>
         {' · '}
         <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: TEXT_SECONDARY, textDecoration: 'none' }}>Terms</a>
       </div>
     </>
+  )
+}
+
+// =============================================================================
+// CONFETTI COMPONENT — pure CSS, no canvas, no library
+// =============================================================================
+const CONFETTI_COLORS = ['#35644F', '#4CAF50', '#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#FF6F91']
+
+function Confetti({ onComplete }: { onComplete: () => void }) {
+  const particles = useMemo(() =>
+    Array.from({ length: 120 }, (_, i) => ({
+      id: i,
+      color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+      left: Math.random() * 100,
+      size: 6 + Math.random() * 4,
+      delay: Math.random() * 1.2,
+      duration: 2 + Math.random() * 1.5,
+    })), [])
+
+  const onCompleteRef = useRef(onComplete)
+  onCompleteRef.current = onComplete
+  useEffect(() => {
+    const timer = setTimeout(() => onCompleteRef.current(), 5000)
+    return () => clearTimeout(timer)
+  }, [])
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 9999, overflow: 'hidden' }}>
+      {particles.map((p: { id: number; color: string; left: number; size: number; delay: number; duration: number }) => (
+        <div key={p.id} style={{
+          position: 'absolute',
+          top: '-10px',
+          left: `${p.left}%`,
+          width: `${p.size}px`,
+          height: `${p.size}px`,
+          backgroundColor: p.color,
+          borderRadius: p.id % 3 === 0 ? '50%' : '2px',
+          animation: `confetti-fall ${p.duration}s ease-in ${p.delay}s forwards`,
+          opacity: 0,
+        }} />
+      ))}
+    </div>
   )
 }
 
@@ -316,7 +449,7 @@ export default function App() {
   const [screen, setScreenRaw] = useState<Screen>('phone')
   const setScreen = (s: Screen) => {
     setScreenRaw(s)
-    if (['home', 'settings', 'about', 'invite', 'saved', 'settings-profile', 'settings-family', 'settings-share', 'admin'].includes(s)) {
+    if (['home', 'settings', 'about', 'invite', 'saved', 'settings-profile', 'settings-share', 'admin'].includes(s)) {
       window.location.hash = s === 'home' ? '' : s
     }
     // Track page view in Google Analytics
@@ -329,15 +462,27 @@ export default function App() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)    // checking existing session on load
+  const [pennyMessage, setPennyMessage] = useState('')
+  const [pennyTyping, setPennyTyping] = useState(false)
+  const pennyQuoteIdx = useRef(0)
+  const pennyCancelled = useRef(false)
+
+  // Home page Penny typewriter
+  const [homePennyText, setHomePennyText] = useState('')
+  const [homePennyTyping, setHomePennyTyping] = useState(false)
+  const [homePennyBtns, setHomePennyBtns] = useState<{ label: string; onClick: () => void }[]>([])
+  const homePennySource = useRef('')
+  const homePennyInterval = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // --- List state ---
   const [items, setItems] = useState<ListItem[]>([])
   const [chatText, setChatText] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
-  const [expandedDept, setExpandedDept] = useState<string | null>(null)
+  const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set())
   const [selectedItem, setSelectedItem] = useState<ListItem | null>(null)
   const [editName, setEditName] = useState('')
   const [editBrand, setEditBrand] = useState('')
+  const [displayBrand, setDisplayBrand] = useState('')
   const [editDept, setEditDept] = useState('')
   const [editQty, setEditQty] = useState(1)
   const [editSize, setEditSize] = useState('')
@@ -346,23 +491,37 @@ export default function App() {
   const deptRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   // --- Toast state ---
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; action?: { label: string; onClick: () => void } } | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // --- Review state (items from last parse) ---
   const [lastAdded, setLastAdded] = useState<ListItem[]>([])
   const [lastSkipped, setLastSkipped] = useState<{ parsed: { name: string; brand: string; quantity: number; size: string; department: string }; existing_id: number }[]>([])
   const [showReviewSheet, setShowReviewSheet] = useState(false)
+  const [returnToReview, setReturnToReview] = useState(false)
 
   // --- Photo state ---
-  const [photoBase64, setPhotoBase64] = useState<string | null>(null)
+  const [pendingImages, setPendingImages] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const chatInputRef = useRef<HTMLInputElement>(null)
 
   // --- Hamburger menu state ---
   const [menuOpen, setMenuOpen] = useState(false)
 
   // --- Done toast state ---
   const [showDoneToast, setShowDoneToast] = useState(false)
+  const [showFireworks, setShowFireworks] = useState(false)
+  const [showDoneOverlay, setShowDoneOverlay] = useState(false)
+
+  // --- Floating label animation state ---
+  const [floatingLabels, setFloatingLabels] = useState<Array<{ text: string; key: number }>>([])
+
+  // --- Shopping trip planner state ---
+  const [trips, setTrips] = useState<ShoppingTrip[]>([])
+  const [showTripSheet, setShowTripSheet] = useState(false)
+  const [tripDay, setTripDay] = useState('')
+  const [tripTimeLabel, setTripTimeLabel] = useState('')
+  const [tripExactTime, setTripExactTime] = useState('')
 
   // --- Saved lists state ---
   const [savedLists, setSavedLists] = useState<SavedList[]>([])
@@ -390,7 +549,8 @@ export default function App() {
   }
 
   // --- Settings state ---
-  const [settingsName, setSettingsName] = useState('')
+  const [settingsFirstName, setSettingsFirstName] = useState('')
+  const [settingsLastName, setSettingsLastName] = useState('')
   const [settingsEmail, setSettingsEmail] = useState('')
   const [settingsMembers, setSettingsMembers] = useState<{ name: string; phone: string }[]>([])
   const [settingsLoading, setSettingsLoading] = useState(false)
@@ -402,15 +562,28 @@ export default function App() {
 
   // --- Admin state ---
   const [isAdmin, setIsAdmin] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [adminData, setAdminData] = useState<{
     active_users: number; total_users: number; new_users: number;
     k_factor: number; leaderboard: { phone: string; name: string; points: number; referrals: number }[];
     days: number;
+    nps_responses: { score: number; comment: string; user_name: string; user_phone: string; created_at: string }[];
+    nps_average: number;
   } | null>(null)
   const [adminDays, setAdminDays] = useState(30)
 
+  // --- NPS state ---
+  const [showNPS, setShowNPS] = useState(false)
+  const [npsScore, setNpsScore] = useState<number | null>(null)
+  const [npsStep, setNpsStep] = useState<1 | 2>(1)
+  const [npsComment, setNpsComment] = useState('')
+
   // --- SMS opt-in state ---
   const [smsOptIn, setSmsOptIn] = useState(true)
+
+  // --- New item highlight state ---
+  const [newItemIds, setNewItemIds] = useState<Set<number>>(new Set())
+  const newItemTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // --- Penny loading spinner state ---
   const [pennyStatus, setPennyStatus] = useState<string | null>(null)
@@ -425,16 +598,40 @@ export default function App() {
     'Nice work!', 'On a roll!', 'Crushing it!', 'Keep going!',
   ]
 
+  const DEPT_DONE_MESSAGES = [
+    'done with {dept}!', '{dept} — checked!', '{dept} complete!', 'Finished {dept}!',
+  ]
+
+  const prevDeptDoneRef = useRef<Set<string>>(new Set())
+
+  const getDoneDepts = () => {
+    const done = new Set<string>()
+    for (const dept of DEPARTMENTS) {
+      const di = items.filter(i => i.department === dept)
+      if (di.length > 0 && di.every(i => i.checked)) done.add(dept)
+    }
+    return done
+  }
+
   useEffect(() => {
     const checked = items.filter(i => i.checked).length
+    const nowDone = getDoneDepts()
     if (checked > prevCheckedRef.current && prevCheckedRef.current >= 0 && items.length > 0) {
-      // 30% chance Penny chimes in after checking off an item
-      if (Math.random() < 0.3) {
-        if (chimeInTimer.current) clearTimeout(chimeInTimer.current)
-        setPennyChimeIn(pickRandom(CHIME_IN_MESSAGES))
-        chimeInTimer.current = setTimeout(() => setPennyChimeIn(null), 4000)
+      const newlyDone = [...nowDone].filter(d => !prevDeptDoneRef.current.has(d))
+      if (newlyDone.length > 0) {
+        setTimeout(() => {
+          setExpandedDepts(prev => {
+            const next = new Set(prev)
+            newlyDone.forEach(d => next.delete(d))
+            return next
+          })
+        }, 600)
+        showChimeIn(pickRandom(DEPT_DONE_MESSAGES).replace('{dept}', newlyDone[0]), 3750)
+      } else if (Math.random() < 0.3) {
+        showChimeIn(pickRandom(CHIME_IN_MESSAGES), 5000)
       }
     }
+    prevDeptDoneRef.current = nowDone
     prevCheckedRef.current = checked
   }, [items])
 
@@ -491,7 +688,7 @@ export default function App() {
         })
         if (res.ok) {
           localStorage.removeItem('thriftly_join_code')
-          showToast('Joined family list!')
+          showToast('Joined household list!')
         } else {
           localStorage.removeItem('thriftly_join_code')
           const data = await res.json().catch(() => null)
@@ -519,12 +716,13 @@ export default function App() {
     fetch('/auth/me')
       .then(res => {
         if (res.ok) {
-          res.clone().json().then((data: { is_admin?: boolean }) => {
+          res.clone().json().then((data: { is_admin?: boolean; user_id?: number }) => {
             if (data.is_admin) setIsAdmin(true)
+            if (data.user_id) setCurrentUserId(data.user_id)
           }).catch(() => {})
           tryJoinCode()
           const hash = window.location.hash.replace('#', '') as Screen
-          const validScreens: Screen[] = ['home', 'settings', 'about', 'invite', 'saved', 'settings-profile', 'settings-family', 'settings-share', 'admin']
+          const validScreens: Screen[] = ['home', 'settings', 'about', 'invite', 'saved', 'settings-profile', 'settings-share', 'admin']
           setScreen(validScreens.includes(hash) ? hash : 'home')
         }
       })
@@ -551,6 +749,48 @@ export default function App() {
     }
   }, [screen, checking])
 
+  // Penny cycling typewriter — used on login and about pages
+  useEffect(() => {
+    if (screen !== 'phone' && screen !== 'code' && screen !== 'about') {
+      setPennyMessage('')
+      setPennyTyping(false)
+      return
+    }
+    pennyCancelled.current = false
+    let activeInterval: ReturnType<typeof setInterval> | null = null
+    let activeTimeout: ReturnType<typeof setTimeout> | null = null
+    const runQuote = (delay: number) => {
+      activeTimeout = setTimeout(() => {
+        if (pennyCancelled.current) return
+        const idx = pennyQuoteIdx.current % PENNY_QUOTES.length
+        pennyQuoteIdx.current++
+        const quote = PENNY_QUOTES[idx]
+        setPennyTyping(true)
+        let i = 0
+        activeInterval = setInterval(() => {
+          if (pennyCancelled.current) { clearInterval(activeInterval!); return }
+          i++
+          setPennyMessage(quote.slice(0, i))
+          if (i >= quote.length) {
+            clearInterval(activeInterval!)
+            activeInterval = null
+            setPennyTyping(false)
+            // Wait 5s then start next quote directly (no clear)
+            activeTimeout = setTimeout(() => {
+              if (!pennyCancelled.current) runQuote(0)
+            }, 5000)
+          }
+        }, 30)
+      }, delay)
+    }
+    runQuote(1000) // 1s delay before first quote
+    return () => {
+      pennyCancelled.current = true
+      if (activeInterval) clearInterval(activeInterval)
+      if (activeTimeout) clearTimeout(activeTimeout)
+    }
+  }, [screen])
+
   // =========================================================================
   // LOAD LIST when on home screen
   // =========================================================================
@@ -565,24 +805,193 @@ export default function App() {
     showToast('Session expired — please log in again', 'error')
   }
 
+  // Centralized fetch wrapper: handles 401 session expiry and JSON parsing.
+  // Returns parsed JSON on success, or null on failure.
+  const fetchAPI = async (url: string, options?: RequestInit): Promise<Record<string, unknown> | unknown[] | null> => {
+    const res = await fetch(url, options)
+    if (res.status === 401) { handleSessionExpired(); return null }
+    if (!res.ok) return null
+    return res.json()
+  }
+
+  // Update a single item in the items list by id
+  const updateItem = (id: number, updates: Partial<ListItem>) =>
+    setItems(prev => prev.map(item => item.id === id ? { ...item, ...updates } : item))
+
+  // Show a Penny chime-in message with auto-clear
+  const showChimeIn = (msg: string, duration = 4000) => {
+    if (chimeInTimer.current) clearTimeout(chimeInTimer.current)
+    setPennyChimeIn(msg)
+    chimeInTimer.current = setTimeout(() => setPennyChimeIn(null), duration)
+  }
+
   const reloadList = async () => {
-    const res = await fetch('/api/list')
-    if (res.status === 401) { handleSessionExpired(); return }
-    if (res.ok) {
-      const data = await res.json()
-      setItems(sortItems(Array.isArray(data) ? data : []))
-    }
+    const data = await fetchAPI('/api/list')
+    if (data) setItems(sortItems(Array.isArray(data) ? data as ListItem[] : []))
+  }
+
+  const loadTrips = async () => {
+    const data = await fetchAPI('/api/trips')
+    if (data) setTrips(Array.isArray(data) ? data as ShoppingTrip[] : [])
   }
 
   useEffect(() => {
     if (screen !== 'home') return
     reloadList().catch(() => {})
+    loadTrips().catch(() => {})
+    fetchAPI('/api/nps/check')
+      .then(data => { if (data && !Array.isArray(data) && data.show_nps) setShowNPS(true) })
+      .catch(() => {})
   }, [screen])
 
+  // --- Trip planner helpers ---
+  const formatTripTime = (trip: ShoppingTrip) => {
+    const today = new Date()
+    const tripDate = new Date(trip.trip_date + 'T12:00:00')
+    const diffDays = Math.round((tripDate.getTime() - new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()) / 86400000)
+
+    let dayStr = ''
+    if (diffDays === 0) dayStr = 'Today'
+    else if (diffDays === 1) dayStr = 'Tomorrow'
+    else if (diffDays > 1 && diffDays <= 6) dayStr = tripDate.toLocaleDateString('en-US', { weekday: 'long' })
+    else dayStr = tripDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+
+    if (!trip.trip_time) return dayStr
+    if (trip.time_label) return `${dayStr} ${trip.time_label}`
+
+    // Format exact time
+    const [h, m] = trip.trip_time.split(':').map(Number)
+    const ampm = h >= 12 ? 'pm' : 'am'
+    const h12 = h % 12 || 12
+    return `${dayStr} at ${h12}${m ? `:${m.toString().padStart(2, '0')}` : ''}${ampm}`
+  }
+
+  const isTripInProgress = (trip: ShoppingTrip) => {
+    if (!trip.trip_time) {
+      // No time set — "in progress" if date is today
+      const today = new Date().toISOString().split('T')[0]
+      return trip.trip_date === today
+    }
+    const now = new Date()
+    const tripDT = new Date(`${trip.trip_date}T${trip.trip_time}:00`)
+    const diff = now.getTime() - tripDT.getTime()
+    return diff > 0 && diff < 2 * 3600 * 1000
+  }
+
+  const isTripExpired = (trip: ShoppingTrip) => {
+    const now = new Date()
+    if (!trip.trip_time) {
+      // Expires end of the day
+      const endOfDay = new Date(trip.trip_date + 'T23:59:59')
+      return now > endOfDay
+    }
+    const tripDT = new Date(`${trip.trip_date}T${trip.trip_time}:00`)
+    return now.getTime() - tripDT.getTime() > 2 * 3600 * 1000
+  }
+
+  const activeTrips = trips.filter(t => !isTripExpired(t))
+
+  const handleSetTrip = async (addToCalendar = false) => {
+    if (!tripDay) return
+    const timeMap: Record<string, string> = { morning: '09:00', afternoon: '14:00', evening: '18:00' }
+    const tripTime = tripTimeLabel === 'exact' ? tripExactTime : (timeMap[tripTimeLabel] || '')
+    const timeLabel = tripTimeLabel && tripTimeLabel !== 'exact' ? tripTimeLabel : ''
+    await fetch('/api/trips', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trip_date: tripDay, trip_time: tripTime, time_label: timeLabel }),
+    })
+    if (addToCalendar) {
+      const fakeTrip = { trip_date: tripDay, trip_time: tripTime, time_label: timeLabel } as ShoppingTrip
+      const link = document.createElement('a')
+      link.href = generateICSLink(fakeTrip)
+      link.download = 'shopping-trip.ics'
+      link.click()
+    }
+    setShowTripSheet(false)
+    setTripDay('')
+    setTripTimeLabel('')
+    setTripExactTime('')
+    loadTrips()
+    showToast('Trip planned!')
+  }
+
+  const handleCancelTrip = async () => {
+    await fetch('/api/trips', { method: 'DELETE' })
+    loadTrips()
+    showToast('Trip cancelled')
+  }
+
+  const generateICSLink = (trip: ShoppingTrip) => {
+    const date = trip.trip_date.replace(/-/g, '')
+    const timeMap: Record<string, string> = { morning: '090000', afternoon: '140000', evening: '180000' }
+    let dtStart = date + 'T'
+    let dtEnd = date + 'T'
+    if (trip.trip_time) {
+      dtStart += trip.trip_time.replace(':', '') + '00'
+      const [h, m] = trip.trip_time.split(':').map(Number)
+      dtEnd += `${String(h + 1).padStart(2, '0')}${String(m).padStart(2, '0')}00`
+    } else if (trip.time_label && timeMap[trip.time_label]) {
+      dtStart += timeMap[trip.time_label]
+      const h = parseInt(timeMap[trip.time_label].slice(0, 2)) + 1
+      dtEnd += `${String(h).padStart(2, '0')}0000`
+    } else {
+      dtStart += '100000'
+      dtEnd += '110000'
+    }
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      `DTSTART:${dtStart}`,
+      `DTEND:${dtEnd}`,
+      'SUMMARY:Grocery Shopping',
+      'DESCRIPTION:Planned via Thriftly',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n')
+    return 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics)
+  }
+
+  const getDayOptions = () => {
+    const options: { label: string; value: string }[] = []
+    const now = new Date()
+    for (let i = 2; i <= 7; i++) {
+      const d = new Date(now)
+      d.setDate(d.getDate() + i)
+      options.push({
+        label: d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }),
+        value: d.toISOString().split('T')[0],
+      })
+    }
+    return options
+  }
+
+  const todayStr = new Date().toISOString().split('T')[0]
+  const tomorrowDate = new Date()
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1)
+  const tomorrowStr = tomorrowDate.toISOString().split('T')[0]
+  const satDate = new Date()
+  satDate.setDate(satDate.getDate() + (6 - satDate.getDay() || 7))
+  const satStr = satDate.toISOString().split('T')[0]
+
+  // Show Penny chime-in when a household member has a trip planned
+  const tripChimeShown = useRef(false)
+  useEffect(() => {
+    if (tripChimeShown.current) return
+    const othersTrips = activeTrips.filter(t => !t.is_mine)
+    if (othersTrips.length > 0) {
+      tripChimeShown.current = true
+      const t = othersTrips[0]
+      const who = t.user_name || 'Someone'
+      const when = formatTripTime(t)
+      showChimeIn(`${who} is heading to the store ${when.toLowerCase()} — add what you need!`, 6000)
+    }
+  }, [trips])
+
   const loadSavedLists = () => {
-    fetch('/api/saved-lists')
-      .then(res => res.ok ? res.json() : [])
-      .then(data => setSavedLists(Array.isArray(data) ? [...data].sort((a: SavedList, b: SavedList) => a.name.localeCompare(b.name)) : []))
+    fetchAPI('/api/saved-lists')
+      .then(data => setSavedLists(Array.isArray(data) ? [...(data as SavedList[])].sort((a, b) => a.name.localeCompare(b.name)) : []))
       .catch(() => {})
   }
 
@@ -592,30 +1001,30 @@ export default function App() {
   }, [screen])
 
   const loadSettings = () => {
-    fetch('/api/settings')
-      .then(res => res.ok ? res.json() : null)
+    fetchAPI('/api/settings')
       .then(data => {
-        if (data) {
-          setSettingsName(data.name || '')
-          setSettingsEmail(data.email || '')
-          setSettingsMembers(data.household_members || [])
+        if (data && !Array.isArray(data)) {
+          const parts = ((data.name as string) || '').split(' ')
+          setSettingsFirstName(parts[0] || '')
+          setSettingsLastName(parts.slice(1).join(' '))
+          setSettingsEmail((data.email as string) || '')
+          setSettingsMembers((data.household_members as { name: string; phone: string }[]) || [])
         }
       })
       .catch(() => {})
   }
 
   useEffect(() => {
-    if (!['settings', 'about', 'invite', 'settings-profile', 'settings-family'].includes(screen)) return
+    if (!['home', 'settings', 'about', 'invite', 'settings-profile', 'settings-share'].includes(screen)) return
     loadSettings()
   }, [screen])
 
   const loadReferralData = () => {
-    fetch('/api/referral')
-      .then(res => res.ok ? res.json() : null)
+    fetchAPI('/api/referral')
       .then(data => {
-        if (data) {
-          setReferralCode(data.code || '')
-          setReferralFriends(data.friends || [])
+        if (data && !Array.isArray(data)) {
+          setReferralCode((data.code as string) || '')
+          setReferralFriends((data.friends as { name: string; created_at: string }[]) || [])
         }
       })
       .catch(() => {})
@@ -628,29 +1037,66 @@ export default function App() {
 
   useEffect(() => {
     if (screen !== 'admin') return
-    fetch(`/api/admin/dashboard?days=${adminDays}`)
-      .then(res => res.ok ? res.json() : null)
-      .then(data => { if (data) setAdminData(data) })
+    fetchAPI(`/api/admin/dashboard?days=${adminDays}`)
+      .then(data => { if (data) setAdminData(data as typeof adminData) })
       .catch(() => {})
   }, [screen, adminDays])
 
   // Redirect legacy invite screen to settings-family
   useEffect(() => {
-    if (screen === 'invite') setScreen('settings-family')
+    if (screen === 'invite') setScreen('settings-share')
   }, [screen])
 
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+  const showToast = (message: string, type: 'success' | 'error' = 'success', action?: { label: string; onClick: () => void }) => {
     if (toastTimer.current) clearTimeout(toastTimer.current)
-    setToast({ message, type })
-    toastTimer.current = setTimeout(() => setToast(null), 5000)
+    setToast({ message, type, action })
+    toastTimer.current = setTimeout(() => setToast(null), action ? 10000 : 6250)
   }
 
-  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  // Type out a message in Penny's home bar, letter by letter
+  const typePennyHome = (msg: string, btns: { label: string; onClick: () => void }[] = []) => {
+    if (homePennyInterval.current) clearInterval(homePennyInterval.current)
+    if (msg === homePennySource.current && !btns.length) return // don't re-type same message
+    homePennySource.current = msg
+    setHomePennyText('')
+    setHomePennyBtns(btns)
+    setHomePennyTyping(true)
+    let i = 0
+    homePennyInterval.current = setInterval(() => {
+      i++
+      setHomePennyText(msg.slice(0, i))
+      if (i >= msg.length) {
+        if (homePennyInterval.current) clearInterval(homePennyInterval.current)
+        homePennyInterval.current = null
+        setHomePennyTyping(false)
+      }
+    }, 25)
+  }
 
-    // Resize large photos to max 1024px to keep request size manageable
+  // Watch for penny messages on home page and type them out
+  useEffect(() => {
+    if (screen !== 'home') return
+    const allDone = showDoneToast && items.length > 0 && items.every(i => i.checked)
+    if (allDone && !pennyStatus && !pennyChimeIn) {
+      typePennyHome("You're done!", [
+        { label: 'Save List', onClick: () => { setShowDoneToast(false); setShowFireworks(false); setSaveNameInput(''); setShowSaveSheet(true) } },
+        { label: 'Clear List', onClick: () => { setShowDoneToast(false); setShowFireworks(false); handleClearList() } },
+      ])
+    } else if (pennyStatus) {
+      typePennyHome(pennyStatus)
+    } else if (toast) {
+      const btns: { label: string; onClick: () => void }[] = []
+      if (toast.action) btns.push({ label: toast.action.label, onClick: () => { toast.action!.onClick(); setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) } })
+      else if ((lastAdded.length > 0 || lastSkipped.length > 0) && toast.type !== 'error') btns.push({ label: 'Review', onClick: () => { setShowReviewSheet(true); setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) } })
+      typePennyHome(toast.message, btns)
+    } else if (pennyChimeIn) {
+      typePennyHome(pennyChimeIn)
+    }
+  }, [screen, pennyStatus, toast?.message, pennyChimeIn, showDoneToast, items])
+
+  const resizeAndSetPhoto = (file: Blob) => {
     const img = new Image()
+    const objectUrl = URL.createObjectURL(file)
     img.onload = () => {
       const MAX = 1024
       let w = img.width
@@ -664,45 +1110,112 @@ export default function App() {
       canvas.height = h
       const ctx = canvas.getContext('2d')
       ctx?.drawImage(img, 0, 0, w, h)
-      setPhotoBase64(canvas.toDataURL('image/jpeg', 0.8))
+      setPendingImages(prev => [...prev, canvas.toDataURL('image/jpeg', 0.8)])
+      URL.revokeObjectURL(objectUrl)
     }
-    img.src = URL.createObjectURL(file)
+    img.onerror = () => URL.revokeObjectURL(objectUrl)
+    img.src = objectUrl
+  }
 
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+    for (let i = 0; i < files.length; i++) {
+      resizeAndSetPhoto(files[i])
+    }
     // Reset file input so re-selecting same file triggers change
     e.target.value = ''
+  }
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    let foundImage = false
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        if (!foundImage) {
+          e.preventDefault()
+          foundImage = true
+        }
+        const file = item.getAsFile()
+        if (file) resizeAndSetPhoto(file)
+      }
+    }
+  }
+
+  const checkAllDone = (next: ListItem[]) => {
+    if (next.length > 0 && next.every(i => i.checked)) {
+      setTimeout(() => { setShowDoneToast(true); setShowFireworks(true); setShowDoneOverlay(true) }, 300)
+    }
   }
 
   const handleToggle = async (id: number) => {
     setItems(prev => {
       const next = prev.map(item => item.id === id ? { ...item, checked: !item.checked } : item)
-      // Check if all items are now checked
-      if (next.length > 0 && next.every(i => i.checked)) {
-        setTimeout(() => setShowDoneToast(true), 300)
-      }
+      checkAllDone(next)
       return next
     })
     try {
-      const res = await fetch(`/api/list/${id}/toggle`, { method: 'PATCH' })
-      if (res.ok) {
-        const updated: ListItem = await res.json()
-        setItems(prev => {
-          const next = prev.map(item => item.id === updated.id ? updated : item)
-          if (next.length > 0 && next.every(i => i.checked)) {
-            setTimeout(() => setShowDoneToast(true), 300)
-          }
-          return next
-        })
+      const data = await fetchAPI(`/api/list/${id}/toggle`, { method: 'PATCH' })
+      if (data) {
+        const updated = data as ListItem
+        setItems(prev => { const next = prev.map(item => item.id === updated.id ? updated : item); checkAllDone(next); return next })
+      } else {
+        updateItem(id, { checked: items.find(i => i.id === id)?.checked })
+        showToast('Failed to update item', 'error')
       }
-    } catch {}
+    } catch {
+      updateItem(id, { checked: items.find(i => i.id === id)?.checked })
+      showToast('Failed to update item', 'error')
+    }
+  }
+
+  const handleUrgentToggle = async (id: number) => {
+    const was = items.find(i => i.id === id)?.urgent
+    updateItem(id, { urgent: !was })
+    try {
+      const data = await fetchAPI(`/api/list/${id}/urgent`, { method: 'PATCH' })
+      if (data) {
+        const updated = data as ListItem
+        updateItem(updated.id, updated)
+        if (updated.urgent) showChimeIn(`Marked ${updated.name} as urgent!`, 3000)
+      } else {
+        updateItem(id, { urgent: was })
+        showToast('Failed to update item', 'error')
+      }
+    } catch {
+      updateItem(id, { urgent: was })
+      showToast('Failed to update item', 'error')
+    }
+  }
+
+  const handleClaim = async (id: number) => {
+    const oldItem = items.find(i => i.id === id)
+    const wasClaimed = oldItem?.claimed_by_id === currentUserId
+    updateItem(id, { claimed_by_id: wasClaimed ? null : currentUserId, claimed_by_name: wasClaimed ? '' : 'Me' })
+    try {
+      const data = await fetchAPI(`/api/list/${id}/claim`, { method: 'PATCH' })
+      if (data) {
+        const updated = data as ListItem
+        updateItem(updated.id, updated)
+        showChimeIn(updated.claimed_by_id ? `You claimed ${updated.name}!` : `Unclaimed ${updated.name}`, 3000)
+      } else {
+        if (oldItem) updateItem(id, oldItem)
+        showToast('Failed to claim item', 'error')
+      }
+    } catch {
+      if (oldItem) updateItem(id, oldItem)
+      showToast('Failed to claim item', 'error')
+    }
   }
 
   const handleSendChat = async () => {
-    if ((!chatText.trim() && !photoBase64) || chatLoading) return
+    if ((!chatText.trim() && pendingImages.length === 0) || chatLoading) return
     setChatLoading(true)
     setLastAdded([])
     setLastSkipped([])
     try {
-      const payload = JSON.stringify({ text: chatText.trim(), image: photoBase64 || '' })
+      const payload = JSON.stringify({ text: chatText.trim(), images: pendingImages })
       console.log('[penny] sending parse request, payload size:', payload.length)
       const res = await fetch('/api/list/parse', {
         method: 'POST',
@@ -710,6 +1223,7 @@ export default function App() {
         body: payload,
       })
       console.log('[penny] parse response status:', res.status)
+      if (res.status === 401) { handleSessionExpired(); return }
       if (res.ok) {
         const data = await res.json()
         const addedItems: ListItem[] = data.items || []
@@ -724,8 +1238,38 @@ export default function App() {
         })
         setLastAdded(addedItems)
         setLastSkipped(skippedItems)
+        // Trigger floating "+N ItemName" animations (cap at 5 to avoid clutter)
+        if (addedItems.length > 0) {
+          const now = Date.now()
+          const showItems = addedItems.slice(0, 5)
+          setFloatingLabels(showItems.map((item, i) => ({
+            text: `+${item.quantity || 1} ${item.name}`,
+            key: now + i,
+          })))
+        }
         setChatText('')
-        setPhotoBase64(null)
+        setPendingImages([])
+        chatInputRef.current?.focus()
+        // Auto-expand departments that received new items + highlight them
+        if (addedItems.length > 0) {
+          const newDepts = new Set(addedItems.map(i => i.department))
+          setExpandedDepts(prev => {
+            const next = new Set(prev)
+            newDepts.forEach(d => next.add(d))
+            return next
+          })
+          const ids = new Set(addedItems.map(i => i.id))
+          setNewItemIds(ids)
+          if (newItemTimerRef.current) clearTimeout(newItemTimerRef.current)
+          newItemTimerRef.current = setTimeout(() => setNewItemIds(new Set()), 1500)
+          // Scroll to first new department
+          const firstDept = DEPARTMENTS.find(d => newDepts.has(d))
+          if (firstDept) {
+            setTimeout(() => {
+              deptRefs.current[firstDept]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }, 100)
+          }
+        }
         // Show toast
         const parts: string[] = []
         if (data.added > 0) parts.push(`Added ${data.added} item${data.added === 1 ? '' : 's'}!`)
@@ -750,117 +1294,163 @@ export default function App() {
     finally { setChatLoading(false) }
   }
 
+  const handleNPSSubmit = async () => {
+    if (npsScore === null) return
+    try {
+      await fetch('/api/nps', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ score: npsScore, comment: npsComment }),
+      })
+      showToast('Thanks for your feedback!')
+    } catch { /* ignore */ }
+    setShowNPS(false)
+    setNpsScore(null)
+    setNpsStep(1)
+    setNpsComment('')
+  }
+
+  const closeNPS = () => {
+    setShowNPS(false)
+    setNpsScore(null)
+    setNpsStep(1)
+    setNpsComment('')
+  }
+
   const openDetail = (item: ListItem) => {
     setSelectedItem(item)
     setEditName(item.name)
     setEditBrand(item.brand)
+    setDisplayBrand(item.brand)
     setEditDept(item.department)
     setEditQty(item.quantity || 1)
     setEditSize(item.size)
     setItemHistory([])
-    fetch(`/api/list/${item.id}/history`)
-      .then(res => res.ok ? res.json() : [])
-      .then(data => setItemHistory(Array.isArray(data) ? data : []))
+    fetchAPI(`/api/list/${item.id}/history`)
+      .then(data => setItemHistory(Array.isArray(data) ? data as ItemModification[] : []))
       .catch(() => {})
+  }
+
+  const openDetailFromReview = (item: ListItem) => {
+    setShowReviewSheet(false)
+    setReturnToReview(true)
+    openDetail(item)
+  }
+
+  const closeEditSheet = (deletedId?: number, updatedItem?: ListItem) => {
+    setSelectedItem(null)
+    if (returnToReview) {
+      setReturnToReview(false)
+      if (updatedItem) {
+        setLastAdded(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i))
+      }
+      if (deletedId) {
+        setLastAdded(prev => {
+          const remaining = prev.filter(i => i.id !== deletedId)
+          if (remaining.length === 0 && lastSkipped.length === 0) return remaining
+          return remaining
+        })
+        setLastSkipped(prev => prev.filter(s => s.existing_id !== deletedId))
+      }
+      // Reopen review if there are still items to review
+      const hasAdded = deletedId ? lastAdded.some(i => i.id !== deletedId) : lastAdded.length > 0
+      const hasSkipped = deletedId ? lastSkipped.some(s => s.existing_id !== deletedId) : lastSkipped.length > 0
+      if (hasAdded || hasSkipped) {
+        setTimeout(() => setShowReviewSheet(true), 100)
+      }
+    }
   }
 
   const handleEditSave = async () => {
     if (!selectedItem || !editName.trim() || editLoading) return
+    setDisplayBrand(editBrand)
     setEditLoading(true)
     try {
-      const res = await fetch(`/api/list/${selectedItem.id}`, {
+      const data = await fetchAPI(`/api/list/${selectedItem.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: editName.trim(),
-          brand: editBrand.trim(),
-          department: editDept,
-          quantity: editQty,
-          size: editSize.trim(),
-        }),
+        body: JSON.stringify({ name: editName.trim(), brand: editBrand.trim(), department: editDept, quantity: editQty, size: editSize.trim() }),
       })
-      if (res.ok) {
-        const updated: ListItem = await res.json()
+      if (data) {
+        const updated = data as ListItem
         setItems(prev => sortItems(prev.map(item => item.id === updated.id ? updated : item)))
-        setSelectedItem(null)
+        closeEditSheet(undefined, updated)
+      } else {
+        showToast('Failed to save changes', 'error')
       }
-    } catch {}
+    } catch { showToast('Failed to save changes', 'error') }
     finally { setEditLoading(false) }
   }
 
   const handleEditDelete = async () => {
     if (!selectedItem || editLoading) return
+    const deletingId = selectedItem.id
     setEditLoading(true)
     try {
-      const res = await fetch(`/api/list/${selectedItem.id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/list/${deletingId}`, { method: 'DELETE' })
+      if (res.status === 401) { handleSessionExpired(); return }
       if (res.ok) {
-        setItems(prev => prev.filter(item => item.id !== selectedItem.id))
-        setSelectedItem(null)
-      }
-    } catch {}
+        setItems(prev => prev.filter(item => item.id !== deletingId))
+        closeEditSheet(deletingId)
+      } else { showToast('Failed to delete item', 'error') }
+    } catch { showToast('Failed to delete item', 'error') }
     finally { setEditLoading(false) }
   }
 
-  const handleClearList = () => {
-    fetch('/api/list/clear', { method: 'POST' })
-      .then(res => {
-        if (res.status === 401) { handleSessionExpired(); return }
-        if (!res.ok) { showToast('Failed to clear list', 'error'); return }
-        setItems([])
-        setShowDoneToast(false)
-        setPennyChimeIn(null)
-        showToast('List cleared')
+  const handleClearList = async () => {
+    const cached = [...items]
+    try {
+      const res = await fetch('/api/list/clear', { method: 'POST' })
+      if (res.status === 401) { handleSessionExpired(); return }
+      if (!res.ok) { showToast('Failed to clear list', 'error'); return }
+      setItems([]); setExpandedDepts(new Set()); setShowDoneToast(false); setShowFireworks(false); setPennyChimeIn(null)
+      showToast('List cleared', 'success', {
+        label: 'Undo',
+        onClick: () => {
+          fetch('/api/list/restore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(cached.map(item => ({
+              name: item.name, brand: item.brand, department: item.department,
+              quantity: item.quantity, size: item.size, checked: item.checked, urgent: item.urgent,
+            }))),
+          }).then(() => reloadList())
+        },
       })
-      .catch(() => showToast('Failed to clear list', 'error'))
+    } catch { showToast('Failed to clear list', 'error') }
   }
 
   const handleSaveList = async () => {
     if (!saveNameInput.trim()) return
     try {
-      const res = await fetch('/api/saved-lists', {
+      const data = await fetchAPI('/api/saved-lists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: saveNameInput.trim() }),
       })
-      if (res.ok) {
-        setShowSaveSheet(false)
-        setSaveNameInput('')
-        showToast('List saved!')
-      } else {
-        const data = await res.json().catch(() => null)
-        showToast(data?.error || 'Failed to save list', 'error')
-      }
-    } catch {
-      showToast('Failed to save list', 'error')
-    }
+      if (data) { setShowSaveSheet(false); setSaveNameInput(''); showToast('List saved!') }
+      else showToast('Failed to save list', 'error')
+    } catch { showToast('Failed to save list', 'error') }
   }
 
-  const handleLoadSavedList = (id: number, mode: 'merge' | 'overwrite' = 'merge') => {
-    const url = mode === 'overwrite'
-      ? `/api/saved-lists/${id}/load?mode=overwrite`
-      : `/api/saved-lists/${id}/load`
+  const handleLoadSavedList = async (id: number, mode: 'merge' | 'overwrite' = 'merge') => {
+    const url = mode === 'overwrite' ? `/api/saved-lists/${id}/load?mode=overwrite` : `/api/saved-lists/${id}/load`
     setSelectedSavedList(null)
-    fetch(url, { method: 'POST' })
-      .then(res => {
-        if (res.status === 401) { handleSessionExpired(); return }
-        if (!res.ok) { showToast('Failed to load list', 'error'); return }
-        setScreen('home')
-        showToast(mode === 'overwrite' ? 'List replaced!' : 'List merged!')
-      })
-      .catch(() => showToast('Failed to load list', 'error'))
+    try {
+      const res = await fetch(url, { method: 'POST' })
+      if (res.status === 401) { handleSessionExpired(); return }
+      if (!res.ok) { showToast('Failed to load list', 'error'); return }
+      setScreen('home')
+      showToast(mode === 'overwrite' ? 'List replaced!' : 'List merged!')
+    } catch { showToast('Failed to load list', 'error') }
   }
 
   const handleDeleteSavedList = async (id: number) => {
     try {
       const res = await fetch(`/api/saved-lists/${id}`, { method: 'DELETE' })
-      if (res.ok) {
-        setSelectedSavedList(null)
-        loadSavedLists()
-        showToast('List deleted')
-      }
-    } catch {
-      showToast('Failed to delete list', 'error')
-    }
+      if (res.status === 401) { handleSessionExpired(); return }
+      if (res.ok) { setSelectedSavedList(null); loadSavedLists(); showToast('List deleted') }
+    } catch { showToast('Failed to delete list', 'error') }
   }
 
   // =========================================================================
@@ -947,6 +1537,7 @@ export default function App() {
 
       if (res.ok) {
         if (data.is_admin) setIsAdmin(true)
+        if (data.user_id) setCurrentUserId(data.user_id)
         tryJoinCode()
         setScreen('home')
       } else {
@@ -1028,49 +1619,34 @@ const handleCodeChange = (index: number, value: string) => {
     if (settingsLoading) return
     setSettingsLoading(true)
     try {
-      const res = await fetch('/api/settings', {
+      const data = await fetchAPI('/api/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: settingsName.trim(), email: settingsEmail.trim() }),
+        body: JSON.stringify({ name: [settingsFirstName.trim(), settingsLastName.trim()].filter(Boolean).join(' '), email: settingsEmail.trim() }),
       })
-      if (res.ok) {
-        showToast('Settings saved!')
-      } else {
-        const data = await res.json().catch(() => null)
-        showToast(data?.error || 'Failed to save', 'error')
-      }
-    } catch {
-      showToast('Network error', 'error')
-    } finally {
-      setSettingsLoading(false)
-    }
+      if (data) showToast('Settings saved!')
+      else showToast('Failed to save', 'error')
+    } catch { showToast('Network error', 'error') }
+    finally { setSettingsLoading(false) }
   }
 
   const withInviteLink = async (onLink: (link: string) => void) => {
     if (inviteLoading) return
     setInviteLoading(true)
     try {
-      const res = await fetch('/api/settings/invite', {
+      const data = await fetchAPI('/api/settings/invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: '' }),
       })
-      if (res.ok) {
-        const data = await res.json()
-        if (data.link) onLink(data.link)
-      } else {
-        const data = await res.json().catch(() => null)
-        showToast(data?.error || 'Failed to create invite', 'error')
-      }
-    } catch {
-      showToast('Network error', 'error')
-    } finally {
-      setInviteLoading(false)
-    }
+      if (data && !Array.isArray(data) && data.link) onLink(data.link as string)
+      else showToast('Failed to create invite', 'error')
+    } catch { showToast('Network error', 'error') }
+    finally { setInviteLoading(false) }
   }
 
   const handleTextInviteLink = () => withInviteLink(link => {
-    const message = `Join our family shopping list on Thriftly! ${link}`
+    const message = `Join our household shopping list on Thriftly! ${link}`
     window.location.href = `sms:?&body=${encodeURIComponent(message)}`
   })
 
@@ -1111,26 +1687,46 @@ const handleCodeChange = (index: number, value: string) => {
       <div style={styles.container}>
         <div style={styles.card}>
           <Logo />
-
           <h1 style={styles.wordmark}>Shared shopping list</h1>
-          <p style={styles.tagline}>
-            Penny AI accepts texts, emails, and photos, and organizes a clean, simple list
-          </p>
 
-          <div style={styles.inputGroup}>
-            <label style={styles.label}>Phone number</label>
-            <input
-              ref={phoneInputRef}
-              type="tel"
-              inputMode="numeric"
-              autoComplete="tel-national"
-              placeholder="(555) 123-4567"
-              value={formatPhone(phone)}
-              onChange={handlePhoneChange}
-              onKeyDown={e => { if (e.key === 'Enter' && isValid) handleSendCode() }}
-              style={styles.phoneInput}
-              autoFocus
-            />
+          {/* Penny chat area — fixed height so input/button below never shift */}
+          <div style={{ width: '100%', marginBottom: '24px', height: '100px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', height: '100%' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+                <PennyAvatar size={40} />
+                <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px', fontWeight: 500 }}>Penny</span>
+              </div>
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+                {(pennyMessage || pennyTyping) && (
+                  <div style={{
+                    backgroundColor: BG, borderRadius: '16px', borderTopLeftRadius: '4px',
+                    padding: '12px 16px', textAlign: 'left' as const,
+                  }}>
+                    <span style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, lineHeight: 1.6 }}>
+                      {pennyMessage}
+                    </span>
+                    {pennyTyping && <span className="cursor-blink" style={{ fontWeight: 300, marginLeft: '1px' }}>|</span>}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ width: '100%', marginBottom: '16px' }}>
+            <FloatingLabelField label="Phone number">
+              <input
+                ref={phoneInputRef}
+                type="tel"
+                inputMode="numeric"
+                autoComplete="tel-national"
+                placeholder="(555) 123-4567"
+                value={formatPhone(phone)}
+                onChange={handlePhoneChange}
+                onKeyDown={e => { if (e.key === 'Enter' && isValid) handleSendCode() }}
+                style={{ ...listStyles.floatingInput, fontSize: '20px', fontWeight: 500, letterSpacing: '0.5px' }}
+                autoFocus
+              />
+            </FloatingLabelField>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px', paddingLeft: '16px', cursor: 'pointer', userSelect: 'none' as const }}>
               <input
                 type="checkbox"
@@ -1175,6 +1771,26 @@ const handleCodeChange = (index: number, value: string) => {
           <Logo />
 
           <h1 style={styles.wordmark}>Shared shopping list</h1>
+
+          {/* Penny chat area — fixed height to match phone screen */}
+          <div style={{ width: '100%', marginBottom: '24px', height: '100px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', height: '100%' }}>
+              <PennyAvatar size={40} />
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+                {(pennyMessage || pennyTyping) && (
+                  <div style={{
+                    backgroundColor: BG, borderRadius: '16px', borderTopLeftRadius: '4px',
+                    padding: '12px 16px', textAlign: 'left' as const,
+                  }}>
+                    <span style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, lineHeight: 1.6 }}>
+                      {pennyMessage}
+                    </span>
+                    {pennyTyping && <span className="cursor-blink" style={{ fontWeight: 300, marginLeft: '1px' }}>|</span>}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
 
           <p style={styles.codePrompt}>
             Enter the code sent to
@@ -1237,17 +1853,28 @@ const handleCodeChange = (index: number, value: string) => {
         <>
           <div style={listStyles.menuOverlay} onClick={() => setMenuOpen(false)} />
           <div style={listStyles.menuDropdown}>
-            <button style={listStyles.menuItem(active === 'home')} onClick={() => { setMenuOpen(false); setScreen('home') }}>Shopping List</button>
-            <button style={listStyles.menuItem(active === 'saved')} onClick={() => { setMenuOpen(false); setScreen('saved') }}>Saved Lists</button>
-            <button style={listStyles.menuItem(active === 'about')} onClick={() => { setMenuOpen(false); setScreen('about') }}>How to text Penny</button>
-            <button style={listStyles.menuItem(active === 'settings-family')} onClick={() => { setMenuOpen(false); setScreen('settings-family') }}>Manage Household</button>
-            <button style={listStyles.menuItem(active === 'settings-share')} onClick={() => { setMenuOpen(false); setScreen('settings-share') }}>Share & Earn</button>
-            <button style={listStyles.menuItem(active === 'settings' || active === 'settings-profile' as Screen)} onClick={() => { setMenuOpen(false); setScreen('settings') }}>Settings</button>
+            <button style={{ ...listStyles.menuItem(active === 'home'), display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => { setMenuOpen(false); setScreen('home') }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+              Shopping List
+            </button>
+            <button style={{ ...listStyles.menuItem(active === 'about'), display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => { setMenuOpen(false); setScreen('about') }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              How to text Penny
+            </button>
+            <button style={{ ...listStyles.menuItem(active === 'settings-share'), display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => { setMenuOpen(false); setScreen('settings-share') }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2C6.48 2 2 5.58 2 10c0 2.13 1.06 4.04 2.72 5.41L3 22l4.73-2.37C9.1 19.87 10.52 20 12 20c5.52 0 10-3.58 10-8S17.52 2 12 2z"/><path d="M8 10h.01M12 10h.01M16 10h.01"/></svg>
+              Share & Earn
+            </button>
+            <button style={{ ...listStyles.menuItem(active === 'settings' || active === 'settings-profile' as Screen), display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => { setMenuOpen(false); setScreen('settings') }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              Settings
+            </button>
             {isAdmin && (
-              <button style={listStyles.menuItem(active === 'admin')} onClick={() => { setMenuOpen(false); setScreen('admin') }}>Dashboard</button>
+              <button style={{ ...listStyles.menuItem(active === 'admin'), display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => { setMenuOpen(false); setScreen('admin') }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/></svg>
+                Dashboard
+              </button>
             )}
-            <div style={{ height: '1px', backgroundColor: BORDER, margin: '4px 0' }} />
-            <button style={listStyles.menuItem(false)} onClick={handleLogout}>Sign Out</button>
           </div>
         </>
       )}
@@ -1262,42 +1889,66 @@ const handleCodeChange = (index: number, value: string) => {
       borderBottom: `1px solid ${BORDER}`,
       gap: '10px',
     }}>
-      <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: BRAND, color: WHITE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT, fontSize: '14px', fontWeight: 600, flexShrink: 0 }}>
+      <div style={avatarCircleStyle()}>
         {(m.name || m.phone || '?')[0].toUpperCase()}
       </div>
       <div>
         <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>
           {m.name || formatPhone(m.phone)}
         </div>
-        {m.name && <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY }}>{formatPhone(m.phone)}</div>}
+        {m.name && <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>{formatPhone(m.phone)}</div>}
       </div>
     </div>
   ))
 
-  const renderToast = () => toast ? (
-    <div style={{
-      position: 'fixed',
-      top: '72px',
-      left: '16px',
-      right: '16px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '10px',
-      backgroundColor: toast.type === 'error' ? '#FEE2E2' : WHITE,
-      color: toast.type === 'error' ? '#991B1B' : TEXT,
-      padding: '12px 16px',
-      borderRadius: '16px',
-      fontFamily: FONT,
-      fontSize: '15px',
-      fontWeight: 500,
-      zIndex: 50,
-      boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
-      border: `1px solid ${toast.type === 'error' ? '#FECACA' : BORDER}`,
-    }}>
-      <PennyAvatar size={32} />
-      {toast.message}
+  const pennyBarStyle = {
+    position: 'fixed' as const,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '14px 16px',
+    backgroundColor: '#F5F3EF',
+    borderTop: `1px solid ${BORDER}`,
+    fontFamily: FONT,
+    fontSize: '15px',
+    color: TEXT,
+    fontWeight: 500,
+    zIndex: 40,
+    boxShadow: '0 -2px 12px rgba(0,0,0,0.08)',
+  } as React.CSSProperties
+
+  const pennyBtnStyle = { background: BRAND, border: 'none', color: WHITE, fontFamily: FONT, fontSize: '12px', fontWeight: 600, cursor: 'pointer', padding: '5px 12px', borderRadius: '12px', flexShrink: 0 } as React.CSSProperties
+  const pennyCloseStyle = { background: 'none', border: 'none', color: TEXT_SECONDARY, fontFamily: FONT, fontSize: '17px', cursor: 'pointer', padding: '0 2px', lineHeight: 1, flexShrink: 0, opacity: 0.6 } as React.CSSProperties
+
+  const renderPennyToast = () => toast ? (
+    <div style={{ ...pennyBarStyle, backgroundColor: toast.type === 'error' ? '#FEE2E2' : '#F5F3EF', color: toast.type === 'error' ? '#991B1B' : TEXT }}>
+      <PennyAvatar size={40} />
+      <span style={{ flex: 1 }}>{toast.message}</span>
+      {toast.action && (
+        <button
+          onClick={() => { toast.action!.onClick(); setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) }}
+          style={pennyBtnStyle}
+        >{toast.action.label}</button>
+      )}
+      <button
+        onClick={() => { setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) }}
+        style={pennyCloseStyle}
+      >×</button>
     </div>
   ) : null
+
+  const pageIcons: Record<string, React.ReactNode> = {
+    'Shopping List': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>,
+    'How to text Penny': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
+    'Share & Earn': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2C6.48 2 2 5.58 2 10c0 2.13 1.06 4.04 2.72 5.41L3 22l4.73-2.37C9.1 19.87 10.52 20 12 20c5.52 0 10-3.58 10-8S17.52 2 12 2z"/><path d="M8 10h.01M12 10h.01M16 10h.01"/></svg>,
+    'Settings': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
+    'Dashboard': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/></svg>,
+    'Saved Lists': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>,
+    'Profile': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
+  }
 
   const renderPageHeader = (pageName: string, active: Screen) => (
     <div style={{ flexShrink: 0, backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}` }}>
@@ -1314,7 +1965,10 @@ const handleCodeChange = (index: number, value: string) => {
           fontSize: '15px',
           fontWeight: 600,
           color: TEXT,
-        }}>{pageName}</span>
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+        }}>{pageIcons[pageName]}{pageName}</span>
         <div style={{ marginLeft: 'auto' }}>{renderMenu(active)}</div>
       </div>
     </div>
@@ -1335,7 +1989,7 @@ const handleCodeChange = (index: number, value: string) => {
             <path d="M13 4l-6 6 6 6" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </button>
-        <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 600, color: TEXT }}>{title}</span>
+        <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 600, color: TEXT, display: 'flex', alignItems: 'center', gap: '6px' }}>{pageIcons[title]}{title}</span>
         <div style={{ marginLeft: 'auto' }}>{renderMenu(backScreen)}</div>
       </div>
     </div>
@@ -1346,9 +2000,11 @@ const handleCodeChange = (index: number, value: string) => {
   // =========================================================================
 
   if (screen === 'settings') {
-    const settingsRows: { label: string; target: Screen | 'logout' }[] = [
-      { label: 'Profile', target: 'settings-profile' },
+    const settingsRows: { label: string; target: Screen; icon: React.ReactNode }[] = [
+      { label: 'Profile', target: 'settings-profile', icon: pageIcons['Profile'] },
+      { label: 'Saved Lists', target: 'saved', icon: pageIcons['Saved Lists'] },
     ]
+    const chevronSvg = <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 3l5 5-5 5" stroke={TEXT_SECONDARY} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
     return (
       <div style={listStyles.page}>
         {renderPageHeader('Settings', 'settings')}
@@ -1356,10 +2012,11 @@ const handleCodeChange = (index: number, value: string) => {
           {settingsRows.map(row => (
             <button
               key={row.label}
-              onClick={() => setScreen(row.target as Screen)}
+              onClick={() => setScreen(row.target)}
               style={{
                 display: 'flex',
                 alignItems: 'center',
+                gap: '12px',
                 width: '100%',
                 padding: '16px 20px',
                 background: 'none',
@@ -1370,8 +2027,9 @@ const handleCodeChange = (index: number, value: string) => {
                 WebkitTapHighlightColor: 'transparent',
               }}
             >
+              <span style={{ color: BRAND, display: 'flex', alignItems: 'center' }}>{row.icon}</span>
               <span style={{ flex: 1, fontFamily: FONT, fontSize: '16px', fontWeight: 500, color: TEXT }}>{row.label}</span>
-              <span style={{ color: TEXT_SECONDARY, fontSize: '18px' }}>›</span>
+              {chevronSvg}
             </button>
           ))}
           <button
@@ -1392,7 +2050,7 @@ const handleCodeChange = (index: number, value: string) => {
             <span style={{ flex: 1, fontFamily: FONT, fontSize: '16px', fontWeight: 500, color: ERROR_RED }}>Sign Out</span>
           </button>
         </div>
-        {renderToast()}
+        {renderPennyToast()}
       </div>
     )
   }
@@ -1406,26 +2064,41 @@ const handleCodeChange = (index: number, value: string) => {
       <div style={listStyles.page}>
         {renderSubpageHeader('Profile', 'settings')}
         <div style={listStyles.listArea}>
-          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div>
-              <label style={listStyles.fieldLabel}>Name</label>
-              <input
-                type="text"
-                value={settingsName}
-                onChange={e => setSettingsName(e.target.value)}
-                placeholder="Your name"
-                style={listStyles.sheetTextInput}
-              />
+          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <div style={{ flex: 1 }}>
+                <FloatingLabelField label="First name">
+                  <input
+                    type="text"
+                    value={settingsFirstName}
+                    onChange={e => setSettingsFirstName(e.target.value)}
+                    placeholder="First"
+                    style={listStyles.floatingInput}
+                  />
+                </FloatingLabelField>
+              </div>
+              <div style={{ flex: 1 }}>
+                <FloatingLabelField label="Last name">
+                  <input
+                    type="text"
+                    value={settingsLastName}
+                    onChange={e => setSettingsLastName(e.target.value)}
+                    placeholder="Last"
+                    style={listStyles.floatingInput}
+                  />
+                </FloatingLabelField>
+              </div>
             </div>
             <div>
-              <label style={listStyles.fieldLabel}>Email</label>
-              <input
-                type="email"
-                value={settingsEmail}
-                onChange={e => setSettingsEmail(e.target.value)}
-                placeholder="your@email.com"
-                style={listStyles.sheetTextInput}
-              />
+              <FloatingLabelField label="Email">
+                <input
+                  type="email"
+                  value={settingsEmail}
+                  onChange={e => setSettingsEmail(e.target.value)}
+                  placeholder="your@email.com"
+                  style={listStyles.floatingInput}
+                />
+              </FloatingLabelField>
               <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px', paddingLeft: '4px' }}>
                 Set your email to add items by emailing penny@list.thrift.ly
               </p>
@@ -1442,93 +2115,19 @@ const handleCodeChange = (index: number, value: string) => {
             </button>
           </div>
         </div>
-        {renderToast()}
+        {renderPennyToast()}
       </div>
     )
   }
 
   // =========================================================================
-  // SETTINGS — FAMILY
-  // =========================================================================
-
-  if (screen === 'settings-family') {
-    return (
-      <div style={listStyles.page}>
-        <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
-        {renderSubpageHeader('Manage Household', 'home')}
-        <div style={listStyles.listArea}>
-          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            {settingsMembers.length > 0 && (
-              <div>
-                <SectionHeader label="Household Members" />
-                {renderMemberList()}
-                <button
-                  onClick={() => openConfirmModal({
-                    title: 'Leave Household',
-                    message: 'You will be removed from this household.',
-                    confirmLabel: 'Leave',
-                    destructive: true,
-                    onConfirm: () => {
-                      fetch('/api/settings/leave-household', { method: 'POST' })
-                        .then(res => {
-                          if (res.ok) {
-                            showToast('Left household')
-                            loadSettings()
-                          } else {
-                            res.json().then(d => showToast(d?.error || 'Failed', 'error')).catch(() => showToast('Failed', 'error'))
-                          }
-                        })
-                        .catch(() => showToast('Network error', 'error'))
-                    },
-                  })}
-                  style={{
-                    marginTop: '12px',
-                    padding: '10px',
-                    fontFamily: FONT,
-                    fontSize: '14px',
-                    fontWeight: 500,
-                    color: ERROR_RED,
-                    backgroundColor: 'transparent',
-                    border: `1px solid ${ERROR_RED}`,
-                    borderRadius: '10px',
-                    cursor: 'pointer',
-                    width: '100%',
-                  }}
-                >Leave Household</button>
-              </div>
-            )}
-
-            <div>
-              <SectionHeader label="Invite" />
-              <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: '0 0 12px 0' }}>
-                Invite household members to share your shopping list.
-              </p>
-              <button
-                onClick={handleTextInviteLink}
-                disabled={inviteLoading}
-                style={{
-                  ...listStyles.sheetButton,
-                  opacity: inviteLoading ? 0.5 : 1,
-                }}
-              >
-                {inviteLoading ? 'Creating...' : 'Text Invite Link'}
-              </button>
-            </div>
-          </div>
-        </div>
-        {renderToast()}
-      </div>
-    )
-  }
-
-  // =========================================================================
-  // SETTINGS — SHARE & EARN
+  // SETTINGS — SHARE & EARN (combined with Household)
   // =========================================================================
 
   if (screen === 'settings-share') {
     const handleShare = () => {
       const url = `https://app.thrift.ly/r/${referralCode}`
-      const text = `Try Thriftly — Penny AI helps your family organize the grocery list. Just text, email, or snap a photo and she handles the rest! ${url}`
+      const text = `Try Thriftly — Penny AI helps your household organize the grocery list. Just text, email, or snap a photo and she handles the rest! ${url}`
       if (navigator.share) {
         navigator.share({ title: 'Thriftly', text }).catch(() => {})
       } else {
@@ -1536,77 +2135,148 @@ const handleCodeChange = (index: number, value: string) => {
       }
     }
 
-
     return (
       <div style={listStyles.page}>
-        {renderSubpageHeader('Share & Earn', 'home')}
+        <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
+        {renderPageHeader('Share & Earn', 'settings-share')}
         <div style={listStyles.listArea}>
-          <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            {/* Share info */}
-            <div style={{ backgroundColor: BG, borderRadius: '12px', padding: '16px', textAlign: 'center' }}>
-              <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, margin: 0, lineHeight: 1.6 }}>
-                Share Thriftly with friends and family. The more people who use Penny, the better deals everyone gets.
-              </p>
-            </div>
+          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '40px' }}>
 
-            {/* Share button */}
-            <button onClick={handleShare} style={listStyles.sheetButton}>
-              Share Your Link
-            </button>
-
-            {/* Referral count */}
-            {referralFriends.length > 0 && (
-              <div style={{ backgroundColor: BG, borderRadius: '12px', padding: '12px 16px', textAlign: 'center' }}>
-                <span style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: BRAND }}>{referralFriends.length}</span>
-                <span style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, marginLeft: '8px' }}>{referralFriends.length === 1 ? 'friend joined' : 'friends joined'}</span>
+            {/* ── Your Household section ── */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 700, color: TEXT, textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>Your Household</span>
               </div>
-            )}
-
-            {/* Brand rebates CTA */}
-            <div style={{ backgroundColor: BG, borderRadius: '12px', padding: '16px' }}>
-              <p style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT, margin: '0 0 8px 0' }}>
-                Exclusive Rebates — Coming Soon
-              </p>
-              <p style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, margin: '0 0 12px 0', lineHeight: 1.5 }}>
-                We're partnering with brands to offer exclusive rebates on the things you already buy. No points, no gimmicks — real savings on real groceries.
-              </p>
-              <p style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, margin: '0 0 8px 0', lineHeight: 1.5 }}>
-                Are you a product manager at a CPG brand? Get your products in front of engaged shoppers.
-              </p>
-              <a
-                href="mailto:partners@thrift.ly?subject=Create%20a%20brand%20deal"
-                style={{ fontFamily: FONT, fontSize: '13px', color: BRAND, textDecoration: 'underline', textUnderlineOffset: '2px' }}
+              {settingsMembers.length > 0 && (
+                <>
+                  {renderMemberList()}
+                  <button
+                    onClick={() => openConfirmModal({
+                      title: 'Leave Household',
+                      message: 'You will be removed from this household.',
+                      confirmLabel: 'Leave',
+                      destructive: true,
+                      onConfirm: () => {
+                        fetch('/api/settings/leave-household', { method: 'POST' })
+                          .then(res => {
+                            if (res.status === 401) { handleSessionExpired(); return }
+                            if (res.ok) {
+                              showToast('Left household')
+                              loadSettings()
+                            } else {
+                              res.json().then(d => showToast(d?.error || 'Failed', 'error')).catch(() => showToast('Failed', 'error'))
+                            }
+                          })
+                          .catch(() => showToast('Network error', 'error'))
+                      },
+                    })}
+                    style={{
+                      marginTop: '12px',
+                      padding: '10px',
+                      fontFamily: FONT,
+                      fontSize: '15px',
+                      fontWeight: 500,
+                      color: ERROR_RED,
+                      backgroundColor: 'transparent',
+                      border: `1px solid ${ERROR_RED}`,
+                      borderRadius: '10px',
+                      cursor: 'pointer',
+                      width: '100%',
+                    }}
+                  >Leave Household</button>
+                </>
+              )}
+              <button
+                onClick={handleTextInviteLink}
+                disabled={inviteLoading}
+                style={{
+                  ...listStyles.sheetButton,
+                  marginTop: '12px',
+                  opacity: inviteLoading ? 0.5 : 1,
+                }}
               >
-                Create a brand deal
-              </a>
+                {inviteLoading ? 'Creating...' : 'Invite a household member'}
+              </button>
+              <p style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, marginTop: '8px', lineHeight: 1.5 }}>
+                Household members share the same shopping list
+              </p>
             </div>
 
-            {/* Friends list */}
-            {referralFriends.length > 0 && (
-              <div>
-                <SectionHeader label={`Friends (${referralFriends.length})`} />
-                {referralFriends.map((f, i) => (
-                  <div key={i} style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '10px 0',
-                    borderBottom: `1px solid ${BORDER}`,
-                    gap: '10px',
-                  }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: BRAND, color: WHITE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT, fontSize: '14px', fontWeight: 600, flexShrink: 0 }}>
-                      {(f.name || '?')[0].toUpperCase()}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>{f.name || 'Friend'}</div>
-                      <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY }}>{new Date(f.created_at).toLocaleDateString()}</div>
-                    </div>
-                  </div>
-                ))}
+            {/* ── Friends who live elsewhere section ── */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2C6.48 2 2 5.58 2 10c0 2.13 1.06 4.04 2.72 5.41L3 22l4.73-2.37C9.1 19.87 10.52 20 12 20c5.52 0 10-3.58 10-8S17.52 2 12 2z"/><path d="M8 10h.01M12 10h.01M16 10h.01"/></svg>
+                <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 700, color: TEXT, textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>Friends who live elsewhere</span>
               </div>
-            )}
+
+              <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, margin: '0 0 16px 0', lineHeight: 1.6 }}>
+                Share Thriftly with friends — they'll get their own list, and you'll both benefit as more people join.
+              </p>
+
+              <button onClick={handleShare} style={listStyles.sheetButton}>
+                Share Thriftly with friends
+              </button>
+
+              {referralFriends.length > 0 && (
+                <div style={{ backgroundColor: BG, borderRadius: '12px', padding: '12px 16px', textAlign: 'left', marginTop: '16px' }}>
+                  <span style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: BRAND }}>{referralFriends.length}</span>
+                  <span style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, marginLeft: '8px' }}>{referralFriends.length === 1 ? 'friend joined' : 'friends joined'}</span>
+                </div>
+              )}
+
+              {referralFriends.length > 0 && (
+                <div style={{ marginTop: '16px' }}>
+                  <SectionHeader label={`Friends (${referralFriends.length})`} />
+                  {referralFriends.map((f, i) => (
+                    <div key={i} style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: '10px 0',
+                      borderBottom: `1px solid ${BORDER}`,
+                      gap: '10px',
+                    }}>
+                      <div style={avatarCircleStyle()}>
+                        {(f.name || '?')[0].toUpperCase()}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>{f.name || 'Friend'}</div>
+                        <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>{new Date(f.created_at).toLocaleDateString()}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ── Exclusive Rebates section ── */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 700, color: TEXT, textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>Exclusive Rebates</span>
+              </div>
+              <div style={{ backgroundColor: BG, borderRadius: '12px', padding: '16px' }}>
+                <p style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: BRAND, margin: '0 0 8px 0', textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>
+                  Coming Soon
+                </p>
+                <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, margin: '0 0 12px 0', lineHeight: 1.6 }}>
+                  We're partnering with brands to offer exclusive rebates on the things you already buy. No points, no gimmicks — real savings on real groceries.
+                </p>
+                <p style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, margin: '0 0 8px 0', lineHeight: 1.5 }}>
+                  Are you a product manager at a CPG brand? Get your products in front of engaged shoppers.
+                </p>
+                <a
+                  href="mailto:partners@thrift.ly?subject=Create%20a%20brand%20deal"
+                  style={{ fontFamily: FONT, fontSize: '13px', color: BRAND, textDecoration: 'underline', textUnderlineOffset: '2px' }}
+                >
+                  Create a brand deal
+                </a>
+              </div>
+            </div>
+
           </div>
         </div>
-        {renderToast()}
+        {renderPennyToast()}
       </div>
     )
   }
@@ -1621,27 +2291,35 @@ const handleCodeChange = (index: number, value: string) => {
         {renderPageHeader('How to text Penny', 'about')}
 
         <div style={listStyles.listArea}>
-          <div style={{ padding: '30px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '24px' }}>
-            <PennyAvatar size={96} />
+          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '28px' }}>
 
-            {/* How it works */}
-            <div style={{ width: '100%' }}>
-              <ol style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, margin: 0, paddingLeft: '24px', lineHeight: '1.8' }}>
-                <li style={{ marginBottom: '8px' }}><strong>Add Penny to your contacts</strong> using the button below</li>
-                <li style={{ marginBottom: '8px' }}><strong>Text her what you need</strong> — a grocery list, a photo of your fridge, pantry, or a recipe</li>
-                <li><strong>She adds it to your list</strong> — works in group chats with your family too</li>
-              </ol>
+            {/* Penny with chat bubble */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', minHeight: '60px' }}>
+              <PennyAvatar size={40} />
+              <div style={{ flex: 1, minHeight: '48px', display: 'flex', alignItems: 'center' }}>
+                <div style={{
+                  backgroundColor: BG, borderRadius: '16px', borderTopLeftRadius: '4px',
+                  padding: '12px 16px', textAlign: 'left' as const, minHeight: '24px',
+                }}>
+                  <span style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, lineHeight: 1.6 }}>
+                    {pennyMessage}
+                  </span>
+                  {pennyTyping && <span className="cursor-blink" style={{ fontWeight: 300, marginLeft: '1px' }}>|</span>}
+                </div>
+              </div>
             </div>
 
-            <p style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, textAlign: 'center', margin: 0, lineHeight: '1.5' }}>
-              Penny's shy — she won't text back yet. But don't worry, your items will appear on your list!
-            </p>
+            {/* How it works */}
+            <ol style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, margin: 0, paddingLeft: '24px', lineHeight: '1.8' }}>
+              <li style={{ marginBottom: '8px' }}><strong>Add Penny to your contacts</strong> using the button below</li>
+              <li style={{ marginBottom: '8px' }}><strong>Text her what you need</strong> — a grocery list, a photo of your fridge, pantry, or a recipe</li>
+              <li><strong>She adds it to your list</strong> — works in group chats with your household too</li>
+            </ol>
 
             <a
               href="/api/penny.vcf"
               style={{
                 display: 'block',
-                width: '100%',
                 textAlign: 'center',
                 padding: '13px',
                 fontFamily: FONT,
@@ -1666,18 +2344,18 @@ const handleCodeChange = (index: number, value: string) => {
             )}
 
             {/* Coming Soon */}
-            <div style={{ width: '100%', backgroundColor: BG, borderRadius: '12px', padding: '16px 20px' }}>
+            <div style={{ backgroundColor: BG, borderRadius: '12px', padding: '16px 20px', border: `1px solid ${BORDER}` }}>
               <p style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT, margin: '0 0 10px 0' }}>
                 Coming Soon
               </p>
-              <ul style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, margin: 0, paddingLeft: '20px', lineHeight: '1.8' }}>
+              <ul style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: 0, paddingLeft: '24px', lineHeight: '1.8' }}>
                 <li>Best deals near you</li>
                 <li>Best places to shop</li>
                 <li>Delivery options</li>
               </ul>
               <a
                 href="mailto:support@thrift.ly?subject=Feature%20request"
-                style={{ fontFamily: FONT, fontSize: '13px', color: BRAND, marginTop: '12px', display: 'inline-block', textDecoration: 'underline', textUnderlineOffset: '2px' }}
+                style={{ fontFamily: FONT, fontSize: '12px', color: BRAND, marginTop: '12px', display: 'inline-block', textDecoration: 'underline', textUnderlineOffset: '2px' }}
               >
                 Request a feature
               </a>
@@ -1685,7 +2363,7 @@ const handleCodeChange = (index: number, value: string) => {
           </div>
         </div>
 
-        {renderToast()}
+        {renderPennyToast()}
       </div>
     )
   }
@@ -1699,7 +2377,7 @@ const handleCodeChange = (index: number, value: string) => {
     return (
       <div style={listStyles.page}>
         <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
-        {renderPageHeader('Saved Lists', 'saved')}
+        {renderSubpageHeader('Saved Lists', 'settings')}
 
         {/* Saved lists content */}
         <div style={listStyles.listArea}>
@@ -1731,22 +2409,21 @@ const handleCodeChange = (index: number, value: string) => {
                   <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 500, color: TEXT }}>
                     {sl.name}
                   </div>
-                  <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, marginTop: '2px' }}>
+                  <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>
                     {sl.item_count} item{sl.item_count !== 1 ? 's' : ''} · {new Date(sl.created_at).toLocaleDateString()}
                   </div>
                 </div>
-                <span style={{ color: TEXT_SECONDARY, fontSize: '18px' }}>›</span>
               </button>
             ))
           )}
         </div>
 
-        {renderToast()}
+        {renderPennyToast()}
 
         {/* Saved list action sheet */}
         {selectedSavedList && (
           <ActionSheet isOpen={true} onClose={() => setSelectedSavedList(null)} title={selectedSavedList.name}>
-              <p style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, margin: '0 0 8px 0' }}>
+              <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: '0 0 8px 0' }}>
                 {selectedSavedList.item_count} item{selectedSavedList.item_count !== 1 ? 's' : ''}
               </p>
               <button
@@ -1787,14 +2464,14 @@ const handleCodeChange = (index: number, value: string) => {
     return (
       <div style={listStyles.page}>
         {renderPageHeader('Dashboard', 'admin')}
-        <div style={{ ...listStyles.listArea, padding: '20px 16px' }}>
+        <div style={{ ...listStyles.listArea, padding: '20px' }}>
           {/* Time period selector */}
           <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
             {dayOptions.map(d => (
               <button key={d} onClick={() => setAdminDays(d)} style={{
                 flex: 1, padding: '8px', borderRadius: '8px', border: `1px solid ${BORDER}`,
                 backgroundColor: adminDays === d ? BRAND : WHITE, color: adminDays === d ? WHITE : TEXT,
-                fontFamily: FONT, fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+                fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer',
               }}>{d}d</button>
             ))}
           </div>
@@ -1802,7 +2479,7 @@ const handleCodeChange = (index: number, value: string) => {
           {adminData ? (
             <>
               {/* Metric cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '24px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '32px' }}>
                 {[
                   { label: 'Active Users', value: adminData.active_users },
                   { label: 'Total Users', value: adminData.total_users },
@@ -1813,8 +2490,8 @@ const handleCodeChange = (index: number, value: string) => {
                     backgroundColor: WHITE, borderRadius: '12px', padding: '16px',
                     border: `1px solid ${BORDER}`,
                   }}>
-                    <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, marginBottom: '4px' }}>{m.label}</div>
-                    <div style={{ fontFamily: FONT, fontSize: '28px', fontWeight: 700, color: TEXT }}>{m.value}</div>
+                    <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '4px' }}>{m.label}</div>
+                    <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>{m.value}</div>
                   </div>
                 ))}
               </div>
@@ -1822,7 +2499,7 @@ const handleCodeChange = (index: number, value: string) => {
               {/* Leaderboard */}
               <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginBottom: '12px' }}>Referral Leaderboard</div>
               {adminData.leaderboard.length === 0 ? (
-                <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY }}>No referrals yet.</div>
+                <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY }}>No referrals yet.</div>
               ) : (
                 adminData.leaderboard.map((entry, i) => (
                   <div key={i} style={{
@@ -1833,21 +2510,52 @@ const handleCodeChange = (index: number, value: string) => {
                       <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>
                         {entry.name || entry.phone}
                       </div>
-                      {entry.name && <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY }}>{entry.phone}</div>}
+                      {entry.name && <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>{entry.phone}</div>}
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: BRAND }}>{entry.points} pts</div>
-                      <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY }}>{entry.referrals} referrals</div>
+                      <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>{entry.referrals} referrals</div>
+                    </div>
+                  </div>
+                ))
+              )}
+
+              {/* NPS Responses */}
+              <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '28px', marginBottom: '12px' }}>
+                NPS Score: {adminData.nps_average.toFixed(1)}
+              </div>
+              {adminData.nps_responses.length === 0 ? (
+                <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY }}>No NPS responses yet.</div>
+              ) : (
+                adminData.nps_responses.map((resp, i) => (
+                  <div key={i} style={{
+                    padding: '12px 0', borderBottom: `1px solid ${BORDER}`,
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT }}>
+                        Score: {resp.score}
+                      </div>
+                      <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>
+                        {new Date(resp.created_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                    {resp.comment && (
+                      <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, marginTop: '4px' }}>
+                        {resp.comment}
+                      </div>
+                    )}
+                    <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>
+                      {resp.user_name || resp.user_phone}
                     </div>
                   </div>
                 ))
               )}
             </>
           ) : (
-            <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>Loading...</div>
+            <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>Loading...</div>
           )}
         </div>
-        {renderToast()}
+        {renderPennyToast()}
       </div>
     )
   }
@@ -1857,14 +2565,18 @@ const handleCodeChange = (index: number, value: string) => {
   // =========================================================================
 
   const handleDeptClick = (dept: string) => {
-    if (expandedDept === dept) {
-      setExpandedDept(null)
-      return
-    }
-    setExpandedDept(dept)
-    setTimeout(() => {
-      deptRefs.current[dept]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 0)
+    setExpandedDepts(prev => {
+      const next = new Set(prev)
+      if (next.has(dept)) {
+        next.delete(dept)
+      } else {
+        next.add(dept)
+        setTimeout(() => {
+          deptRefs.current[dept]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }, 0)
+      }
+      return next
+    })
   }
 
   // Departments that have items, in store-aisle order
@@ -1875,7 +2587,7 @@ const handleCodeChange = (index: number, value: string) => {
       <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
       {/* Fixed header — compact */}
       <div style={{ flexShrink: 0, backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', padding: '10px 16px', position: 'relative' }}>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', position: 'relative' }}>
           <span
             style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: '17px', fontWeight: 700 }}
             onClick={() => setScreen('home')}
@@ -1888,12 +2600,28 @@ const handleCodeChange = (index: number, value: string) => {
             fontSize: '15px',
             fontWeight: 600,
             color: TEXT,
-          }}>Shopping List</span>
-          <div style={{ marginLeft: 'auto' }}>{renderMenu('home')}</div>
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+          }}>{pageIcons['Shopping List']} Shopping List</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <button
+              onClick={() => { setShowTripSheet(true); if (!activeTrips.some(t => t.is_mine)) { setTripDay(''); setTripTimeLabel(''); setTripExactTime('') } }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              title="Plan a shopping trip"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={activeTrips.length > 0 ? BRAND : TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+            </button>
+            {renderMenu('home')}
+          </div>
         </div>
         {/* Progress bar */}
         {items.length > 0 && (() => {
-          const pct = Math.round((items.filter(i => i.checked).length / items.length) * 100)
+          const totalQty = items.reduce((s, i) => s + (i.quantity || 1), 0)
+          const checkedQty = items.filter(i => i.checked).reduce((s, i) => s + (i.quantity || 1), 0)
+          const pct = Math.round((checkedQty / totalQty) * 100)
           return (
             <div style={{ height: '3px', backgroundColor: BORDER }}>
               <div style={{
@@ -1907,6 +2635,46 @@ const handleCodeChange = (index: number, value: string) => {
           )
         })()}
       </div>
+
+      {/* Trip banner */}
+      {activeTrips.length > 0 && (
+        <div style={{ flexShrink: 0, padding: '8px 16px', backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}` }}>
+          {activeTrips.map(trip => (
+            <div key={trip.id} style={{
+              display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px',
+              borderLeft: `3px solid ${trip.is_mine ? BRAND : BORDER}`, borderRadius: '4px',
+              backgroundColor: BG, marginBottom: activeTrips.indexOf(trip) < activeTrips.length - 1 ? '4px' : 0,
+            }}>
+              {isTripInProgress(trip) && <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4CAF50', flexShrink: 0 }} />}
+              <span style={{ flex: 1, fontFamily: FONT, fontSize: '15px', color: TEXT }}>
+                <strong>{trip.is_mine ? 'You' : (trip.user_name || 'Someone')}</strong>
+                {' — '}
+                {isTripInProgress(trip) ? 'Shopping now!' : formatTripTime(trip)}
+              </span>
+              {trip.is_mine && (
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <a
+                    href={generateICSLink(trip)}
+                    download="shopping-trip.ics"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: TEXT_SECONDARY, display: 'flex' }}
+                    title="Add to calendar"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                    </svg>
+                  </a>
+                  <button
+                    onClick={handleCancelTrip}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: TEXT_SECONDARY, display: 'flex' }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Scrollable list */}
       <div style={listStyles.listArea}>
@@ -1927,27 +2695,42 @@ const handleCodeChange = (index: number, value: string) => {
         ) : (
           activeDepts.map(dept => {
             const deptItems = items.filter(i => i.department === dept)
-            const deptChecked = deptItems.filter(i => i.checked).length
-            const deptDone = deptChecked === deptItems.length
-            const isOpen = expandedDept === dept
+            const deptTotal = deptItems.reduce((s, i) => s + (i.quantity || 1), 0)
+            const deptChecked = deptItems.filter(i => i.checked).reduce((s, i) => s + (i.quantity || 1), 0)
+            const deptDone = deptChecked === deptTotal
+            const isOpen = expandedDepts.has(dept)
             return (
               <div key={dept} ref={el => { deptRefs.current[dept] = el }}>
                 <button
                   style={listStyles.deptHeader(isOpen)}
                   onClick={() => handleDeptClick(dept)}
                 >
-                  {deptDone && <span style={{ color: BRAND, fontSize: '14px', marginRight: '2px' }}>✓</span>}
+                  {deptDone && <span style={{ color: BRAND, fontSize: '15px', marginRight: '2px' }}>✓</span>}
                   <span style={deptDone ? { textDecoration: 'line-through', opacity: 0.5 } : undefined}>{dept}</span>
-                  <span style={listStyles.deptCount}>{deptChecked}/{deptItems.length}</span>
+                  <span style={listStyles.deptCount}>{deptChecked}/{deptTotal}</span>
                   <span style={listStyles.deptChevron(isOpen)}>›</span>
                 </button>
-                {isOpen && deptItems.map(item => (
-                  <div key={item.id} style={listStyles.itemRow}>
+                {isOpen && [...deptItems].sort((a, b) => Number(a.checked) - Number(b.checked)).map((item, idx, arr) => {
+                  const prevItem = idx > 0 ? arr[idx - 1] : null
+                  const isFirstChecked = item.checked && prevItem && !prevItem.checked
+                  return (
+                  <div key={item.id} style={{
+                    ...listStyles.itemRow,
+                    ...(isFirstChecked ? { borderTop: `3px solid ${BORDER}` } : {}),
+                    ...(newItemIds.has(item.id) ? {
+                      backgroundColor: `${BRAND}15`,
+                      transition: 'background-color 1.5s ease',
+                    } : {}),
+                    ...(item.urgent ? { backgroundColor: '#FEF2F2' } : {}),
+                  }}>
                     <button onClick={() => handleToggle(item.id)} style={listStyles.itemCheckBtn}>
                       <span style={listStyles.itemCheck(item.checked)}>
                         {item.checked && '✓'}
                       </span>
                     </button>
+                    <div style={{ marginRight: '10px' }}>
+                      <BrandLogo brand={item.brand} size={72} opacity={item.checked ? 0.4 : 1} />
+                    </div>
                     <div style={listStyles.itemCenter} onClick={() => handleToggle(item.id)}>
                       <span style={listStyles.itemName(item.checked)}>
                         {item.brand ? `${item.brand} ` : ''}{item.name}
@@ -1958,6 +2741,28 @@ const handleCodeChange = (index: number, value: string) => {
                         </span>
                       )}
                     </div>
+                    {(item.urgent || item.claimed_by_id) && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end', flexShrink: 0 }}>
+                        {item.urgent && (
+                          <span style={{
+                            backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #E53E3E40',
+                            fontSize: '12px', fontWeight: 600, borderRadius: '10px', padding: '2px 8px',
+                            whiteSpace: 'nowrap',
+                          }}>🔥 urgent</span>
+                        )}
+                        {item.claimed_by_id && (
+                          <span style={{
+                            fontSize: '12px', fontWeight: 600, borderRadius: '10px', padding: '2px 8px',
+                            whiteSpace: 'nowrap',
+                            ...(item.claimed_by_id === currentUserId
+                              ? { backgroundColor: '#F0FFF4', color: '#276749', border: '1px solid #27674940' }
+                              : { backgroundColor: '#F7F6F3', color: TEXT, border: `1px solid ${BORDER}` }),
+                          }}>
+                            {item.claimed_by_id === currentUserId ? 'Me' : (item.claimed_by_name?.[0] || '?')}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <button onClick={() => openDetail(item)} style={listStyles.itemEditBtn}>
                       <span style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: BG, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -1967,7 +2772,8 @@ const handleCodeChange = (index: number, value: string) => {
                       </span>
                     </button>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )
           })
@@ -1975,260 +2781,162 @@ const handleCodeChange = (index: number, value: string) => {
       </div>
 
 
-      {/* "All done" toast — rendered inline below in the penny status bar area */}
+      {/* Confetti on list completion */}
+      {showFireworks && <Confetti onComplete={() => setShowFireworks(false)} />}
 
-      {/* Save/Clear links */}
-      {items.length > 0 && (
-        <div style={{
-          flexShrink: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '16px',
-          padding: '10px 16px',
-          borderTop: `1px solid ${BORDER}`,
-        }}>
-          <button
-            onClick={() => { setSaveNameInput(''); setShowSaveSheet(true) }}
-            style={{
-              fontFamily: FONT,
-              fontSize: '14px',
-              fontWeight: 500,
-              color: TEXT_SECONDARY,
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              textDecoration: 'underline',
-              textUnderlineOffset: '2px',
-            }}
-          >Save List</button>
-          <button
-            onClick={() => openConfirmModal({
-              title: 'Clear List',
-              message: 'Remove all items from your list?',
-              confirmLabel: 'Clear',
-              destructive: true,
-              onConfirm: handleClearList,
-            })}
-            style={{
-              fontFamily: FONT,
-              fontSize: '14px',
-              fontWeight: 500,
-              color: TEXT_SECONDARY,
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              textDecoration: 'underline',
-              textUnderlineOffset: '2px',
-            }}
-          >Clear List</button>
+      {/* "You're done!" overlay */}
+      {showDoneOverlay && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9998,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            backgroundColor: 'rgba(0,0,0,0.3)',
+            animation: 'done-overlay 3s ease forwards',
+            pointerEvents: 'none',
+          }}
+          onAnimationEnd={() => setShowDoneOverlay(false)}
+        >
+          <span style={{ fontSize: '36px', fontWeight: 700, color: WHITE, fontFamily: FONT, textShadow: '0 2px 12px rgba(0,0,0,0.3)' }}>
+            You're done! 🎉
+          </span>
         </div>
       )}
+
+      {/* Floating "+N ItemName" drift animations */}
+      {floatingLabels.map((label, i) => (
+        <div key={label.key} style={{
+          position: 'fixed', bottom: '100px', left: '50%', transform: 'translateX(-50%)',
+          animation: 'float-up 3000ms cubic-bezier(0.2, 0.6, 0.3, 1) forwards',
+          animationDelay: `${i * 600}ms`,
+          fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: BRAND,
+          backgroundColor: WHITE, padding: '6px 14px', borderRadius: '20px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.12)', zIndex: 40,
+          pointerEvents: 'none', opacity: 0,
+        }} onAnimationEnd={() => setFloatingLabels(prev => prev.filter(l => l.key !== label.key))}>
+          {label.text}
+        </div>
+      ))}
+
+      {/* "All done" toast — rendered inline below in the penny status bar area */}
+
 
       {/* Hidden file input for camera/photo */}
       <input
         ref={fileInputRef}
         type="file"
         accept="image/*"
+        multiple
         onChange={handlePhotoSelect}
         style={{ display: 'none' }}
       />
 
-      {/* Unified Penny bar — chime-in, loading, result, or "all done" */}
-      {(() => {
-        const allDone = showDoneToast && items.length > 0 && items.every(i => i.checked)
-        const showBar = pennyStatus || toast || allDone || pennyChimeIn
-        if (!showBar) return null
+      {/* Penny — always visible above chat */}
+      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px', backgroundColor: '#F5F3EF', borderTop: `1px solid ${BORDER}` }}>
+        <PennyAvatar size={40} />
+        <span style={{ flex: 1, fontFamily: FONT, fontSize: '14px', color: toast?.type === 'error' ? '#991B1B' : TEXT, fontWeight: 500, minHeight: '20px' }}>
+          {homePennyText}
+          {homePennyTyping && <span className="cursor-blink" style={{ fontWeight: 300, marginLeft: '1px' }}>|</span>}
+        </span>
+        {pennyStatus && <span className="penny-pulse" style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: BRAND, flexShrink: 0 }} />}
+        {homePennyBtns.map((btn, i) => (
+          <button key={i} onClick={btn.onClick} style={pennyBtnStyle}>{btn.label}</button>
+        ))}
+      </div>
 
-        const isDone = allDone && !pennyStatus && !toast && !pennyChimeIn
-        const isChimeIn = !!pennyChimeIn && !pennyStatus && !toast && !isDone
-        const bgColor = isDone ? BRAND : isChimeIn ? `${BRAND}12` : toast?.type === 'error' ? '#FEE2E2' : '#F5F3EF'
-        const textColor = isDone ? WHITE : isChimeIn ? BRAND : toast?.type === 'error' ? '#991B1B' : TEXT
-
-        return (
-          <div style={{
-            flexShrink: 0,
+      {/* Share FAB — only when user has no household members */}
+      {settingsMembers.length === 0 && (
+        <button
+          onClick={() => setScreen('settings-share')}
+          style={{
+            position: 'absolute',
+            bottom: '150px',
+            right: '56px',
+            width: '48px',
+            height: '48px',
+            borderRadius: '50%',
+            backgroundColor: BRAND,
+            border: 'none',
+            cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
-            gap: isChimeIn ? '8px' : '10px',
-            padding: isChimeIn ? '8px 16px' : '10px 16px',
-            backgroundColor: bgColor,
-            borderTop: `1px solid ${isDone ? BRAND : isChimeIn ? 'transparent' : BORDER}`,
-            fontFamily: FONT,
-            fontSize: '14px',
-            color: textColor,
-            fontWeight: 500,
-          }}>
-            <PennyAvatar size={isChimeIn ? 22 : 45} />
-            {isDone ? (
-              <>
-                <div style={{ flex: 1 }}>
-                  <div style={{ marginBottom: '6px' }}>You're done!</div>
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <button
-                      onClick={() => {
-                        setShowDoneToast(false)
-                        setSaveNameInput('')
-                        setShowSaveSheet(true)
-                      }}
-                      style={{
-                        background: 'rgba(255,255,255,0.2)',
-                        border: 'none',
-                        color: WHITE,
-                        fontFamily: FONT,
-                        fontSize: '13px',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        padding: '5px 12px',
-                        borderRadius: '12px',
-                      }}
-                    >Save List</button>
-                    <button
-                      onClick={() => {
-                        setShowDoneToast(false)
-                        handleClearList()
-                      }}
-                      style={{
-                        background: 'rgba(255,255,255,0.2)',
-                        border: 'none',
-                        color: WHITE,
-                        fontFamily: FONT,
-                        fontSize: '13px',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        padding: '5px 12px',
-                        borderRadius: '12px',
-                      }}
-                    >Clear List</button>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowDoneToast(false)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: WHITE,
-                    fontFamily: FONT,
-                    fontSize: '16px',
-                    cursor: 'pointer',
-                    padding: '0',
-                    opacity: 0.6,
-                    alignSelf: 'flex-start',
-                  }}
-                >×</button>
-              </>
-            ) : isChimeIn ? (
-              <span style={{ flex: 1, fontSize: '13px' }}>{pennyChimeIn}</span>
-            ) : (
-              <>
-                <span style={{ flex: 1 }}>{pennyStatus || toast?.message}</span>
-                {pennyStatus && (
-                  <span className="penny-pulse" style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: BRAND, flexShrink: 0 }} />
-                )}
-                {!pennyStatus && toast && (
-                  <>
-                    {(lastAdded.length > 0 || lastSkipped.length > 0) && toast.type !== 'error' && (
-                      <button
-                        onClick={() => {
-                          setShowReviewSheet(true)
-                          setToast(null)
-                          if (toastTimer.current) clearTimeout(toastTimer.current)
-                        }}
-                        style={{
-                          background: BRAND,
-                          border: 'none',
-                          color: WHITE,
-                          fontFamily: FONT,
-                          fontSize: '13px',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          padding: '4px 12px',
-                          borderRadius: '12px',
-                          flexShrink: 0,
-                        }}
-                      >Review</button>
-                    )}
-                    <button
-                      onClick={() => {
-                        setToast(null)
-                        if (toastTimer.current) clearTimeout(toastTimer.current)
-                      }}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: isDone ? WHITE : TEXT_SECONDARY,
-                        fontFamily: FONT,
-                        fontSize: '18px',
-                        cursor: 'pointer',
-                        padding: '0 2px',
-                        lineHeight: 1,
-                        flexShrink: 0,
-                      }}
-                    >×</button>
-                  </>
-                )}
-              </>
-            )}
-          </div>
-        )
-      })()}
+            justifyContent: 'center',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+            zIndex: 20,
+          }}
+          title="Invite household members"
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <circle cx="9" cy="7" r="4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <line x1="19" y1="8" x2="19" y2="14" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <line x1="22" y1="11" x2="16" y2="11" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      )}
+
+      {/* Thumbnail strip above chat bar */}
+      {pendingImages.length > 0 && (
+        <div style={{ display: 'flex', gap: '8px', padding: '8px 12px', overflowX: 'auto', backgroundColor: WHITE, borderTop: `1px solid ${BORDER}`, flexShrink: 0 }}>
+          {pendingImages.map((img, idx) => (
+            <div key={idx} style={{ position: 'relative', flexShrink: 0 }}>
+              <img src={img} alt={`Preview ${idx + 1}`} style={{
+                width: '56px',
+                height: '56px',
+                borderRadius: '8px',
+                objectFit: 'cover',
+              }} />
+              <button
+                onClick={() => setPendingImages(prev => prev.filter((_, i) => i !== idx))}
+                style={{
+                  position: 'absolute',
+                  top: '-6px',
+                  right: '-6px',
+                  width: '18px',
+                  height: '18px',
+                  borderRadius: '50%',
+                  backgroundColor: TEXT,
+                  color: WHITE,
+                  border: 'none',
+                  fontSize: '12px',
+                  lineHeight: '18px',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
+              >×</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Bottom chat bar — flex item, anchors above keyboard via 100dvh */}
       <div style={listStyles.chatBar}>
-        {photoBase64 ? (
-          <div style={{ position: 'relative', flexShrink: 0 }}>
-            <img src={photoBase64} alt="Photo preview" style={{
-              width: '40px',
-              height: '40px',
-              borderRadius: '8px',
-              objectFit: 'cover',
-            }} />
-            <button
-              onClick={() => setPhotoBase64(null)}
-              style={{
-                position: 'absolute',
-                top: '-6px',
-                right: '-6px',
-                width: '18px',
-                height: '18px',
-                borderRadius: '50%',
-                backgroundColor: TEXT,
-                color: WHITE,
-                border: 'none',
-                fontSize: '11px',
-                lineHeight: '18px',
-                textAlign: 'center',
-                cursor: 'pointer',
-                padding: 0,
-              }}
-            >×</button>
-          </div>
-        ) : (
-          <button
-            style={listStyles.chatIconBtn}
-            title="Add photo"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-              <rect x="1" y="5" width="20" height="14" rx="3" stroke={TEXT_SECONDARY} strokeWidth="1.5"/>
-              <circle cx="11" cy="12" r="3.5" stroke={TEXT_SECONDARY} strokeWidth="1.5"/>
-              <path d="M7 5l1.5-2h5L15 5" stroke={TEXT_SECONDARY} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-        )}
+        <button
+          style={listStyles.chatIconBtn}
+          title="Add photo"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+            <rect x="1" y="5" width="20" height="14" rx="3" stroke={TEXT_SECONDARY} strokeWidth="1.5"/>
+            <circle cx="11" cy="12" r="3.5" stroke={TEXT_SECONDARY} strokeWidth="1.5"/>
+            <path d="M7 5l1.5-2h5L15 5" stroke={TEXT_SECONDARY} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
         <input
+          ref={chatInputRef}
           type="text"
           placeholder="Tell Penny what you need…"
           value={chatText}
           onChange={e => setChatText(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') handleSendChat() }}
+          onPaste={handlePaste}
           disabled={chatLoading}
           style={listStyles.chatInput}
         />
         <button
           onClick={handleSendChat}
-          disabled={(!chatText.trim() && !photoBase64) || chatLoading}
-          style={listStyles.chatSendBtn((!!chatText.trim() || !!photoBase64) && !chatLoading)}
+          disabled={(!chatText.trim() && pendingImages.length === 0) || chatLoading}
+          style={listStyles.chatSendBtn((!!chatText.trim() || pendingImages.length > 0) && !chatLoading)}
         >
           {chatLoading
             ? <span style={{ fontSize: '12px', fontFamily: FONT }}>…</span>
@@ -2239,61 +2947,251 @@ const handleCodeChange = (index: number, value: string) => {
         </button>
       </div>
 
-      {/* Item detail sheet */}
-      {selectedItem && (
-        <ActionSheet isOpen={true} onClose={() => setSelectedItem(null)} title="Edit item" maxHeight="75dvh">
-            <p style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, margin: '-4px 0 8px 0' }}>
-              {selectedItem.added_by_name || (selectedItem.added_by_phone ? formatPhone(selectedItem.added_by_phone) : '')}
-              {(selectedItem.added_by_name || selectedItem.added_by_phone) && ' · '}
-              {selectedItem.source === 'sms' ? 'Text' : selectedItem.source === 'email' ? 'Email' : 'App'}
-              {selectedItem.created_at && ` · ${new Date(selectedItem.created_at).toLocaleDateString()}`}
+      {/* Trip planner bottom sheet */}
+      {showTripSheet && (() => {
+        const myTrip = activeTrips.find(t => t.is_mine)
+        if (myTrip) {
+          return (
+            <ActionSheet isOpen={true} onClose={() => setShowTripSheet(false)} title="Your planned trip" maxHeight="60dvh">
+              <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                </svg>
+                <p style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 600, color: TEXT, margin: '12px 0 4px' }}>
+                  {isTripInProgress(myTrip) ? 'Shopping now!' : formatTripTime(myTrip)}
+                </p>
+                <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: 0 }}>
+                  Your household can see this trip.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                <a
+                  href={generateICSLink(myTrip)}
+                  download="shopping-trip.ics"
+                  style={{ ...listStyles.sheetButton, flex: 1, textAlign: 'center', textDecoration: 'none', backgroundColor: WHITE, color: TEXT, border: `1.5px solid ${BORDER}` }}
+                >Add to Calendar</a>
+                <button
+                  onClick={() => { handleCancelTrip(); setShowTripSheet(false) }}
+                  style={{ ...listStyles.sheetButton, flex: 1, backgroundColor: '#FEE2E2', color: '#DC2626', border: 'none' }}
+                >Cancel Trip</button>
+              </div>
+            </ActionSheet>
+          )
+        }
+        return (
+          <ActionSheet isOpen={true} onClose={() => setShowTripSheet(false)} title="Plan a shopping trip" maxHeight="60dvh">
+            <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: '-4px 0 16px 0' }}>
+              Let your household know when you're heading to the store.
             </p>
 
-            <div>
-              <label style={listStyles.fieldLabel}>Name</label>
+            <p style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: TEXT, marginBottom: '8px' }}>When?</p>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
+              {[
+                { label: 'Today', value: todayStr },
+                { label: 'Tomorrow', value: tomorrowStr },
+                { label: 'This weekend', value: satStr },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setTripDay(opt.value)}
+                  style={{
+                    padding: '8px 16px', borderRadius: '20px', border: `1.5px solid ${tripDay === opt.value ? BRAND : BORDER}`,
+                    backgroundColor: tripDay === opt.value ? BRAND : WHITE, color: tripDay === opt.value ? WHITE : TEXT,
+                    fontFamily: FONT, fontSize: '15px', fontWeight: 500, cursor: 'pointer',
+                  }}
+                >{opt.label}</button>
+              ))}
+              <select
+                value={getDayOptions().some(o => o.value === tripDay) ? tripDay : ''}
+                onChange={e => setTripDay(e.target.value)}
+                style={{
+                  padding: '8px 12px', borderRadius: '20px', border: `1.5px solid ${BORDER}`,
+                  backgroundColor: WHITE, fontFamily: FONT, fontSize: '15px', color: TEXT, cursor: 'pointer',
+                }}
+              >
+                <option value="">Pick a day...</option>
+                {getDayOptions().map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <p style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: TEXT, marginBottom: '8px' }}>
+              What time? <span style={{ fontWeight: 400, color: TEXT_SECONDARY }}>(optional)</span>
+            </p>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+              {['morning', 'afternoon', 'evening', 'exact'].map(t => (
+                <button
+                  key={t}
+                  onClick={() => setTripTimeLabel(tripTimeLabel === t ? '' : t)}
+                  style={{
+                    padding: '8px 16px', borderRadius: '20px', border: `1.5px solid ${tripTimeLabel === t ? BRAND : BORDER}`,
+                    backgroundColor: tripTimeLabel === t ? BRAND : WHITE, color: tripTimeLabel === t ? WHITE : TEXT,
+                    fontFamily: FONT, fontSize: '15px', fontWeight: 500, cursor: 'pointer', textTransform: 'capitalize',
+                  }}
+                >{t}</button>
+              ))}
+            </div>
+            {tripTimeLabel === 'exact' && (
+              <input
+                type="time"
+                value={tripExactTime}
+                onChange={e => setTripExactTime(e.target.value)}
+                style={{
+                  padding: '10px 14px', borderRadius: '12px', border: `1.5px solid ${BORDER}`,
+                  fontFamily: FONT, fontSize: '16px', color: TEXT, width: '100%', boxSizing: 'border-box',
+                  marginBottom: '12px',
+                }}
+              />
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
+              <button
+                onClick={() => handleSetTrip(true)}
+                disabled={!tripDay}
+                style={{ ...listStyles.sheetButton, opacity: tripDay ? 1 : 0.4 }}
+              >Save & Add to Calendar</button>
+              <button
+                onClick={() => handleSetTrip(false)}
+                disabled={!tripDay}
+                style={{ ...listStyles.sheetButton, opacity: tripDay ? 1 : 0.4, backgroundColor: WHITE, color: TEXT, border: `1.5px solid ${BORDER}` }}
+              >Save</button>
+              <button
+                onClick={() => setShowTripSheet(false)}
+                style={{ ...listStyles.sheetButton, backgroundColor: 'transparent', color: TEXT_SECONDARY, border: 'none' }}
+              >Cancel</button>
+            </div>
+          </ActionSheet>
+        )
+      })()}
+
+      {/* NPS Survey Modal */}
+      {showNPS && (
+        <div onClick={closeNPS} style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            backgroundColor: WHITE, borderRadius: '16px', padding: '24px',
+            width: '90%', maxWidth: '360px', position: 'relative',
+          }}>
+            <button onClick={closeNPS} style={{
+              position: 'absolute', top: '12px', right: '12px',
+              background: 'none', border: 'none', fontSize: '20px', color: TEXT_SECONDARY, cursor: 'pointer',
+            }}>×</button>
+            {npsStep === 1 ? (
+              <>
+                <div style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 600, color: TEXT, marginBottom: '16px', paddingRight: '24px' }}>
+                  How likely are you to recommend Thriftly to a friend?
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(11, 1fr)', gap: '4px', marginBottom: '8px' }}>
+                  {Array.from({ length: 11 }, (_, i) => (
+                    <button key={i} onClick={() => { setNpsScore(i); setNpsStep(2) }} style={{
+                      height: '40px', borderRadius: '10px',
+                      border: `1px solid ${BORDER}`, backgroundColor: WHITE,
+                      fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: TEXT,
+                      cursor: 'pointer', padding: 0,
+                    }}>{i}</button>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>
+                  <span>Not likely</span><span>Very likely</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, marginBottom: '12px' }}>
+                  You selected <strong>{npsScore}</strong>
+                </div>
+                <textarea
+                  value={npsComment}
+                  onChange={e => setNpsComment(e.target.value)}
+                  placeholder={`Tell us why you chose ${npsScore}`}
+                  rows={3}
+                  style={{
+                    width: '100%', padding: '10px', borderRadius: '8px',
+                    border: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '15px',
+                    resize: 'vertical', marginBottom: '16px', boxSizing: 'border-box',
+                  }}
+                />
+                <button onClick={handleNPSSubmit} style={{
+                  width: '100%', padding: '12px', borderRadius: '10px',
+                  backgroundColor: BRAND, color: WHITE, border: 'none',
+                  fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+                }}>Submit</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Item detail sheet */}
+      {selectedItem && (
+        <ActionSheet isOpen={true} onClose={() => closeEditSheet()} title="Edit item" maxHeight="75dvh">
+            {/* Brand header with logo box */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '12px', paddingBottom: '12px', borderBottom: `1px solid ${BORDER}` }}>
+              <div style={{
+                width: 56, height: 56, flexShrink: 0, borderRadius: '12px',
+                border: `1.5px solid ${BORDER}`, backgroundColor: '#FAFAFA',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+              }}>
+                {displayBrand ? (
+                  <BrandLogo brand={displayBrand} size={52} />
+                ) : (
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={BORDER} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 7V5a4 4 0 0 0-8 0v2"/>
+                  </svg>
+                )}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: FONT, fontSize: '11px', fontWeight: 600, color: TEXT_SECONDARY, textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>Brand</div>
+                <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '2px' }}>{displayBrand || 'No brand'}</div>
+              </div>
+            </div>
+
+            <FloatingLabelField label="Name">
               <input
                 type="text"
                 value={editName}
                 onChange={e => setEditName(e.target.value)}
                 placeholder="Item name"
-                style={listStyles.sheetTextInput}
+                style={listStyles.floatingInput}
                 autoFocus
               />
-            </div>
+            </FloatingLabelField>
 
-            <div>
-              <label style={listStyles.fieldLabel}>Brand</label>
+            <FloatingLabelField label="Brand">
               <input
                 type="text"
                 value={editBrand}
                 onChange={e => setEditBrand(e.target.value)}
+                onBlur={() => setDisplayBrand(editBrand)}
                 placeholder="Optional"
-                style={listStyles.sheetTextInput}
+                style={listStyles.floatingInput}
               />
-            </div>
+            </FloatingLabelField>
 
-            <div>
-              <label style={listStyles.fieldLabel}>Department</label>
+            <FloatingLabelField label="Department">
               <select
                 value={editDept}
                 onChange={e => setEditDept(e.target.value)}
-                style={listStyles.sheetSelect}
+                style={listStyles.floatingSelect}
               >
                 {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
-            </div>
+            </FloatingLabelField>
 
             <div style={listStyles.sheetRow}>
               <div style={{ flex: 1 }}>
-                <label style={listStyles.fieldLabel}>Size</label>
-                <input
-                  type="text"
-                  list="size-suggestions"
-                  value={editSize}
-                  onChange={e => setEditSize(e.target.value)}
-                  placeholder="e.g. 16 oz, 1 lb"
-                  style={listStyles.sheetTextInput}
-                />
+                <FloatingLabelField label="Size">
+                  <input
+                    type="text"
+                    list="size-suggestions"
+                    value={editSize}
+                    onChange={e => setEditSize(e.target.value)}
+                    placeholder="e.g. 16 oz, 1 lb"
+                    style={listStyles.floatingInput}
+                  />
+                </FloatingLabelField>
                 <datalist id="size-suggestions">
                   {['4 oz','8 oz','12 oz','16 oz','24 oz','32 oz','1 lb','2 lb','5 lb','½ gal','1 gal','Small','Medium','Large','XL'].map(s => (
                     <option key={s} value={s} />
@@ -2301,31 +3199,71 @@ const handleCodeChange = (index: number, value: string) => {
                 </datalist>
               </div>
               <div>
-                <label style={listStyles.fieldLabel}>Qty</label>
-                <QuantityControl value={editQty} onChange={setEditQty} />
+                <FloatingLabelField label="Qty">
+                  <QuantityControl value={editQty} onChange={setEditQty} />
+                </FloatingLabelField>
               </div>
             </div>
 
-            <button
-              onClick={handleEditSave}
-              disabled={!editName.trim() || editLoading}
-              style={{
-                ...listStyles.sheetButton,
-                opacity: editName.trim() && !editLoading ? 1 : 0.4,
-              }}
-            >
-              {editLoading ? 'Saving…' : 'Save'}
-            </button>
+            {/* Urgent toggle */}
+            {selectedItem && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderTop: `1px solid ${BORDER}`, marginTop: '4px' }}>
+                <span style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>🔥 Urgent</span>
+                <ToggleSwitch value={selectedItem.urgent} onChange={() => { handleUrgentToggle(selectedItem.id); setSelectedItem(prev => prev ? { ...prev, urgent: !prev.urgent } : prev) }} />
+              </div>
+            )}
+
+            {/* Claim UI */}
+            {selectedItem && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: `1px solid ${BORDER}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={selectedItem.claimed_by_id ? BRAND : TEXT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/>
+                    {selectedItem.claimed_by_id && <path d="M9 14l2 2 4-4" strokeWidth="2.5"/>}
+                  </svg>
+                  <span style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>
+                    {!selectedItem.claimed_by_id ? "I'll get it" : selectedItem.claimed_by_id === currentUserId ? "You're getting this" : `${selectedItem.claimed_by_name} is getting this`}
+                  </span>
+                </div>
+                {(!selectedItem.claimed_by_id || selectedItem.claimed_by_id === currentUserId) && (
+                  <ToggleSwitch
+                    value={selectedItem.claimed_by_id === currentUserId}
+                    onChange={() => {
+                      const wasClaimed = selectedItem.claimed_by_id === currentUserId
+                      handleClaim(selectedItem.id)
+                      setSelectedItem(prev => prev ? { ...prev, claimed_by_id: wasClaimed ? null : currentUserId, claimed_by_name: wasClaimed ? '' : 'Me' } : prev)
+                    }}
+                  />
+                )}
+              </div>
+            )}
+
+            <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button
+                onClick={handleEditSave}
+                disabled={!editName.trim() || editLoading}
+                style={{
+                  ...listStyles.sheetButton,
+                  opacity: editName.trim() && !editLoading ? 1 : 0.4,
+                }}
+              >
+                {editLoading ? 'Saving…' : 'Save'}
+              </button>
+
+              <button onClick={handleEditDelete} disabled={editLoading} style={listStyles.sheetDeleteBtn}>
+                Delete item
+              </button>
+            </div>
 
             {itemHistory.length > 0 && (
-              <div style={{ marginTop: '8px' }}>
+              <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${BORDER}` }}>
                 <SectionHeader label="History" />
                 {itemHistory.map((mod, i) => (
                   <div key={i} style={{
                     padding: '6px 0',
                     borderBottom: i < itemHistory.length - 1 ? `1px solid ${BORDER}` : 'none',
                     fontFamily: FONT,
-                    fontSize: '13px',
+                    fontSize: '12px',
                     color: TEXT_SECONDARY,
                   }}>
                     <span style={{ fontWeight: 500, color: TEXT }}>{mod.user_name || 'Unknown'}</span>
@@ -2336,10 +3274,6 @@ const handleCodeChange = (index: number, value: string) => {
                 ))}
               </div>
             )}
-
-            <button onClick={handleEditDelete} disabled={editLoading} style={listStyles.sheetDeleteBtn}>
-              Delete item
-            </button>
         </ActionSheet>
       )}
 
@@ -2356,58 +3290,57 @@ const handleCodeChange = (index: number, value: string) => {
                     alignItems: 'center',
                     padding: '10px 0',
                     borderBottom: `1px solid ${BORDER}`,
-                    gap: '8px',
+                    gap: '10px',
                   }}>
-                    <div style={{ flex: 1 }}>
+                    <BrandLogo brand={item.brand} size={52} />
+                    <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openDetailFromReview(item)}>
                       <span style={{ fontFamily: FONT, fontSize: '16px', color: TEXT }}>
                         {item.brand ? `${item.brand} ` : ''}{item.name}
                       </span>
                       {item.size && (
-                        <span style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, marginLeft: '6px' }}>
+                        <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginLeft: '6px' }}>
                           {item.size}
                         </span>
                       )}
                       <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>
-                        {item.department}
+                        {item.department} · <span style={{ color: BRAND, fontSize: '12px' }}>edit</span>
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0', border: `1.5px solid ${BORDER}`, borderRadius: '10px', overflow: 'hidden', backgroundColor: BG, flexShrink: 0 }}>
                       <button
                         onClick={async () => {
-                          const newQty = Math.max(1, item.quantity - 1)
-                          const res = await fetch(`/api/list/${item.id}`, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ quantity: newQty }),
+                          const data = await fetchAPI(`/api/list/${item.id}`, {
+                            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ quantity: Math.max(1, item.quantity - 1) }),
                           })
-                          if (res.ok) {
-                            const updated: ListItem = await res.json()
+                          if (data) {
+                            const updated = data as ListItem
                             setLastAdded(prev => prev.map(i => i.id === updated.id ? updated : i))
                             setItems(prev => sortItems(prev.map(i => i.id === updated.id ? updated : i)))
                           }
                         }}
-                        style={{ width: '34px', height: '34px', border: 'none', background: 'none', fontSize: '18px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        style={qtyBtnStyle}
                       >−</button>
                       <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT, minWidth: '24px', textAlign: 'center' }}>{item.quantity}</span>
                       <button
                         onClick={async () => {
-                          const res = await fetch(`/api/list/${item.id}`, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
+                          const data = await fetchAPI(`/api/list/${item.id}`, {
+                            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ quantity: item.quantity + 1 }),
                           })
-                          if (res.ok) {
-                            const updated: ListItem = await res.json()
+                          if (data) {
+                            const updated = data as ListItem
                             setLastAdded(prev => prev.map(i => i.id === updated.id ? updated : i))
                             setItems(prev => sortItems(prev.map(i => i.id === updated.id ? updated : i)))
                           }
                         }}
-                        style={{ width: '34px', height: '34px', border: 'none', background: 'none', fontSize: '18px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        style={qtyBtnStyle}
                       >+</button>
                     </div>
                     <button
                       onClick={async () => {
-                        await fetch(`/api/list/${item.id}`, { method: 'DELETE' })
+                        const delRes = await fetch(`/api/list/${item.id}`, { method: 'DELETE' })
+                        if (delRes.status === 401) { handleSessionExpired(); return }
                         setItems(prev => prev.filter(i => i.id !== item.id))
                         const remaining = lastAdded.filter(i => i.id !== item.id)
                         setLastAdded(remaining)
@@ -2421,7 +3354,7 @@ const handleCodeChange = (index: number, value: string) => {
                         border: `1px solid ${BORDER}`,
                         background: 'none',
                         color: TEXT_SECONDARY,
-                        fontSize: '14px',
+                        fontSize: '15px',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
@@ -2445,26 +3378,25 @@ const handleCodeChange = (index: number, value: string) => {
                       alignItems: 'center',
                       padding: '10px 0',
                       borderBottom: `1px solid ${BORDER}`,
-                      gap: '8px',
+                      gap: '10px',
                     }}>
-                      <div style={{ flex: 1 }}>
+                      <BrandLogo brand={skipped.parsed.brand} size={52} />
+                      <div style={{ flex: 1, cursor: existing ? 'pointer' : undefined }} onClick={() => existing && openDetailFromReview(existing)}>
                         <span style={{ fontFamily: FONT, fontSize: '16px', color: TEXT }}>
                           {skipped.parsed.brand ? `${skipped.parsed.brand} ` : ''}{skipped.parsed.name}
                         </span>
-                        <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, marginTop: '2px' }}>
-                          Currently: ×{existing?.quantity ?? 1}
+                        <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>
+                          Currently: ×{existing?.quantity ?? 1}{existing && <> · <span style={{ color: BRAND, fontSize: '12px' }}>edit</span></>}
                         </div>
                       </div>
                       <button
                         onClick={async () => {
-                          const currentQty = existing?.quantity ?? 1
-                          const res = await fetch(`/api/list/${skipped.existing_id}`, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ quantity: currentQty + (skipped.parsed.quantity || 1) }),
+                          const data = await fetchAPI(`/api/list/${skipped.existing_id}`, {
+                            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ quantity: (existing?.quantity ?? 1) + (skipped.parsed.quantity || 1) }),
                           })
-                          if (res.ok) {
-                            const updated: ListItem = await res.json()
+                          if (data) {
+                            const updated = data as ListItem
                             setItems(prev => sortItems(prev.map(i => i.id === updated.id ? updated : i)))
                             const remaining = lastSkipped.filter(s => s.existing_id !== skipped.existing_id)
                             setLastSkipped(remaining)
@@ -2479,7 +3411,7 @@ const handleCodeChange = (index: number, value: string) => {
                           background: 'none',
                           color: BRAND,
                           fontFamily: FONT,
-                          fontSize: '14px',
+                          fontSize: '15px',
                           fontWeight: 600,
                           cursor: 'pointer',
                         }}
@@ -2494,7 +3426,8 @@ const handleCodeChange = (index: number, value: string) => {
               <button
                 onClick={async () => {
                   for (const item of lastAdded) {
-                    await fetch(`/api/list/${item.id}`, { method: 'DELETE' })
+                    const dr = await fetch(`/api/list/${item.id}`, { method: 'DELETE' })
+                    if (dr.status === 401) { handleSessionExpired(); return }
                   }
                   setItems(prev => {
                     const ids = new Set(lastAdded.map(i => i.id))
@@ -2583,7 +3516,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '32px',
     fontWeight: 700,
     color: BRAND,
-    margin: '16px 0 0 0',
+    margin: '16px 0 24px 0',
     letterSpacing: '-0.5px',
   },
 
@@ -2605,7 +3538,7 @@ const styles: Record<string, React.CSSProperties> = {
   label: {
     display: 'block',
     fontFamily: FONT,
-    fontSize: '13px',
+    fontSize: '12px',
     fontWeight: 500,
     color: TEXT_SECONDARY,
     marginBottom: '8px',
@@ -2651,7 +3584,7 @@ const styles: Record<string, React.CSSProperties> = {
 
   error: {
     fontFamily: FONT,
-    fontSize: '14px',
+    fontSize: '15px',
     color: ERROR_RED,
     margin: '0 0 12px 0',
     fontWeight: 500,
@@ -2720,7 +3653,7 @@ const styles: Record<string, React.CSSProperties> = {
 
   logoutButton: {
     fontFamily: FONT,
-    fontSize: '14px',
+    fontSize: '15px',
     fontWeight: 500,
     color: TEXT_SECONDARY,
     background: 'none',
@@ -2790,7 +3723,8 @@ const listStyles = {
     borderRadius: '12px',
     boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
     padding: '6px 0',
-    minWidth: '180px',
+    minWidth: '220px',
+    whiteSpace: 'nowrap' as const,
     zIndex: 20,
   } as React.CSSProperties,
 
@@ -2850,7 +3784,7 @@ const listStyles = {
     WebkitTapHighlightColor: 'transparent',
     gap: '8px',
     fontFamily: FONT,
-    fontSize: '13px',
+    fontSize: '12px',
     fontWeight: 600,
     color: open ? BRAND : TEXT_SECONDARY,
     textTransform: 'uppercase' as const,
@@ -2865,7 +3799,7 @@ const listStyles = {
   } as React.CSSProperties,
 
   deptChevron: (open: boolean): React.CSSProperties => ({
-    fontSize: '18px',
+    fontSize: '17px',
     color: TEXT_SECONDARY,
     transform: open ? 'rotate(90deg)' : 'none',
     transition: 'transform 0.15s',
@@ -2895,8 +3829,8 @@ const listStyles = {
     width: '22px',
     height: '22px',
     borderRadius: '50%',
-    border: `2px solid ${checked ? BRAND : BORDER}`,
-    backgroundColor: checked ? BRAND : 'transparent',
+    border: `2px solid ${checked ? '#C5C0B8' : BORDER}`,
+    backgroundColor: checked ? '#C5C0B8' : 'transparent',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2919,7 +3853,7 @@ const listStyles = {
 
   itemName: (checked: boolean): React.CSSProperties => ({
     fontFamily: FONT,
-    fontSize: '16px',
+    fontSize: '17px',
     color: checked ? TEXT_SECONDARY : TEXT,
     textDecoration: checked ? 'line-through' : 'none',
     transition: 'all 0.15s',
@@ -2927,7 +3861,7 @@ const listStyles = {
 
   itemMeta: {
     fontFamily: FONT,
-    fontSize: '13px',
+    fontSize: '12px',
     color: TEXT_SECONDARY,
   } as React.CSSProperties,
 
@@ -3017,14 +3951,14 @@ const listStyles = {
     paddingBottom: 'max(32px, env(safe-area-inset-bottom))',
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: '10px',
+    gap: '14px',
     maxHeight: '85dvh',
     overflowY: 'auto' as const,
   } as React.CSSProperties,
 
   sheetTitle: {
     fontFamily: FONT,
-    fontSize: '18px',
+    fontSize: '17px',
     fontWeight: 600,
     color: TEXT,
   } as React.CSSProperties,
@@ -3048,7 +3982,7 @@ const listStyles = {
 
   sheetLabel: {
     fontFamily: FONT,
-    fontSize: '14px',
+    fontSize: '15px',
     fontWeight: 500,
     color: TEXT_SECONDARY,
     flexShrink: 0,
@@ -3075,6 +4009,38 @@ const listStyles = {
     fontFamily: FONT,
     color: TEXT,
     backgroundColor: BG,
+    border: `1.5px solid ${BORDER}`,
+    borderRadius: '12px',
+    outline: 'none',
+    boxSizing: 'border-box' as const,
+    appearance: 'none' as const,
+    WebkitAppearance: 'none' as const,
+    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236B6B6B' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")`,
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'right 16px center',
+    paddingRight: '40px',
+  } as React.CSSProperties,
+
+  floatingInput: {
+    width: '100%',
+    padding: '12px 16px',
+    fontSize: '16px',
+    fontFamily: FONT,
+    color: TEXT,
+    backgroundColor: WHITE,
+    border: `1.5px solid ${BORDER}`,
+    borderRadius: '12px',
+    outline: 'none',
+    boxSizing: 'border-box' as const,
+  } as React.CSSProperties,
+
+  floatingSelect: {
+    width: '100%',
+    padding: '12px 16px',
+    fontSize: '16px',
+    fontFamily: FONT,
+    color: TEXT,
+    backgroundColor: WHITE,
     border: `1.5px solid ${BORDER}`,
     borderRadius: '12px',
     outline: 'none',
@@ -3192,12 +4158,40 @@ const globalCSS = `
   }
 
   /* Penny loading pulse */
+  @keyframes cursor-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+  .cursor-blink { animation: cursor-blink 0.8s step-end infinite; }
+
   @keyframes penny-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.2; }
   }
   .penny-pulse {
     animation: penny-pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes float-up {
+    0% { transform: translateY(0) scale(0.9); opacity: 0; }
+    10% { transform: translateY(-10px) scale(1); opacity: 1; }
+    70% { opacity: 1; }
+    100% { transform: translateY(-340px) scale(1); opacity: 0; }
+  }
+
+  @keyframes done-overlay {
+    0% { opacity: 0; }
+    15% { opacity: 1; }
+    70% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  @keyframes confetti-fall {
+    0% { transform: translateY(-10px) translateX(0) rotate(0deg); opacity: 1; }
+    25% { transform: translateY(25vh) translateX(15px) rotate(120deg); opacity: 1; }
+    50% { transform: translateY(50vh) translateX(-10px) rotate(240deg); opacity: 0.8; }
+    75% { transform: translateY(75vh) translateX(12px) rotate(360deg); opacity: 0.4; }
+    100% { transform: translateY(100vh) translateX(-5px) rotate(480deg); opacity: 0; }
   }
 `
 
