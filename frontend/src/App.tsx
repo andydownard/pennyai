@@ -1240,8 +1240,9 @@ const handleCodeChange = (index: number, value: string) => {
             <button style={listStyles.menuItem(active === 'home')} onClick={() => { setMenuOpen(false); setScreen('home') }}>Shopping List</button>
             <button style={listStyles.menuItem(active === 'saved')} onClick={() => { setMenuOpen(false); setScreen('saved') }}>Saved Lists</button>
             <button style={listStyles.menuItem(active === 'about')} onClick={() => { setMenuOpen(false); setScreen('about') }}>How to text Penny</button>
+            <button style={listStyles.menuItem(active === 'settings-family')} onClick={() => { setMenuOpen(false); setScreen('settings-family') }}>Manage Household</button>
             <button style={listStyles.menuItem(active === 'settings-share')} onClick={() => { setMenuOpen(false); setScreen('settings-share') }}>Share & Earn</button>
-            <button style={listStyles.menuItem(active === 'settings' || active === 'settings-profile' as Screen || active === 'settings-family' as Screen)} onClick={() => { setMenuOpen(false); setScreen('settings') }}>Settings</button>
+            <button style={listStyles.menuItem(active === 'settings' || active === 'settings-profile' as Screen)} onClick={() => { setMenuOpen(false); setScreen('settings') }}>Settings</button>
             {isAdmin && (
               <button style={listStyles.menuItem(active === 'admin')} onClick={() => { setMenuOpen(false); setScreen('admin') }}>Dashboard</button>
             )}
@@ -1347,7 +1348,6 @@ const handleCodeChange = (index: number, value: string) => {
   if (screen === 'settings') {
     const settingsRows: { label: string; target: Screen | 'logout' }[] = [
       { label: 'Profile', target: 'settings-profile' },
-      { label: 'Family', target: 'settings-family' },
     ]
     return (
       <div style={listStyles.page}>
@@ -1455,7 +1455,7 @@ const handleCodeChange = (index: number, value: string) => {
     return (
       <div style={listStyles.page}>
         <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
-        {renderSubpageHeader('Family', 'settings')}
+        {renderSubpageHeader('Manage Household', 'home')}
         <div style={listStyles.listArea}>
           <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
             {settingsMembers.length > 0 && (
