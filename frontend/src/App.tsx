@@ -22,7 +22,10 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 // =============================================================================
 
 // The screens the app can show
-type Screen = 'phone' | 'code' | 'home' | 'saved'
+type Screen = 'phone' | 'code' | 'home' | 'saved' | 'settings' | 'about' | 'invite' | 'settings-profile' | 'settings-family' | 'settings-share' | 'admin'
+
+// Declare gtag for TypeScript
+declare function gtag(...args: unknown[]): void
 
 type ListItem = {
   id: number
@@ -31,8 +34,11 @@ type ListItem = {
   department: string
   quantity: number
   size: string
+  source: string
   checked: boolean
   created_at: string
+  added_by_name: string
+  added_by_phone: string
 }
 
 type SavedList = {
@@ -40,6 +46,14 @@ type SavedList = {
   name: string
   item_count: number
   created_at: string
+}
+
+type ItemModification = {
+  action: string
+  detail: string
+  source: string
+  created_at: string
+  user_name: string
 }
 
 // =============================================================================
@@ -152,36 +166,23 @@ function Logo() {
 
 function PennyAvatar({ size = 28 }: { size?: number }) {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 48 48"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      style={{ flexShrink: 0 }}
-      aria-label="Penny"
-    >
-      {/* Background circle */}
-      <circle cx="24" cy="24" r="24" fill={BRAND} />
-      {/* Face */}
-      <circle cx="24" cy="22" r="13" fill="#FBE8D3" />
-      {/* Eyes */}
-      <circle cx="19.5" cy="20.5" r="2" fill="#2A2A2A" />
-      <circle cx="28.5" cy="20.5" r="2" fill="#2A2A2A" />
-      {/* Eye shine */}
-      <circle cx="20.2" cy="19.8" r="0.7" fill={WHITE} />
-      <circle cx="29.2" cy="19.8" r="0.7" fill={WHITE} />
-      {/* Smile */}
-      <path d="M20 26.5Q24 30 28 26.5" stroke="#2A2A2A" strokeWidth="1.5" strokeLinecap="round" fill="none" />
-      {/* Blush */}
-      <ellipse cx="17" cy="25" rx="2.5" ry="1.5" fill="#F5B8A0" opacity="0.5" />
-      <ellipse cx="31" cy="25" rx="2.5" ry="1.5" fill="#F5B8A0" opacity="0.5" />
-      {/* Hair */}
-      <path d="M11 20C11 12.8 16.8 9 24 9C31.2 9 37 12.8 37 20" stroke={BRAND} strokeWidth="0" fill="#5B3A29" />
-      <path d="M11.5 21C11 15 16 8 24 8C32 8 37 15 36.5 21C36.5 21 35 13 24 13C13 13 11.5 21 11.5 21Z" fill="#5B3A29" />
-      {/* Sparkle */}
-      <path d="M38 10L39 13L42 14L39 15L38 18L37 15L34 14L37 13Z" fill="#FFD700" />
-    </svg>
+    <div style={{
+      width: size,
+      height: size,
+      borderRadius: '50%',
+      overflow: 'hidden',
+      flexShrink: 0,
+      backgroundColor: '#e8e4df',
+      border: size > 40 ? `2px solid ${BORDER}` : 'none',
+    }}>
+      <img
+        src="/penny.png"
+        alt="Penny"
+        width={size}
+        height={size}
+        style={{ objectFit: 'cover', objectPosition: 'center 15%', display: 'block' }}
+      />
+    </div>
   )
 }
 
@@ -199,12 +200,130 @@ function pickRandom(arr: string[]) {
 }
 
 // =============================================================================
+// EXTRACTED COMPONENTS
+// =============================================================================
+
+function ActionSheet({ isOpen, onClose, title, children, maxHeight }: {
+  isOpen: boolean
+  onClose: () => void
+  title?: string
+  children: React.ReactNode
+  maxHeight?: string
+}) {
+  if (!isOpen) return null
+  return (
+    <div style={listStyles.overlay} onClick={onClose}>
+      <div style={{ ...listStyles.sheet, ...(maxHeight ? { maxHeight } : {}) }} onClick={e => e.stopPropagation()}>
+        {title && <p style={listStyles.sheetTitle}>{title}</p>}
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function SectionHeader({ label }: { label: string }) {
+  return (
+    <p style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: TEXT_SECONDARY, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px' }}>{label}</p>
+  )
+}
+
+function QuantityControl({ value, onChange }: {
+  value: number
+  onChange: (newValue: number) => void
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0', border: `1.5px solid ${BORDER}`, borderRadius: '10px', overflow: 'hidden', backgroundColor: BG, flexShrink: 0 }}>
+      <button
+        onClick={() => onChange(Math.max(1, value - 1))}
+        style={{ width: '34px', height: '34px', border: 'none', background: 'none', fontSize: '18px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >−</button>
+      <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT, minWidth: '24px', textAlign: 'center' }}>{value}</span>
+      <button
+        onClick={() => onChange(value + 1)}
+        style={{ width: '34px', height: '34px', border: 'none', background: 'none', fontSize: '18px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >+</button>
+    </div>
+  )
+}
+
+function ConfirmModal({ open, title, message, confirmLabel, onConfirm, onCancel, destructive }: {
+  open: boolean
+  title: string
+  message?: string
+  confirmLabel?: string
+  onConfirm: () => void
+  onCancel: () => void
+  destructive?: boolean
+}) {
+  if (!open) return null
+  return (
+    <div onClick={onCancel} style={{
+      position: 'fixed', inset: 0, zIndex: 9999,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      backgroundColor: 'rgba(0,0,0,0.4)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        backgroundColor: '#fff', borderRadius: '14px', width: '270px',
+        overflow: 'hidden', textAlign: 'center', fontFamily: FONT,
+      }}>
+        <div style={{ padding: '20px 16px 0' }}>
+          <div style={{ fontSize: '17px', fontWeight: 600, color: TEXT }}>{title}</div>
+          {message && <div style={{ fontSize: '13px', color: TEXT_SECONDARY, marginTop: '4px' }}>{message}</div>}
+        </div>
+        <div style={{ display: 'flex', borderTop: '1px solid #e5e5e5', marginTop: '16px' }}>
+          <button onClick={onCancel} style={{
+            flex: 1, padding: '12px', border: 'none', background: 'none',
+            fontSize: '17px', fontFamily: FONT, color: '#007AFF', cursor: 'pointer',
+            borderRight: '1px solid #e5e5e5',
+          }}>Cancel</button>
+          <button onClick={onConfirm} style={{
+            flex: 1, padding: '12px', border: 'none', background: 'none',
+            fontSize: '17px', fontWeight: 600, fontFamily: FONT, cursor: 'pointer',
+            color: destructive ? ERROR_RED : '#007AFF',
+          }}>{confirmLabel || 'Confirm'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LegalLinks() {
+  return (
+    <>
+      <a
+        href="https://thrift.ly"
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, textDecoration: 'none', marginTop: '48px', opacity: 0.5 }}
+      >
+        powered by <span style={{ fontWeight: 600 }}>thriftly</span>
+      </a>
+      <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginTop: '12px', opacity: 0.45 }}>
+        <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: TEXT_SECONDARY, textDecoration: 'none' }}>Privacy</a>
+        {' · '}
+        <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: TEXT_SECONDARY, textDecoration: 'none' }}>Terms</a>
+      </div>
+    </>
+  )
+}
+
+// =============================================================================
 // MAIN APP COMPONENT
 // =============================================================================
 
 export default function App() {
   // --- State ---
-  const [screen, setScreen] = useState<Screen>('phone')
+  const [screen, setScreenRaw] = useState<Screen>('phone')
+  const setScreen = (s: Screen) => {
+    setScreenRaw(s)
+    if (['home', 'settings', 'about', 'invite', 'saved', 'settings-profile', 'settings-family', 'settings-share', 'admin'].includes(s)) {
+      window.location.hash = s === 'home' ? '' : s
+    }
+    // Track page view in Google Analytics
+    if (typeof gtag === 'function') {
+      gtag('event', 'page_view', { page_title: s })
+    }
+  }
   const [phone, setPhone] = useState('')           // raw digits: "5551234567"
   const [code, setCode] = useState(['', '', '', '', '', '']) // 6 digits
   const [error, setError] = useState('')
@@ -223,6 +342,7 @@ export default function App() {
   const [editQty, setEditQty] = useState(1)
   const [editSize, setEditSize] = useState('')
   const [editLoading, setEditLoading] = useState(false)
+  const [itemHistory, setItemHistory] = useState<ItemModification[]>([])
   const deptRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   // --- Toast state ---
@@ -249,10 +369,74 @@ export default function App() {
   const [showSaveSheet, setShowSaveSheet] = useState(false)
   const [saveNameInput, setSaveNameInput] = useState('')
   const [selectedSavedList, setSelectedSavedList] = useState<SavedList | null>(null)
-  const [confirmDeleteSavedList, setConfirmDeleteSavedList] = useState(false)
+
+  // --- Confirm modal state ---
+  const [confirmModal, setConfirmModal] = useState<{
+    title: string; message?: string; confirmLabel?: string; destructive?: boolean
+  } | null>(null)
+  const confirmActionRef = useRef<(() => void) | null>(null)
+  const openConfirmModal = (opts: { title: string; message?: string; confirmLabel?: string; destructive?: boolean; onConfirm: () => void }) => {
+    confirmActionRef.current = opts.onConfirm
+    setConfirmModal({ title: opts.title, message: opts.message, confirmLabel: opts.confirmLabel, destructive: opts.destructive })
+  }
+  const closeConfirmModal = () => {
+    setConfirmModal(null)
+    confirmActionRef.current = null
+  }
+  const runConfirmAction = () => {
+    const action = confirmActionRef.current
+    closeConfirmModal()
+    if (action) action()
+  }
+
+  // --- Settings state ---
+  const [settingsName, setSettingsName] = useState('')
+  const [settingsEmail, setSettingsEmail] = useState('')
+  const [settingsMembers, setSettingsMembers] = useState<{ name: string; phone: string }[]>([])
+  const [settingsLoading, setSettingsLoading] = useState(false)
+  const [inviteLoading, setInviteLoading] = useState(false)
+
+  // --- Referral state ---
+  const [referralCode, setReferralCode] = useState('')
+  const [referralFriends, setReferralFriends] = useState<{ name: string; created_at: string }[]>([])
+
+  // --- Admin state ---
+  const [userPhone, setUserPhone] = useState('')
+  const [adminData, setAdminData] = useState<{
+    active_users: number; total_users: number; new_users: number;
+    k_factor: number; leaderboard: { phone: string; name: string; points: number; referrals: number }[];
+    days: number;
+  } | null>(null)
+  const [adminDays, setAdminDays] = useState(30)
+
+  // --- SMS opt-in state ---
+  const [smsOptIn, setSmsOptIn] = useState(true)
 
   // --- Penny loading spinner state ---
   const [pennyStatus, setPennyStatus] = useState<string | null>(null)
+
+  // --- Penny chime-in state ---
+  const [pennyChimeIn, setPennyChimeIn] = useState<string | null>(null)
+  const chimeInTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const prevCheckedRef = useRef(-1)
+
+  const CHIME_IN_MESSAGES = [
+    'Looking good!', 'Almost there!', 'Penny approves!', 'Great picks!',
+    'Nice work!', 'On a roll!', 'Crushing it!', 'Keep going!',
+  ]
+
+  useEffect(() => {
+    const checked = items.filter(i => i.checked).length
+    if (checked > prevCheckedRef.current && prevCheckedRef.current >= 0 && items.length > 0) {
+      // 30% chance Penny chimes in after checking off an item
+      if (Math.random() < 0.3) {
+        if (chimeInTimer.current) clearTimeout(chimeInTimer.current)
+        setPennyChimeIn(pickRandom(CHIME_IN_MESSAGES))
+        chimeInTimer.current = setTimeout(() => setPennyChimeIn(null), 4000)
+      }
+    }
+    prevCheckedRef.current = checked
+  }, [items])
 
   useEffect(() => {
     if (!chatLoading) {
@@ -280,11 +464,68 @@ export default function App() {
   // a valid session cookie. If so, skip straight to the home screen.
   // =========================================================================
 
+  // Store join code or referral code from URL if present
+  useEffect(() => {
+    const path = window.location.pathname
+    const joinMatch = path.match(/^\/join\/(.+)$/)
+    if (joinMatch) {
+      localStorage.setItem('thriftly_join_code', joinMatch[1])
+      window.history.replaceState({}, '', '/')
+    }
+    const referralMatch = path.match(/^\/r\/(.+)$/)
+    if (referralMatch) {
+      localStorage.setItem('referral_code', referralMatch[1])
+      window.history.replaceState({}, '', '/')
+    }
+  }, [])
+
+  // Try to use join code after login
+  const tryJoinCode = useCallback(async () => {
+    const joinCode = localStorage.getItem('thriftly_join_code')
+    if (joinCode) {
+      try {
+        const res = await fetch('/api/join', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: joinCode }),
+        })
+        if (res.ok) {
+          localStorage.removeItem('thriftly_join_code')
+          showToast('Joined family list!')
+        } else {
+          localStorage.removeItem('thriftly_join_code')
+          const data = await res.json().catch(() => null)
+          if (data?.error) showToast(data.error, 'error')
+        }
+      } catch {
+        localStorage.removeItem('thriftly_join_code')
+      }
+    }
+    // Claim referral code if present
+    const refCode = localStorage.getItem('referral_code')
+    if (refCode) {
+      try {
+        await fetch('/api/referral/claim', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: refCode }),
+        })
+      } catch { /* best effort */ }
+      localStorage.removeItem('referral_code')
+    }
+  }, [])
+
   useEffect(() => {
     fetch('/auth/me')
       .then(res => {
         if (res.ok) {
-          setScreen('home')
+          res.clone().json().then((data: { phone_number?: string }) => {
+            if (data.phone_number) setUserPhone(data.phone_number)
+          }).catch(() => {})
+          tryJoinCode()
+          const hash = window.location.hash.replace('#', '') as Screen
+          const validScreens: Screen[] = ['home', 'settings', 'about', 'invite', 'saved', 'settings-profile', 'settings-family', 'settings-share', 'admin']
+          setScreen(validScreens.includes(hash) ? hash : 'home')
         }
       })
       .catch(() => {
@@ -317,18 +558,31 @@ export default function App() {
   const sortItems = (arr: ListItem[]) =>
     [...arr].sort((a, b) => a.name.localeCompare(b.name))
 
+  const handleSessionExpired = () => {
+    setScreen('phone')
+    setPhone('')
+    setError('')
+    showToast('Session expired — please log in again', 'error')
+  }
+
+  const reloadList = async () => {
+    const res = await fetch('/api/list')
+    if (res.status === 401) { handleSessionExpired(); return }
+    if (res.ok) {
+      const data = await res.json()
+      setItems(sortItems(Array.isArray(data) ? data : []))
+    }
+  }
+
   useEffect(() => {
     if (screen !== 'home') return
-    fetch('/api/list')
-      .then(res => res.ok ? res.json() : [])
-      .then(data => setItems(sortItems(Array.isArray(data) ? data : [])))
-      .catch(() => {})
+    reloadList().catch(() => {})
   }, [screen])
 
   const loadSavedLists = () => {
     fetch('/api/saved-lists')
       .then(res => res.ok ? res.json() : [])
-      .then(data => setSavedLists(Array.isArray(data) ? data : []))
+      .then(data => setSavedLists(Array.isArray(data) ? [...data].sort((a: SavedList, b: SavedList) => a.name.localeCompare(b.name)) : []))
       .catch(() => {})
   }
 
@@ -337,10 +591,58 @@ export default function App() {
     loadSavedLists()
   }, [screen])
 
+  const loadSettings = () => {
+    fetch('/api/settings')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data) {
+          setSettingsName(data.name || '')
+          setSettingsEmail(data.email || '')
+          setSettingsMembers(data.household_members || [])
+        }
+      })
+      .catch(() => {})
+  }
+
+  useEffect(() => {
+    if (!['settings', 'about', 'invite', 'settings-profile', 'settings-family'].includes(screen)) return
+    loadSettings()
+  }, [screen])
+
+  const loadReferralData = () => {
+    fetch('/api/referral')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data) {
+          setReferralCode(data.code || '')
+          setReferralFriends(data.friends || [])
+        }
+      })
+      .catch(() => {})
+  }
+
+  useEffect(() => {
+    if (screen !== 'settings-share') return
+    loadReferralData()
+  }, [screen])
+
+  useEffect(() => {
+    if (screen !== 'admin') return
+    fetch(`/api/admin/dashboard?days=${adminDays}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data) setAdminData(data) })
+      .catch(() => {})
+  }, [screen, adminDays])
+
+  // Redirect legacy invite screen to settings-family
+  useEffect(() => {
+    if (screen === 'invite') setScreen('settings-family')
+  }, [screen])
+
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     if (toastTimer.current) clearTimeout(toastTimer.current)
     setToast({ message, type })
-    toastTimer.current = setTimeout(() => setToast(null), 3000)
+    toastTimer.current = setTimeout(() => setToast(null), 5000)
   }
 
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -455,6 +757,11 @@ export default function App() {
     setEditDept(item.department)
     setEditQty(item.quantity || 1)
     setEditSize(item.size)
+    setItemHistory([])
+    fetch(`/api/list/${item.id}/history`)
+      .then(res => res.ok ? res.json() : [])
+      .then(data => setItemHistory(Array.isArray(data) ? data : []))
+      .catch(() => {})
   }
 
   const handleEditSave = async () => {
@@ -494,16 +801,17 @@ export default function App() {
     finally { setEditLoading(false) }
   }
 
-  const handleClearList = async () => {
-    try {
-      const res = await fetch('/api/list/clear', { method: 'DELETE' })
-      if (res.ok) {
+  const handleClearList = () => {
+    fetch('/api/list/clear', { method: 'POST' })
+      .then(res => {
+        if (res.status === 401) { handleSessionExpired(); return }
+        if (!res.ok) { showToast('Failed to clear list', 'error'); return }
         setItems([])
+        setShowDoneToast(false)
+        setPennyChimeIn(null)
         showToast('List cleared')
-      }
-    } catch {
-      showToast('Failed to clear list', 'error')
-    }
+      })
+      .catch(() => showToast('Failed to clear list', 'error'))
   }
 
   const handleSaveList = async () => {
@@ -527,26 +835,19 @@ export default function App() {
     }
   }
 
-  const handleLoadSavedList = async (id: number, mode: 'merge' | 'overwrite' = 'merge') => {
-    try {
-      const url = mode === 'overwrite'
-        ? `/api/saved-lists/${id}/load?mode=overwrite`
-        : `/api/saved-lists/${id}/load`
-      const res = await fetch(url, { method: 'POST' })
-      if (res.ok) {
-        setSelectedSavedList(null)
+  const handleLoadSavedList = (id: number, mode: 'merge' | 'overwrite' = 'merge') => {
+    const url = mode === 'overwrite'
+      ? `/api/saved-lists/${id}/load?mode=overwrite`
+      : `/api/saved-lists/${id}/load`
+    setSelectedSavedList(null)
+    fetch(url, { method: 'POST' })
+      .then(res => {
+        if (res.status === 401) { handleSessionExpired(); return }
+        if (!res.ok) { showToast('Failed to load list', 'error'); return }
         setScreen('home')
-        // Reload active list
-        const listRes = await fetch('/api/list')
-        if (listRes.ok) {
-          const data = await listRes.json()
-          setItems(sortItems(Array.isArray(data) ? data : []))
-        }
         showToast(mode === 'overwrite' ? 'List replaced!' : 'List merged!')
-      }
-    } catch {
-      showToast('Failed to load list', 'error')
-    }
+      })
+      .catch(() => showToast('Failed to load list', 'error'))
   }
 
   const handleDeleteSavedList = async (id: number) => {
@@ -645,6 +946,8 @@ export default function App() {
       const data = await res.json()
 
       if (res.ok) {
+        if (data.phone_number) setUserPhone(data.phone_number)
+        tryJoinCode()
         setScreen('home')
       } else {
         setError(data.error || 'Invalid code')
@@ -718,6 +1021,60 @@ const handleCodeChange = (index: number, value: string) => {
   }
 
   // =========================================================================
+  // SETTINGS HANDLERS
+  // =========================================================================
+
+  const handleSettingsSave = async () => {
+    if (settingsLoading) return
+    setSettingsLoading(true)
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: settingsName.trim(), email: settingsEmail.trim() }),
+      })
+      if (res.ok) {
+        showToast('Settings saved!')
+      } else {
+        const data = await res.json().catch(() => null)
+        showToast(data?.error || 'Failed to save', 'error')
+      }
+    } catch {
+      showToast('Network error', 'error')
+    } finally {
+      setSettingsLoading(false)
+    }
+  }
+
+  const withInviteLink = async (onLink: (link: string) => void) => {
+    if (inviteLoading) return
+    setInviteLoading(true)
+    try {
+      const res = await fetch('/api/settings/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: '' }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.link) onLink(data.link)
+      } else {
+        const data = await res.json().catch(() => null)
+        showToast(data?.error || 'Failed to create invite', 'error')
+      }
+    } catch {
+      showToast('Network error', 'error')
+    } finally {
+      setInviteLoading(false)
+    }
+  }
+
+  const handleTextInviteLink = () => withInviteLink(link => {
+    const message = `Join our family shopping list on Thriftly! ${link}`
+    window.location.href = `sms:?&body=${encodeURIComponent(message)}`
+  })
+
+  // =========================================================================
   // LOGOUT
   // =========================================================================
 
@@ -755,9 +1112,9 @@ const handleCodeChange = (index: number, value: string) => {
         <div style={styles.card}>
           <Logo />
 
-          <h1 style={styles.wordmark}>thriftly</h1>
+          <h1 style={styles.wordmark}>Shared shopping list</h1>
           <p style={styles.tagline}>
-            Text Penny AI to build your family's shopping list
+            Penny AI accepts texts, emails, and photos, and organizes a clean, simple list
           </p>
 
           <div style={styles.inputGroup}>
@@ -774,21 +1131,34 @@ const handleCodeChange = (index: number, value: string) => {
               style={styles.phoneInput}
               autoFocus
             />
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px', paddingLeft: '16px', cursor: 'pointer', userSelect: 'none' as const }}>
+              <input
+                type="checkbox"
+                checked={smsOptIn}
+                onChange={e => setSmsOptIn(e.target.checked)}
+                style={{ accentColor: BORDER, width: '14px', height: '14px', flexShrink: 0, opacity: 0.7 }}
+              />
+              <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, opacity: 0.7 }}>
+                I want to text Penny AI
+              </span>
+            </label>
           </div>
 
           {error && <p style={styles.error}>{error}</p>}
 
           <button
             onClick={handleSendCode}
-            disabled={!isValid || loading}
+            disabled={!isValid || !smsOptIn || loading}
             style={{
               ...styles.button,
-              opacity: isValid && !loading ? 1 : 0.4,
-              cursor: isValid && !loading ? 'pointer' : 'default',
+              opacity: isValid && smsOptIn && !loading ? 1 : 0.4,
+              cursor: isValid && smsOptIn && !loading ? 'pointer' : 'default',
             }}
           >
             {loading ? 'Sending…' : 'Send Code'}
           </button>
+
+          <LegalLinks />
         </div>
       </div>
     )
@@ -804,7 +1174,7 @@ const handleCodeChange = (index: number, value: string) => {
         <div style={styles.card}>
           <Logo />
 
-          <h1 style={styles.wordmark}>thriftly</h1>
+          <h1 style={styles.wordmark}>Shared shopping list</h1>
 
           <p style={styles.codePrompt}>
             Enter the code sent to
@@ -845,10 +1215,481 @@ const handleCodeChange = (index: number, value: string) => {
           )}
 
           {error && <p style={styles.error}>{error}</p>}
+
+          <LegalLinks />
         </div>
       </div>
     )
   }
+
+  // =========================================================================
+  // SHARED HELPERS — menu and toast (extracted to avoid 5x duplication)
+  // =========================================================================
+
+  const renderMenu = (active: Screen) => (
+    <div style={{ position: 'relative' }}>
+      <button onClick={() => setMenuOpen(!menuOpen)} style={listStyles.hamburgerBtn}>
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M3 5h14M3 10h14M3 15h14" stroke={TEXT} strokeWidth="1.8" strokeLinecap="round"/>
+        </svg>
+      </button>
+      {menuOpen && (
+        <>
+          <div style={listStyles.menuOverlay} onClick={() => setMenuOpen(false)} />
+          <div style={listStyles.menuDropdown}>
+            <button style={listStyles.menuItem(active === 'home')} onClick={() => { setMenuOpen(false); setScreen('home') }}>Shopping List</button>
+            <button style={listStyles.menuItem(active === 'saved')} onClick={() => { setMenuOpen(false); setScreen('saved') }}>Saved Lists</button>
+            <button style={listStyles.menuItem(active === 'about')} onClick={() => { setMenuOpen(false); setScreen('about') }}>How to text Penny</button>
+            <button style={listStyles.menuItem(active === 'settings-share')} onClick={() => { setMenuOpen(false); setScreen('settings-share') }}>Share & Earn</button>
+            <button style={listStyles.menuItem(active === 'settings' || active === 'settings-profile' as Screen || active === 'settings-family' as Screen)} onClick={() => { setMenuOpen(false); setScreen('settings') }}>Settings</button>
+            {userPhone === '3104861833' && (
+              <button style={listStyles.menuItem(active === 'admin')} onClick={() => { setMenuOpen(false); setScreen('admin') }}>Dashboard</button>
+            )}
+            <div style={{ height: '1px', backgroundColor: BORDER, margin: '4px 0' }} />
+            <button style={listStyles.menuItem(false)} onClick={handleLogout}>Sign Out</button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+
+  const renderMemberList = () => settingsMembers.map((m, i) => (
+    <div key={i} style={{
+      display: 'flex',
+      alignItems: 'center',
+      padding: '10px 0',
+      borderBottom: `1px solid ${BORDER}`,
+      gap: '10px',
+    }}>
+      <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: BRAND, color: WHITE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT, fontSize: '14px', fontWeight: 600, flexShrink: 0 }}>
+        {(m.name || m.phone || '?')[0].toUpperCase()}
+      </div>
+      <div>
+        <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>
+          {m.name || formatPhone(m.phone)}
+        </div>
+        {m.name && <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY }}>{formatPhone(m.phone)}</div>}
+      </div>
+    </div>
+  ))
+
+  const renderToast = () => toast ? (
+    <div style={{
+      position: 'fixed',
+      top: '72px',
+      left: '16px',
+      right: '16px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '10px',
+      backgroundColor: toast.type === 'error' ? '#FEE2E2' : WHITE,
+      color: toast.type === 'error' ? '#991B1B' : TEXT,
+      padding: '12px 16px',
+      borderRadius: '16px',
+      fontFamily: FONT,
+      fontSize: '15px',
+      fontWeight: 500,
+      zIndex: 50,
+      boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+      border: `1px solid ${toast.type === 'error' ? '#FECACA' : BORDER}`,
+    }}>
+      <PennyAvatar size={32} />
+      {toast.message}
+    </div>
+  ) : null
+
+  const renderPageHeader = (pageName: string, active: Screen) => (
+    <div style={{ flexShrink: 0, backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', position: 'relative' }}>
+        <span
+          style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: '17px', fontWeight: 700 }}
+          onClick={() => setScreen('home')}
+        >thriftly</span>
+        <span style={{
+          position: 'absolute',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          fontFamily: FONT,
+          fontSize: '15px',
+          fontWeight: 600,
+          color: TEXT,
+        }}>{pageName}</span>
+        <div style={{ marginLeft: 'auto' }}>{renderMenu(active)}</div>
+      </div>
+    </div>
+  )
+
+  // =========================================================================
+  // SUBPAGE HEADER (with back arrow)
+  // =========================================================================
+
+  const renderSubpageHeader = (title: string, backScreen: Screen) => (
+    <div style={{ flexShrink: 0, backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px' }}>
+        <button
+          onClick={() => setScreen(backScreen)}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px 4px 0', color: BRAND, fontSize: '20px', fontWeight: 600, display: 'flex', alignItems: 'center' }}
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M13 4l-6 6 6 6" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+        <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 600, color: TEXT }}>{title}</span>
+        <div style={{ marginLeft: 'auto' }}>{renderMenu(backScreen)}</div>
+      </div>
+    </div>
+  )
+
+  // =========================================================================
+  // SETTINGS HUB
+  // =========================================================================
+
+  if (screen === 'settings') {
+    const settingsRows: { label: string; target: Screen | 'logout' }[] = [
+      { label: 'Profile', target: 'settings-profile' },
+      { label: 'Family', target: 'settings-family' },
+    ]
+    return (
+      <div style={listStyles.page}>
+        {renderPageHeader('Settings', 'settings')}
+        <div style={listStyles.listArea}>
+          {settingsRows.map(row => (
+            <button
+              key={row.label}
+              onClick={() => setScreen(row.target as Screen)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                width: '100%',
+                padding: '16px 20px',
+                background: 'none',
+                border: 'none',
+                borderBottom: `1px solid ${BORDER}`,
+                cursor: 'pointer',
+                textAlign: 'left' as const,
+                WebkitTapHighlightColor: 'transparent',
+              }}
+            >
+              <span style={{ flex: 1, fontFamily: FONT, fontSize: '16px', fontWeight: 500, color: TEXT }}>{row.label}</span>
+              <span style={{ color: TEXT_SECONDARY, fontSize: '18px' }}>›</span>
+            </button>
+          ))}
+          <button
+            onClick={handleLogout}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              width: '100%',
+              padding: '16px 20px',
+              background: 'none',
+              border: 'none',
+              borderBottom: `1px solid ${BORDER}`,
+              cursor: 'pointer',
+              textAlign: 'left' as const,
+              WebkitTapHighlightColor: 'transparent',
+            }}
+          >
+            <span style={{ flex: 1, fontFamily: FONT, fontSize: '16px', fontWeight: 500, color: ERROR_RED }}>Sign Out</span>
+          </button>
+        </div>
+        {renderToast()}
+      </div>
+    )
+  }
+
+  // =========================================================================
+  // SETTINGS — PROFILE
+  // =========================================================================
+
+  if (screen === 'settings-profile') {
+    return (
+      <div style={listStyles.page}>
+        {renderSubpageHeader('Profile', 'settings')}
+        <div style={listStyles.listArea}>
+          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div>
+              <label style={listStyles.fieldLabel}>Name</label>
+              <input
+                type="text"
+                value={settingsName}
+                onChange={e => setSettingsName(e.target.value)}
+                placeholder="Your name"
+                style={listStyles.sheetTextInput}
+              />
+            </div>
+            <div>
+              <label style={listStyles.fieldLabel}>Email</label>
+              <input
+                type="email"
+                value={settingsEmail}
+                onChange={e => setSettingsEmail(e.target.value)}
+                placeholder="your@email.com"
+                style={listStyles.sheetTextInput}
+              />
+              <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px', paddingLeft: '4px' }}>
+                Set your email to add items by emailing penny@list.thrift.ly
+              </p>
+            </div>
+            <button
+              onClick={handleSettingsSave}
+              disabled={settingsLoading}
+              style={{
+                ...listStyles.sheetButton,
+                opacity: settingsLoading ? 0.5 : 1,
+              }}
+            >
+              {settingsLoading ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+        {renderToast()}
+      </div>
+    )
+  }
+
+  // =========================================================================
+  // SETTINGS — FAMILY
+  // =========================================================================
+
+  if (screen === 'settings-family') {
+    return (
+      <div style={listStyles.page}>
+        <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
+        {renderSubpageHeader('Family', 'settings')}
+        <div style={listStyles.listArea}>
+          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {settingsMembers.length > 0 && (
+              <div>
+                <SectionHeader label="Family Members" />
+                {renderMemberList()}
+                <button
+                  onClick={() => openConfirmModal({
+                    title: 'Leave Household',
+                    message: 'You will be removed from this household.',
+                    confirmLabel: 'Leave',
+                    destructive: true,
+                    onConfirm: () => {
+                      fetch('/api/settings/leave-household', { method: 'POST' })
+                        .then(res => {
+                          if (res.ok) {
+                            showToast('Left household')
+                            loadSettings()
+                          } else {
+                            res.json().then(d => showToast(d?.error || 'Failed', 'error')).catch(() => showToast('Failed', 'error'))
+                          }
+                        })
+                        .catch(() => showToast('Network error', 'error'))
+                    },
+                  })}
+                  style={{
+                    marginTop: '12px',
+                    padding: '10px',
+                    fontFamily: FONT,
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    color: ERROR_RED,
+                    backgroundColor: 'transparent',
+                    border: `1px solid ${ERROR_RED}`,
+                    borderRadius: '10px',
+                    cursor: 'pointer',
+                    width: '100%',
+                  }}
+                >Leave Household</button>
+              </div>
+            )}
+
+            <div>
+              <SectionHeader label="Invite" />
+              <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: '0 0 12px 0' }}>
+                Invite family members to share your shopping list.
+              </p>
+              <button
+                onClick={handleTextInviteLink}
+                disabled={inviteLoading}
+                style={{
+                  ...listStyles.sheetButton,
+                  opacity: inviteLoading ? 0.5 : 1,
+                }}
+              >
+                {inviteLoading ? 'Creating...' : 'Text Invite Link'}
+              </button>
+            </div>
+          </div>
+        </div>
+        {renderToast()}
+      </div>
+    )
+  }
+
+  // =========================================================================
+  // SETTINGS — SHARE & EARN
+  // =========================================================================
+
+  if (screen === 'settings-share') {
+    const handleShare = () => {
+      const url = `https://app.thrift.ly/r/${referralCode}`
+      const text = `Try Thriftly — Penny AI helps your family organize the grocery list. Just text, email, or snap a photo and she handles the rest! ${url}`
+      if (navigator.share) {
+        navigator.share({ title: 'Thriftly', text }).catch(() => {})
+      } else {
+        window.open(`sms:?&body=${encodeURIComponent(text)}`, '_self')
+      }
+    }
+
+
+    return (
+      <div style={listStyles.page}>
+        {renderSubpageHeader('Share & Earn', 'home')}
+        <div style={listStyles.listArea}>
+          <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* Share info */}
+            <div style={{ backgroundColor: BG, borderRadius: '12px', padding: '16px', textAlign: 'center' }}>
+              <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, margin: 0, lineHeight: 1.6 }}>
+                Share Thriftly with friends and family. The more people who use Penny, the better deals everyone gets.
+              </p>
+            </div>
+
+            {/* Share button */}
+            <button onClick={handleShare} style={listStyles.sheetButton}>
+              Share Your Link
+            </button>
+
+            {/* Referral count */}
+            {referralFriends.length > 0 && (
+              <div style={{ backgroundColor: BG, borderRadius: '12px', padding: '12px 16px', textAlign: 'center' }}>
+                <span style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: BRAND }}>{referralFriends.length}</span>
+                <span style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, marginLeft: '8px' }}>{referralFriends.length === 1 ? 'friend joined' : 'friends joined'}</span>
+              </div>
+            )}
+
+            {/* Brand rebates CTA */}
+            <div style={{ backgroundColor: BG, borderRadius: '12px', padding: '16px' }}>
+              <p style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT, margin: '0 0 8px 0' }}>
+                Exclusive Rebates — Coming Soon
+              </p>
+              <p style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, margin: '0 0 12px 0', lineHeight: 1.5 }}>
+                We're partnering with brands to offer exclusive rebates on the things you already buy. No points, no gimmicks — real savings on real groceries.
+              </p>
+              <p style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, margin: '0 0 8px 0', lineHeight: 1.5 }}>
+                Are you a product manager at a CPG brand? Get your products in front of engaged shoppers.
+              </p>
+              <a
+                href="mailto:partners@thrift.ly?subject=Create%20a%20brand%20deal"
+                style={{ fontFamily: FONT, fontSize: '13px', color: BRAND, textDecoration: 'underline', textUnderlineOffset: '2px' }}
+              >
+                Create a brand deal
+              </a>
+            </div>
+
+            {/* Friends list */}
+            {referralFriends.length > 0 && (
+              <div>
+                <SectionHeader label={`Friends (${referralFriends.length})`} />
+                {referralFriends.map((f, i) => (
+                  <div key={i} style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '10px 0',
+                    borderBottom: `1px solid ${BORDER}`,
+                    gap: '10px',
+                  }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: BRAND, color: WHITE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT, fontSize: '14px', fontWeight: 600, flexShrink: 0 }}>
+                      {(f.name || '?')[0].toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>{f.name || 'Friend'}</div>
+                      <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY }}>{new Date(f.created_at).toLocaleDateString()}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        {renderToast()}
+      </div>
+    )
+  }
+
+  // =========================================================================
+  // TEXT PENNY SCREEN
+  // =========================================================================
+
+  if (screen === 'about') {
+    return (
+      <div style={listStyles.page}>
+        {renderPageHeader('How to text Penny', 'about')}
+
+        <div style={listStyles.listArea}>
+          <div style={{ padding: '30px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '24px' }}>
+            <PennyAvatar size={96} />
+
+            {/* How it works */}
+            <div style={{ width: '100%' }}>
+              <ol style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, margin: 0, paddingLeft: '24px', lineHeight: '1.8' }}>
+                <li style={{ marginBottom: '8px' }}><strong>Add Penny to your contacts</strong> using the button below</li>
+                <li style={{ marginBottom: '8px' }}><strong>Text her what you need</strong> — a grocery list, a photo of your fridge, pantry, or a recipe</li>
+                <li><strong>She adds it to your list</strong> — works in group chats with your family too</li>
+              </ol>
+            </div>
+
+            <p style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, textAlign: 'center', margin: 0, lineHeight: '1.5' }}>
+              Penny's shy — she won't text back yet. But don't worry, your items will appear on your list!
+            </p>
+
+            <a
+              href="/api/penny.vcf"
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'center',
+                padding: '13px',
+                fontFamily: FONT,
+                fontSize: '15px',
+                fontWeight: 600,
+                color: WHITE,
+                backgroundColor: BRAND,
+                borderRadius: '12px',
+                textDecoration: 'none',
+                cursor: 'pointer',
+                border: 'none',
+                boxSizing: 'border-box',
+              }}
+            >
+              Add Penny to Contacts
+            </a>
+
+            {!settingsEmail && (
+              <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, textAlign: 'center', margin: 0 }}>
+                Set your email in Settings to email Penny
+              </p>
+            )}
+
+            {/* Coming Soon */}
+            <div style={{ width: '100%', backgroundColor: BG, borderRadius: '12px', padding: '16px 20px' }}>
+              <p style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT, margin: '0 0 10px 0' }}>
+                Coming Soon
+              </p>
+              <ul style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, margin: 0, paddingLeft: '20px', lineHeight: '1.8' }}>
+                <li>Best deals near you</li>
+                <li>Best places to shop</li>
+                <li>Delivery options</li>
+              </ul>
+              <a
+                href="mailto:support@thrift.ly?subject=Feature%20request"
+                style={{ fontFamily: FONT, fontSize: '13px', color: BRAND, marginTop: '12px', display: 'inline-block', textDecoration: 'underline', textUnderlineOffset: '2px' }}
+              >
+                Request a feature
+              </a>
+            </div>
+          </div>
+        </div>
+
+        {renderToast()}
+      </div>
+    )
+  }
+
 
   // =========================================================================
   // SAVED LISTS SCREEN
@@ -857,39 +1698,8 @@ const handleCodeChange = (index: number, value: string) => {
   if (screen === 'saved') {
     return (
       <div style={listStyles.page}>
-        {/* Header with hamburger */}
-        <div style={{ flexShrink: 0, backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}` }}>
-        <div style={listStyles.header}>
-          <span style={listStyles.headerWordmark}>thriftly</span>
-          <div style={{ position: 'relative' }}>
-            <button onClick={() => setMenuOpen(!menuOpen)} style={listStyles.hamburgerBtn}>
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <path d="M3 5h14M3 10h14M3 15h14" stroke={TEXT} strokeWidth="1.8" strokeLinecap="round"/>
-              </svg>
-            </button>
-            {menuOpen && (
-              <>
-                <div style={listStyles.menuOverlay} onClick={() => setMenuOpen(false)} />
-                <div style={listStyles.menuDropdown}>
-                  <button
-                    style={listStyles.menuItem(false)}
-                    onClick={() => { setMenuOpen(false); setScreen('home') }}
-                  >My List</button>
-                  <button
-                    style={listStyles.menuItem(true)}
-                    onClick={() => { setMenuOpen(false); setScreen('saved') }}
-                  >Saved Lists</button>
-                  <div style={{ height: '1px', backgroundColor: BORDER, margin: '4px 0' }} />
-                  <button
-                    style={listStyles.menuItem(false)}
-                    onClick={handleLogout}
-                  >Sign Out</button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-        </div>
+        <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
+        {renderPageHeader('Saved Lists', 'saved')}
 
         {/* Saved lists content */}
         <div style={listStyles.listArea}>
@@ -931,33 +1741,11 @@ const handleCodeChange = (index: number, value: string) => {
           )}
         </div>
 
-        {/* Toast */}
-        {toast && (
-          <div style={{
-            position: 'fixed',
-            top: '72px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            backgroundColor: toast.type === 'error' ? ERROR_RED : BRAND,
-            color: WHITE,
-            padding: '8px 18px',
-            borderRadius: '20px',
-            fontFamily: FONT,
-            fontSize: '14px',
-            fontWeight: 500,
-            zIndex: 50,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-            whiteSpace: 'nowrap',
-          }}>
-            {toast.message}
-          </div>
-        )}
+        {renderToast()}
 
         {/* Saved list action sheet */}
         {selectedSavedList && (
-          <div style={listStyles.overlay} onClick={() => { setSelectedSavedList(null); setConfirmDeleteSavedList(false) }}>
-            <div style={listStyles.sheet} onClick={e => e.stopPropagation()}>
-              <p style={listStyles.sheetTitle}>{selectedSavedList.name}</p>
+          <ActionSheet isOpen={true} onClose={() => setSelectedSavedList(null)} title={selectedSavedList.name}>
               <p style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, margin: '0 0 8px 0' }}>
                 {selectedSavedList.item_count} item{selectedSavedList.item_count !== 1 ? 's' : ''}
               </p>
@@ -974,28 +1762,92 @@ const handleCodeChange = (index: number, value: string) => {
                   border: `1.5px solid ${BRAND}`,
                 }}
               >Merge into Current List</button>
-              {!confirmDeleteSavedList ? (
-                <button
-                  onClick={() => setConfirmDeleteSavedList(true)}
-                  style={listStyles.sheetDeleteBtn}
-                >Delete List</button>
-              ) : (
-                <button
-                  onClick={() => {
-                    setConfirmDeleteSavedList(false)
-                    handleDeleteSavedList(selectedSavedList.id)
-                  }}
-                  style={{
-                    ...listStyles.sheetDeleteBtn,
-                    backgroundColor: ERROR_RED,
-                    color: WHITE,
-                    border: 'none',
-                  }}
-                >Tap again to confirm delete</button>
-              )}
-            </div>
-          </div>
+              <button
+                onClick={() => openConfirmModal({
+                  title: 'Delete List',
+                  message: `Delete "${selectedSavedList.name}"? This cannot be undone.`,
+                  confirmLabel: 'Delete',
+                  destructive: true,
+                  onConfirm: () => handleDeleteSavedList(selectedSavedList.id),
+                })}
+                style={listStyles.sheetDeleteBtn}
+              >Delete List</button>
+          </ActionSheet>
         )}
+      </div>
+    )
+  }
+
+  // =========================================================================
+  // ADMIN DASHBOARD SCREEN
+  // =========================================================================
+
+  if (screen === 'admin') {
+    const dayOptions = [7, 30, 90]
+    return (
+      <div style={listStyles.page}>
+        {renderPageHeader('Dashboard', 'admin')}
+        <div style={{ ...listStyles.listArea, padding: '20px 16px' }}>
+          {/* Time period selector */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+            {dayOptions.map(d => (
+              <button key={d} onClick={() => setAdminDays(d)} style={{
+                flex: 1, padding: '8px', borderRadius: '8px', border: `1px solid ${BORDER}`,
+                backgroundColor: adminDays === d ? BRAND : WHITE, color: adminDays === d ? WHITE : TEXT,
+                fontFamily: FONT, fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+              }}>{d}d</button>
+            ))}
+          </div>
+
+          {adminData ? (
+            <>
+              {/* Metric cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '24px' }}>
+                {[
+                  { label: 'Active Users', value: adminData.active_users },
+                  { label: 'Total Users', value: adminData.total_users },
+                  { label: 'New Users', value: adminData.new_users },
+                  { label: 'K-Factor', value: adminData.k_factor.toFixed(2) },
+                ].map(m => (
+                  <div key={m.label} style={{
+                    backgroundColor: WHITE, borderRadius: '12px', padding: '16px',
+                    border: `1px solid ${BORDER}`,
+                  }}>
+                    <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, marginBottom: '4px' }}>{m.label}</div>
+                    <div style={{ fontFamily: FONT, fontSize: '28px', fontWeight: 700, color: TEXT }}>{m.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Leaderboard */}
+              <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginBottom: '12px' }}>Referral Leaderboard</div>
+              {adminData.leaderboard.length === 0 ? (
+                <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY }}>No referrals yet.</div>
+              ) : (
+                adminData.leaderboard.map((entry, i) => (
+                  <div key={i} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '12px 0', borderBottom: `1px solid ${BORDER}`,
+                  }}>
+                    <div>
+                      <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>
+                        {entry.name || entry.phone}
+                      </div>
+                      {entry.name && <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY }}>{entry.phone}</div>}
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: BRAND }}>{entry.points} pts</div>
+                      <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY }}>{entry.referrals} referrals</div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </>
+          ) : (
+            <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>Loading...</div>
+          )}
+        </div>
+        {renderToast()}
       </div>
     )
   }
@@ -1020,42 +1872,24 @@ const handleCodeChange = (index: number, value: string) => {
 
   return (
     <div style={listStyles.page}>
-      {/* Fixed header */}
+      <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
+      {/* Fixed header — compact */}
       <div style={{ flexShrink: 0, backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px' }}>
-          <span style={listStyles.headerWordmark}>thriftly</span>
-          {items.length > 0 && (
-            <span style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, fontWeight: 500 }}>
-              {items.filter(i => i.checked).length}/{items.length}
-            </span>
-          )}
-          <div style={{ position: 'relative' }}>
-            <button onClick={() => setMenuOpen(!menuOpen)} style={listStyles.hamburgerBtn}>
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <path d="M3 5h14M3 10h14M3 15h14" stroke={TEXT} strokeWidth="1.8" strokeLinecap="round"/>
-              </svg>
-            </button>
-          {menuOpen && (
-            <>
-              <div style={listStyles.menuOverlay} onClick={() => setMenuOpen(false)} />
-              <div style={listStyles.menuDropdown}>
-                <button
-                  style={listStyles.menuItem(true)}
-                  onClick={() => { setMenuOpen(false); setScreen('home') }}
-                >My List</button>
-                <button
-                  style={listStyles.menuItem(false)}
-                  onClick={() => { setMenuOpen(false); setScreen('saved') }}
-                >Saved Lists</button>
-                <div style={{ height: '1px', backgroundColor: BORDER, margin: '4px 0' }} />
-                <button
-                  style={listStyles.menuItem(false)}
-                  onClick={handleLogout}
-                >Sign Out</button>
-              </div>
-            </>
-          )}
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '10px 16px', position: 'relative' }}>
+          <span
+            style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: '17px', fontWeight: 700 }}
+            onClick={() => setScreen('home')}
+          >thriftly</span>
+          <span style={{
+            position: 'absolute',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            fontFamily: FONT,
+            fontSize: '15px',
+            fontWeight: 600,
+            color: TEXT,
+          }}>Shopping List</span>
+          <div style={{ marginLeft: 'auto' }}>{renderMenu('home')}</div>
         </div>
         {/* Progress bar */}
         {items.length > 0 && (() => {
@@ -1076,6 +1910,15 @@ const handleCodeChange = (index: number, value: string) => {
 
       {/* Scrollable list */}
       <div style={listStyles.listArea}>
+        {chatLoading && (
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.04)',
+            zIndex: 10,
+            pointerEvents: 'auto',
+          }} />
+        )}
         {items.length === 0 ? (
           <div style={listStyles.emptyState}>
             <p style={listStyles.emptyText}>Your list is empty.</p>
@@ -1131,134 +1974,10 @@ const handleCodeChange = (index: number, value: string) => {
         )}
       </div>
 
-      {/* Toast notification */}
-      {toast && (
-        <div style={{
-          position: 'fixed',
-          top: '72px',
-          left: '16px',
-          right: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          backgroundColor: toast.type === 'error' ? ERROR_RED : BRAND,
-          color: WHITE,
-          padding: '10px 16px',
-          borderRadius: '16px',
-          fontFamily: FONT,
-          fontSize: '14px',
-          fontWeight: 500,
-          zIndex: 50,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-        }}>
-          <PennyAvatar size={28} />
-          <span style={{ flex: 1 }}>{toast.message}</span>
-          {(lastAdded.length > 0 || lastSkipped.length > 0) && toast.type !== 'error' && (
-            <>
-              <span style={{ opacity: 0.5 }}>·</span>
-              <button
-                onClick={() => {
-                  setShowReviewSheet(true)
-                  setToast(null)
-                  if (toastTimer.current) clearTimeout(toastTimer.current)
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: WHITE,
-                  fontFamily: FONT,
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  textDecoration: 'underline',
-                  textUnderlineOffset: '2px',
-                  cursor: 'pointer',
-                  padding: 0,
-                }}
-              >Review</button>
-            </>
-          )}
-        </div>
-      )}
 
-      {/* "All done" toast */}
-      {showDoneToast && items.length > 0 && items.every(i => i.checked) && (
-        <div style={{
-          position: 'fixed',
-          top: '72px',
-          left: '16px',
-          right: '16px',
-          backgroundColor: BRAND,
-          color: WHITE,
-          padding: '12px 16px',
-          borderRadius: '16px',
-          fontFamily: FONT,
-          fontSize: '14px',
-          fontWeight: 500,
-          zIndex: 50,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-        }}>
-          <PennyAvatar size={28} />
-          <div style={{ flex: 1 }}>
-            <div style={{ marginBottom: '6px' }}>You're done!</div>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button
-                onClick={() => {
-                  setShowDoneToast(false)
-                  setSaveNameInput('')
-                  setShowSaveSheet(true)
-                }}
-                style={{
-                  background: 'rgba(255,255,255,0.2)',
-                  border: 'none',
-                  color: WHITE,
-                  fontFamily: FONT,
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  padding: '5px 12px',
-                  borderRadius: '12px',
-                }}
-              >Save List</button>
-              <button
-                onClick={() => {
-                  setShowDoneToast(false)
-                  handleClearList()
-                }}
-                style={{
-                  background: 'rgba(255,255,255,0.2)',
-                  border: 'none',
-                  color: WHITE,
-                  fontFamily: FONT,
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  padding: '5px 12px',
-                  borderRadius: '12px',
-                }}
-              >Clear List</button>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowDoneToast(false)}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: WHITE,
-              fontFamily: FONT,
-              fontSize: '16px',
-              cursor: 'pointer',
-              padding: '0',
-              opacity: 0.6,
-              alignSelf: 'flex-start',
-            }}
-          >×</button>
-        </div>
-      )}
+      {/* "All done" toast — rendered inline below in the penny status bar area */}
 
-      {/* Save/Clear buttons */}
+      {/* Save/Clear links */}
       {items.length > 0 && (
         <div style={{
           flexShrink: 0,
@@ -1274,17 +1993,23 @@ const handleCodeChange = (index: number, value: string) => {
             style={{
               fontFamily: FONT,
               fontSize: '14px',
-              fontWeight: 600,
-              color: WHITE,
-              backgroundColor: BRAND,
+              fontWeight: 500,
+              color: TEXT_SECONDARY,
+              background: 'none',
               border: 'none',
-              borderRadius: '20px',
-              padding: '8px 18px',
               cursor: 'pointer',
+              textDecoration: 'underline',
+              textUnderlineOffset: '2px',
             }}
           >Save List</button>
           <button
-            onClick={handleClearList}
+            onClick={() => openConfirmModal({
+              title: 'Clear List',
+              message: 'Remove all items from your list?',
+              confirmLabel: 'Clear',
+              destructive: true,
+              onConfirm: handleClearList,
+            })}
             style={{
               fontFamily: FONT,
               fontSize: '14px',
@@ -1309,26 +2034,144 @@ const handleCodeChange = (index: number, value: string) => {
         style={{ display: 'none' }}
       />
 
-      {/* Penny loading spinner */}
-      {pennyStatus && (
-        <div style={{
-          flexShrink: 0,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          padding: '10px 16px',
-          backgroundColor: `${BRAND}0A`,
-          borderTop: `1px solid ${BORDER}`,
-          fontFamily: FONT,
-          fontSize: '14px',
-          color: BRAND,
-          fontWeight: 500,
-        }}>
-          <PennyAvatar size={28} />
-          <span>{pennyStatus}</span>
-          <span className="penny-pulse" style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: BRAND, flexShrink: 0 }} />
-        </div>
-      )}
+      {/* Unified Penny bar — chime-in, loading, result, or "all done" */}
+      {(() => {
+        const allDone = showDoneToast && items.length > 0 && items.every(i => i.checked)
+        const showBar = pennyStatus || toast || allDone || pennyChimeIn
+        if (!showBar) return null
+
+        const isDone = allDone && !pennyStatus && !toast && !pennyChimeIn
+        const isChimeIn = !!pennyChimeIn && !pennyStatus && !toast && !isDone
+        const bgColor = isDone ? BRAND : isChimeIn ? `${BRAND}12` : toast?.type === 'error' ? '#FEE2E2' : '#F5F3EF'
+        const textColor = isDone ? WHITE : isChimeIn ? BRAND : toast?.type === 'error' ? '#991B1B' : TEXT
+
+        return (
+          <div style={{
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: isChimeIn ? '8px' : '10px',
+            padding: isChimeIn ? '8px 16px' : '10px 16px',
+            backgroundColor: bgColor,
+            borderTop: `1px solid ${isDone ? BRAND : isChimeIn ? 'transparent' : BORDER}`,
+            fontFamily: FONT,
+            fontSize: '14px',
+            color: textColor,
+            fontWeight: 500,
+          }}>
+            <PennyAvatar size={isChimeIn ? 22 : 45} />
+            {isDone ? (
+              <>
+                <div style={{ flex: 1 }}>
+                  <div style={{ marginBottom: '6px' }}>You're done!</div>
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <button
+                      onClick={() => {
+                        setShowDoneToast(false)
+                        setSaveNameInput('')
+                        setShowSaveSheet(true)
+                      }}
+                      style={{
+                        background: 'rgba(255,255,255,0.2)',
+                        border: 'none',
+                        color: WHITE,
+                        fontFamily: FONT,
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        padding: '5px 12px',
+                        borderRadius: '12px',
+                      }}
+                    >Save List</button>
+                    <button
+                      onClick={() => {
+                        setShowDoneToast(false)
+                        handleClearList()
+                      }}
+                      style={{
+                        background: 'rgba(255,255,255,0.2)',
+                        border: 'none',
+                        color: WHITE,
+                        fontFamily: FONT,
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        padding: '5px 12px',
+                        borderRadius: '12px',
+                      }}
+                    >Clear List</button>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowDoneToast(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: WHITE,
+                    fontFamily: FONT,
+                    fontSize: '16px',
+                    cursor: 'pointer',
+                    padding: '0',
+                    opacity: 0.6,
+                    alignSelf: 'flex-start',
+                  }}
+                >×</button>
+              </>
+            ) : isChimeIn ? (
+              <span style={{ flex: 1, fontSize: '13px' }}>{pennyChimeIn}</span>
+            ) : (
+              <>
+                <span style={{ flex: 1 }}>{pennyStatus || toast?.message}</span>
+                {pennyStatus && (
+                  <span className="penny-pulse" style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: BRAND, flexShrink: 0 }} />
+                )}
+                {!pennyStatus && toast && (
+                  <>
+                    {(lastAdded.length > 0 || lastSkipped.length > 0) && toast.type !== 'error' && (
+                      <button
+                        onClick={() => {
+                          setShowReviewSheet(true)
+                          setToast(null)
+                          if (toastTimer.current) clearTimeout(toastTimer.current)
+                        }}
+                        style={{
+                          background: BRAND,
+                          border: 'none',
+                          color: WHITE,
+                          fontFamily: FONT,
+                          fontSize: '13px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          padding: '4px 12px',
+                          borderRadius: '12px',
+                          flexShrink: 0,
+                        }}
+                      >Review</button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setToast(null)
+                        if (toastTimer.current) clearTimeout(toastTimer.current)
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: isDone ? WHITE : TEXT_SECONDARY,
+                        fontFamily: FONT,
+                        fontSize: '18px',
+                        cursor: 'pointer',
+                        padding: '0 2px',
+                        lineHeight: 1,
+                        flexShrink: 0,
+                      }}
+                    >×</button>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Bottom chat bar — flex item, anchors above keyboard via 100dvh */}
       <div style={listStyles.chatBar}>
@@ -1398,9 +2241,13 @@ const handleCodeChange = (index: number, value: string) => {
 
       {/* Item detail sheet */}
       {selectedItem && (
-        <div style={listStyles.overlay} onClick={() => setSelectedItem(null)}>
-          <div style={{ ...listStyles.sheet, maxHeight: '60dvh' }} onClick={e => e.stopPropagation()}>
-            <p style={listStyles.sheetTitle}>Edit item</p>
+        <ActionSheet isOpen={true} onClose={() => setSelectedItem(null)} title="Edit item" maxHeight="75dvh">
+            <p style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, margin: '-4px 0 8px 0' }}>
+              {selectedItem.added_by_name || (selectedItem.added_by_phone ? formatPhone(selectedItem.added_by_phone) : '')}
+              {(selectedItem.added_by_name || selectedItem.added_by_phone) && ' · '}
+              {selectedItem.source === 'sms' ? 'Text' : selectedItem.source === 'email' ? 'Email' : 'App'}
+              {selectedItem.created_at && ` · ${new Date(selectedItem.created_at).toLocaleDateString()}`}
+            </p>
 
             <div>
               <label style={listStyles.fieldLabel}>Name</label>
@@ -1455,17 +2302,7 @@ const handleCodeChange = (index: number, value: string) => {
               </div>
               <div>
                 <label style={listStyles.fieldLabel}>Qty</label>
-                <div style={listStyles.qtyControl}>
-                  <button
-                    onClick={() => setEditQty(q => Math.max(1, q - 1))}
-                    style={listStyles.qtyBtn}
-                  >−</button>
-                  <span style={listStyles.qtyValue}>{editQty}</span>
-                  <button
-                    onClick={() => setEditQty(q => q + 1)}
-                    style={listStyles.qtyBtn}
-                  >+</button>
-                </div>
+                <QuantityControl value={editQty} onChange={setEditQty} />
               </div>
             </div>
 
@@ -1480,22 +2317,39 @@ const handleCodeChange = (index: number, value: string) => {
               {editLoading ? 'Saving…' : 'Save'}
             </button>
 
+            {itemHistory.length > 0 && (
+              <div style={{ marginTop: '8px' }}>
+                <SectionHeader label="History" />
+                {itemHistory.map((mod, i) => (
+                  <div key={i} style={{
+                    padding: '6px 0',
+                    borderBottom: i < itemHistory.length - 1 ? `1px solid ${BORDER}` : 'none',
+                    fontFamily: FONT,
+                    fontSize: '13px',
+                    color: TEXT_SECONDARY,
+                  }}>
+                    <span style={{ fontWeight: 500, color: TEXT }}>{mod.user_name || 'Unknown'}</span>
+                    {' '}{mod.action}{mod.detail ? ` (${mod.detail})` : ''}
+                    {' · '}{mod.source === 'sms' ? 'Text' : mod.source === 'email' ? 'Email' : 'App'}
+                    {mod.created_at && ` · ${new Date(mod.created_at).toLocaleDateString()}`}
+                  </div>
+                ))}
+              </div>
+            )}
+
             <button onClick={handleEditDelete} disabled={editLoading} style={listStyles.sheetDeleteBtn}>
               Delete item
             </button>
-          </div>
-        </div>
+        </ActionSheet>
       )}
 
       {/* Review sheet — shows items from last parse */}
       {showReviewSheet && (lastAdded.length > 0 || lastSkipped.length > 0) && (
-        <div style={listStyles.overlay} onClick={() => { setShowReviewSheet(false); setLastAdded([]); setLastSkipped([]) }}>
-          <div style={listStyles.sheet} onClick={e => e.stopPropagation()}>
+        <ActionSheet isOpen={true} onClose={() => { setShowReviewSheet(false); setLastAdded([]); setLastSkipped([]) }} title={lastAdded.length > 0 ? 'Added' : undefined}>
 
             {/* Added items section */}
             {lastAdded.length > 0 && (
               <>
-                <p style={listStyles.sheetTitle}>Added</p>
                 {lastAdded.map(item => (
                   <div key={item.id} style={{
                     display: 'flex',
@@ -1661,15 +2515,12 @@ const handleCodeChange = (index: number, value: string) => {
             >
               Done
             </button>
-          </div>
-        </div>
+        </ActionSheet>
       )}
 
       {/* Save list sheet */}
       {showSaveSheet && (
-        <div style={listStyles.overlay} onClick={() => setShowSaveSheet(false)}>
-          <div style={listStyles.sheet} onClick={e => e.stopPropagation()}>
-            <p style={listStyles.sheetTitle}>Save List</p>
+        <ActionSheet isOpen={true} onClose={() => setShowSaveSheet(false)} title="Save List">
             <input
               type="text"
               value={saveNameInput}
@@ -1687,8 +2538,7 @@ const handleCodeChange = (index: number, value: string) => {
                 opacity: saveNameInput.trim() ? 1 : 0.4,
               }}
             >Save</button>
-          </div>
-        </div>
+        </ActionSheet>
       )}
     </div>
   )
@@ -1962,6 +2812,7 @@ const listStyles = {
   listArea: {
     flex: 1,
     overflowY: 'auto' as const,
+    position: 'relative' as const,
   } as React.CSSProperties,
 
   emptyState: {
