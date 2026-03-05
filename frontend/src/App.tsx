@@ -2714,11 +2714,12 @@ const handleCodeChange = (index: number, value: string) => {
                   return (
                   <div key={item.id} style={{
                     ...listStyles.itemRow,
+                    ...(item.checked ? { backgroundColor: '#F5F4F1', opacity: 0.7 } : {}),
                     ...(newItemIds.has(item.id) ? {
                       backgroundColor: `${BRAND}15`,
                       transition: 'background-color 1.5s ease',
                     } : {}),
-                    ...(item.urgent ? { backgroundColor: '#FEF2F2' } : {}),
+                    ...(!item.checked && item.urgent ? { backgroundColor: '#FEF2F2' } : {}),
                   }}>
                     <button onClick={() => handleToggle(item.id)} style={listStyles.itemCheckBtn}>
                       <span style={listStyles.itemCheck(item.checked)}>
