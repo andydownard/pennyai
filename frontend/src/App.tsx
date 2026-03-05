@@ -208,7 +208,7 @@ function BrandLogo({ brand, size = 52, opacity = 1 }: { brand?: string; size?: n
     <div style={{ width: size, height: size, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {brand && (
         <img
-          src={`/api/logo?brand=${encodeURIComponent(brand)}&v=3`}
+          src={`/api/logo?brand=${encodeURIComponent(brand)}&v=4`}
           alt=""
           width={size}
           height={size}
