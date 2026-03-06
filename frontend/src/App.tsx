@@ -2642,8 +2642,8 @@ const handleCodeChange = (index: number, value: string) => {
       <div style={listStyles.page}>
         {renderPageHeader('How to text Penny', 'about')}
 
-        <div style={listStyles.listArea}>
-          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '28px' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '20px', gap: '28px' }}>
 
             {/* Penny with chat bubble */}
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', minHeight: '60px' }}>
@@ -2667,7 +2667,10 @@ const handleCodeChange = (index: number, value: string) => {
               <li style={{ marginBottom: '8px' }}><strong>Text her what you need</strong> — a grocery list, a photo of your fridge, pantry, or a recipe</li>
               <li><strong>She adds it to your list</strong> — works in group chats with your household too</li>
             </ol>
+          </div>
 
+          {/* Anchored bottom */}
+          <div style={{ flexShrink: 0, padding: '0 20px 20px', display: 'flex', flexDirection: 'column', gap: '12px', paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}>
             <a
               href="/api/penny.vcf"
               style={{
@@ -2694,7 +2697,6 @@ const handleCodeChange = (index: number, value: string) => {
                 Set your email in Settings to email Penny
               </p>
             )}
-
           </div>
         </div>
 
