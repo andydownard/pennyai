@@ -1090,7 +1090,8 @@ export default function App() {
       else if ((lastAdded.length > 0 || lastSkipped.length > 0) && toast.type !== 'error') btns.push({ label: 'Review', onClick: () => { setShowReviewSheet(true); setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) } })
       typePennyHome(toast.message, btns)
     } else if (pennyChimeIn) {
-      typePennyHome(pennyChimeIn)
+      // Don't let chime-ins interrupt an actively typing message
+      if (!homePennyInterval.current) typePennyHome(pennyChimeIn)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, pennyStatus, toast?.message, pennyChimeIn, showDoneToast])
