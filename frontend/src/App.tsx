@@ -541,7 +541,7 @@ export default function App() {
   // --- Photo state ---
   const [pendingImages, setPendingImages] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const chatInputRef = useRef<HTMLInputElement>(null)
+  const chatInputRef = useRef<HTMLTextAreaElement>(null)
 
   // --- Hamburger menu state ---
   const [menuOpen, setMenuOpen] = useState(false)
@@ -1381,7 +1381,8 @@ export default function App() {
         }
         setChatText('')
         setPendingImages([])
-        // Re-focus input after state update so user can immediately type more
+        // Reset textarea height and re-focus
+        if (chatInputRef.current) chatInputRef.current.style.height = 'auto'
         setTimeout(() => chatInputRef.current?.focus(), 150)
         // Auto-expand departments that received new items + highlight them
         if (addedItems.length > 0) {
@@ -3079,16 +3080,22 @@ const handleCodeChange = (index: number, value: string) => {
             <path d="M7 5l1.5-2h5L15 5" stroke={TEXT_SECONDARY} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </button>
-        <input
+        <textarea
           ref={chatInputRef}
-          type="text"
+          rows={1}
           placeholder="Tell Penny what you need…"
           value={chatText}
-          onChange={e => setChatText(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') handleSendChat() }}
+          onChange={e => {
+            setChatText(e.target.value)
+            e.target.style.height = 'auto'
+            e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
+          }}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat() }
+          }}
           onPaste={handlePaste}
           disabled={chatLoading}
-          style={listStyles.chatInput}
+          style={{ ...listStyles.chatInput, resize: 'none' as const, overflowY: 'hidden' as const, maxHeight: '120px' }}
         />
         <button
           onClick={handleSendChat}
@@ -3375,8 +3382,8 @@ const handleCodeChange = (index: number, value: string) => {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: `1px solid ${BORDER}` }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={selectedItem.claimed_by_id ? BRAND : TEXT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/>
-                    {selectedItem.claimed_by_id && <path d="M9 14l2 2 4-4" strokeWidth="2.5"/>}
+                    <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+                    <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
                   </svg>
                   <span style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>
                     {!selectedItem.claimed_by_id ? "I'll get it" : selectedItem.claimed_by_id === currentUserId ? "You're getting this" : `${selectedItem.claimed_by_name} is getting this`}
@@ -4040,7 +4047,7 @@ const listStyles = {
   chatBar: {
     flexShrink: 0,
     display: 'flex',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     gap: '8px',
     padding: '10px 12px',
     paddingBottom: 'max(10px, env(safe-area-inset-bottom))',
