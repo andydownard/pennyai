@@ -3012,9 +3012,9 @@ const handleCodeChange = (index: number, value: string) => {
                       <span style={listStyles.itemName(item.checked)}>
                         {item.brand ? `${item.brand} ` : ''}{item.name}
                       </span>
-                      {(item.quantity > 1 || item.size) && (
+                      {(item.quantity > 1 || item.size || item.notes) && (
                         <span style={listStyles.itemMeta}>
-                          {item.quantity > 1 ? `×${item.quantity}` : ''}{item.quantity > 1 && item.size ? ' · ' : ''}{item.size}
+                          {item.quantity > 1 ? `×${item.quantity}` : ''}{item.quantity > 1 && item.size ? ' · ' : ''}{item.size}{(item.quantity > 1 || item.size) && item.notes ? ' · ' : ''}{item.notes}
                         </span>
                       )}
                     </div>

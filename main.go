@@ -2055,6 +2055,7 @@ func addParsedItems(db *sql.DB, userID int, parsed []ParsedItem, source string) 
 // ParsedItem is what Claude returns for each grocery item.
 type ParsedItem struct {
 	Name       string `json:"name"`
+	NewName    string `json:"new_name"`
 	Brand      string `json:"brand"`
 	Department string `json:"department"`
 	Quantity   int    `json:"quantity"`
@@ -2232,7 +2233,7 @@ Return ONLY a JSON array, no markdown, no code fences, no explanation.`
 // parseCommandWithClaude interprets the user's natural language input as a list command.
 // It receives the current list items so it can match references like "remove the milk".
 func parseCommandWithClaude(apiKey, userText string, currentItems []ListItem, userName string) (*ParsedCommand, error) {
-	// Build compact list context — only name + brand for matching
+	// Build compact list context — name, brand, and notes for matching and updates
 	var listContext strings.Builder
 	listContext.WriteString("Current shopping list:\n")
 	if len(currentItems) == 0 {
@@ -2242,6 +2243,9 @@ func parseCommandWithClaude(apiKey, userText string, currentItems []ListItem, us
 			line := fmt.Sprintf("#%d %s", item.ID, item.Name)
 			if item.Brand != "" {
 				line += " (" + item.Brand + ")"
+			}
+			if item.Notes != "" {
+				line += " [notes: " + item.Notes + "]"
 			}
 			listContext.WriteString(line + "\n")
 		}
@@ -2261,19 +2265,24 @@ Personality: Be warm, helpful, and occasionally witty. Focus on the groceries an
 Actions you can take:
 - "add": Add new items to the list. Parse items like the examples below.
 - "remove": Remove items from the list. Match by name (fuzzy/partial match OK).
-- "update": Update existing items (change quantity, size, brand, etc.). Match by name.
+- "update": Update existing items (change name, flavor, quantity, size, brand, department, notes). Match by current name. To change flavor, provide the NEW name with the updated flavor.
 - "check": Mark items as checked/bought.
 - "uncheck": Uncheck items (mark as not bought yet).
 - "save": Save the current list with a name.
 - "clear": Clear all checked items from the list.
 
-For add/update items, include full item details:
+For add items, include full item details:
 - "name": specific product name WITHOUT the brand, preserving flavor/variety. NEVER change defining characteristics like flavor, type, variety, or style. Only fix obvious misspellings.
 - "brand": brand name if mentioned
 - "department": one of: Produce, Bakery & Deli, Meat & Seafood, Dairy & Eggs, Frozen, Pantry & Dry Goods, Snacks & Candy, Beverages, Household & Cleaning, Health & Personal Care, Other
 - "quantity": number of units, default 1
 - "size": package size if specified
 - "notes": extra detail (color, preference, preparation style)
+
+For update items: use "name" to match the CURRENT item on the list, and include any fields to change. To rename an item (e.g. change flavor), set "new_name" to the new product name.
+- "name": the CURRENT name from the list (for matching)
+- "new_name": the new product name (only if changing the name/flavor)
+- Other fields (brand, department, quantity, size, notes): include only if changing
 
 For remove/check/uncheck, you only need the "name" field (match against current list).
 
@@ -2291,6 +2300,7 @@ Examples:
 - "add milk and eggs" → {"action":"add","items":[{"name":"Milk",...},{"name":"Eggs",...}],"message":"Added milk and eggs to your list!"}
 - "remove the bread" → {"action":"remove","items":[{"name":"Sourdough Bread"}],"message":"Took bread off the list!"}
 - "change eggs to a dozen" → {"action":"update","items":[{"name":"Eggs","quantity":12}],"message":"Updated eggs to 12!"}
+- "make the sparkling water lime instead" → {"action":"update","items":[{"name":"Tangerine Sparkling Water","new_name":"Lime Sparkling Water"}],"message":"Switched to lime!"}
 - "we got the milk" → {"action":"check","items":[{"name":"Whole Milk"}],"message":"Nice, milk's in the cart!"}
 - "actually we still need milk" → {"action":"uncheck","items":[{"name":"Whole Milk"}],"message":"Milk's back on the list!"}
 - "save this as weekly groceries" → {"action":"save","items":[],"save_name":"Weekly Groceries","message":"Saved your list as Weekly Groceries!"}
@@ -2849,6 +2859,10 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 					if strings.EqualFold(existing.Name, p.Name) {
 						var setClauses []string
 						var setArgs []interface{}
+						if p.NewName != "" && !strings.EqualFold(p.NewName, existing.Name) {
+							setClauses = append(setClauses, "name = ?")
+							setArgs = append(setArgs, p.NewName)
+						}
 						if p.Quantity > 0 {
 							setClauses = append(setClauses, "quantity = ?")
 							setArgs = append(setArgs, p.Quantity)
@@ -2860,6 +2874,10 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 						if p.Brand != "" {
 							setClauses = append(setClauses, "brand = ?")
 							setArgs = append(setArgs, p.Brand)
+						}
+						if p.Department != "" {
+							setClauses = append(setClauses, "department = ?")
+							setArgs = append(setArgs, p.Department)
 						}
 						if p.Notes != "" {
 							setClauses = append(setClauses, "notes = ?")
