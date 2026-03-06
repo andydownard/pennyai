@@ -535,6 +535,8 @@ export default function App() {
   const [homePennyBtns, setHomePennyBtns] = useState<{ label: string; onClick: () => void }[]>([])
   const homePennySource = useRef('')
   const homePennyInterval = useRef<ReturnType<typeof setInterval> | null>(null)
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasGreetedEmpty = useRef(false)
 
   // --- List state ---
   const [items, setItems] = useState<ListItem[]>([])
@@ -665,6 +667,21 @@ export default function App() {
 
   const CHIME_IN_MESSAGES = [
     'Looking good!', 'Almost there!', 'Nice work!', 'On a roll!', 'Keep going!',
+  ]
+
+  const EMPTY_LIST_MESSAGES = [
+    "What are we shopping for today?",
+    "Ready when you are — just tell me what you need!",
+    "Type your grocery list below and I'll get it organized.",
+    "What can I help you find at the store?",
+  ]
+
+  const IDLE_MESSAGES = [
+    "Still here if you need anything!",
+    "I'm not going anywhere — add items whenever you're ready.",
+    "Need help planning a meal? Just ask!",
+    "Tip: you can paste a recipe and I'll pull out the ingredients.",
+    "You can also snap a photo of a recipe or your fridge!",
   ]
 
   const DEPT_DONE_MESSAGES = [
@@ -1310,9 +1327,40 @@ export default function App() {
     } else if (pennyChimeIn) {
       // Don't let chime-ins interrupt an actively typing message
       if (!homePennyInterval.current) typePennyHome(pennyChimeIn)
+    } else if (items.length === 0 && !hasGreetedEmpty.current) {
+      hasGreetedEmpty.current = true
+      typePennyHome(pickRandom(EMPTY_LIST_MESSAGES))
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screen, pennyStatus, toast?.message, pennyChimeIn, showDoneToast])
+  }, [screen, pennyStatus, toast?.message, pennyChimeIn, showDoneToast, items.length])
+
+  // Reset empty greeting when items are cleared so it greets again next time
+  useEffect(() => {
+    if (items.length > 0) hasGreetedEmpty.current = false
+  }, [items.length])
+
+  // Idle nudge — if nothing happens for 2 minutes, Penny says something
+  useEffect(() => {
+    if (screen !== 'home') return
+    const resetIdle = () => {
+      if (idleTimer.current) clearTimeout(idleTimer.current)
+      idleTimer.current = setTimeout(() => {
+        // Only nudge if no other message is actively showing
+        if (!pennyStatus && !toast && !pennyChimeIn && !showDoneToast) {
+          typePennyHome(pickRandom(IDLE_MESSAGES))
+        }
+      }, 300000) // 5 minutes
+    }
+    resetIdle()
+    // Reset on any user interaction
+    const events = ['touchstart', 'click', 'keydown'] as const
+    events.forEach(e => window.addEventListener(e, resetIdle, { passive: true }))
+    return () => {
+      if (idleTimer.current) clearTimeout(idleTimer.current)
+      events.forEach(e => window.removeEventListener(e, resetIdle))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, pennyStatus, toast, pennyChimeIn, showDoneToast])
 
   const resizeAndSetPhoto = (file: Blob) => {
     const img = new Image()
