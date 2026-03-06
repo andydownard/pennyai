@@ -144,7 +144,7 @@ const DEPT_ICONS: Record<string, string> = {
 function DeptIcon({ dept }: { dept: string }) {
   const icon = DEPT_ICONS[dept]
   if (!icon) return null
-  return <span style={{ fontSize: '32px', lineHeight: 1, flexShrink: 0 }}>{icon}</span>
+  return <span style={{ fontSize: '29px', lineHeight: 1, flexShrink: 0 }}>{icon}</span>
 }
 
 // Avenir with system fallbacks for platforms that don't have it.
@@ -685,6 +685,7 @@ export default function App() {
   useEffect(() => {
     const checked = items.filter(i => i.checked).length
     const nowDone = getDoneDepts()
+    const allChecked = items.length > 0 && items.every(i => i.checked)
     if (checked > prevCheckedRef.current && prevCheckedRef.current >= 0 && items.length > 0) {
       const newlyDone = [...nowDone].filter(d => !prevDeptDoneRef.current.has(d))
       if (newlyDone.length > 0) {
@@ -695,8 +696,9 @@ export default function App() {
             return next
           })
         }, 600)
-        showChimeIn(pickRandom(DEPT_DONE_MESSAGES).replace('{dept}', newlyDone[0]), 3750)
-      } else if (Math.random() < 0.3) {
+        // Skip dept chime-in when entire list is done — the done celebration handles it
+        if (!allChecked) showChimeIn(pickRandom(DEPT_DONE_MESSAGES).replace('{dept}', newlyDone[0]), 3750)
+      } else if (!allChecked && Math.random() < 0.3) {
         fetch(`/api/penny/quote?context=chime${settingsFirstName ? '&name=' + encodeURIComponent(settingsFirstName) : ''}`)
           .then(r => r.ok ? r.json() : null)
           .then(data => showChimeIn(data?.quote || pickRandom(CHIME_IN_MESSAGES), 5000))
@@ -1287,7 +1289,9 @@ export default function App() {
   useEffect(() => {
     if (screen !== 'home') return
     const allDone = showDoneToast && items.length > 0 && items.every(i => i.checked)
-    if (allDone && !pennyStatus && !pennyChimeIn) {
+    if (allDone && !pennyStatus) {
+      // Clear any chime-in so the done message takes priority
+      if (pennyChimeIn) { setPennyChimeIn(null); if (chimeInTimer.current) { clearTimeout(chimeInTimer.current); chimeInTimer.current = null } }
       const doneBtns = [
         { label: 'Save List', onClick: () => { setShowDoneToast(false); setShowFireworks(false); setSaveNameInput(''); pushModalState(); setShowSaveSheet(true) } },
         { label: 'Clear List', onClick: () => { setShowDoneToast(false); setShowFireworks(false); handleClearList() } },
@@ -2978,7 +2982,7 @@ const handleCodeChange = (index: number, value: string) => {
                   style={listStyles.deptHeader(isOpen, deptIdx === 0)}
                   onClick={() => handleDeptClick(dept)}
                 >
-                  <span style={{ width: '42px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <span style={{ width: '52px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, paddingLeft: '9px', boxSizing: 'border-box' }}>
                     {deptDone ? <span style={{ color: BRAND, fontSize: '15px' }}>✓</span> : <DeptIcon dept={dept} />}
                   </span>
                   <span style={deptDone ? { textDecoration: 'line-through', opacity: 0.5 } : undefined}>{dept}</span>
@@ -4074,7 +4078,7 @@ const listStyles = {
     display: 'flex',
     alignItems: 'center',
     width: '100%',
-    padding: '13px 20px',
+    padding: '13px 20px 13px 0',
     marginTop: isFirst ? 0 : '8px',
     background: open ? `${BRAND}0D` : 'none',
     border: 'none',
@@ -4083,7 +4087,7 @@ const listStyles = {
     cursor: 'pointer',
     textAlign: 'left' as const,
     WebkitTapHighlightColor: 'transparent',
-    gap: '8px',
+    gap: '0px',
     fontFamily: FONT,
     fontSize: '12px',
     fontWeight: 600,
