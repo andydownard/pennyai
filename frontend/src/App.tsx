@@ -3975,7 +3975,7 @@ const styles: Record<string, React.CSSProperties> = {
 
 const listStyles = {
   page: {
-    height: '100svh',
+    height: '100dvh',
     display: 'flex',
     flexDirection: 'column',
     backgroundColor: BG,
