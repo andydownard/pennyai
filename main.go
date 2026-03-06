@@ -226,6 +226,7 @@ func initDB(path string) (*sql.DB, error) {
 		"ALTER TABLE list_items ADD COLUMN urgent INTEGER NOT NULL DEFAULT 0",
 		"ALTER TABLE list_items ADD COLUMN claimed_by INTEGER DEFAULT NULL",
 		"ALTER TABLE list_items ADD COLUMN claimed_at DATETIME DEFAULT NULL",
+		"ALTER TABLE list_items ADD COLUMN notes TEXT NOT NULL DEFAULT ''",
 	} {
 		db.Exec(stmt) // "duplicate column name" error is expected and harmless
 	}
@@ -269,6 +270,7 @@ func initDB(path string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating saved_list_items table: %w", err)
 	}
+	db.Exec("ALTER TABLE saved_list_items ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
 
 	// --- Household tables ---
 	_, err = db.Exec(`
@@ -1401,19 +1403,19 @@ func householdItemsWhereClause(db *sql.DB, userID int) (string, []interface{}) {
 	return "user_id IN (" + strings.Join(placeholders, ",") + ")", args
 }
 
-// itemData holds the 5 fields shared between list_items and saved_list_items.
+// itemData holds the fields shared between list_items and saved_list_items.
 // Used by collectListItems and saved-list handlers.
 type itemData struct {
-	Name, Brand, Department, Size string
-	Quantity                      int
+	Name, Brand, Department, Size, Notes string
+	Quantity                             int
 }
 
 // insertSavedListItems inserts items into saved_list_items within a transaction.
 func insertSavedListItems(tx *sql.Tx, savedListID int64, items []itemData) error {
 	for _, d := range items {
 		if _, err := tx.Exec(
-			"INSERT INTO saved_list_items (saved_list_id, name, brand, department, quantity, size) VALUES (?, ?, ?, ?, ?, ?)",
-			savedListID, d.Name, d.Brand, d.Department, d.Quantity, d.Size,
+			"INSERT INTO saved_list_items (saved_list_id, name, brand, department, quantity, size, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			savedListID, d.Name, d.Brand, d.Department, d.Quantity, d.Size, d.Notes,
 		); err != nil {
 			return err
 		}
@@ -1429,6 +1431,7 @@ type ListItem struct {
 	Department    string `json:"department"`
 	Quantity      int    `json:"quantity"`
 	Size          string `json:"size"`
+	Notes         string `json:"notes"`
 	Source        string `json:"source"`
 	Checked       bool   `json:"checked"`
 	Urgent        bool   `json:"urgent"`
@@ -1814,7 +1817,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 // listItemColumns is the shared SELECT column list for list_items queries.
-const listItemColumns = "li.id, li.name, li.brand, li.department, li.quantity, li.size, li.source, li.checked, li.urgent, li.created_at, COALESCE(u.name,''), u.phone_number, li.claimed_by, COALESCE(cu.name,'')"
+const listItemColumns = "li.id, li.name, li.brand, li.department, li.quantity, li.size, li.notes, li.source, li.checked, li.urgent, li.created_at, COALESCE(u.name,''), u.phone_number, li.claimed_by, COALESCE(cu.name,'')"
 
 // listItemJoins is the shared FROM/JOIN clause for list_items queries.
 const listItemJoins = "list_items li JOIN users u ON u.id = li.user_id LEFT JOIN users cu ON cu.id = li.claimed_by"
@@ -1826,7 +1829,7 @@ func scanListItem(scanner interface{ Scan(dest ...interface{}) error }) (ListIte
 	var addedByName, addedByPhone sql.NullString
 	var claimedByID sql.NullInt64
 	var claimedByName sql.NullString
-	err := scanner.Scan(&item.ID, &item.Name, &item.Brand, &item.Department, &item.Quantity, &item.Size, &item.Source, &checked, &urgent, &item.CreatedAt, &addedByName, &addedByPhone, &claimedByID, &claimedByName)
+	err := scanner.Scan(&item.ID, &item.Name, &item.Brand, &item.Department, &item.Quantity, &item.Size, &item.Notes, &item.Source, &checked, &urgent, &item.CreatedAt, &addedByName, &addedByPhone, &claimedByID, &claimedByName)
 	if err != nil {
 		return ListItem{}, err
 	}
@@ -1866,7 +1869,7 @@ func getItemByID(db *sql.DB, id, userID int) (ListItem, error) {
 // resulting ListItem and whether it was newly created.
 // The SELECT+UPDATE/INSERT is wrapped in a transaction to prevent duplicate
 // items from concurrent requests.
-func upsertListItem(db *sql.DB, userID int, name, brand, department, size string, quantity int, source string) (ListItem, bool, error) {
+func upsertListItem(db *sql.DB, userID int, name, brand, department, size string, quantity int, source, notes string) (ListItem, bool, error) {
 	if quantity < 1 {
 		quantity = 1
 	}
@@ -1912,8 +1915,8 @@ func upsertListItem(db *sql.DB, userID int, name, brand, department, size string
 				newSize = existingSize
 			}
 			_, err := tx.Exec(
-				"UPDATE list_items SET checked = 0, quantity = ?, brand = ?, size = ? WHERE id = ?",
-				quantity, newBrand, newSize, existingID,
+				"UPDATE list_items SET checked = 0, quantity = ?, brand = ?, size = ?, notes = ? WHERE id = ?",
+				quantity, newBrand, newSize, notes, existingID,
 			)
 			if err != nil {
 				return ListItem{}, false, fmt.Errorf("updating existing item: %w", err)
@@ -1933,8 +1936,8 @@ func upsertListItem(db *sql.DB, userID int, name, brand, department, size string
 				newSize = size
 			}
 			_, err := tx.Exec(
-				"UPDATE list_items SET quantity = ?, brand = ?, size = ? WHERE id = ?",
-				newQty, newBrand, newSize, existingID,
+				"UPDATE list_items SET quantity = ?, brand = ?, size = ?, notes = ? WHERE id = ?",
+				newQty, newBrand, newSize, notes, existingID,
 			)
 			if err != nil {
 				return ListItem{}, false, fmt.Errorf("updating existing item: %w", err)
@@ -1949,8 +1952,8 @@ func upsertListItem(db *sql.DB, userID int, name, brand, department, size string
 	} else {
 		// No match — insert new (attributed to the requesting user)
 		result, err := tx.Exec(
-			"INSERT INTO list_items (user_id, name, brand, department, quantity, size, source) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			userID, name, brand, department, quantity, size, source,
+			"INSERT INTO list_items (user_id, name, brand, department, quantity, size, source, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			userID, name, brand, department, quantity, size, source, notes,
 		)
 		if err != nil {
 			return ListItem{}, false, fmt.Errorf("inserting item: %w", err)
@@ -2000,7 +2003,7 @@ func addParsedItems(db *sql.DB, userID int, parsed []ParsedItem, source string) 
 			continue
 		}
 		p.Name = stripBrandFromName(p.Name, p.Brand)
-		item, isNew, err := upsertListItem(db, userID, p.Name, p.Brand, p.Department, p.Size, p.Quantity, source)
+		item, isNew, err := upsertListItem(db, userID, p.Name, p.Brand, p.Department, p.Size, p.Quantity, source, p.Notes)
 		if err != nil {
 			log.Printf("[%s] error upserting item %q: %v", source, p.Name, err)
 			continue
@@ -2028,6 +2031,7 @@ type ParsedItem struct {
 	Department string `json:"department"`
 	Quantity   int    `json:"quantity"`
 	Size       string `json:"size"`
+	Notes      string `json:"notes"`
 }
 
 // parseItemsWithClaude sends the user's raw text (and optional image) to Claude
@@ -2036,17 +2040,28 @@ func parseItemsWithClaude(apiKey, userText string, images []string) ([]ParsedIte
 	systemPrompt := `You are a grocery shopping assistant. Parse the user's input into individual grocery items.
 
 For each item return:
-- "name": the generic product name, properly capitalized, WITHOUT the brand (e.g. "Peanut Butter", "Whole Milk", "Chicken Breast")
-- "brand": brand name if mentioned, otherwise "" (e.g. "Jif", "Heinz", "Organic Valley")
+- "name": the specific product name, properly capitalized, WITHOUT the brand. PRESERVE flavor, variety, and variant info in the name. Examples: "Tangerine Sparkling Water" not just "Sparkling Water", "Grape Sparkling Water" not "Grapes".
+- "brand": brand name if mentioned, otherwise "" (e.g. "Jif", "LaCroix", "Waterloo", "Organic Valley")
 - "department": one of: Produce, Dairy & Eggs, Meat & Seafood, Bakery, Frozen, Pantry, Beverages, Household, Other
 - "quantity": number of units to buy, integer, default 1
 - "size": package size/weight if specified, otherwise "" (e.g. "16 oz", "1 lb", "Large", "1 gal")
+- "notes": any extra detail the user mentioned that doesn't fit above, otherwise "" (e.g. "the one in the blue box", "boneless skinless", "ripe ones")
+
+CRITICAL RULES:
+1. NEVER genericize product names. Keep the specific product the user asked for.
+2. Flavor/variety is part of the name, NOT the brand. "LaCroix Tangerine" → name: "Tangerine Sparkling Water", brand: "LaCroix"
+3. Do NOT rename products. "Waterloo Grape" → name: "Grape Sparkling Water", brand: "Waterloo", NOT "Grapes"
+4. When in doubt, keep the user's exact words in the name rather than guessing a generic version.
 
 Separate brand from product name. Examples:
-- "jif pb" → {"name":"Peanut Butter","brand":"Jif","department":"Pantry","quantity":1,"size":""}
-- "2 boxes kraft mac and cheese" → {"name":"Macaroni & Cheese","brand":"Kraft","department":"Pantry","quantity":2,"size":""}
-- "large organic eggs" → {"name":"Eggs","brand":"","department":"Dairy & Eggs","quantity":1,"size":"Large"}
-- "gallon of whole milk" → {"name":"Whole Milk","brand":"","department":"Dairy & Eggs","quantity":1,"size":"1 gal"}
+- "jif pb" → {"name":"Peanut Butter","brand":"Jif","department":"Pantry","quantity":1,"size":"","notes":""}
+- "2 boxes kraft mac and cheese" → {"name":"Macaroni & Cheese","brand":"Kraft","department":"Pantry","quantity":2,"size":"","notes":""}
+- "large organic eggs" → {"name":"Organic Eggs","brand":"","department":"Dairy & Eggs","quantity":1,"size":"Large","notes":""}
+- "gallon of whole milk" → {"name":"Whole Milk","brand":"","department":"Dairy & Eggs","quantity":1,"size":"1 gal","notes":""}
+- "lacroix tangerine" → {"name":"Tangerine Sparkling Water","brand":"LaCroix","department":"Beverages","quantity":1,"size":"","notes":""}
+- "waterloo grape" → {"name":"Grape Sparkling Water","brand":"Waterloo","department":"Beverages","quantity":1,"size":"","notes":""}
+- "tillamook sharp cheddar block" → {"name":"Sharp Cheddar","brand":"Tillamook","department":"Dairy & Eggs","quantity":1,"size":"Block","notes":""}
+- "diet coke 12 pack" → {"name":"Diet Coke","brand":"Coca-Cola","department":"Beverages","quantity":1,"size":"12 pack","notes":""}
 
 Image handling — adapt to what you see:
 - Grocery items or products: extract each item.
@@ -2666,7 +2681,7 @@ func (s *Server) handleListAdd(w http.ResponseWriter, r *http.Request) {
 		req.Department = "Other"
 	}
 
-	item, _, err := upsertListItem(s.db, session.UserID, req.Name, "", req.Department, "", 1, "app")
+	item, _, err := upsertListItem(s.db, session.UserID, req.Name, "", req.Department, "", 1, "app", "")
 	if err != nil {
 		dbError(w, err, "We couldn't save your item right now. Please try again.")
 		return
@@ -2848,6 +2863,7 @@ func (s *Server) handleListEdit(w http.ResponseWriter, r *http.Request, id int) 
 		Department *string `json:"department"`
 		Quantity   *int    `json:"quantity"`
 		Size       *string `json:"size"`
+		Notes      *string `json:"notes"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -2887,6 +2903,10 @@ func (s *Server) handleListEdit(w http.ResponseWriter, r *http.Request, id int) 
 	if req.Size != nil {
 		setClauses = append(setClauses, "size = ?")
 		setArgs = append(setArgs, *req.Size)
+	}
+	if req.Notes != nil {
+		setClauses = append(setClauses, "notes = ?")
+		setArgs = append(setArgs, *req.Notes)
 	}
 
 	if len(setClauses) > 0 {
@@ -3266,7 +3286,7 @@ func (s *Server) handleSavedListLoad(w http.ResponseWriter, r *http.Request, id 
 	// Get saved list items — collect all before upserting to avoid holding
 	// the rows cursor open while doing writes (deadlocks with single-conn pools).
 	rows, err := s.db.Query(
-		"SELECT name, brand, department, quantity, size FROM saved_list_items WHERE saved_list_id = ?",
+		"SELECT name, brand, department, quantity, size, notes FROM saved_list_items WHERE saved_list_id = ?",
 		id,
 	)
 	if err != nil {
@@ -3277,7 +3297,7 @@ func (s *Server) handleSavedListLoad(w http.ResponseWriter, r *http.Request, id 
 	var savedItems []itemData
 	for rows.Next() {
 		var si itemData
-		if err := rows.Scan(&si.Name, &si.Brand, &si.Department, &si.Quantity, &si.Size); err != nil {
+		if err := rows.Scan(&si.Name, &si.Brand, &si.Department, &si.Quantity, &si.Size, &si.Notes); err != nil {
 			continue
 		}
 		savedItems = append(savedItems, si)
@@ -3289,7 +3309,7 @@ func (s *Server) handleSavedListLoad(w http.ResponseWriter, r *http.Request, id 
 
 	added := 0
 	for _, si := range savedItems {
-		_, _, err := upsertListItem(s.db, session.UserID, si.Name, si.Brand, si.Department, si.Size, si.Quantity, "app")
+		_, _, err := upsertListItem(s.db, session.UserID, si.Name, si.Brand, si.Department, si.Size, si.Quantity, "app", "")
 		if err != nil {
 			log.Printf("Error upserting saved list item %q: %v", si.Name, err)
 			continue
@@ -4063,7 +4083,7 @@ func (s *Server) requireSavedListAccess(w http.ResponseWriter, userID, listID in
 func collectListItems(db *sql.DB, userID int) ([]itemData, error) {
 	whereClause, whereArgs := householdItemsWhereClause(db, userID)
 	rows, err := db.Query(
-		"SELECT name, brand, department, quantity, size FROM list_items WHERE "+whereClause,
+		"SELECT name, brand, department, quantity, size, notes FROM list_items WHERE "+whereClause,
 		whereArgs...,
 	)
 	if err != nil {
@@ -4074,7 +4094,7 @@ func collectListItems(db *sql.DB, userID int) ([]itemData, error) {
 	var items []itemData
 	for rows.Next() {
 		var d itemData
-		if err := rows.Scan(&d.Name, &d.Brand, &d.Department, &d.Quantity, &d.Size); err != nil {
+		if err := rows.Scan(&d.Name, &d.Brand, &d.Department, &d.Quantity, &d.Size, &d.Notes); err != nil {
 			continue
 		}
 		items = append(items, d)

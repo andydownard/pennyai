@@ -63,6 +63,7 @@ type ListItem = {
   department: string
   quantity: number
   size: string
+  notes: string
   source: string
   checked: boolean
   urgent: boolean
@@ -522,6 +523,7 @@ export default function App() {
   const [editDept, setEditDept] = useState('')
   const [editQty, setEditQty] = useState(1)
   const [editSize, setEditSize] = useState('')
+  const [editNotes, setEditNotes] = useState('')
   const [editLoading, setEditLoading] = useState(false)
   const [itemHistory, setItemHistory] = useState<ItemModification[]>([])
   const deptRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -946,7 +948,16 @@ export default function App() {
 
   const reloadList = async () => {
     const data = await fetchAPI('/api/list')
-    if (data) setItems(sortItems(Array.isArray(data) ? data as ListItem[] : []))
+    if (data) {
+      const loaded = sortItems(Array.isArray(data) ? data as ListItem[] : [])
+      setItems(loaded)
+      // Default all departments with items to expanded
+      setExpandedDepts(prev => {
+        if (prev.size > 0) return prev // preserve user's expand/collapse choices
+        const depts = new Set(loaded.map(i => i.department))
+        return depts
+      })
+    }
   }
 
   const loadTrips = async () => {
@@ -1370,7 +1381,8 @@ export default function App() {
         }
         setChatText('')
         setPendingImages([])
-        chatInputRef.current?.focus()
+        // Re-focus input after state update so user can immediately type more
+        setTimeout(() => chatInputRef.current?.focus(), 150)
         // Auto-expand departments that received new items + highlight them
         if (addedItems.length > 0) {
           const newDepts = new Set(addedItems.map(i => i.department))
@@ -1453,6 +1465,7 @@ export default function App() {
     setEditDept(item.department)
     setEditQty(item.quantity || 1)
     setEditSize(item.size)
+    setEditNotes(item.notes || '')
     setItemHistory([])
     fetchAPI(`/api/list/${item.id}/history`)
       .then(data => setItemHistory(Array.isArray(data) ? data as ItemModification[] : []))
@@ -1505,7 +1518,7 @@ export default function App() {
       const data = await fetchAPI(`/api/list/${selectedItem.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: editName.trim(), brand: editBrand.trim(), department: editDept, quantity: editQty, size: editSize.trim() }),
+        body: JSON.stringify({ name: editName.trim(), brand: editBrand.trim(), department: editDept, quantity: editQty, size: editSize.trim(), notes: editNotes.trim() }),
       })
       if (data) {
         const updated = data as ListItem
@@ -1790,9 +1803,20 @@ const handleCodeChange = (index: number, value: string) => {
     finally { setInviteLoading(false) }
   }
 
-  const handleTextInviteLink = () => withInviteLink(link => {
+  const handleTextInviteLink = () => withInviteLink(async link => {
     const message = `Join our household shopping list on Thriftly! ${link}`
-    window.location.href = `sms:?&body=${encodeURIComponent(message)}`
+    // On mobile with share API, use native share; on desktop, copy to clipboard
+    if (navigator.share && /Mobi|Android/i.test(navigator.userAgent)) {
+      navigator.share({ title: 'Join Thriftly', text: message }).catch(() => {})
+    } else {
+      try {
+        await navigator.clipboard.writeText(link)
+        showToast('Invite link copied!')
+      } catch {
+        // Fallback: open SMS
+        window.location.href = `sms:?&body=${encodeURIComponent(message)}`
+      }
+    }
   })
 
   // =========================================================================
@@ -2798,16 +2822,6 @@ const handleCodeChange = (index: number, value: string) => {
               </span>
               {trip.is_mine && (
                 <div style={{ display: 'flex', gap: '4px' }}>
-                  <a
-                    href={generateICSLink(trip)}
-                    download="shopping-trip.ics"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: TEXT_SECONDARY, display: 'flex' }}
-                    title="Add to calendar"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-                    </svg>
-                  </a>
                   <button
                     onClick={handleCancelTrip}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: TEXT_SECONDARY, display: 'flex' }}
@@ -3108,11 +3122,6 @@ const handleCodeChange = (index: number, value: string) => {
                 </p>
               </div>
               <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                <a
-                  href={generateICSLink(myTrip)}
-                  download="shopping-trip.ics"
-                  style={{ ...listStyles.sheetButton, flex: 1, textAlign: 'center', textDecoration: 'none', backgroundColor: WHITE, color: TEXT, border: `1.5px solid ${BORDER}` }}
-                >Add to Calendar</a>
                 <button
                   onClick={() => { handleCancelTrip(); setShowTripSheet(false) }}
                   style={{ ...listStyles.sheetButton, flex: 1, backgroundColor: '#FEE2E2', color: '#DC2626', border: 'none' }}
@@ -3188,14 +3197,9 @@ const handleCodeChange = (index: number, value: string) => {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
               <button
-                onClick={() => handleSetTrip(true)}
-                disabled={!tripDay}
-                style={{ ...listStyles.sheetButton, opacity: tripDay ? 1 : 0.4 }}
-              >Save & Add to Calendar</button>
-              <button
                 onClick={() => handleSetTrip(false)}
                 disabled={!tripDay}
-                style={{ ...listStyles.sheetButton, opacity: tripDay ? 1 : 0.4, backgroundColor: WHITE, color: TEXT, border: `1.5px solid ${BORDER}` }}
+                style={{ ...listStyles.sheetButton, opacity: tripDay ? 1 : 0.4 }}
               >Save</button>
               <button
                 onClick={() => setShowTripSheet(false)}
@@ -3347,6 +3351,16 @@ const handleCodeChange = (index: number, value: string) => {
                 </FloatingLabelField>
               </div>
             </div>
+
+            <FloatingLabelField label="Notes">
+              <input
+                type="text"
+                value={editNotes}
+                onChange={e => setEditNotes(e.target.value)}
+                placeholder="e.g. Tangerine flavor, organic"
+                style={listStyles.floatingInput}
+              />
+            </FloatingLabelField>
 
             {/* Urgent toggle */}
             {selectedItem && (

@@ -1094,8 +1094,8 @@ func TestDedup_SameItemTwice(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 	_, userID := loginUser(t, server, "5551234567")
 
-	upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 1, "app")
-	upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 1, "app")
+	upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 1, "app", "")
+	upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 1, "app", "")
 
 	var count int
 	server.db.QueryRow("SELECT COUNT(*) FROM list_items WHERE user_id = ?", userID).Scan(&count)
@@ -1114,8 +1114,8 @@ func TestDedup_CaseInsensitive(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 	_, userID := loginUser(t, server, "5551234567")
 
-	upsertListItem(server.db, userID, "BREAD", "", "Bakery", "", 1, "app")
-	upsertListItem(server.db, userID, "bread", "", "Bakery", "", 1, "app")
+	upsertListItem(server.db, userID, "BREAD", "", "Bakery", "", 1, "app", "")
+	upsertListItem(server.db, userID, "bread", "", "Bakery", "", 1, "app", "")
 
 	var count int
 	server.db.QueryRow("SELECT COUNT(*) FROM list_items WHERE user_id = ?", userID).Scan(&count)
@@ -1129,8 +1129,8 @@ func TestDedup_DifferentUsersDontCrossDedup(t *testing.T) {
 	_, userID1 := loginUser(t, server, "5551111111")
 	_, userID2 := loginUser(t, server, "5552222222")
 
-	upsertListItem(server.db, userID1, "Milk", "", "Dairy & Eggs", "", 1, "app")
-	upsertListItem(server.db, userID2, "Milk", "", "Dairy & Eggs", "", 1, "app")
+	upsertListItem(server.db, userID1, "Milk", "", "Dairy & Eggs", "", 1, "app", "")
+	upsertListItem(server.db, userID2, "Milk", "", "Dairy & Eggs", "", 1, "app", "")
 
 	var count int
 	server.db.QueryRow("SELECT COUNT(*) FROM list_items").Scan(&count)
@@ -1150,7 +1150,7 @@ func TestDedup_CheckedItemGetsUnchecked(t *testing.T) {
 	)
 
 	// Upsert same name — should uncheck existing (no duplicate)
-	item, _, err := upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 1, "app")
+	item, _, err := upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 1, "app", "")
 	if err != nil {
 		t.Fatalf("upsertListItem: %v", err)
 	}
@@ -1169,8 +1169,8 @@ func TestDedup_QuantityAddsCorrectly(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 	_, userID := loginUser(t, server, "5551234567")
 
-	upsertListItem(server.db, userID, "Eggs", "", "Dairy & Eggs", "", 2, "app")
-	upsertListItem(server.db, userID, "Eggs", "", "Dairy & Eggs", "", 3, "app")
+	upsertListItem(server.db, userID, "Eggs", "", "Dairy & Eggs", "", 2, "app", "")
+	upsertListItem(server.db, userID, "Eggs", "", "Dairy & Eggs", "", 3, "app", "")
 
 	var qty int
 	server.db.QueryRow("SELECT quantity FROM list_items WHERE user_id = ?", userID).Scan(&qty)
@@ -1184,10 +1184,10 @@ func TestDedup_BrandFillsBlankButDoesNotOverwrite(t *testing.T) {
 	_, userID := loginUser(t, server, "5551234567")
 
 	// First insert: no brand
-	upsertListItem(server.db, userID, "Peanut Butter", "", "Pantry", "", 1, "app")
+	upsertListItem(server.db, userID, "Peanut Butter", "", "Pantry", "", 1, "app", "")
 
 	// Second insert: has brand — should fill blank
-	upsertListItem(server.db, userID, "Peanut Butter", "Jif", "Pantry", "", 1, "app")
+	upsertListItem(server.db, userID, "Peanut Butter", "Jif", "Pantry", "", 1, "app", "")
 
 	var brand string
 	server.db.QueryRow("SELECT brand FROM list_items WHERE user_id = ?", userID).Scan(&brand)
@@ -1196,7 +1196,7 @@ func TestDedup_BrandFillsBlankButDoesNotOverwrite(t *testing.T) {
 	}
 
 	// Third insert: different brand — should NOT overwrite
-	upsertListItem(server.db, userID, "Peanut Butter", "Skippy", "Pantry", "", 1, "app")
+	upsertListItem(server.db, userID, "Peanut Butter", "Skippy", "Pantry", "", 1, "app", "")
 
 	server.db.QueryRow("SELECT brand FROM list_items WHERE user_id = ?", userID).Scan(&brand)
 	if brand != "Jif" {
@@ -5269,7 +5269,7 @@ func TestUpsertListItem_ExistingChecked(t *testing.T) {
 	// Insert a checked item — upsert should uncheck it and set new quantity (no duplicate)
 	server.db.Exec("INSERT INTO list_items (user_id, name, department, quantity, checked) VALUES (?, 'Milk', 'Dairy & Eggs', 1, 1)", userID)
 
-	item, isNew, err := upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 2, "app")
+	item, isNew, err := upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 2, "app", "")
 	if err != nil {
 		t.Fatalf("upsertListItem: %v", err)
 	}
@@ -5298,7 +5298,7 @@ func TestUpsertListItem_CaseInsensitiveMergeChecked(t *testing.T) {
 	// Insert a checked "honey" — adding "Honey" should merge, not create duplicate
 	server.db.Exec("INSERT INTO list_items (user_id, name, department, quantity, checked) VALUES (?, 'honey', 'Condiments', 1, 1)", userID)
 
-	item, _, err := upsertListItem(server.db, userID, "Honey", "", "Condiments", "", 1, "app")
+	item, _, err := upsertListItem(server.db, userID, "Honey", "", "Condiments", "", 1, "app", "")
 	if err != nil {
 		t.Fatalf("upsertListItem: %v", err)
 	}
@@ -5321,7 +5321,7 @@ func TestUpsertListItem_MergeBrandAndSize(t *testing.T) {
 	server.db.Exec("INSERT INTO list_items (user_id, name, brand, department, quantity, size, checked) VALUES (?, 'Milk', '', 'Dairy & Eggs', 1, '', 0)", userID)
 
 	// Upsert with brand and size — should merge
-	item, isNew, err := upsertListItem(server.db, userID, "Milk", "Organic Valley", "Dairy & Eggs", "1 gal", 2, "app")
+	item, isNew, err := upsertListItem(server.db, userID, "Milk", "Organic Valley", "Dairy & Eggs", "1 gal", 2, "app", "")
 	if err != nil {
 		t.Fatalf("upsertListItem: %v", err)
 	}
@@ -5546,7 +5546,7 @@ func TestItemHistory_RecordsOnAdd(t *testing.T) {
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add an item via upsert
-	item, _, err := upsertListItem(server.db, userID, "Bananas", "", "Produce", "", 1, "app")
+	item, _, err := upsertListItem(server.db, userID, "Bananas", "", "Produce", "", 1, "app", "")
 	if err != nil {
 		t.Fatalf("upsertListItem: %v", err)
 	}
@@ -5571,7 +5571,7 @@ func TestItemHistory_RecordsOnToggle(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 	cookie, userID := loginUser(t, server, "5551234567")
 
-	item, _, _ := upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 1, "app")
+	item, _, _ := upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 1, "app", "")
 
 	// Toggle to checked
 	doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d/toggle", item.ID), nil, []*http.Cookie{cookie})
@@ -5595,7 +5595,7 @@ func TestItemHistory_RecordsOnEdit(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 	cookie, userID := loginUser(t, server, "5551234567")
 
-	item, _, _ := upsertListItem(server.db, userID, "Bread", "", "Bakery", "", 1, "app")
+	item, _, _ := upsertListItem(server.db, userID, "Bread", "", "Bakery", "", 1, "app", "")
 
 	// Edit the item
 	doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d", item.ID),
@@ -5642,13 +5642,13 @@ func TestSMSDupe_AlwaysIncreasesQuantity(t *testing.T) {
 	_, userID := loginUser(t, server, "5551234567")
 
 	// Add "Milk" with qty 1 via app
-	_, _, err := upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 1, "app")
+	_, _, err := upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 1, "app", "")
 	if err != nil {
 		t.Fatalf("upsertListItem: %v", err)
 	}
 
 	// Add "Milk" again via SMS with qty 2
-	item, isNew, err := upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 2, "sms")
+	item, isNew, err := upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 2, "sms", "")
 	if err != nil {
 		t.Fatalf("upsertListItem (sms): %v", err)
 	}
@@ -5676,10 +5676,10 @@ func TestEmailDupe_AlwaysIncreasesQuantity(t *testing.T) {
 	_, userID := loginUser(t, server, "5551234567")
 
 	// Add "Eggs" with qty 1 via app
-	upsertListItem(server.db, userID, "Eggs", "", "Dairy & Eggs", "", 1, "app")
+	upsertListItem(server.db, userID, "Eggs", "", "Dairy & Eggs", "", 1, "app", "")
 
 	// Add "Eggs" again via email with qty 1
-	item, isNew, _ := upsertListItem(server.db, userID, "Eggs", "", "Dairy & Eggs", "", 1, "email")
+	item, isNew, _ := upsertListItem(server.db, userID, "Eggs", "", "Dairy & Eggs", "", 1, "email", "")
 
 	if !isNew {
 		t.Error("Email dupe should report isNew=true")
@@ -5694,10 +5694,10 @@ func TestAppDupe_StillReportsSkipped(t *testing.T) {
 	_, userID := loginUser(t, server, "5551234567")
 
 	// Add "Bread" via app
-	upsertListItem(server.db, userID, "Bread", "", "Bakery", "", 1, "app")
+	upsertListItem(server.db, userID, "Bread", "", "Bakery", "", 1, "app", "")
 
 	// Add "Bread" again via app — should report as NOT new (skipped)
-	_, isNew, _ := upsertListItem(server.db, userID, "Bread", "", "Bakery", "", 1, "app")
+	_, isNew, _ := upsertListItem(server.db, userID, "Bread", "", "Bakery", "", 1, "app", "")
 	if isNew {
 		t.Error("App dupe should report isNew=false (skipped)")
 	}
@@ -5708,7 +5708,7 @@ func TestSMSDupe_PreservesOriginalAdder(t *testing.T) {
 
 	// User 1 adds item via app
 	_, userID1 := loginUser(t, server, "5551111111")
-	item, _, _ := upsertListItem(server.db, userID1, "Yogurt", "", "Dairy & Eggs", "", 1, "app")
+	item, _, _ := upsertListItem(server.db, userID1, "Yogurt", "", "Dairy & Eggs", "", 1, "app", "")
 
 	// User 2 (same household) adds same item via SMS
 	_, userID2 := loginUser(t, server, "5552222222")
@@ -5718,7 +5718,7 @@ func TestSMSDupe_PreservesOriginalAdder(t *testing.T) {
 	server.db.Exec("UPDATE users SET household_id = ? WHERE id = ?", hid, userID2)
 	server.db.Exec("INSERT OR IGNORE INTO household_members (household_id, user_id, role) VALUES (?, ?, 'member')", hid, userID2)
 
-	upsertListItem(server.db, userID2, "Yogurt", "", "Dairy & Eggs", "", 2, "sms")
+	upsertListItem(server.db, userID2, "Yogurt", "", "Dairy & Eggs", "", 2, "sms", "")
 
 	// Original adder should still be user 1
 	var ownerID int
@@ -6372,8 +6372,8 @@ func TestUpsertListItem_Transaction(t *testing.T) {
 	_, userID := loginUser(t, server, "5551234567")
 
 	// Add the same item twice — second should merge
-	item1, isNew1, err1 := upsertListItem(server.db, userID, "Milk", "", "Dairy", "", 1, "app")
-	item2, isNew2, err2 := upsertListItem(server.db, userID, "Milk", "", "Dairy", "", 2, "app")
+	item1, isNew1, err1 := upsertListItem(server.db, userID, "Milk", "", "Dairy", "", 1, "app", "")
+	item2, isNew2, err2 := upsertListItem(server.db, userID, "Milk", "", "Dairy", "", 2, "app", "")
 
 	if err1 != nil {
 		t.Fatalf("First upsert error: %v", err1)
@@ -6406,7 +6406,7 @@ func TestUpsertListItem_ConcurrentSafety(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _, err := upsertListItem(server.db, userID, "Eggs", "", "Dairy", "", 1, "app")
+			_, _, err := upsertListItem(server.db, userID, "Eggs", "", "Dairy", "", 1, "app", "")
 			if err != nil {
 				atomic.AddInt64(&errors, 1)
 			}
@@ -6986,7 +6986,7 @@ func TestHandleItemHistory_Success(t *testing.T) {
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add item (creates modification record)
-	item, _, _ := upsertListItem(server.db, userID, "Milk", "", "Dairy", "", 1, "app")
+	item, _, _ := upsertListItem(server.db, userID, "Milk", "", "Dairy", "", 1, "app", "")
 
 	rr := doRequest(server.handleList, "GET", fmt.Sprintf("/api/list/%d/history", item.ID),
 		nil, []*http.Cookie{cookie})
