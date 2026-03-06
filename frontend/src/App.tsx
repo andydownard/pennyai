@@ -590,6 +590,8 @@ export default function App() {
   const [settingsFirstName, setSettingsFirstName] = useState('')
   const [settingsLastName, setSettingsLastName] = useState('')
   const [settingsEmail, setSettingsEmail] = useState('')
+  const [settingsAddress, setSettingsAddress] = useState('')
+  const [googlePlacesKey, setGooglePlacesKey] = useState('')
   const [settingsMembers, setSettingsMembers] = useState<{ name: string; phone: string }[]>([])
   const [settingsLoading, setSettingsLoading] = useState(false)
   const [inviteLoading, setInviteLoading] = useState(false)
@@ -666,7 +668,7 @@ export default function App() {
         }, 600)
         showChimeIn(pickRandom(DEPT_DONE_MESSAGES).replace('{dept}', newlyDone[0]), 3750)
       } else if (Math.random() < 0.3) {
-        fetch('/api/penny/quote?context=chime')
+        fetch(`/api/penny/quote?context=chime${settingsFirstName ? '&name=' + encodeURIComponent(settingsFirstName) : ''}`)
           .then(r => r.ok ? r.json() : null)
           .then(data => showChimeIn(data?.quote || pickRandom(CHIME_IN_MESSAGES), 5000))
           .catch(() => showChimeIn(pickRandom(CHIME_IN_MESSAGES), 5000))
@@ -1150,11 +1152,48 @@ export default function App() {
           setSettingsFirstName(parts[0] || '')
           setSettingsLastName(parts.slice(1).join(' '))
           setSettingsEmail((data.email as string) || '')
+          setSettingsAddress((data.address as string) || '')
+          if (data.google_places_key) setGooglePlacesKey(data.google_places_key as string)
           setSettingsMembers((data.household_members as { name: string; phone: string }[]) || [])
         }
       })
       .catch(() => {})
   }
+
+  // Google Places autocomplete for address field
+  useEffect(() => {
+    if (screen !== 'settings-profile' || !googlePlacesKey) return
+    const input = document.getElementById('address-autocomplete') as HTMLInputElement
+    if (!input) return
+
+    // Load Google Maps JS if not already loaded
+    const scriptId = 'google-places-script'
+    const initAutocomplete = () => {
+      if (!(window as unknown as Record<string, unknown>).google) return
+      const google = (window as unknown as Record<string, { maps: { places: { Autocomplete: new (el: HTMLInputElement, opts: Record<string, unknown>) => { addListener: (event: string, cb: () => void) => void; getPlace: () => { formatted_address?: string } } } } }>).google
+      const autocomplete = new google.maps.places.Autocomplete(input, {
+        types: ['address'],
+        componentRestrictions: { country: 'us' },
+      })
+      autocomplete.addListener('place_changed', () => {
+        const place = autocomplete.getPlace()
+        if (place.formatted_address) {
+          setSettingsAddress(place.formatted_address)
+        }
+      })
+    }
+
+    if (document.getElementById(scriptId)) {
+      initAutocomplete()
+      return
+    }
+    const script = document.createElement('script')
+    script.id = scriptId
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${googlePlacesKey}&libraries=places`
+    script.async = true
+    script.onload = initAutocomplete
+    document.head.appendChild(script)
+  }, [screen, googlePlacesKey])
 
   useEffect(() => {
     if (!['home', 'settings', 'about', 'invite', 'settings-profile', 'settings-share'].includes(screen)) return
@@ -1224,7 +1263,7 @@ export default function App() {
         { label: 'Save List', onClick: () => { setShowDoneToast(false); setShowFireworks(false); setSaveNameInput(''); pushModalState(); setShowSaveSheet(true) } },
         { label: 'Clear List', onClick: () => { setShowDoneToast(false); setShowFireworks(false); handleClearList() } },
       ]
-      fetch('/api/penny/quote?context=done')
+      fetch(`/api/penny/quote?context=done${settingsFirstName ? '&name=' + encodeURIComponent(settingsFirstName) : ''}`)
         .then(r => r.ok ? r.json() : null)
         .then(data => typePennyHome(data?.quote || "You're done!", doneBtns))
         .catch(() => typePennyHome("You're done!", doneBtns))
@@ -1374,58 +1413,91 @@ export default function App() {
       if (res.status === 401) { handleSessionExpired(); return }
       if (res.ok) {
         const data = await res.json()
+        const action: string = data.action || 'add'
         const addedItems: ListItem[] = data.items || []
         const skippedItems = data.skipped || []
-        // Merge new items into list
-        setItems(prev => {
-          const map = new Map(prev.map(i => [i.id, i]))
-          for (const item of addedItems) {
-            map.set(item.id, item)
-          }
-          return sortItems(Array.from(map.values()))
-        })
-        setLastAdded(addedItems)
-        setLastSkipped(skippedItems)
-        // Trigger floating "+N ItemName" animations (cap at 5 to avoid clutter)
-        if (addedItems.length > 0) {
+        const removedItems: ListItem[] = data.removed || []
+        const updatedItems: ListItem[] = data.updated || []
+        const checkedItems: ListItem[] = data.checked || []
+        const pennyMsg: string = data.message || ''
+
+        if (action === 'remove' && removedItems.length > 0) {
+          // Remove items from local state
+          const removedIds = new Set(removedItems.map(i => i.id))
+          setItems(prev => sortItems(prev.filter(i => !removedIds.has(i.id))))
           const now = Date.now()
-          const showItems = addedItems.slice(0, 5)
-          setFloatingLabels(showItems.map((item, i) => ({
-            text: `+${item.quantity || 1} ${item.name}`,
+          setFloatingLabels(removedItems.slice(0, 5).map((item, i) => ({
+            text: `−${item.name}`,
             key: now + i,
           })))
+        } else if (action === 'check' || action === 'uncheck') {
+          // Update checked state in local items
+          const checkedIds = new Map(checkedItems.map(i => [i.id, i.checked]))
+          setItems(prev => sortItems(prev.map(i => checkedIds.has(i.id) ? { ...i, checked: checkedIds.get(i.id)! } : i)))
+        } else if (action === 'update' && updatedItems.length > 0) {
+          // Merge updated items into local state
+          setItems(prev => {
+            const map = new Map(prev.map(i => [i.id, i]))
+            for (const item of updatedItems) map.set(item.id, item)
+            return sortItems(Array.from(map.values()))
+          })
+        } else if (action === 'save') {
+          // Saved — just show message
+        } else if (action === 'clear') {
+          // Reload list to reflect cleared items
+          reloadList()
+        } else {
+          // Default "add" flow
+          setItems(prev => {
+            const map = new Map(prev.map(i => [i.id, i]))
+            for (const item of addedItems) map.set(item.id, item)
+            return sortItems(Array.from(map.values()))
+          })
+          setLastAdded(addedItems)
+          setLastSkipped(skippedItems)
+          if (addedItems.length > 0) {
+            const now = Date.now()
+            setFloatingLabels(addedItems.slice(0, 5).map((item, i) => ({
+              text: `+${item.quantity || 1} ${item.name}`,
+              key: now + i,
+            })))
+          }
+          if (addedItems.length > 0) {
+            const newDepts = new Set(addedItems.map(i => i.department))
+            setExpandedDepts(prev => {
+              const next = new Set(prev)
+              newDepts.forEach(d => next.add(d))
+              return next
+            })
+            const ids = new Set(addedItems.map(i => i.id))
+            setNewItemIds(ids)
+            if (newItemTimerRef.current) clearTimeout(newItemTimerRef.current)
+            newItemTimerRef.current = setTimeout(() => setNewItemIds(new Set()), 1500)
+            const firstDept = DEPARTMENTS.find(d => newDepts.has(d))
+            if (firstDept) {
+              setTimeout(() => {
+                deptRefs.current[firstDept]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }, 100)
+            }
+          }
         }
         setChatText('')
         setPendingImages([])
-        // Reset textarea height and re-focus
         if (chatInputRef.current) chatInputRef.current.style.height = 'auto'
         setTimeout(() => chatInputRef.current?.focus(), 150)
-        // Auto-expand departments that received new items + highlight them
-        if (addedItems.length > 0) {
-          const newDepts = new Set(addedItems.map(i => i.department))
-          setExpandedDepts(prev => {
-            const next = new Set(prev)
-            newDepts.forEach(d => next.add(d))
-            return next
-          })
-          const ids = new Set(addedItems.map(i => i.id))
-          setNewItemIds(ids)
-          if (newItemTimerRef.current) clearTimeout(newItemTimerRef.current)
-          newItemTimerRef.current = setTimeout(() => setNewItemIds(new Set()), 1500)
-          // Scroll to first new department
-          const firstDept = DEPARTMENTS.find(d => newDepts.has(d))
-          if (firstDept) {
-            setTimeout(() => {
-              deptRefs.current[firstDept]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-            }, 100)
-          }
+        // Show Penny's message or fallback toast
+        if (pennyMsg) {
+          showToast(pennyMsg)
+        } else {
+          const parts: string[] = []
+          if (data.added > 0) parts.push(`Added ${data.added} item${data.added === 1 ? '' : 's'}!`)
+          if (skippedItems.length > 0) parts.push(`${skippedItems.length} already on your list`)
+          if (removedItems.length > 0) parts.push(`Removed ${removedItems.length} item${removedItems.length === 1 ? '' : 's'}`)
+          if (updatedItems.length > 0) parts.push(`Updated ${updatedItems.length} item${updatedItems.length === 1 ? '' : 's'}`)
+          if (checkedItems.length > 0) parts.push(`${action === 'check' ? 'Checked' : 'Unchecked'} ${checkedItems.length} item${checkedItems.length === 1 ? '' : 's'}`)
+          if (parts.length > 0) showToast(parts.join(' · '))
+          else if (action === 'add' && addedItems.length === 0 && skippedItems.length === 0) showToast('No items found', 'error')
         }
-        // Show toast
-        const parts: string[] = []
-        if (data.added > 0) parts.push(`Added ${data.added} item${data.added === 1 ? '' : 's'}!`)
-        if (skippedItems.length > 0) parts.push(`${skippedItems.length} already on your list`)
-        if (parts.length > 0) showToast(parts.join(' · '))
-        else if (addedItems.length === 0 && skippedItems.length === 0) showToast('No items found', 'error')
       } else if (res.status === 401) {
         setScreen('phone')
         setPhone('')
@@ -1797,7 +1869,7 @@ const handleCodeChange = (index: number, value: string) => {
       const data = await fetchAPI('/api/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: [settingsFirstName.trim(), settingsLastName.trim()].filter(Boolean).join(' '), email: settingsEmail.trim() }),
+        body: JSON.stringify({ name: [settingsFirstName.trim(), settingsLastName.trim()].filter(Boolean).join(' '), email: settingsEmail.trim(), address: settingsAddress.trim() }),
       })
       if (data) showToast('Settings saved!')
       else showToast('Failed to save', 'error')
@@ -2287,6 +2359,21 @@ const handleCodeChange = (index: number, value: string) => {
               </FloatingLabelField>
               <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px', paddingLeft: '4px' }}>
                 Set your email to add items by emailing penny@list.thrift.ly
+              </p>
+            </div>
+            <div>
+              <FloatingLabelField label="Address">
+                <input
+                  id="address-autocomplete"
+                  type="text"
+                  value={settingsAddress}
+                  onChange={e => setSettingsAddress(e.target.value)}
+                  placeholder="Start typing your address…"
+                  style={listStyles.floatingInput}
+                />
+              </FloatingLabelField>
+              <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px', paddingLeft: '4px' }}>
+                Used to find nearby stores and deals
               </p>
             </div>
             <button

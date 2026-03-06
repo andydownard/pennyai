@@ -49,6 +49,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"path"
 	"os"
 	"strconv"
 	"strings"
@@ -77,6 +78,7 @@ type Config struct {
 	AnthropicAPIKey     string // starts with "sk-ant-"
 	AdminPhone          string // phone number with admin access (10 digits, no +1)
 	LogoDevToken        string // Logo.dev API token for brand logos
+	GooglePlacesAPIKey  string // Google Places API key for address autocomplete
 	NPSIntervalDays     int    // days between NPS re-surveys (default 90)
 	Port                string // HTTP port (default "8080")
 	DBPath              string // SQLite file path (default "thriftly.db")
@@ -135,6 +137,7 @@ func loadConfig() Config {
 		AnthropicAPIKey:     os.Getenv("ANTHROPIC_API_KEY"),
 		AdminPhone:          os.Getenv("ADMIN_PHONE"),
 		LogoDevToken:        os.Getenv("LOGODEV_TOKEN"),
+		GooglePlacesAPIKey:  os.Getenv("GOOGLE_PLACES_API_KEY"),
 		NPSIntervalDays:     npsInterval,
 		Port:                port,
 		DBPath:              dbPath,
@@ -326,6 +329,7 @@ func initDB(path string) (*sql.DB, error) {
 		"ALTER TABLE users ADD COLUMN referral_points INTEGER DEFAULT 0",
 		"ALTER TABLE users ADD COLUMN last_active DATETIME",
 		"ALTER TABLE users ADD COLUMN login_count INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE users ADD COLUMN address TEXT NOT NULL DEFAULT ''",
 	} {
 		db.Exec(stmt)
 	}
@@ -1636,6 +1640,11 @@ type ParseResponse struct {
 	Items   []ListItem    `json:"items"`
 	Skipped []SkippedItem `json:"skipped"`
 	Added   int           `json:"added"`
+	Removed []ListItem    `json:"removed,omitempty"`
+	Updated []ListItem    `json:"updated,omitempty"`
+	Checked []ListItem    `json:"checked,omitempty"`
+	Action  string        `json:"action,omitempty"`
+	Message string        `json:"message,omitempty"`
 }
 
 type cachedLogo struct {
@@ -1648,13 +1657,15 @@ type Server struct {
 	db         *sql.DB
 	sessions   *SessionStore
 	twilio     TwilioClient
-	parseItems func(apiKey, text string, images []string) ([]ParsedItem, error)
-	smsBuffer  *messageBuffer
+	parseItems   func(apiKey, text string, images []string) ([]ParsedItem, error)
+	parseCommand func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error)
+	smsBuffer    *messageBuffer
 	logoCache  sync.Map // domain -> *cachedLogo
 
 	// Cached LLM-generated Penny quotes, keyed by context (login, chime, done)
-	pennyQuoteMu sync.Mutex
-	pennyQuotes  map[string][]string
+	pennyQuoteMu    sync.Mutex
+	pennyQuotes     map[string][]string
+	pennyQuoteLast  time.Time // rate limit: one LLM call per 10s max
 }
 
 // handleSendCode handles POST /auth/send-code
@@ -2039,6 +2050,14 @@ type ParsedItem struct {
 	Notes      string `json:"notes"`
 }
 
+// ParsedCommand is the top-level response from Claude for natural language list operations.
+type ParsedCommand struct {
+	Action   string       `json:"action"`    // add, remove, update, check, uncheck, save, clear
+	Items    []ParsedItem `json:"items"`     // items to act on
+	SaveName string       `json:"save_name"` // for "save" action
+	Message  string       `json:"message"`   // Penny's response message
+}
+
 // parseItemsWithClaude sends the user's raw text (and optional image) to Claude
 // and gets back a list of grocery items with departments assigned.
 func parseItemsWithClaude(apiKey, userText string, images []string) ([]ParsedItem, error) {
@@ -2196,6 +2215,156 @@ Return ONLY a JSON array, no markdown, no code fences, no explanation.`
 	}
 
 	return items, nil
+}
+
+// parseCommandWithClaude interprets the user's natural language input as a list command.
+// It receives the current list items so it can match references like "remove the milk".
+func parseCommandWithClaude(apiKey, userText string, currentItems []ListItem, userName string) (*ParsedCommand, error) {
+	// Build current list context for the LLM
+	var listContext strings.Builder
+	listContext.WriteString("Current shopping list:\n")
+	if len(currentItems) == 0 {
+		listContext.WriteString("(empty)\n")
+	} else {
+		for _, item := range currentItems {
+			status := "[ ]"
+			if item.Checked {
+				status = "[x]"
+			}
+			line := fmt.Sprintf("%s #%d %s", status, item.ID, item.Name)
+			if item.Brand != "" {
+				line += " (" + item.Brand + ")"
+			}
+			if item.Quantity > 1 {
+				line += fmt.Sprintf(" x%d", item.Quantity)
+			}
+			if item.Size != "" {
+				line += " " + item.Size
+			}
+			line += " [" + item.Department + "]"
+			listContext.WriteString(line + "\n")
+		}
+	}
+
+	nameInstruction := ""
+	if userName != "" {
+		nameInstruction = fmt.Sprintf("\nThe user's name is %s. Occasionally (about 30%% of the time) address them by name in your message.", userName)
+	}
+
+	systemPrompt := fmt.Sprintf(`You are Penny, a friendly AI grocery shopping assistant. Interpret the user's message and determine what action to take on their shopping list.
+
+%s
+%s
+Actions you can take:
+- "add": Add new items to the list. Parse items like the examples below.
+- "remove": Remove items from the list. Match by name (fuzzy/partial match OK).
+- "update": Update existing items (change quantity, size, brand, etc.). Match by name.
+- "check": Mark items as checked/bought.
+- "uncheck": Uncheck items (mark as not bought yet).
+- "save": Save the current list with a name.
+- "clear": Clear all checked items from the list.
+
+For add/update items, include full item details:
+- "name": specific product name WITHOUT the brand, preserving flavor/variety
+- "brand": brand name if mentioned
+- "department": one of: Produce, Dairy & Eggs, Meat & Seafood, Bakery, Frozen, Pantry, Beverages, Household, Other
+- "quantity": number of units, default 1
+- "size": package size if specified
+- "notes": extra detail
+
+For remove/check/uncheck, you only need the "name" field (match against current list).
+
+CRITICAL: For remove/update/check/uncheck, use the EXACT name from the current list so matching works. If user says "drop the lacroix" and the list has "Tangerine Sparkling Water" (LaCroix), use "Tangerine Sparkling Water".
+
+Respond with a JSON object:
+{
+  "action": "add"|"remove"|"update"|"check"|"uncheck"|"save"|"clear",
+  "items": [...],
+  "save_name": "list name (only for save action)",
+  "message": "A short, friendly Penny response about what you did (1 sentence)"
+}
+
+Examples:
+- "add milk and eggs" → {"action":"add","items":[{"name":"Milk",...},{"name":"Eggs",...}],"message":"Added milk and eggs to your list!"}
+- "remove the bread" → {"action":"remove","items":[{"name":"Sourdough Bread"}],"message":"Took bread off the list!"}
+- "change eggs to a dozen" → {"action":"update","items":[{"name":"Eggs","quantity":12}],"message":"Updated eggs to 12!"}
+- "we got the milk" → {"action":"check","items":[{"name":"Whole Milk"}],"message":"Nice, milk's in the cart!"}
+- "actually we still need milk" → {"action":"uncheck","items":[{"name":"Whole Milk"}],"message":"Milk's back on the list!"}
+- "save this as weekly groceries" → {"action":"save","items":[],"save_name":"Weekly Groceries","message":"Saved your list as Weekly Groceries!"}
+- "clear everything that's checked" → {"action":"clear","items":[],"message":"Cleared all the checked items!"}
+- "never mind the frozen stuff" → {"action":"remove","items":[...all frozen items from current list...],"message":"Dropped all the frozen items!"}
+
+Return ONLY the JSON object, no markdown, no code fences.`, listContext.String(), nameInstruction)
+
+	reqBody := map[string]interface{}{
+		"model":      "claude-haiku-4-5-20251001",
+		"max_tokens": 4096,
+		"system":     systemPrompt,
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": userText},
+		},
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("calling Anthropic: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("anthropic returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var apiResp struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
+	}
+	if len(apiResp.Content) == 0 {
+		return nil, fmt.Errorf("empty response from Claude")
+	}
+
+	text := strings.TrimSpace(apiResp.Content[0].Text)
+	if strings.HasPrefix(text, "```") {
+		if i := strings.Index(text, "\n"); i >= 0 {
+			text = text[i+1:]
+		}
+		if i := strings.LastIndex(text, "```"); i >= 0 {
+			text = text[:i]
+		}
+		text = strings.TrimSpace(text)
+	}
+
+	var cmd ParsedCommand
+	if err := json.Unmarshal([]byte(text), &cmd); err != nil {
+		// Fallback: if LLM returned an array instead of a command, treat as "add"
+		var items []ParsedItem
+		if err2 := json.Unmarshal([]byte(text), &items); err2 == nil {
+			return &ParsedCommand{Action: "add", Items: items, Message: ""}, nil
+		}
+		return nil, fmt.Errorf("parsing Claude JSON: %w", err)
+	}
+	if cmd.Action == "" {
+		cmd.Action = "add"
+	}
+	return &cmd, nil
 }
 
 // =============================================================================
@@ -2605,6 +2774,171 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("Parsing grocery text for user %d: len=%d (images: %d)", session.UserID, len(req.Text), len(images))
+
+	// For text-only requests, use the command parser which supports natural language operations
+	if len(images) == 0 && req.Text != "" {
+		// Get current list items so the LLM can reference them
+		whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID)
+		rows, err := s.db.Query(
+			"SELECT "+listItemColumns+" FROM "+listItemJoins+" WHERE li."+whereClause+" ORDER BY li.name",
+			whereArgs...,
+		)
+		var currentItems []ListItem
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				item, err := scanListItem(rows)
+				if err == nil {
+					currentItems = append(currentItems, item)
+				}
+			}
+		}
+
+		// Get user name for personalized messages
+		var userName string
+		s.db.QueryRow("SELECT COALESCE(name,'') FROM users WHERE id = ?", session.UserID).Scan(&userName)
+		firstName := strings.Split(strings.TrimSpace(userName), " ")[0]
+
+		cmd, err := s.parseCommand(s.config.AnthropicAPIKey, req.Text, currentItems, firstName)
+		if err != nil {
+			log.Printf("[parse] command error for user %d: %v", session.UserID, err)
+			dbError(w, err, "I couldn't understand that. Try again?")
+			return
+		}
+
+		resp := ParseResponse{
+			Action:  cmd.Action,
+			Message: cmd.Message,
+			Items:   []ListItem{},
+			Skipped: []SkippedItem{},
+		}
+
+		switch cmd.Action {
+		case "remove":
+			for _, p := range cmd.Items {
+				if p.Name == "" {
+					continue
+				}
+				// Find matching item on the list (case-insensitive)
+				for _, existing := range currentItems {
+					if strings.EqualFold(existing.Name, p.Name) || strings.EqualFold(existing.Brand+" "+existing.Name, p.Name) {
+						s.db.Exec("DELETE FROM item_modifications WHERE item_id = ?", existing.ID)
+						delArgs := append([]interface{}{existing.ID}, whereArgs...)
+						s.db.Exec("DELETE FROM list_items WHERE id = ? AND "+whereClause, delArgs...)
+						resp.Removed = append(resp.Removed, existing)
+						break
+					}
+				}
+			}
+		case "check":
+			for _, p := range cmd.Items {
+				if p.Name == "" {
+					continue
+				}
+				for _, existing := range currentItems {
+					if strings.EqualFold(existing.Name, p.Name) && !existing.Checked {
+						s.db.Exec("UPDATE list_items SET checked = 1 WHERE id = ?", existing.ID)
+						existing.Checked = true
+						resp.Checked = append(resp.Checked, existing)
+						break
+					}
+				}
+			}
+		case "uncheck":
+			for _, p := range cmd.Items {
+				if p.Name == "" {
+					continue
+				}
+				for _, existing := range currentItems {
+					if strings.EqualFold(existing.Name, p.Name) && existing.Checked {
+						s.db.Exec("UPDATE list_items SET checked = 0 WHERE id = ?", existing.ID)
+						existing.Checked = false
+						resp.Checked = append(resp.Checked, existing)
+						break
+					}
+				}
+			}
+		case "update":
+			for _, p := range cmd.Items {
+				if p.Name == "" {
+					continue
+				}
+				for _, existing := range currentItems {
+					if strings.EqualFold(existing.Name, p.Name) {
+						var setClauses []string
+						var setArgs []interface{}
+						if p.Quantity > 0 {
+							setClauses = append(setClauses, "quantity = ?")
+							setArgs = append(setArgs, p.Quantity)
+						}
+						if p.Size != "" {
+							setClauses = append(setClauses, "size = ?")
+							setArgs = append(setArgs, p.Size)
+						}
+						if p.Brand != "" {
+							setClauses = append(setClauses, "brand = ?")
+							setArgs = append(setArgs, p.Brand)
+						}
+						if p.Notes != "" {
+							setClauses = append(setClauses, "notes = ?")
+							setArgs = append(setArgs, p.Notes)
+						}
+						if len(setClauses) > 0 {
+							query := "UPDATE list_items SET " + strings.Join(setClauses, ", ") + " WHERE id = ?"
+							setArgs = append(setArgs, existing.ID)
+							s.db.Exec(query, setArgs...)
+							updated, err := getItemByID(s.db, existing.ID, session.UserID)
+							if err == nil {
+								resp.Updated = append(resp.Updated, updated)
+							}
+						}
+						break
+					}
+				}
+			}
+		case "save":
+			name := cmd.SaveName
+			if name == "" {
+				name = "Saved List"
+			}
+			itemsToSave, err := collectListItems(s.db, session.UserID)
+			if err == nil && len(itemsToSave) > 0 {
+				tx, err := s.db.Begin()
+				if err == nil {
+					result, err := tx.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, ?)", session.UserID, name)
+					if err == nil {
+						savedListID, _ := result.LastInsertId()
+						insertSavedListItems(tx, savedListID, itemsToSave)
+						tx.Commit()
+					} else {
+						tx.Rollback()
+					}
+				}
+			}
+		case "clear":
+			s.db.Exec(
+				"DELETE FROM list_items WHERE checked = 1 AND "+whereClause,
+				whereArgs...,
+			)
+		default:
+			// Default "add" action — use the existing addParsedItems flow
+			added, skippedItems := addParsedItems(s.db, session.UserID, cmd.Items, "app")
+			resp.Items = added
+			resp.Skipped = skippedItems
+			resp.Added = len(added)
+		}
+
+		if resp.Items == nil {
+			resp.Items = []ListItem{}
+		}
+		if resp.Skipped == nil {
+			resp.Skipped = []SkippedItem{}
+		}
+		writeJSON(w, http.StatusCreated, resp)
+		return
+	}
+
+	// Image-based requests: use the existing item parser
 	parsed, err := s.parseItems(s.config.AnthropicAPIKey, req.Text, images)
 	if err != nil {
 		log.Printf("[parse] error for user %d: %v", session.UserID, err)
@@ -3351,11 +3685,11 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var name, email, phone sql.NullString
+	var name, email, phone, address sql.NullString
 	err := s.db.QueryRow(
-		"SELECT COALESCE(name,''), COALESCE(email,''), phone_number FROM users WHERE id = ?",
+		"SELECT COALESCE(name,''), COALESCE(email,''), phone_number, COALESCE(address,'') FROM users WHERE id = ?",
 		session.UserID,
-	).Scan(&name, &email, &phone)
+	).Scan(&name, &email, &phone, &address)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load settings"})
 		return
@@ -3388,11 +3722,13 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"name":              name.String,
-		"email":             email.String,
-		"phone":             phone.String,
-		"penny_phone":       s.config.TwilioPhoneNumber,
-		"household_members": members,
+		"name":               name.String,
+		"email":              email.String,
+		"phone":              phone.String,
+		"address":            address.String,
+		"penny_phone":        s.config.TwilioPhoneNumber,
+		"household_members":  members,
+		"google_places_key":  s.config.GooglePlacesAPIKey,
 	})
 }
 
@@ -3404,8 +3740,9 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name  *string `json:"name"`
-		Email *string `json:"email"`
+		Name    *string `json:"name"`
+		Email   *string `json:"email"`
+		Address *string `json:"address"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -3435,6 +3772,13 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, err := s.db.Exec("UPDATE users SET email = ? WHERE id = ?", email, session.UserID); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update email"})
+			return
+		}
+	}
+
+	if req.Address != nil {
+		if _, err := s.db.Exec("UPDATE users SET address = ? WHERE id = ?", strings.TrimSpace(*req.Address), session.UserID); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update address"})
 			return
 		}
 	}
@@ -4393,7 +4737,11 @@ var pennyFallbackQuotes = map[string][]string{
 }
 
 // generatePennyQuote calls Claude Haiku to produce a fresh Penny message.
-func generatePennyQuote(apiKey, context string) (string, error) {
+func generatePennyQuote(apiKey, context, userName string) (string, error) {
+	nameHint := ""
+	if userName != "" {
+		nameHint = fmt.Sprintf(" The user's name is %s — about 30%% of the time, address them by name.", userName)
+	}
 	prompts := map[string]string{
 		"login": `You are Penny, a warm and helpful AI grocery shopping assistant for an app called Thriftly. Write ONE short sentence (under 120 characters) introducing yourself or what you do. Be friendly, conversational, and slightly playful. Vary your style — sometimes be witty, sometimes sincere, sometimes use a food metaphor. Don't use emojis. Don't start with "I'm" every time. Examples of tone: "Your grocery list called — I answered.", "Meal prep starts here, stress ends here.", "I sort the aisles so you don't have to." Return ONLY the quote, nothing else.`,
 		"chime": `You are Penny, a cheerful AI grocery assistant. Write ONE very short encouragement (2-5 words) for someone checking items off their shopping list. Be playful and varied — sometimes use food puns, sometimes simple praise. Don't use emojis. Examples: "Cart goals!", "Aisle be darned!", "Smooth shopping!", "You're on fire!" Return ONLY the phrase, nothing else.`,
@@ -4402,6 +4750,9 @@ func generatePennyQuote(apiKey, context string) (string, error) {
 	prompt, ok := prompts[context]
 	if !ok {
 		prompt = prompts["chime"]
+	}
+	if nameHint != "" {
+		prompt += nameHint
 	}
 
 	reqBody := map[string]interface{}{
@@ -4457,6 +4808,15 @@ func (s *Server) handlePennyQuote(w http.ResponseWriter, r *http.Request) {
 	if ctx == "" {
 		ctx = "login"
 	}
+	userName := r.URL.Query().Get("name")
+
+	// Login context doesn't require auth (user isn't logged in yet)
+	// Other contexts require a valid session to prevent API credit abuse
+	if ctx != "login" {
+		if _, ok := s.requireSession(w, r); !ok {
+			return
+		}
+	}
 
 	// Build the pool: fallback + any cached LLM quotes
 	s.pennyQuoteMu.Lock()
@@ -4469,14 +4829,18 @@ func (s *Server) handlePennyQuote(w http.ResponseWriter, r *http.Request) {
 	pool := append([]string{}, pennyFallbackQuotes[ctx]...)
 	pool = append(pool, cached...)
 
-	// ~25% chance: generate a fresh quote via LLM (async-safe, non-blocking for user)
-	if mrand.Float64() < 0.25 && s.config.AnthropicAPIKey != "" {
-		quote, err := generatePennyQuote(s.config.AnthropicAPIKey, ctx)
+	// ~25% chance: generate a fresh quote via LLM, rate-limited to 1 call per 10s
+	s.pennyQuoteMu.Lock()
+	canCallLLM := time.Since(s.pennyQuoteLast) > 10*time.Second
+	s.pennyQuoteMu.Unlock()
+	if mrand.Float64() < 0.25 && s.config.AnthropicAPIKey != "" && canCallLLM {
+		quote, err := generatePennyQuote(s.config.AnthropicAPIKey, ctx, userName)
 		if err != nil {
 			log.Printf("[penny-quote] LLM error: %v", err)
 		} else if quote != "" {
 			// Cache it (cap at 20 per context to avoid unbounded growth)
 			s.pennyQuoteMu.Lock()
+			s.pennyQuoteLast = time.Now()
 			if len(s.pennyQuotes[ctx]) < 20 {
 				s.pennyQuotes[ctx] = append(s.pennyQuotes[ctx], quote)
 			}
@@ -4539,8 +4903,9 @@ Get these from https://console.twilio.com (see README for full setup).
 			AuthToken:     cfg.TwilioAuthToken,
 			VerifyService: cfg.TwilioVerifyService,
 		},
-		parseItems: parseItemsWithClaude,
-		smsBuffer:  newMessageBuffer(10 * time.Second),
+		parseItems:   parseItemsWithClaude,
+		parseCommand: parseCommandWithClaude,
+		smsBuffer:    newMessageBuffer(10 * time.Second),
 	}
 
 	// Clean expired sessions every hour
@@ -4591,7 +4956,9 @@ Get these from https://console.twilio.com (see README for full setup).
 	// /r/{code} referral links also serve the SPA (frontend reads the code).
 	fs := http.FileServer(http.Dir("static"))
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if _, err := os.Stat("static" + r.URL.Path); err == nil {
+		// Use path.Clean to prevent path traversal
+		cleanPath := path.Clean(r.URL.Path)
+		if _, err := os.Stat("static" + cleanPath); err == nil && !strings.Contains(cleanPath, "..") {
 			fs.ServeHTTP(w, r)
 			return
 		}

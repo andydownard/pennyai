@@ -99,7 +99,7 @@ func newTestServer(t *testing.T, mock *MockTwilioClient) *Server {
 	// This ensures the database is closed even if the test fails early.
 	t.Cleanup(func() { db.Close() })
 
-	return &Server{
+	server := &Server{
 		config:   Config{Port: "8080", AnthropicAPIKey: "test-key", TwilioPhoneNumber: "+10000000000", AdminPhone: "3104861833"},
 		db:       db,
 		sessions: NewSessionStore(db),
@@ -110,6 +110,15 @@ func newTestServer(t *testing.T, mock *MockTwilioClient) *Server {
 		},
 		smsBuffer: newMessageBuffer(50 * time.Millisecond),
 	}
+	// Default parseCommand wraps parseItems so existing tests work
+	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+		parsed, err := server.parseItems(apiKey, text, nil)
+		if err != nil {
+			return nil, err
+		}
+		return &ParsedCommand{Action: "add", Items: parsed}, nil
+	}
+	return server
 }
 
 // doRequest sends a fake HTTP request to a handler and returns the response.
