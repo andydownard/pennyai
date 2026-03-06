@@ -1863,7 +1863,7 @@ const handleCodeChange = (index: number, value: string) => {
           <div style={{ width: '100%', marginBottom: '24px', height: '100px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', height: '100%' }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
-                <PennyAvatar size={40} />
+                <PennyAvatar size={48} />
                 <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px', fontWeight: 500 }}>Penny</span>
               </div>
               <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
@@ -1945,7 +1945,7 @@ const handleCodeChange = (index: number, value: string) => {
           {/* Penny chat area — fixed height to match phone screen */}
           <div style={{ width: '100%', marginBottom: '24px', height: '100px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', height: '100%' }}>
-              <PennyAvatar size={40} />
+              <PennyAvatar size={48} />
               <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
                 {(pennyMessage || pennyTyping) && (
                   <div style={{
@@ -2095,7 +2095,7 @@ const handleCodeChange = (index: number, value: string) => {
 
   const renderPennyToast = () => toast ? (
     <div style={{ ...pennyBarStyle, backgroundColor: toast.type === 'error' ? '#FEE2E2' : '#F5F3EF', color: toast.type === 'error' ? '#991B1B' : TEXT }}>
-      <PennyAvatar size={40} />
+      <PennyAvatar size={48} />
       <span style={{ flex: 1 }}>{toast.message}</span>
       {toast.action && (
         <button
@@ -2465,7 +2465,7 @@ const handleCodeChange = (index: number, value: string) => {
 
             {/* Penny with chat bubble */}
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', minHeight: '60px' }}>
-              <PennyAvatar size={40} />
+              <PennyAvatar size={48} />
               <div style={{ flex: 1, minHeight: '48px', display: 'flex', alignItems: 'center' }}>
                 <div style={{
                   backgroundColor: BG, borderRadius: '16px', borderTopLeftRadius: '4px',
@@ -2990,7 +2990,7 @@ const handleCodeChange = (index: number, value: string) => {
 
       {/* Penny — always visible above chat */}
       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px', backgroundColor: '#F5F3EF', borderTop: `1px solid ${BORDER}` }}>
-        <PennyAvatar size={40} />
+        <PennyAvatar size={48} />
         <span style={{ flex: 1, fontFamily: FONT, fontSize: '14px', color: toast?.type === 'error' ? '#991B1B' : TEXT, fontWeight: 500, minHeight: '20px' }}>
           {homePennyText}
           {homePennyTyping && <span className="cursor-blink" style={{ fontWeight: 300, marginLeft: '1px' }}>|</span>}
