@@ -620,7 +620,6 @@ export default function App() {
   const [settingsAddress, setSettingsAddress] = useState('')
   const [googlePlacesKey, setGooglePlacesKey] = useState('')
   const [settingsMembers, setSettingsMembers] = useState<{ name: string; phone: string }[]>([])
-  const [settingsLoading, setSettingsLoading] = useState(false)
   const [inviteLoading, setInviteLoading] = useState(false)
 
   // --- Referral state ---
@@ -1965,19 +1964,18 @@ const handleCodeChange = (index: number, value: string) => {
   // SETTINGS HANDLERS
   // =========================================================================
 
-  const handleSettingsSave = async () => {
-    if (settingsLoading) return
-    setSettingsLoading(true)
-    try {
-      const data = await fetchAPI('/api/settings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: [settingsFirstName.trim(), settingsLastName.trim()].filter(Boolean).join(' '), email: settingsEmail.trim(), address: settingsAddress.trim() }),
-      })
-      if (data) showToast('Settings saved!')
-      else showToast('Failed to save', 'error')
-    } catch { showToast('Network error', 'error') }
-    finally { setSettingsLoading(false) }
+  const settingsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const handleSettingsAutoSave = () => {
+    if (settingsSaveTimer.current) clearTimeout(settingsSaveTimer.current)
+    settingsSaveTimer.current = setTimeout(async () => {
+      try {
+        await fetchAPI('/api/settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: [settingsFirstName.trim(), settingsLastName.trim()].filter(Boolean).join(' '), email: settingsEmail.trim(), address: settingsAddress.trim() }),
+        })
+      } catch { /* silent */ }
+    }, 500)
   }
 
   const withInviteLink = async (onLink: (link: string) => void) => {
@@ -2433,6 +2431,7 @@ const handleCodeChange = (index: number, value: string) => {
                     type="text"
                     value={settingsFirstName}
                     onChange={e => setSettingsFirstName(e.target.value)}
+                    onBlur={handleSettingsAutoSave}
                     placeholder="First"
                     style={listStyles.floatingInput}
                   />
@@ -2444,6 +2443,7 @@ const handleCodeChange = (index: number, value: string) => {
                     type="text"
                     value={settingsLastName}
                     onChange={e => setSettingsLastName(e.target.value)}
+                    onBlur={handleSettingsAutoSave}
                     placeholder="Last"
                     style={listStyles.floatingInput}
                   />
@@ -2456,6 +2456,7 @@ const handleCodeChange = (index: number, value: string) => {
                   type="email"
                   value={settingsEmail}
                   onChange={e => setSettingsEmail(e.target.value)}
+                  onBlur={handleSettingsAutoSave}
                   placeholder="your@email.com"
                   style={listStyles.floatingInput}
                 />
@@ -2471,6 +2472,7 @@ const handleCodeChange = (index: number, value: string) => {
                   type="text"
                   value={settingsAddress}
                   onChange={e => setSettingsAddress(e.target.value)}
+                  onBlur={handleSettingsAutoSave}
                   placeholder="Start typing your address…"
                   style={listStyles.floatingInput}
                 />
@@ -2479,16 +2481,6 @@ const handleCodeChange = (index: number, value: string) => {
                 Used to find nearby stores and deals
               </p>
             </div>
-            <button
-              onClick={handleSettingsSave}
-              disabled={settingsLoading}
-              style={{
-                ...listStyles.sheetButton,
-                opacity: settingsLoading ? 0.5 : 1,
-              }}
-            >
-              {settingsLoading ? 'Saving...' : 'Save'}
-            </button>
           </div>
         </div>
         {renderPennyToast()}
@@ -2524,45 +2516,7 @@ const handleCodeChange = (index: number, value: string) => {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                 <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 700, color: TEXT, textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>Your Household</span>
               </div>
-              {settingsMembers.length > 0 && (
-                <>
-                  {renderMemberList()}
-                  <button
-                    onClick={() => openConfirmModal({
-                      title: 'Leave Household',
-                      message: 'You will be removed from this household.',
-                      confirmLabel: 'Leave',
-                      destructive: true,
-                      onConfirm: () => {
-                        fetch('/api/settings/leave-household', { method: 'POST' })
-                          .then(res => {
-                            if (res.status === 401) { handleSessionExpired(); return }
-                            if (res.ok) {
-                              showToast('Left household')
-                              loadSettings()
-                            } else {
-                              res.json().then(d => showToast(d?.error || 'Failed', 'error')).catch(() => showToast('Failed', 'error'))
-                            }
-                          })
-                          .catch(() => showToast('Network error', 'error'))
-                      },
-                    })}
-                    style={{
-                      marginTop: '12px',
-                      padding: '10px',
-                      fontFamily: FONT,
-                      fontSize: '15px',
-                      fontWeight: 500,
-                      color: ERROR_RED,
-                      backgroundColor: 'transparent',
-                      border: `1px solid ${ERROR_RED}`,
-                      borderRadius: '10px',
-                      cursor: 'pointer',
-                      width: '100%',
-                    }}
-                  >Leave Household</button>
-                </>
-              )}
+              {settingsMembers.length > 0 && renderMemberList()}
               <button
                 onClick={handleTextInviteLink}
                 disabled={inviteLoading}
@@ -2577,6 +2531,41 @@ const handleCodeChange = (index: number, value: string) => {
               <p style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, marginTop: '8px', lineHeight: 1.5 }}>
                 Household members share the same shopping list
               </p>
+              {settingsMembers.length > 0 && (
+                <button
+                  onClick={() => openConfirmModal({
+                    title: 'Leave Household',
+                    message: 'You will be removed from this household.',
+                    confirmLabel: 'Leave',
+                    destructive: true,
+                    onConfirm: () => {
+                      fetch('/api/settings/leave-household', { method: 'POST' })
+                        .then(res => {
+                          if (res.status === 401) { handleSessionExpired(); return }
+                          if (res.ok) {
+                            showToast('Left household')
+                            loadSettings()
+                          } else {
+                            res.json().then(d => showToast(d?.error || 'Failed', 'error')).catch(() => showToast('Failed', 'error'))
+                          }
+                        })
+                        .catch(() => showToast('Network error', 'error'))
+                    },
+                  })}
+                  style={{
+                    marginTop: '8px',
+                    padding: 0,
+                    fontFamily: FONT,
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    color: ERROR_RED,
+                    backgroundColor: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textAlign: 'left' as const,
+                  }}
+                >Leave household</button>
+              )}
             </div>
 
             {/* ── Friends who live elsewhere section ── */}
@@ -2587,41 +2576,17 @@ const handleCodeChange = (index: number, value: string) => {
               </div>
 
               <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, margin: '0 0 16px 0', lineHeight: 1.6 }}>
-                Share Thriftly with friends — they'll get their own list, and you'll both benefit as more people join.
+                Introduce your friends to Penny — they'll get their own list, and you'll both benefit as more people join.
               </p>
 
               <button onClick={handleShare} style={listStyles.sheetButton}>
-                Share Thriftly with friends
+                Introduce your friends to Penny
               </button>
 
               {referralFriends.length > 0 && (
-                <div style={{ backgroundColor: BG, borderRadius: '12px', padding: '12px 16px', textAlign: 'left', marginTop: '16px' }}>
-                  <span style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: BRAND }}>{referralFriends.length}</span>
-                  <span style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, marginLeft: '8px' }}>{referralFriends.length === 1 ? 'friend joined' : 'friends joined'}</span>
-                </div>
-              )}
-
-              {referralFriends.length > 0 && (
-                <div style={{ marginTop: '16px' }}>
-                  <SectionHeader label={`Friends (${referralFriends.length})`} />
-                  {referralFriends.map((f, i) => (
-                    <div key={i} style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      padding: '10px 0',
-                      borderBottom: `1px solid ${BORDER}`,
-                      gap: '10px',
-                    }}>
-                      <div style={avatarCircleStyle()}>
-                        {(f.name || '?')[0].toUpperCase()}
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>{f.name || 'Friend'}</div>
-                        <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>{new Date(f.created_at).toLocaleDateString()}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <p style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, marginTop: '8px' }}>
+                  {referralFriends.length} {referralFriends.length === 1 ? 'friend' : 'friends'} joined
+                </p>
               )}
             </div>
 
