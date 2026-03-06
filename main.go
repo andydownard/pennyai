@@ -40,6 +40,7 @@ package main
 import (
 	"crypto/rand"
 	"database/sql"
+	mrand "math/rand/v2"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -1650,6 +1651,10 @@ type Server struct {
 	parseItems func(apiKey, text string, images []string) ([]ParsedItem, error)
 	smsBuffer  *messageBuffer
 	logoCache  sync.Map // domain -> *cachedLogo
+
+	// Cached LLM-generated Penny quotes, keyed by context (login, chime, done)
+	pennyQuoteMu sync.Mutex
+	pennyQuotes  map[string][]string
 }
 
 // handleSendCode handles POST /auth/send-code
@@ -4364,6 +4369,132 @@ func (s *Server) handleNPS(w http.ResponseWriter, r *http.Request) {
 }
 
 // =============================================================================
+// PENNY QUOTE GENERATOR
+// =============================================================================
+
+// Fallback quotes used when the LLM isn't called.
+var pennyFallbackQuotes = map[string][]string{
+	"login": {
+		"I work hard so that shopping is effortless and affordable for you and the people you love.",
+		"I coordinate with your whole household so nothing gets forgotten and nothing gets doubled.",
+		"I make sure you get the right amount of the right things — no more, no less.",
+		"I find the best deals so you can spend less time comparing and more time living.",
+		"I keep your list organized by aisle so you can breeze through the store.",
+		"I'm always listening — text me anytime and I'll take care of the rest.",
+		"You can text or email me — I'll add it to your list!",
+	},
+	"chime": {
+		"Looking good!", "Almost there!", "Penny approves!", "Great picks!",
+		"Nice work!", "On a roll!", "Crushing it!", "Keep going!",
+	},
+	"done": {
+		"You're all done!", "List complete — nice job!", "Everything's checked off!",
+	},
+}
+
+// generatePennyQuote calls Claude Haiku to produce a fresh Penny message.
+func generatePennyQuote(apiKey, context string) (string, error) {
+	prompts := map[string]string{
+		"login": `You are Penny, a warm and helpful AI grocery shopping assistant for an app called Thriftly. Write ONE short sentence (under 120 characters) introducing yourself or what you do. Be friendly, conversational, and slightly playful. Vary your style — sometimes be witty, sometimes sincere, sometimes use a food metaphor. Don't use emojis. Don't start with "I'm" every time. Examples of tone: "Your grocery list called — I answered.", "Meal prep starts here, stress ends here.", "I sort the aisles so you don't have to." Return ONLY the quote, nothing else.`,
+		"chime": `You are Penny, a cheerful AI grocery assistant. Write ONE very short encouragement (2-5 words) for someone checking items off their shopping list. Be playful and varied — sometimes use food puns, sometimes simple praise. Don't use emojis. Examples: "Cart goals!", "Aisle be darned!", "Smooth shopping!", "You're on fire!" Return ONLY the phrase, nothing else.`,
+		"done":  `You are Penny, a cheerful AI grocery assistant. Write ONE short congratulations (under 60 characters) for someone who just finished their entire shopping list. Be warm and playful. Don't use emojis. Examples: "That's a wrap — pantry's gonna be stoked!", "Mission accomplished, chef!" Return ONLY the phrase, nothing else.`,
+	}
+	prompt, ok := prompts[context]
+	if !ok {
+		prompt = prompts["chime"]
+	}
+
+	reqBody := map[string]interface{}{
+		"model":      "claude-haiku-4-5-20251001",
+		"max_tokens": 100,
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": prompt},
+		},
+	}
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("anthropic %d: %s", resp.StatusCode, string(body))
+	}
+	var apiResp struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return "", err
+	}
+	if len(apiResp.Content) == 0 {
+		return "", fmt.Errorf("empty response")
+	}
+	// Strip any surrounding quotes the LLM might add
+	quote := strings.TrimSpace(apiResp.Content[0].Text)
+	quote = strings.Trim(quote, "\"'\u201c\u201d\u2018\u2019")
+	return quote, nil
+}
+
+// handlePennyQuote handles GET /api/penny/quote?context=login|chime|done
+// Returns a Penny quote. ~25% of the time generates a fresh one via LLM;
+// otherwise picks from fallback + cached quotes.
+func (s *Server) handlePennyQuote(w http.ResponseWriter, r *http.Request) {
+	ctx := r.URL.Query().Get("context")
+	if ctx == "" {
+		ctx = "login"
+	}
+
+	// Build the pool: fallback + any cached LLM quotes
+	s.pennyQuoteMu.Lock()
+	if s.pennyQuotes == nil {
+		s.pennyQuotes = make(map[string][]string)
+	}
+	cached := s.pennyQuotes[ctx]
+	s.pennyQuoteMu.Unlock()
+
+	pool := append([]string{}, pennyFallbackQuotes[ctx]...)
+	pool = append(pool, cached...)
+
+	// ~25% chance: generate a fresh quote via LLM (async-safe, non-blocking for user)
+	if mrand.Float64() < 0.25 && s.config.AnthropicAPIKey != "" {
+		quote, err := generatePennyQuote(s.config.AnthropicAPIKey, ctx)
+		if err != nil {
+			log.Printf("[penny-quote] LLM error: %v", err)
+		} else if quote != "" {
+			// Cache it (cap at 20 per context to avoid unbounded growth)
+			s.pennyQuoteMu.Lock()
+			if len(s.pennyQuotes[ctx]) < 20 {
+				s.pennyQuotes[ctx] = append(s.pennyQuotes[ctx], quote)
+			}
+			s.pennyQuoteMu.Unlock()
+			writeJSON(w, http.StatusOK, map[string]string{"quote": quote, "source": "llm"})
+			return
+		}
+	}
+
+	// Pick random from pool
+	if len(pool) == 0 {
+		writeJSON(w, http.StatusOK, map[string]string{"quote": "Hey there!", "source": "fallback"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"quote": pool[mrand.IntN(len(pool))], "source": "cached"})
+}
+
+// =============================================================================
 // MAIN
 // =============================================================================
 
@@ -4447,6 +4578,7 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/referral/claim", server.handleReferralClaim)
 	http.HandleFunc("/api/nps/check", server.handleNPSCheck)
 	http.HandleFunc("/api/nps", server.handleNPS)
+	http.HandleFunc("/api/penny/quote", server.handlePennyQuote)
 	http.HandleFunc("/api/admin/dashboard", server.handleAdminDashboard)
 	http.HandleFunc("/api/brands", server.handleBrands)
 	http.HandleFunc("/api/logo", server.handleLogoProxy)

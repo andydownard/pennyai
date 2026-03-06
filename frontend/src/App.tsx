@@ -666,7 +666,10 @@ export default function App() {
         }, 600)
         showChimeIn(pickRandom(DEPT_DONE_MESSAGES).replace('{dept}', newlyDone[0]), 3750)
       } else if (Math.random() < 0.3) {
-        showChimeIn(pickRandom(CHIME_IN_MESSAGES), 5000)
+        fetch('/api/penny/quote?context=chime')
+          .then(r => r.ok ? r.json() : null)
+          .then(data => showChimeIn(data?.quote || pickRandom(CHIME_IN_MESSAGES), 5000))
+          .catch(() => showChimeIn(pickRandom(CHIME_IN_MESSAGES), 5000))
       }
     }
     prevDeptDoneRef.current = nowDone
@@ -880,31 +883,40 @@ export default function App() {
     pennyCancelled.current = false
     let activeInterval: ReturnType<typeof setInterval> | null = null
     let activeTimeout: ReturnType<typeof setTimeout> | null = null
-    const runQuote = (delay: number) => {
-      activeTimeout = setTimeout(() => {
-        if (pennyCancelled.current) return
-        const idx = pennyQuoteIdx.current % PENNY_QUOTES.length
-        pennyQuoteIdx.current++
-        const quote = PENNY_QUOTES[idx]
-        setPennyTyping(true)
-        let i = 0
-        activeInterval = setInterval(() => {
-          if (pennyCancelled.current) { clearInterval(activeInterval!); return }
-          i++
-          setPennyMessage(quote.slice(0, i))
-          if (i >= quote.length) {
-            clearInterval(activeInterval!)
-            activeInterval = null
-            setPennyTyping(false)
-            // Wait 5s then start next quote directly (no clear)
-            activeTimeout = setTimeout(() => {
-              if (!pennyCancelled.current) runQuote(0)
-            }, 5000)
-          }
-        }, 30)
-      }, delay)
+    const typeQuote = (quote: string) => {
+      setPennyTyping(true)
+      let i = 0
+      activeInterval = setInterval(() => {
+        if (pennyCancelled.current) { clearInterval(activeInterval!); return }
+        i++
+        setPennyMessage(quote.slice(0, i))
+        if (i >= quote.length) {
+          clearInterval(activeInterval!)
+          activeInterval = null
+          setPennyTyping(false)
+          activeTimeout = setTimeout(() => {
+            if (!pennyCancelled.current) runQuote()
+          }, 5000)
+        }
+      }, 30)
     }
-    runQuote(1000) // 1s delay before first quote
+    const runQuote = () => {
+      fetch('/api/penny/quote?context=login')
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (pennyCancelled.current) return
+          const quote = data?.quote || PENNY_QUOTES[pennyQuoteIdx.current % PENNY_QUOTES.length]
+          pennyQuoteIdx.current++
+          typeQuote(quote)
+        })
+        .catch(() => {
+          if (pennyCancelled.current) return
+          const quote = PENNY_QUOTES[pennyQuoteIdx.current % PENNY_QUOTES.length]
+          pennyQuoteIdx.current++
+          typeQuote(quote)
+        })
+    }
+    activeTimeout = setTimeout(() => { if (!pennyCancelled.current) runQuote() }, 1000)
     return () => {
       pennyCancelled.current = true
       if (activeInterval) clearInterval(activeInterval)
@@ -1208,10 +1220,14 @@ export default function App() {
     if (screen !== 'home') return
     const allDone = showDoneToast && items.length > 0 && items.every(i => i.checked)
     if (allDone && !pennyStatus && !pennyChimeIn) {
-      typePennyHome("You're done!", [
+      const doneBtns = [
         { label: 'Save List', onClick: () => { setShowDoneToast(false); setShowFireworks(false); setSaveNameInput(''); pushModalState(); setShowSaveSheet(true) } },
         { label: 'Clear List', onClick: () => { setShowDoneToast(false); setShowFireworks(false); handleClearList() } },
-      ])
+      ]
+      fetch('/api/penny/quote?context=done')
+        .then(r => r.ok ? r.json() : null)
+        .then(data => typePennyHome(data?.quote || "You're done!", doneBtns))
+        .catch(() => typePennyHome("You're done!", doneBtns))
     } else if (pennyStatus) {
       typePennyHome(pennyStatus)
     } else if (toast) {
