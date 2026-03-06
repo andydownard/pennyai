@@ -25,6 +25,7 @@ import (
 	"net/http/httptest"
 	"net/textproto"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -9027,6 +9028,157 @@ func TestLogo_DomainSanitization(t *testing.T) {
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("Domain %q should be invalid, got %d", d, rr.Code)
 		}
+	}
+}
+
+// =============================================================================
+// SPA ROUTING TESTS — Browser Navigation
+//
+// Verifies that the Go server serves index.html for all frontend routes
+// (pathname-based routing for browser back/forward support).
+// =============================================================================
+
+func TestSPARouting_FrontendPaths(t *testing.T) {
+	// Create a temp static directory with a dummy index.html
+	tmpDir := t.TempDir()
+	indexContent := []byte("<!DOCTYPE html><html><body>SPA</body></html>")
+	if err := os.WriteFile(tmpDir+"/index.html", indexContent, 0644); err != nil {
+		t.Fatalf("Failed to write test index.html: %v", err)
+	}
+	// Create a real static asset to test that those still get served
+	if err := os.WriteFile(tmpDir+"/test.js", []byte("console.log('hi')"), 0644); err != nil {
+		t.Fatalf("Failed to write test.js: %v", err)
+	}
+
+	fs := http.FileServer(http.Dir(tmpDir))
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := os.Stat(tmpDir + r.URL.Path); err == nil {
+			fs.ServeHTTP(w, r)
+			return
+		}
+		http.ServeFile(w, r, tmpDir+"/index.html")
+	})
+
+	// All these frontend paths should serve index.html (SPA catch-all)
+	frontendPaths := []string{
+		"/",
+		"/login",
+		"/verify",
+		"/about",
+		"/share",
+		"/settings",
+		"/settings/profile",
+		"/settings/saved",
+		"/admin",
+		"/join/abc123",
+		"/r/refcode",
+	}
+
+	for _, path := range frontendPaths {
+		t.Run("GET "+path, func(t *testing.T) {
+			req := httptest.NewRequest("GET", path, nil)
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Errorf("GET %s: got status %d, want 200", path, rr.Code)
+			}
+			body := rr.Body.String()
+			if !strings.Contains(body, "SPA") {
+				t.Errorf("GET %s: expected index.html content, got %q", path, body[:min(len(body), 100)])
+			}
+		})
+	}
+}
+
+func TestSPARouting_StaticAssetsServedDirectly(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(tmpDir+"/index.html", []byte("SPA"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	jsContent := "console.log('app')"
+	if err := os.WriteFile(tmpDir+"/app.js", []byte(jsContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(tmpDir+"/assets", 0755); err != nil {
+		t.Fatal(err)
+	}
+	cssContent := "body { color: red }"
+	if err := os.WriteFile(tmpDir+"/assets/style.css", []byte(cssContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	fs := http.FileServer(http.Dir(tmpDir))
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := os.Stat(tmpDir + r.URL.Path); err == nil {
+			fs.ServeHTTP(w, r)
+			return
+		}
+		http.ServeFile(w, r, tmpDir+"/index.html")
+	})
+
+	// Static files should be served directly (not index.html)
+	t.Run("JS file", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/app.js", nil)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("got %d, want 200", rr.Code)
+		}
+		if !strings.Contains(rr.Body.String(), "console.log") {
+			t.Error("expected JS content")
+		}
+	})
+
+	t.Run("Nested CSS file", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/assets/style.css", nil)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("got %d, want 200", rr.Code)
+		}
+		if !strings.Contains(rr.Body.String(), "color: red") {
+			t.Error("expected CSS content")
+		}
+	})
+}
+
+func TestSPARouting_UnknownPathsFallbackToIndex(t *testing.T) {
+	tmpDir := t.TempDir()
+	indexContent := []byte("INDEX")
+	if err := os.WriteFile(tmpDir+"/index.html", indexContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	fs := http.FileServer(http.Dir(tmpDir))
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := os.Stat(tmpDir + r.URL.Path); err == nil {
+			fs.ServeHTTP(w, r)
+			return
+		}
+		http.ServeFile(w, r, tmpDir+"/index.html")
+	})
+
+	unknownPaths := []string{
+		"/foo/bar",
+		"/nonexistent",
+		"/deeply/nested/path/here",
+		"/settings/unknown",
+	}
+
+	for _, path := range unknownPaths {
+		t.Run("GET "+path, func(t *testing.T) {
+			req := httptest.NewRequest("GET", path, nil)
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Errorf("GET %s: got status %d, want 200", path, rr.Code)
+			}
+			if !strings.Contains(rr.Body.String(), "INDEX") {
+				t.Errorf("GET %s: expected index.html fallback", path)
+			}
+		})
 	}
 }
 

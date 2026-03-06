@@ -32,4 +32,12 @@ export default defineConfig({
       '/api': 'http://localhost:8080',
     },
   },
+
+  // Test configuration for vitest
+  // @ts-expect-error vitest/config extends vite config
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test-setup.ts'],
+  },
 })

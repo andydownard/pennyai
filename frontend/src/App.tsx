@@ -27,6 +27,35 @@ type Screen = 'phone' | 'code' | 'home' | 'saved' | 'settings' | 'about' | 'invi
 // Declare gtag for TypeScript
 declare function gtag(...args: unknown[]): void
 
+// =============================================================================
+// URL ↔ SCREEN MAPPING (for browser back/forward navigation)
+// =============================================================================
+
+const SCREEN_PATHS: Record<Screen, string> = {
+  phone: '/login',
+  code: '/verify',
+  home: '/',
+  about: '/about',
+  'settings-share': '/share',
+  settings: '/settings',
+  'settings-profile': '/settings/profile',
+  saved: '/settings/saved',
+  admin: '/admin',
+  invite: '/share',
+}
+
+const PATH_TO_SCREEN: Record<string, Screen> = {
+  '/login': 'phone',
+  '/verify': 'code',
+  '/': 'home',
+  '/about': 'about',
+  '/share': 'settings-share',
+  '/settings': 'settings',
+  '/settings/profile': 'settings-profile',
+  '/settings/saved': 'saved',
+  '/admin': 'admin',
+}
+
 type ListItem = {
   id: number
   name: string
@@ -447,14 +476,21 @@ function Confetti({ onComplete }: { onComplete: () => void }) {
 export default function App() {
   // --- State ---
   const [screen, setScreenRaw] = useState<Screen>('phone')
-  const setScreen = (s: Screen) => {
-    setScreenRaw(s)
-    if (['home', 'settings', 'about', 'invite', 'saved', 'settings-profile', 'settings-share', 'admin'].includes(s)) {
-      window.location.hash = s === 'home' ? '' : s
+  const scrollPositions = useRef<Record<string, number>>({})
+  const listAreaRef = useRef<HTMLDivElement>(null)
+  const navigatingBack = useRef(false)
+
+  const setScreen = (s: Screen, replace = false) => {
+    // Save scroll position before leaving current screen
+    if (listAreaRef.current) {
+      scrollPositions.current[screen] = listAreaRef.current.scrollTop
     }
-    // Track page view in Google Analytics
+    setScreenRaw(s)
+    const path = SCREEN_PATHS[s] || '/'
+    const method = replace ? 'replaceState' : 'pushState'
+    window.history[method]({ screen: s }, '', path)
     if (typeof gtag === 'function') {
-      gtag('event', 'page_view', { page_title: s })
+      gtag('event', 'page_view', { page_title: s, page_location: path })
     }
   }
   const [phone, setPhone] = useState('')           // raw digits: "5551234567"
@@ -676,6 +712,47 @@ export default function App() {
     }
   }, [])
 
+  // Browser back/forward navigation
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      const s = event.state?.screen as Screen | undefined
+      if (s) {
+        // Save scroll before leaving
+        if (listAreaRef.current) {
+          scrollPositions.current[screen] = listAreaRef.current.scrollTop
+        }
+        navigatingBack.current = true
+        setScreenRaw(s)
+        // Close all modals/sheets when navigating
+        setSelectedItem(null)
+        setShowReviewSheet(false)
+        setShowSaveSheet(false)
+        setShowTripSheet(false)
+        setSelectedSavedList(null)
+        setMenuOpen(false)
+      } else {
+        // No state — resolve from URL
+        const path = window.location.pathname
+        const resolved = PATH_TO_SCREEN[path]
+        if (resolved) {
+          if (listAreaRef.current) {
+            scrollPositions.current[screen] = listAreaRef.current.scrollTop
+          }
+          navigatingBack.current = true
+          setScreenRaw(resolved)
+          setSelectedItem(null)
+          setShowReviewSheet(false)
+          setShowSaveSheet(false)
+          setShowTripSheet(false)
+          setSelectedSavedList(null)
+          setMenuOpen(false)
+        }
+      }
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [screen])
+
   // Try to use join code after login
   const tryJoinCode = useCallback(async () => {
     const joinCode = localStorage.getItem('thriftly_join_code')
@@ -713,6 +790,16 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    // Migrate old hash-based URLs to pathname
+    const hash = window.location.hash.replace('#', '')
+    if (hash) {
+      const hashScreen = hash as Screen
+      const newPath = SCREEN_PATHS[hashScreen]
+      if (newPath) {
+        window.history.replaceState({ screen: hashScreen }, '', newPath)
+      }
+    }
+
     fetch('/auth/me')
       .then(res => {
         if (res.ok) {
@@ -721,13 +808,35 @@ export default function App() {
             if (data.user_id) setCurrentUserId(data.user_id)
           }).catch(() => {})
           tryJoinCode()
-          const hash = window.location.hash.replace('#', '') as Screen
-          const validScreens: Screen[] = ['home', 'settings', 'about', 'invite', 'saved', 'settings-profile', 'settings-share', 'admin']
-          setScreen(validScreens.includes(hash) ? hash : 'home')
+          // Resolve screen from pathname (or migrated hash)
+          const path = window.location.pathname
+          const resolved = PATH_TO_SCREEN[path]
+          if (resolved && !['phone', 'code'].includes(resolved)) {
+            setScreen(resolved, true)
+          } else {
+            // Check for stored redirect from pre-login deep link
+            const redirect = sessionStorage.getItem('thriftly_redirect')
+            if (redirect) {
+              sessionStorage.removeItem('thriftly_redirect')
+              const target = PATH_TO_SCREEN[redirect] || 'home'
+              setScreen(target as Screen, true)
+            } else {
+              setScreen('home', true)
+            }
+          }
+        } else {
+          // Not authenticated — store intended destination for post-login redirect
+          const path = window.location.pathname
+          const resolved = PATH_TO_SCREEN[path]
+          if (resolved && !['phone', 'code'].includes(resolved)) {
+            sessionStorage.setItem('thriftly_redirect', path)
+          }
+          setScreen('phone', true)
         }
       })
       .catch(() => {
         // Not logged in — that's fine, show the phone screen
+        setScreen('phone', true)
       })
       .finally(() => setChecking(false))
   }, [])
@@ -746,6 +855,16 @@ export default function App() {
     }
     if (screen === 'code') {
       setTimeout(() => codeInputRefs.current[0]?.focus(), 150)
+    }
+    // Restore scroll position when navigating back
+    if (navigatingBack.current) {
+      navigatingBack.current = false
+      const saved = scrollPositions.current[screen]
+      if (saved != null && listAreaRef.current) {
+        requestAnimationFrame(() => {
+          if (listAreaRef.current) listAreaRef.current.scrollTop = saved
+        })
+      }
     }
   }, [screen, checking])
 
@@ -799,7 +918,7 @@ export default function App() {
     [...arr].sort((a, b) => a.name.localeCompare(b.name))
 
   const handleSessionExpired = () => {
-    setScreen('phone')
+    setScreen('phone', true)
     setPhone('')
     setError('')
     showToast('Session expired — please log in again', 'error')
@@ -1044,7 +1163,7 @@ export default function App() {
 
   // Redirect legacy invite screen to settings-family
   useEffect(() => {
-    if (screen === 'invite') setScreen('settings-share')
+    if (screen === 'invite') setScreen('settings-share', true)
   }, [screen])
 
   const showToast = (message: string, type: 'success' | 'error' = 'success', action?: { label: string; onClick: () => void }) => {
@@ -1079,7 +1198,7 @@ export default function App() {
     const allDone = showDoneToast && items.length > 0 && items.every(i => i.checked)
     if (allDone && !pennyStatus && !pennyChimeIn) {
       typePennyHome("You're done!", [
-        { label: 'Save List', onClick: () => { setShowDoneToast(false); setShowFireworks(false); setSaveNameInput(''); setShowSaveSheet(true) } },
+        { label: 'Save List', onClick: () => { setShowDoneToast(false); setShowFireworks(false); setSaveNameInput(''); pushModalState(); setShowSaveSheet(true) } },
         { label: 'Clear List', onClick: () => { setShowDoneToast(false); setShowFireworks(false); handleClearList() } },
       ])
     } else if (pennyStatus) {
@@ -1087,7 +1206,7 @@ export default function App() {
     } else if (toast) {
       const btns: { label: string; onClick: () => void }[] = []
       if (toast.action) btns.push({ label: toast.action.label, onClick: () => { toast.action!.onClick(); setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) } })
-      else if ((lastAdded.length > 0 || lastSkipped.length > 0) && toast.type !== 'error') btns.push({ label: 'Review', onClick: () => { setShowReviewSheet(true); setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) } })
+      else if ((lastAdded.length > 0 || lastSkipped.length > 0) && toast.type !== 'error') btns.push({ label: 'Review', onClick: () => { pushModalState(); setShowReviewSheet(true); setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) } })
       typePennyHome(toast.message, btns)
     } else if (pennyChimeIn) {
       // Don't let chime-ins interrupt an actively typing message
@@ -1319,7 +1438,14 @@ export default function App() {
     setNpsComment('')
   }
 
+  // Push a modal history entry so browser back closes the modal
+  const pushModalState = () => {
+    const path = SCREEN_PATHS[screen] || '/'
+    window.history.pushState({ screen, modal: true }, '', path)
+  }
+
   const openDetail = (item: ListItem) => {
+    pushModalState()
     setSelectedItem(item)
     setEditName(item.name)
     setEditBrand(item.brand)
@@ -1339,7 +1465,15 @@ export default function App() {
     openDetail(item)
   }
 
+  const popModalState = () => {
+    // Pop the modal history entry (only if we're not already handling popstate)
+    if (window.history.state?.modal) {
+      window.history.back()
+    }
+  }
+
   const closeEditSheet = (deletedId?: number, updatedItem?: ListItem) => {
+    popModalState()
     setSelectedItem(null)
     if (returnToReview) {
       setReturnToReview(false)
@@ -1437,6 +1571,7 @@ export default function App() {
 
   const handleLoadSavedList = async (id: number, mode: 'merge' | 'overwrite' = 'merge') => {
     const url = mode === 'overwrite' ? `/api/saved-lists/${id}/load?mode=overwrite` : `/api/saved-lists/${id}/load`
+    popModalState()
     setSelectedSavedList(null)
     try {
       const res = await fetch(url, { method: 'POST' })
@@ -1541,7 +1676,15 @@ export default function App() {
         if (data.is_admin) setIsAdmin(true)
         if (data.user_id) setCurrentUserId(data.user_id)
         tryJoinCode()
-        setScreen('home')
+        // Check for post-login redirect (deep link before auth)
+        const redirect = sessionStorage.getItem('thriftly_redirect')
+        if (redirect) {
+          sessionStorage.removeItem('thriftly_redirect')
+          const target = PATH_TO_SCREEN[redirect]
+          setScreen((target || 'home') as Screen, true)
+        } else {
+          setScreen('home', true)
+        }
       } else {
         setError(data.error || 'Invalid code')
         setCode(['', '', '', '', '', ''])
@@ -1659,7 +1802,7 @@ const handleCodeChange = (index: number, value: string) => {
   const handleLogout = async () => {
     await fetch('/auth/logout', { method: 'POST' })
     setMenuOpen(false)
-    setScreen('phone')
+    setScreen('phone', true)
     setPhone('')
     setCode(['', '', '', '', '', ''])
     setError('')
@@ -1984,7 +2127,7 @@ const handleCodeChange = (index: number, value: string) => {
     <div style={{ flexShrink: 0, backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}` }}>
       <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px' }}>
         <button
-          onClick={() => setScreen(backScreen)}
+          onClick={() => window.history.back()}
           style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px 4px 0', color: BRAND, fontSize: '20px', fontWeight: 600, display: 'flex', alignItems: 'center' }}
         >
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -2392,7 +2535,7 @@ const handleCodeChange = (index: number, value: string) => {
             savedLists.map(sl => (
               <button
                 key={sl.id}
-                onClick={() => setSelectedSavedList(sl)}
+                onClick={() => { pushModalState(); setSelectedSavedList(sl) }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -2424,7 +2567,7 @@ const handleCodeChange = (index: number, value: string) => {
 
         {/* Saved list action sheet */}
         {selectedSavedList && (
-          <ActionSheet isOpen={true} onClose={() => setSelectedSavedList(null)} title={selectedSavedList.name}>
+          <ActionSheet isOpen={true} onClose={() => { popModalState(); setSelectedSavedList(null) }} title={selectedSavedList.name}>
               <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: '0 0 8px 0' }}>
                 {selectedSavedList.item_count} item{selectedSavedList.item_count !== 1 ? 's' : ''}
               </p>
@@ -2608,7 +2751,7 @@ const handleCodeChange = (index: number, value: string) => {
           }}>{pageIcons['Shopping List']} Shopping List</span>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}>
             <button
-              onClick={() => { setShowTripSheet(true); if (!activeTrips.some(t => t.is_mine)) { setTripDay(''); setTripTimeLabel(''); setTripExactTime('') } }}
+              onClick={() => { pushModalState(); setShowTripSheet(true); if (!activeTrips.some(t => t.is_mine)) { setTripDay(''); setTripTimeLabel(''); setTripExactTime('') } }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               title="Plan a shopping trip"
             >
@@ -2679,7 +2822,7 @@ const handleCodeChange = (index: number, value: string) => {
       )}
 
       {/* Scrollable list */}
-      <div style={listStyles.listArea}>
+      <div ref={listAreaRef} style={listStyles.listArea}>
         {chatLoading && (
           <div style={{
             position: 'absolute',
@@ -2952,7 +3095,7 @@ const handleCodeChange = (index: number, value: string) => {
         const myTrip = activeTrips.find(t => t.is_mine)
         if (myTrip) {
           return (
-            <ActionSheet isOpen={true} onClose={() => setShowTripSheet(false)} title="Your planned trip" maxHeight="60dvh">
+            <ActionSheet isOpen={true} onClose={() => { popModalState(); setShowTripSheet(false) }} title="Your planned trip" maxHeight="60dvh">
               <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
                 <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
@@ -2979,7 +3122,7 @@ const handleCodeChange = (index: number, value: string) => {
           )
         }
         return (
-          <ActionSheet isOpen={true} onClose={() => setShowTripSheet(false)} title="Plan a shopping trip" maxHeight="60dvh">
+          <ActionSheet isOpen={true} onClose={() => { popModalState(); setShowTripSheet(false) }} title="Plan a shopping trip" maxHeight="60dvh">
             <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: '-4px 0 16px 0' }}>
               Let your household know when you're heading to the store.
             </p>
@@ -3279,7 +3422,7 @@ const handleCodeChange = (index: number, value: string) => {
 
       {/* Review sheet — shows items from last parse */}
       {showReviewSheet && (lastAdded.length > 0 || lastSkipped.length > 0) && (
-        <ActionSheet isOpen={true} onClose={() => { setShowReviewSheet(false); setLastAdded([]); setLastSkipped([]) }} title={lastAdded.length > 0 ? 'Added' : undefined}>
+        <ActionSheet isOpen={true} onClose={() => { popModalState(); setShowReviewSheet(false); setLastAdded([]); setLastSkipped([]) }} title={lastAdded.length > 0 ? 'Added' : undefined}>
 
             {/* Added items section */}
             {lastAdded.length > 0 && (
@@ -3453,7 +3596,7 @@ const handleCodeChange = (index: number, value: string) => {
 
       {/* Save list sheet */}
       {showSaveSheet && (
-        <ActionSheet isOpen={true} onClose={() => setShowSaveSheet(false)} title="Save List">
+        <ActionSheet isOpen={true} onClose={() => { popModalState(); setShowSaveSheet(false) }} title="Save List">
             <input
               type="text"
               value={saveNameInput}
