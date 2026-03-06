@@ -494,6 +494,18 @@ func initDB(path string) (*sql.DB, error) {
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_shopping_trips_household_id ON shopping_trips(household_id)")
 
+	// Migrate old department names to new names (safe to run repeatedly — updates 0 rows if already migrated)
+	for _, stmt := range []string{
+		"UPDATE list_items SET department = 'Bakery & Deli' WHERE department = 'Bakery'",
+		"UPDATE list_items SET department = 'Pantry & Dry Goods' WHERE department = 'Pantry'",
+		"UPDATE list_items SET department = 'Household & Cleaning' WHERE department = 'Household'",
+		"UPDATE saved_list_items SET department = 'Bakery & Deli' WHERE department = 'Bakery'",
+		"UPDATE saved_list_items SET department = 'Pantry & Dry Goods' WHERE department = 'Pantry'",
+		"UPDATE saved_list_items SET department = 'Household & Cleaning' WHERE department = 'Household'",
+	} {
+		db.Exec(stmt)
+	}
+
 	return db, nil
 }
 
@@ -2058,6 +2070,55 @@ type ParsedCommand struct {
 	Message  string       `json:"message"`   // Penny's response message
 }
 
+// callClaude is the shared helper for all Anthropic API calls.
+func callClaude(apiKey, system string, content interface{}, maxTokens int) (string, error) {
+	reqBody := map[string]interface{}{
+		"model":      "claude-haiku-4-5-20251001",
+		"max_tokens": maxTokens,
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": content},
+		},
+	}
+	if system != "" {
+		reqBody["system"] = system
+	}
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("marshaling request: %w", err)
+	}
+	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return "", fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("calling Anthropic: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("anthropic returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var apiResp struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return "", fmt.Errorf("decoding response: %w", err)
+	}
+	if len(apiResp.Content) == 0 {
+		return "", fmt.Errorf("empty response from Claude")
+	}
+	return strings.TrimSpace(apiResp.Content[0].Text), nil
+}
+
 // parseItemsWithClaude sends the user's raw text (and optional image) to Claude
 // and gets back a list of grocery items with departments assigned.
 func parseItemsWithClaude(apiKey, userText string, images []string) ([]ParsedItem, error) {
@@ -2066,7 +2127,7 @@ func parseItemsWithClaude(apiKey, userText string, images []string) ([]ParsedIte
 For each item return:
 - "name": the specific product name, properly capitalized, WITHOUT the brand. PRESERVE flavor, variety, and variant info in the name. Examples: "Tangerine Sparkling Water" not just "Sparkling Water", "Grape Sparkling Water" not "Grapes".
 - "brand": brand name if mentioned, otherwise "" (e.g. "Jif", "LaCroix", "Waterloo", "Organic Valley")
-- "department": one of: Produce, Dairy & Eggs, Meat & Seafood, Bakery, Frozen, Pantry, Beverages, Household, Other
+- "department": one of: Produce, Bakery & Deli, Meat & Seafood, Dairy & Eggs, Frozen, Pantry & Dry Goods, Snacks & Candy, Beverages, Household & Cleaning, Health & Personal Care, Other
 - "quantity": number of units to buy, integer, default 1
 - "size": package size/weight if specified, otherwise "" (e.g. "16 oz", "1 lb", "Large", "1 gal")
 - "notes": any extra detail the user mentioned that doesn't fit above, otherwise "" (e.g. "the one in the blue box", "boneless skinless", "ripe ones")
@@ -2078,8 +2139,8 @@ CRITICAL RULES:
 4. When in doubt, keep the user's exact words in the name rather than guessing a generic version.
 
 Separate brand from product name. Examples:
-- "jif pb" → {"name":"Peanut Butter","brand":"Jif","department":"Pantry","quantity":1,"size":"","notes":""}
-- "2 boxes kraft mac and cheese" → {"name":"Macaroni & Cheese","brand":"Kraft","department":"Pantry","quantity":2,"size":"","notes":""}
+- "jif pb" → {"name":"Peanut Butter","brand":"Jif","department":"Pantry & Dry Goods","quantity":1,"size":"","notes":""}
+- "2 boxes kraft mac and cheese" → {"name":"Macaroni & Cheese","brand":"Kraft","department":"Pantry & Dry Goods","quantity":2,"size":"","notes":""}
 - "large organic eggs" → {"name":"Organic Eggs","brand":"","department":"Dairy & Eggs","quantity":1,"size":"Large","notes":""}
 - "gallon of whole milk" → {"name":"Whole Milk","brand":"","department":"Dairy & Eggs","quantity":1,"size":"1 gal","notes":""}
 - "lacroix tangerine" → {"name":"Tangerine Sparkling Water","brand":"LaCroix","department":"Beverages","quantity":1,"size":"","notes":""}
@@ -2134,58 +2195,10 @@ Return ONLY a JSON array, no markdown, no code fences, no explanation.`
 		messageContent = userText
 	}
 
-	reqBody := map[string]interface{}{
-		"model":      "claude-haiku-4-5-20251001",
-		"max_tokens": 4096,
-		"system":     systemPrompt,
-		"messages": []map[string]interface{}{
-			{"role": "user", "content": messageContent},
-		},
-	}
-
-	bodyBytes, err := json.Marshal(reqBody)
+	text, err := callClaude(apiKey, systemPrompt, messageContent, 4096)
 	if err != nil {
-		return nil, fmt.Errorf("marshaling request: %w", err)
+		return nil, err
 	}
-
-	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", strings.NewReader(string(bodyBytes)))
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("calling Anthropic: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("anthropic returned %d: %s", resp.StatusCode, string(body))
-	}
-
-	var apiResp struct {
-		Content []struct {
-			Text string `json:"text"`
-		} `json:"content"`
-		StopReason string `json:"stop_reason"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
-	}
-	if len(apiResp.Content) == 0 {
-		return nil, fmt.Errorf("empty response from Claude")
-	}
-	if apiResp.StopReason == "max_tokens" {
-		log.Printf("[parse] WARNING: Claude response truncated (max_tokens reached)")
-	}
-
-	text := apiResp.Content[0].Text
-	// Strip markdown code fences if Claude wrapped the JSON despite instructions
-	text = strings.TrimSpace(text)
 	if strings.HasPrefix(text, "```") {
 		// Remove opening fence (```json or ```)
 		if i := strings.Index(text, "\n"); i >= 0 {
@@ -2200,15 +2213,12 @@ Return ONLY a JSON array, no markdown, no code fences, no explanation.`
 
 	var items []ParsedItem
 	if err := json.Unmarshal([]byte(text), &items); err != nil {
-		// If truncated, try to salvage partial JSON by closing the array
-		if apiResp.StopReason == "max_tokens" {
-			// Find the last complete object by looking for the last "},"
-			if idx := strings.LastIndex(text, "},"); idx > 0 {
-				salvaged := text[:idx+1] + "]"
-				if err2 := json.Unmarshal([]byte(salvaged), &items); err2 == nil {
-					log.Printf("[parse] Salvaged %d items from truncated response", len(items))
-					return items, nil
-				}
+		// Try to salvage partial JSON (e.g. truncated response)
+		if idx := strings.LastIndex(text, "},"); idx > 0 {
+			salvaged := text[:idx+1] + "]"
+			if err2 := json.Unmarshal([]byte(salvaged), &items); err2 == nil {
+				log.Printf("[parse] Salvaged %d items from truncated response", len(items))
+				return items, nil
 			}
 		}
 		return nil, fmt.Errorf("parsing Claude JSON: %w", err)
@@ -2220,35 +2230,24 @@ Return ONLY a JSON array, no markdown, no code fences, no explanation.`
 // parseCommandWithClaude interprets the user's natural language input as a list command.
 // It receives the current list items so it can match references like "remove the milk".
 func parseCommandWithClaude(apiKey, userText string, currentItems []ListItem, userName string) (*ParsedCommand, error) {
-	// Build current list context for the LLM
+	// Build compact list context — only name + brand for matching
 	var listContext strings.Builder
 	listContext.WriteString("Current shopping list:\n")
 	if len(currentItems) == 0 {
 		listContext.WriteString("(empty)\n")
 	} else {
 		for _, item := range currentItems {
-			status := "[ ]"
-			if item.Checked {
-				status = "[x]"
-			}
-			line := fmt.Sprintf("%s #%d %s", status, item.ID, item.Name)
+			line := fmt.Sprintf("#%d %s", item.ID, item.Name)
 			if item.Brand != "" {
 				line += " (" + item.Brand + ")"
 			}
-			if item.Quantity > 1 {
-				line += fmt.Sprintf(" x%d", item.Quantity)
-			}
-			if item.Size != "" {
-				line += " " + item.Size
-			}
-			line += " [" + item.Department + "]"
 			listContext.WriteString(line + "\n")
 		}
 	}
 
 	nameInstruction := ""
 	if userName != "" {
-		nameInstruction = fmt.Sprintf("\nThe user's name is %s. Occasionally (about 30%% of the time) address them by name in your message.", userName)
+		nameInstruction = fmt.Sprintf("\nThe user's name is %s. Occasionally (about 2%% of the time) address them by name in your message.", userName)
 	}
 
 	systemPrompt := fmt.Sprintf(`You are Penny, a friendly AI grocery shopping assistant. Interpret the user's message and determine what action to take on their shopping list.
@@ -2267,7 +2266,7 @@ Actions you can take:
 For add/update items, include full item details:
 - "name": specific product name WITHOUT the brand, preserving flavor/variety
 - "brand": brand name if mentioned
-- "department": one of: Produce, Dairy & Eggs, Meat & Seafood, Bakery, Frozen, Pantry, Beverages, Household, Other
+- "department": one of: Produce, Bakery & Deli, Meat & Seafood, Dairy & Eggs, Frozen, Pantry & Dry Goods, Snacks & Candy, Beverages, Household & Cleaning, Health & Personal Care, Other
 - "quantity": number of units, default 1
 - "size": package size if specified
 - "notes": extra detail
@@ -2296,52 +2295,10 @@ Examples:
 
 Return ONLY the JSON object, no markdown, no code fences.`, listContext.String(), nameInstruction)
 
-	reqBody := map[string]interface{}{
-		"model":      "claude-haiku-4-5-20251001",
-		"max_tokens": 4096,
-		"system":     systemPrompt,
-		"messages": []map[string]interface{}{
-			{"role": "user", "content": userText},
-		},
-	}
-
-	bodyBytes, err := json.Marshal(reqBody)
+	text, err := callClaude(apiKey, systemPrompt, userText, 4096)
 	if err != nil {
-		return nil, fmt.Errorf("marshaling request: %w", err)
+		return nil, err
 	}
-
-	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", strings.NewReader(string(bodyBytes)))
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("calling Anthropic: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("anthropic returned %d: %s", resp.StatusCode, string(body))
-	}
-
-	var apiResp struct {
-		Content []struct {
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
-	}
-	if len(apiResp.Content) == 0 {
-		return nil, fmt.Errorf("empty response from Claude")
-	}
-
-	text := strings.TrimSpace(apiResp.Content[0].Text)
 	if strings.HasPrefix(text, "```") {
 		if i := strings.Index(text, "\n"); i >= 0 {
 			text = text[i+1:]
@@ -2485,18 +2442,28 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		CreatedAt string `json:"created_at"`
 	}
 
-	var npsAvg float64
-	if err := s.db.QueryRow("SELECT COALESCE(AVG(score), 0) FROM nps_responses").Scan(&npsAvg); err != nil {
-		log.Printf("[admin] failed to calculate NPS average: %v", err)
+	var npsScore float64
+	var npsTotal, npsPromoters, npsDetractors int
+	npsRow := s.db.QueryRow(`
+		SELECT COUNT(*),
+			SUM(CASE WHEN score >= 9 THEN 1 ELSE 0 END),
+			SUM(CASE WHEN score <= 6 THEN 1 ELSE 0 END)
+		FROM nps_responses WHERE created_at >= datetime('now', ?)`, modifier)
+	if err := npsRow.Scan(&npsTotal, &npsPromoters, &npsDetractors); err != nil {
+		log.Printf("[admin] failed to calculate NPS: %v", err)
+	}
+	if npsTotal > 0 {
+		npsScore = (float64(npsPromoters) - float64(npsDetractors)) / float64(npsTotal) * 100
 	}
 
 	npsRows, err := s.db.Query(`
 		SELECT n.score, n.comment, COALESCE(u.name,''), u.phone_number, n.created_at
 		FROM nps_responses n
 		JOIN users u ON u.id = n.user_id
+		WHERE n.created_at >= datetime('now', ?)
 		ORDER BY n.created_at DESC
 		LIMIT 100
-	`)
+	`, modifier)
 	var npsResponses []npsEntry
 	if err == nil {
 		defer npsRows.Close()
@@ -2522,8 +2489,11 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		"k_factor":      kFactor,
 		"leaderboard":   leaderboard,
 		"days":          days,
-		"nps_responses": npsResponses,
-		"nps_average":   npsAvg,
+		"nps_responses":  npsResponses,
+		"nps_score":      npsScore,
+		"nps_total":      npsTotal,
+		"nps_promoters":  npsPromoters,
+		"nps_detractors": npsDetractors,
 	})
 }
 
@@ -2822,9 +2792,13 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 				// Find matching item on the list (case-insensitive)
 				for _, existing := range currentItems {
 					if strings.EqualFold(existing.Name, p.Name) || strings.EqualFold(existing.Brand+" "+existing.Name, p.Name) {
-						s.db.Exec("DELETE FROM item_modifications WHERE item_id = ?", existing.ID)
+						if _, err := s.db.Exec("DELETE FROM item_modifications WHERE item_id = ?", existing.ID); err != nil {
+							log.Printf("[parse] remove modifications error: %v", err)
+						}
 						delArgs := append([]interface{}{existing.ID}, whereArgs...)
-						s.db.Exec("DELETE FROM list_items WHERE id = ? AND "+whereClause, delArgs...)
+						if _, err := s.db.Exec("DELETE FROM list_items WHERE id = ? AND "+whereClause, delArgs...); err != nil {
+							log.Printf("[parse] remove item error: %v", err)
+						}
 						resp.Removed = append(resp.Removed, existing)
 						break
 					}
@@ -2837,7 +2811,9 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 				}
 				for _, existing := range currentItems {
 					if strings.EqualFold(existing.Name, p.Name) && !existing.Checked {
-						s.db.Exec("UPDATE list_items SET checked = 1 WHERE id = ?", existing.ID)
+						if _, err := s.db.Exec("UPDATE list_items SET checked = 1 WHERE id = ?", existing.ID); err != nil {
+							log.Printf("[parse] check item error: %v", err)
+						}
 						existing.Checked = true
 						resp.Checked = append(resp.Checked, existing)
 						break
@@ -2851,7 +2827,9 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 				}
 				for _, existing := range currentItems {
 					if strings.EqualFold(existing.Name, p.Name) && existing.Checked {
-						s.db.Exec("UPDATE list_items SET checked = 0 WHERE id = ?", existing.ID)
+						if _, err := s.db.Exec("UPDATE list_items SET checked = 0 WHERE id = ?", existing.ID); err != nil {
+							log.Printf("[parse] uncheck item error: %v", err)
+						}
 						existing.Checked = false
 						resp.Checked = append(resp.Checked, existing)
 						break
@@ -2886,7 +2864,9 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 						if len(setClauses) > 0 {
 							query := "UPDATE list_items SET " + strings.Join(setClauses, ", ") + " WHERE id = ?"
 							setArgs = append(setArgs, existing.ID)
-							s.db.Exec(query, setArgs...)
+							if _, err := s.db.Exec(query, setArgs...); err != nil {
+								log.Printf("[parse] update item error: %v", err)
+							}
 							updated, err := getItemByID(s.db, existing.ID, session.UserID)
 							if err == nil {
 								resp.Updated = append(resp.Updated, updated)
@@ -4719,17 +4699,16 @@ func (s *Server) handleNPS(w http.ResponseWriter, r *http.Request) {
 // Fallback quotes used when the LLM isn't called.
 var pennyFallbackQuotes = map[string][]string{
 	"login": {
-		"I work hard so that shopping is effortless and affordable for you and the people you love.",
+		"I work hard so that shopping is effortless and affordable for your household.",
 		"I coordinate with your whole household so nothing gets forgotten and nothing gets doubled.",
 		"I make sure you get the right amount of the right things — no more, no less.",
 		"I find the best deals so you can spend less time comparing and more time living.",
 		"I keep your list organized by aisle so you can breeze through the store.",
-		"I'm always listening — text me anytime and I'll take care of the rest.",
+		"Text me anytime — I'll handle it.",
 		"You can text or email me — I'll add it to your list!",
 	},
 	"chime": {
-		"Looking good!", "Almost there!", "Penny approves!", "Great picks!",
-		"Nice work!", "On a roll!", "Crushing it!", "Keep going!",
+		"Looking good!", "Almost there!", "Nice work!", "On a roll!", "Keep going!",
 	},
 	"done": {
 		"You're all done!", "List complete — nice job!", "Everything's checked off!",
@@ -4740,11 +4719,11 @@ var pennyFallbackQuotes = map[string][]string{
 func generatePennyQuote(apiKey, context, userName string) (string, error) {
 	nameHint := ""
 	if userName != "" {
-		nameHint = fmt.Sprintf(" The user's name is %s — about 30%% of the time, address them by name.", userName)
+		nameHint = fmt.Sprintf(" The user's name is %s — about 2%% of the time, address them by name.", userName)
 	}
 	prompts := map[string]string{
 		"login": `You are Penny, a warm and helpful AI grocery shopping assistant for an app called Thriftly. Write ONE short sentence (under 120 characters) introducing yourself or what you do. Be friendly, conversational, and slightly playful. Vary your style — sometimes be witty, sometimes sincere, sometimes use a food metaphor. Don't use emojis. Don't start with "I'm" every time. Examples of tone: "Your grocery list called — I answered.", "Meal prep starts here, stress ends here.", "I sort the aisles so you don't have to." Return ONLY the quote, nothing else.`,
-		"chime": `You are Penny, a cheerful AI grocery assistant. Write ONE very short encouragement (2-5 words) for someone checking items off their shopping list. Be playful and varied — sometimes use food puns, sometimes simple praise. Don't use emojis. Examples: "Cart goals!", "Aisle be darned!", "Smooth shopping!", "You're on fire!" Return ONLY the phrase, nothing else.`,
+		"chime": `You are Penny, a wry AI grocery assistant. Write ONE very short phrase (2-5 words) for someone checking items off their shopping list. Be dry, witty, or use a food pun. Never be flattering or sycophantic. Don't use emojis. Examples: "Cart goals.", "Aisle be darned.", "Smooth shopping.", "Check." Return ONLY the phrase, nothing else.`,
 		"done":  `You are Penny, a cheerful AI grocery assistant. Write ONE short congratulations (under 60 characters) for someone who just finished their entire shopping list. Be warm and playful. Don't use emojis. Examples: "That's a wrap — pantry's gonna be stoked!", "Mission accomplished, chef!" Return ONLY the phrase, nothing else.`,
 	}
 	prompt, ok := prompts[context]
@@ -4755,48 +4734,12 @@ func generatePennyQuote(apiKey, context, userName string) (string, error) {
 		prompt += nameHint
 	}
 
-	reqBody := map[string]interface{}{
-		"model":      "claude-haiku-4-5-20251001",
-		"max_tokens": 100,
-		"messages": []map[string]interface{}{
-			{"role": "user", "content": prompt},
-		},
-	}
-	bodyBytes, err := json.Marshal(reqBody)
+	text, err := callClaude(apiKey, "", prompt, 100)
 	if err != nil {
 		return "", err
-	}
-	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", strings.NewReader(string(bodyBytes)))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("anthropic %d: %s", resp.StatusCode, string(body))
-	}
-	var apiResp struct {
-		Content []struct {
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return "", err
-	}
-	if len(apiResp.Content) == 0 {
-		return "", fmt.Errorf("empty response")
 	}
 	// Strip any surrounding quotes the LLM might add
-	quote := strings.TrimSpace(apiResp.Content[0].Text)
-	quote = strings.Trim(quote, "\"'\u201c\u201d\u2018\u2019")
+	quote := strings.Trim(text, "\"'\u201c\u201d\u2018\u2019")
 	return quote, nil
 }
 
@@ -4832,15 +4775,19 @@ func (s *Server) handlePennyQuote(w http.ResponseWriter, r *http.Request) {
 	// ~25% chance: generate a fresh quote via LLM, rate-limited to 1 call per 10s
 	s.pennyQuoteMu.Lock()
 	canCallLLM := time.Since(s.pennyQuoteLast) > 10*time.Second
+	if canCallLLM && mrand.Float64() < 0.25 && s.config.AnthropicAPIKey != "" {
+		s.pennyQuoteLast = time.Now() // claim the slot before unlocking
+	} else {
+		canCallLLM = false
+	}
 	s.pennyQuoteMu.Unlock()
-	if mrand.Float64() < 0.25 && s.config.AnthropicAPIKey != "" && canCallLLM {
+	if canCallLLM {
 		quote, err := generatePennyQuote(s.config.AnthropicAPIKey, ctx, userName)
 		if err != nil {
 			log.Printf("[penny-quote] LLM error: %v", err)
 		} else if quote != "" {
 			// Cache it (cap at 20 per context to avoid unbounded growth)
 			s.pennyQuoteMu.Lock()
-			s.pennyQuoteLast = time.Now()
 			if len(s.pennyQuotes[ctx]) < 20 {
 				s.pennyQuotes[ctx] = append(s.pennyQuotes[ctx], quote)
 			}

@@ -114,15 +114,42 @@ const WHITE = '#FFFFFF'
 
 const DEPARTMENTS = [
   'Produce',
-  'Dairy & Eggs',
+  'Bakery & Deli',
   'Meat & Seafood',
-  'Bakery',
+  'Dairy & Eggs',
   'Frozen',
-  'Pantry',
+  'Pantry & Dry Goods',
+  'Snacks & Candy',
   'Beverages',
-  'Household',
+  'Household & Cleaning',
+  'Health & Personal Care',
   'Other',
 ]
+
+// Department icons — Lucide-style SVGs (16x16, viewBox 0 0 24 24, stroke="currentColor")
+const DEPT_ICONS: Record<string, string> = {
+  'Produce': 'M11 20A7 7 0 0 1 9.8 6.9C15.5 4.9 17 3.5 17 3.5s1.5 2.5-.5 6.5a5 5 0 0 1-1.5 2L11 20zm0 0H7',
+  'Bakery & Deli': 'M2 12h1c2 0 3-1 5-1s3 1 5 1 3-1 5-1h1M3 20h18M4 16h16M12 4c-1.5 0-3 .5-3 2s1.5 2 3 2 3-.5 3-2-1.5-2-3-2z',
+  'Meat & Seafood': 'M15.5 2.5c-1 1-2.5 3.5-2.5 6s1 4 1 6-1.5 4-3 5.5M12 20c2-2 4-4 4-7s-1.5-5-1.5-7.5S16 2 17.5 1M8 14c-1 0-4 1-4 3.5S6 21 8 21s4-1 4-3.5S9 14 8 14z',
+  'Dairy & Eggs': 'M8 2h8l1 5v11a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V7l1-5zM7 7h10',
+  'Frozen': 'M12 2v20M17 7l-10 10M2 12h20M7 7l10 10M17 17l-5-5M7 17l5-5',
+  'Pantry & Dry Goods': 'M21 8l-2-4H5L3 8m18 0v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8m18 0H3m7 4h4',
+  'Snacks & Candy': 'M12 2a5.5 5.5 0 0 0-4 9.5A5.5 5.5 0 0 0 12 22a5.5 5.5 0 0 0 4-10.5A5.5 5.5 0 0 0 12 2zM9 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zM15 14a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z',
+  'Beverages': 'M17 8h1a4 4 0 0 1 0 8h-1M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8zM6 1v3M10 1v3M14 1v3',
+  'Household & Cleaning': 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9zM9 22V12h6v10',
+  'Health & Personal Care': 'M22 12h-4l-3 9L9 3l-3 9H2',
+  'Other': 'M12 12h.01M8 12h.01M16 12h.01',
+}
+
+function DeptIcon({ dept }: { dept: string }) {
+  const path = DEPT_ICONS[dept]
+  if (!path) return null
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <path d={path} />
+    </svg>
+  )
+}
 
 // Avenir with system fallbacks for platforms that don't have it.
 // Avenir comes pre-installed on macOS and iOS.
@@ -234,9 +261,10 @@ function PennyAvatar({ size = 28 }: { size?: number }) {
 function BrandLogo({ brand, size = 52, opacity = 1 }: { brand?: string; size?: number; opacity?: number }) {
   const radius = size > 60 ? '12px' : size > 48 ? '10px' : '8px'
   const pad = size > 60 ? '4px' : size > 48 ? '3px' : '2px'
+  const iconSize = Math.round(size * 0.4)
   return (
     <div style={{ width: size, height: size, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      {brand && (
+      {brand ? (
         <img
           src={`/api/logo?brand=${encodeURIComponent(brand)}&v=4`}
           alt=""
@@ -246,6 +274,12 @@ function BrandLogo({ brand, size = 52, opacity = 1 }: { brand?: string; size?: n
           style={{ borderRadius: radius, objectFit: 'contain' as const, backgroundColor: '#FAFAFA', border: '1px solid rgba(0,0,0,0.06)', padding: pad, opacity, transition: 'opacity 0.15s' }}
           onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
         />
+      ) : (
+        <div style={{ width: size, height: size, borderRadius: radius, backgroundColor: '#FAFAFA', border: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity }}>
+          <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="#D1D0CC" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 8l-2-4H5L3 8m18 0v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8m18 0H3m7 4h4" />
+          </svg>
+        </div>
       )}
     </div>
   )
@@ -290,7 +324,7 @@ const qtyBtnStyle: React.CSSProperties = {
 // =============================================================================
 
 const PENNY_STEP1 = ["Reading your list...", "Let me see what you wrote...", "Hmm, looking at this..."]
-const PENNY_STEP2 = ["Checking it twice!", "Sorting by aisle...", "Ooh, good choices!", "I know just where these go..."]
+const PENNY_STEP2 = ["Checking it twice!", "Sorting by aisle...", "Organizing...", "I know just where these go..."]
 const PENNY_STEP3 = ["Adding to your list...", "Almost done!", "Stocking up!"]
 const PENNY_STEPS = [PENNY_STEP1, PENNY_STEP2, PENNY_STEP3]
 const PENNY_QUOTES = [
@@ -608,7 +642,10 @@ export default function App() {
     k_factor: number; leaderboard: { phone: string; name: string; points: number; referrals: number }[];
     days: number;
     nps_responses: { score: number; comment: string; user_name: string; user_phone: string; created_at: string }[];
-    nps_average: number;
+    nps_score: number;
+    nps_total: number;
+    nps_promoters: number;
+    nps_detractors: number;
   } | null>(null)
   const [adminDays, setAdminDays] = useState(30)
 
@@ -617,6 +654,8 @@ export default function App() {
   const [npsScore, setNpsScore] = useState<number | null>(null)
   const [npsStep, setNpsStep] = useState<1 | 2>(1)
   const [npsComment, setNpsComment] = useState('')
+  const [npsTypedText, setNpsTypedText] = useState('')
+  const [npsTypingDone, setNpsTypingDone] = useState(false)
 
   // --- SMS opt-in state ---
   const [smsOptIn, setSmsOptIn] = useState(true)
@@ -634,8 +673,7 @@ export default function App() {
   const prevCheckedRef = useRef(-1)
 
   const CHIME_IN_MESSAGES = [
-    'Looking good!', 'Almost there!', 'Penny approves!', 'Great picks!',
-    'Nice work!', 'On a roll!', 'Crushing it!', 'Keep going!',
+    'Looking good!', 'Almost there!', 'Nice work!', 'On a roll!', 'Keep going!',
   ]
 
   const DEPT_DONE_MESSAGES = [
@@ -1537,7 +1575,29 @@ export default function App() {
     setNpsScore(null)
     setNpsStep(1)
     setNpsComment('')
+    setNpsTypedText('')
+    setNpsTypingDone(false)
   }
+
+  // Typewriter effect for NPS questions
+  useEffect(() => {
+    if (!showNPS) return
+    const question = npsStep === 1
+      ? 'How likely are you to recommend Thriftly to a friend?'
+      : `You picked ${npsScore}! What's the biggest reason for your score?`
+    setNpsTypedText('')
+    setNpsTypingDone(false)
+    let i = 0
+    const timer = setInterval(() => {
+      i++
+      setNpsTypedText(question.slice(0, i))
+      if (i >= question.length) {
+        clearInterval(timer)
+        setNpsTypingDone(true)
+      }
+    }, 25)
+    return () => clearInterval(timer)
+  }, [showNPS, npsStep, npsScore])
 
   // Push a modal history entry so browser back closes the modal
   const pushModalState = () => {
@@ -2522,30 +2582,6 @@ const handleCodeChange = (index: number, value: string) => {
               )}
             </div>
 
-            {/* ── Exclusive Rebates section ── */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-                <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 700, color: TEXT, textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>Exclusive Rebates</span>
-              </div>
-              <div style={{ backgroundColor: BG, borderRadius: '12px', padding: '16px' }}>
-                <p style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: BRAND, margin: '0 0 8px 0', textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>
-                  Coming Soon
-                </p>
-                <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, margin: '0 0 12px 0', lineHeight: 1.6 }}>
-                  We're partnering with brands to offer exclusive rebates on the things you already buy. No points, no gimmicks — real savings on real groceries.
-                </p>
-                <p style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, margin: '0 0 8px 0', lineHeight: 1.5 }}>
-                  Are you a product manager at a CPG brand? Get your products in front of engaged shoppers.
-                </p>
-                <a
-                  href="mailto:partners@thrift.ly?subject=Create%20a%20brand%20deal"
-                  style={{ fontFamily: FONT, fontSize: '13px', color: BRAND, textDecoration: 'underline', textUnderlineOffset: '2px' }}
-                >
-                  Create a brand deal
-                </a>
-              </div>
-            </div>
 
           </div>
         </div>
@@ -2616,23 +2652,6 @@ const handleCodeChange = (index: number, value: string) => {
               </p>
             )}
 
-            {/* Coming Soon */}
-            <div style={{ backgroundColor: BG, borderRadius: '12px', padding: '16px 20px', border: `1px solid ${BORDER}` }}>
-              <p style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT, margin: '0 0 10px 0' }}>
-                Coming Soon
-              </p>
-              <ul style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: 0, paddingLeft: '24px', lineHeight: '1.8' }}>
-                <li>Best deals near you</li>
-                <li>Best places to shop</li>
-                <li>Delivery options</li>
-              </ul>
-              <a
-                href="mailto:support@thrift.ly?subject=Feature%20request"
-                style={{ fontFamily: FONT, fontSize: '12px', color: BRAND, marginTop: '12px', display: 'inline-block', textDecoration: 'underline', textUnderlineOffset: '2px' }}
-              >
-                Request a feature
-              </a>
-            </div>
           </div>
         </div>
 
@@ -2795,7 +2814,7 @@ const handleCodeChange = (index: number, value: string) => {
 
               {/* NPS Responses */}
               <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '28px', marginBottom: '12px' }}>
-                NPS Score: {adminData.nps_average.toFixed(1)}
+                NPS: {adminData.nps_score.toFixed(0)} ({adminData.nps_total} responses, {adminData.nps_promoters} promoters, {adminData.nps_detractors} detractors)
               </div>
               {adminData.nps_responses.length === 0 ? (
                 <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY }}>No NPS responses yet.</div>
@@ -2956,7 +2975,7 @@ const handleCodeChange = (index: number, value: string) => {
             <p style={listStyles.emptySubtext}>Tell Penny what you need.</p>
           </div>
         ) : (
-          activeDepts.map(dept => {
+          activeDepts.map((dept, deptIdx) => {
             const deptItems = items.filter(i => i.department === dept)
             const deptTotal = deptItems.reduce((s, i) => s + (i.quantity || 1), 0)
             const deptChecked = deptItems.filter(i => i.checked).reduce((s, i) => s + (i.quantity || 1), 0)
@@ -2965,10 +2984,10 @@ const handleCodeChange = (index: number, value: string) => {
             return (
               <div key={dept} ref={el => { deptRefs.current[dept] = el }}>
                 <button
-                  style={listStyles.deptHeader(isOpen)}
+                  style={listStyles.deptHeader(isOpen, deptIdx === 0)}
                   onClick={() => handleDeptClick(dept)}
                 >
-                  {deptDone && <span style={{ color: BRAND, fontSize: '15px', marginRight: '2px' }}>✓</span>}
+                  {deptDone ? <span style={{ color: BRAND, fontSize: '15px', marginRight: '2px' }}>✓</span> : <DeptIcon dept={dept} />}
                   <span style={deptDone ? { textDecoration: 'line-through', opacity: 0.5 } : undefined}>{dept}</span>
                   <span style={listStyles.deptCount}>{deptChecked}/{deptTotal}</span>
                   <span style={listStyles.deptChevron(isOpen)}>›</span>
@@ -3320,7 +3339,7 @@ const handleCodeChange = (index: number, value: string) => {
         )
       })()}
 
-      {/* NPS Survey Modal */}
+      {/* NPS Survey Modal — Penny asks */}
       {showNPS && (
         <div onClick={closeNPS} style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -3333,49 +3352,59 @@ const handleCodeChange = (index: number, value: string) => {
           }}>
             <button onClick={closeNPS} style={{
               position: 'absolute', top: '12px', right: '12px',
-              background: 'none', border: 'none', fontSize: '20px', color: TEXT_SECONDARY, cursor: 'pointer',
+              background: 'none', border: 'none', fontSize: '20px', color: TEXT_SECONDARY, cursor: 'pointer', zIndex: 1,
             }}>×</button>
-            {npsStep === 1 ? (
-              <>
-                <div style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 600, color: TEXT, marginBottom: '16px', paddingRight: '24px' }}>
-                  How likely are you to recommend Thriftly to a friend?
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(11, 1fr)', gap: '4px', marginBottom: '8px' }}>
-                  {Array.from({ length: 11 }, (_, i) => (
-                    <button key={i} onClick={() => { setNpsScore(i); setNpsStep(2) }} style={{
-                      height: '40px', borderRadius: '10px',
-                      border: `1px solid ${BORDER}`, backgroundColor: WHITE,
-                      fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: TEXT,
-                      cursor: 'pointer', padding: 0,
-                    }}>{i}</button>
-                  ))}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>
-                  <span>Not likely</span><span>Very likely</span>
-                </div>
-              </>
-            ) : (
-              <>
-                <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, marginBottom: '12px' }}>
-                  You selected <strong>{npsScore}</strong>
-                </div>
-                <textarea
-                  value={npsComment}
-                  onChange={e => setNpsComment(e.target.value)}
-                  placeholder={`Tell us why you chose ${npsScore}`}
-                  rows={3}
-                  style={{
-                    width: '100%', padding: '10px', borderRadius: '8px',
-                    border: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '15px',
-                    resize: 'vertical', marginBottom: '16px', boxSizing: 'border-box',
-                  }}
-                />
-                <button onClick={handleNPSSubmit} style={{
-                  width: '100%', padding: '12px', borderRadius: '10px',
-                  backgroundColor: BRAND, color: WHITE, border: 'none',
-                  fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer',
-                }}>Submit</button>
-              </>
+
+            {/* Penny speech bubble */}
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', paddingRight: '24px' }}>
+              <PennyAvatar size={48} />
+              <div style={{
+                flex: 1, backgroundColor: BG, borderRadius: '14px', padding: '12px 14px',
+                fontFamily: FONT, fontSize: '15px', color: TEXT, lineHeight: '1.4', position: 'relative',
+              }}>
+                {npsTypedText}{!npsTypingDone && <span style={{ opacity: 0.4 }}>|</span>}
+              </div>
+            </div>
+
+            {/* Controls appear after typing finishes */}
+            {npsTypingDone && (
+              npsStep === 1 ? (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(11, 1fr)', gap: '4px', marginBottom: '8px' }}>
+                    {Array.from({ length: 11 }, (_, i) => (
+                      <button key={i} onClick={() => { setNpsScore(i); setNpsStep(2) }} style={{
+                        height: '40px', borderRadius: '10px',
+                        border: `1.5px solid ${BRAND}30`, backgroundColor: WHITE,
+                        fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: BRAND,
+                        cursor: 'pointer', padding: 0,
+                      }}>{i}</button>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>
+                    <span>Not likely</span><span>Very likely</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <textarea
+                    value={npsComment}
+                    onChange={e => setNpsComment(e.target.value)}
+                    placeholder={`Tell us why you chose ${npsScore}`}
+                    rows={3}
+                    autoFocus
+                    style={{
+                      width: '100%', padding: '10px', borderRadius: '8px',
+                      border: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '15px',
+                      resize: 'vertical', marginBottom: '16px', boxSizing: 'border-box',
+                    }}
+                  />
+                  <button onClick={handleNPSSubmit} style={{
+                    width: '100%', padding: '12px', borderRadius: '10px',
+                    backgroundColor: BRAND, color: WHITE, border: 'none',
+                    fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+                  }}>Submit</button>
+                </>
+              )
             )}
           </div>
         </div>
@@ -3384,24 +3413,22 @@ const handleCodeChange = (index: number, value: string) => {
       {/* Item detail sheet */}
       {selectedItem && (
         <ActionSheet isOpen={true} onClose={() => closeEditSheet()} title="Edit item" maxHeight="75dvh">
-            {/* Brand header with logo box */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '12px', paddingBottom: '12px', borderBottom: `1px solid ${BORDER}` }}>
-              <div style={{
-                width: 56, height: 56, flexShrink: 0, borderRadius: '12px',
-                border: `1.5px solid ${BORDER}`, backgroundColor: '#FAFAFA',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-              }}>
-                {displayBrand ? (
-                  <BrandLogo brand={displayBrand} size={52} />
-                ) : (
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={BORDER} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 7V5a4 4 0 0 0-8 0v2"/>
-                  </svg>
-                )}
-              </div>
+            {/* Brand field with logo */}
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '10px', marginBottom: '0' }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: FONT, fontSize: '11px', fontWeight: 600, color: TEXT_SECONDARY, textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>Brand</div>
-                <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '2px' }}>{displayBrand || 'No brand'}</div>
+                <FloatingLabelField label="Brand">
+                  <input
+                    type="text"
+                    value={editBrand}
+                    onChange={e => setEditBrand(e.target.value)}
+                    onBlur={() => setDisplayBrand(editBrand)}
+                    placeholder="Optional"
+                    style={listStyles.floatingInput}
+                  />
+                </FloatingLabelField>
+              </div>
+              <div style={{ marginBottom: '8px' }}>
+                <BrandLogo brand={displayBrand || undefined} size={44} />
               </div>
             </div>
 
@@ -3413,17 +3440,6 @@ const handleCodeChange = (index: number, value: string) => {
                 placeholder="Item name"
                 style={listStyles.floatingInput}
                 autoFocus
-              />
-            </FloatingLabelField>
-
-            <FloatingLabelField label="Brand">
-              <input
-                type="text"
-                value={editBrand}
-                onChange={e => setEditBrand(e.target.value)}
-                onBlur={() => setDisplayBrand(editBrand)}
-                placeholder="Optional"
-                style={listStyles.floatingInput}
               />
             </FloatingLabelField>
 
@@ -3525,20 +3541,43 @@ const handleCodeChange = (index: number, value: string) => {
             {itemHistory.length > 0 && (
               <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${BORDER}` }}>
                 <SectionHeader label="History" />
-                {itemHistory.map((mod, i) => (
-                  <div key={i} style={{
-                    padding: '6px 0',
-                    borderBottom: i < itemHistory.length - 1 ? `1px solid ${BORDER}` : 'none',
-                    fontFamily: FONT,
-                    fontSize: '12px',
-                    color: TEXT_SECONDARY,
-                  }}>
-                    <span style={{ fontWeight: 500, color: TEXT }}>{mod.user_name || 'Unknown'}</span>
-                    {' '}{mod.action}{mod.detail ? ` (${mod.detail})` : ''}
-                    {' · '}{mod.source === 'sms' ? 'Text' : mod.source === 'email' ? 'Email' : 'App'}
-                    {mod.created_at && ` · ${new Date(mod.created_at).toLocaleDateString()}`}
-                  </div>
-                ))}
+                {itemHistory.map((mod, i) => {
+                  const name = mod.user_name || 'Someone'
+                  const via = mod.source === 'sms' ? ' via text' : mod.source === 'email' ? ' via email' : ''
+                  const ago = mod.created_at ? (() => {
+                    const diff = Date.now() - new Date(mod.created_at).getTime()
+                    const mins = Math.floor(diff / 60000)
+                    if (mins < 1) return 'just now'
+                    if (mins < 60) return `${mins}m ago`
+                    const hrs = Math.floor(mins / 60)
+                    if (hrs < 24) return `${hrs}h ago`
+                    const days = Math.floor(hrs / 24)
+                    if (days < 7) return `${days}d ago`
+                    return new Date(mod.created_at).toLocaleDateString()
+                  })() : ''
+                  let description: string
+                  switch (mod.action) {
+                    case 'added': description = `${name} added this${via}`; break
+                    case 'checked': description = `${name} checked this off${via}`; break
+                    case 'unchecked': description = `${name} unchecked this${via}`; break
+                    case 'updated': description = mod.detail ? `${name} changed ${mod.detail}${via}` : `${name} updated this${via}`; break
+                    case 'claimed': description = `${name} claimed this`; break
+                    case 'unclaimed': description = `${name} unclaimed this`; break
+                    default: description = `${name} ${mod.action}${mod.detail ? ` ${mod.detail}` : ''}${via}`
+                  }
+                  return (
+                    <div key={i} style={{
+                      padding: '6px 0',
+                      borderBottom: i < itemHistory.length - 1 ? `1px solid ${BORDER}` : 'none',
+                      fontFamily: FONT,
+                      fontSize: '12px',
+                      color: TEXT_SECONDARY,
+                    }}>
+                      {description}
+                      {ago && <span> · {ago}</span>}
+                    </div>
+                  )
+                })}
               </div>
             )}
         </ActionSheet>
@@ -4038,13 +4077,15 @@ const listStyles = {
     color: TEXT_SECONDARY,
   } as React.CSSProperties,
 
-  deptHeader: (open: boolean): React.CSSProperties => ({
+  deptHeader: (open: boolean, isFirst = false): React.CSSProperties => ({
     display: 'flex',
     alignItems: 'center',
     width: '100%',
     padding: '13px 20px',
+    marginTop: isFirst ? 0 : '8px',
     background: open ? `${BRAND}0D` : 'none',
     border: 'none',
+    borderTop: isFirst ? 'none' : `1px solid ${BORDER}`,
     borderBottom: `1px solid ${BORDER}`,
     cursor: 'pointer',
     textAlign: 'left' as const,
