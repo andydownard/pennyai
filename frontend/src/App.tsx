@@ -1092,7 +1092,8 @@ export default function App() {
     } else if (pennyChimeIn) {
       typePennyHome(pennyChimeIn)
     }
-  }, [screen, pennyStatus, toast?.message, pennyChimeIn, showDoneToast, items])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, pennyStatus, toast?.message, pennyChimeIn, showDoneToast])
 
   const resizeAndSetPhoto = (file: Blob) => {
     const img = new Image()
