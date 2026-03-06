@@ -619,6 +619,11 @@ export default function App() {
   const [settingsEmail, setSettingsEmail] = useState('')
   const [settingsAddress, setSettingsAddress] = useState('')
   const [googlePlacesKey, setGooglePlacesKey] = useState('')
+  const [addressSuggestions, setAddressSuggestions] = useState<{ description: string; placeId: string }[]>([])
+  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
+  const placesReadyRef = useRef(false)
+  const sessionTokenRef = useRef<unknown>(null)
+  const addressSuggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [settingsMembers, setSettingsMembers] = useState<{ name: string; phone: string }[]>([])
   const [inviteLoading, setInviteLoading] = useState(false)
 
@@ -1207,40 +1212,83 @@ export default function App() {
       .catch(() => {})
   }
 
-  // Google Places autocomplete for address field
+  // Load Google Maps JS API (new) for address autocomplete
   useEffect(() => {
-    if (screen !== 'settings-profile' || !googlePlacesKey) return
-    const input = document.getElementById('address-autocomplete') as HTMLInputElement
-    if (!input) return
-
-    // Load Google Maps JS if not already loaded
+    if (!googlePlacesKey || placesReadyRef.current) return
     const scriptId = 'google-places-script'
-    const initAutocomplete = () => {
-      if (!(window as unknown as Record<string, unknown>).google) return
-      const google = (window as unknown as Record<string, { maps: { places: { Autocomplete: new (el: HTMLInputElement, opts: Record<string, unknown>) => { addListener: (event: string, cb: () => void) => void; getPlace: () => { formatted_address?: string } } } } }>).google
-      const autocomplete = new google.maps.places.Autocomplete(input, {
-        types: ['address'],
-        componentRestrictions: { country: 'us' },
-      })
-      autocomplete.addListener('place_changed', () => {
-        const place = autocomplete.getPlace()
-        if (place.formatted_address) {
-          setSettingsAddress(place.formatted_address)
-        }
-      })
-    }
-
-    if (document.getElementById(scriptId)) {
-      initAutocomplete()
-      return
-    }
+    if (document.getElementById(scriptId)) return
     const script = document.createElement('script')
     script.id = scriptId
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${googlePlacesKey}&libraries=places`
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${googlePlacesKey}&loading=async`
     script.async = true
-    script.onload = initAutocomplete
+    script.onload = async () => {
+      try {
+        const g = (window as unknown as Record<string, unknown>).google as { maps: { importLibrary: (lib: string) => Promise<Record<string, unknown>> } }
+        const places = await g.maps.importLibrary('places') as Record<string, unknown>
+        const TokenClass = places.AutocompleteSessionToken as new () => unknown
+        sessionTokenRef.current = new TokenClass()
+        placesReadyRef.current = true
+      } catch { /* silent */ }
+    }
     document.head.appendChild(script)
-  }, [screen, googlePlacesKey])
+  }, [googlePlacesKey])
+
+  const fetchAddressSuggestions = async (input: string) => {
+    if (!placesReadyRef.current || input.length < 3) {
+      setAddressSuggestions([])
+      setShowAddressSuggestions(false)
+      return
+    }
+    try {
+      const g = (window as unknown as Record<string, unknown>).google as { maps: { importLibrary: (lib: string) => Promise<Record<string, unknown>> } }
+      const places = await g.maps.importLibrary('places') as Record<string, unknown>
+      const SuggestionClass = places.AutocompleteSuggestion as { fetchAutocompleteSuggestions: (req: Record<string, unknown>) => Promise<{ suggestions: Array<{ placePrediction: { toPlace: () => { fetchFields: (opts: Record<string, unknown>) => Promise<void>; formattedAddress?: string }; placeId: string; text: { text: string } } }> }> }
+      const { suggestions } = await SuggestionClass.fetchAutocompleteSuggestions({
+        input,
+        sessionToken: sessionTokenRef.current,
+        includedPrimaryTypes: ['street_address', 'subpremise', 'route', 'locality', 'postal_code'],
+        includedRegionCodes: ['us'],
+        language: 'en-US',
+      })
+      const items = suggestions.map(s => ({
+        description: s.placePrediction.text.text,
+        placeId: s.placePrediction.placeId,
+      }))
+      setAddressSuggestions(items)
+      setShowAddressSuggestions(items.length > 0)
+    } catch {
+      setAddressSuggestions([])
+      setShowAddressSuggestions(false)
+    }
+  }
+
+  const selectAddressSuggestion = async (placeId: string) => {
+    setShowAddressSuggestions(false)
+    try {
+      const g = (window as unknown as Record<string, unknown>).google as { maps: { importLibrary: (lib: string) => Promise<Record<string, unknown>> } }
+      const places = await g.maps.importLibrary('places') as Record<string, unknown>
+      const PlaceClass = places.Place as { new (opts: { id: string }): { fetchFields: (opts: { fields: string[] }) => Promise<void>; formattedAddress?: string } }
+      const place = new PlaceClass({ id: placeId })
+      await place.fetchFields({ fields: ['formattedAddress'] })
+      if (place.formattedAddress) {
+        setSettingsAddress(place.formattedAddress)
+        // New session token for next search
+        const TokenClass = places.AutocompleteSessionToken as new () => unknown
+        sessionTokenRef.current = new TokenClass()
+        // Auto-save after selecting address
+        if (settingsSaveTimer.current) clearTimeout(settingsSaveTimer.current)
+        settingsSaveTimer.current = setTimeout(async () => {
+          try {
+            await fetchAPI('/api/settings', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: [settingsFirstName.trim(), settingsLastName.trim()].filter(Boolean).join(' '), email: settingsEmail.trim(), address: place.formattedAddress!.trim() }),
+            })
+          } catch { /* silent */ }
+        }, 300)
+      }
+    } catch { /* silent */ }
+  }
 
   useEffect(() => {
     if (!['home', 'settings', 'about', 'invite', 'settings-profile', 'settings-share'].includes(screen)) return
@@ -2465,18 +2513,37 @@ const handleCodeChange = (index: number, value: string) => {
                 Set your email to add items by emailing penny@list.thrift.ly
               </p>
             </div>
-            <div>
+            <div style={{ position: 'relative' }}>
               <FloatingLabelField label="Address">
                 <input
-                  id="address-autocomplete"
                   type="text"
                   value={settingsAddress}
-                  onChange={e => setSettingsAddress(e.target.value)}
-                  onBlur={handleSettingsAutoSave}
+                  onChange={e => {
+                    setSettingsAddress(e.target.value)
+                    if (addressSuggestTimer.current) clearTimeout(addressSuggestTimer.current)
+                    addressSuggestTimer.current = setTimeout(() => fetchAddressSuggestions(e.target.value), 300)
+                  }}
+                  onBlur={() => {
+                    setTimeout(() => setShowAddressSuggestions(false), 200)
+                    handleSettingsAutoSave()
+                  }}
+                  onFocus={() => { if (addressSuggestions.length > 0) setShowAddressSuggestions(true) }}
                   placeholder="Start typing your address…"
                   style={listStyles.floatingInput}
+                  autoComplete="off"
                 />
               </FloatingLabelField>
+              {showAddressSuggestions && addressSuggestions.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1000, backgroundColor: '#fff', borderRadius: '10px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', border: `1px solid ${BORDER}`, marginTop: '4px', overflow: 'hidden' }}>
+                  {addressSuggestions.map((s, i) => (
+                    <button
+                      key={s.placeId}
+                      onMouseDown={e => { e.preventDefault(); selectAddressSuggestion(s.placeId) }}
+                      style={{ display: 'block', width: '100%', padding: '12px 16px', fontFamily: FONT, fontSize: '14px', color: TEXT, backgroundColor: 'transparent', border: 'none', borderTop: i > 0 ? `1px solid ${BORDER}` : 'none', textAlign: 'left', cursor: 'pointer', lineHeight: 1.4 }}
+                    >{s.description}</button>
+                  ))}
+                </div>
+              )}
               <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px', paddingLeft: '4px' }}>
                 Used to find nearby stores and deals
               </p>
