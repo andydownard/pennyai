@@ -126,29 +126,25 @@ const DEPARTMENTS = [
   'Other',
 ]
 
-// Department icons — Lucide-style SVGs (16x16, viewBox 0 0 24 24, stroke="currentColor")
+// Department icons — emoji for clarity and cross-platform consistency
 const DEPT_ICONS: Record<string, string> = {
-  'Produce': 'M11 20A7 7 0 0 1 9.8 6.9C15.5 4.9 17 3.5 17 3.5s1.5 2.5-.5 6.5a5 5 0 0 1-1.5 2L11 20zm0 0H7',
-  'Bakery & Deli': 'M2 12h1c2 0 3-1 5-1s3 1 5 1 3-1 5-1h1M3 20h18M4 16h16M12 4c-1.5 0-3 .5-3 2s1.5 2 3 2 3-.5 3-2-1.5-2-3-2z',
-  'Meat & Seafood': 'M15.5 2.5c-1 1-2.5 3.5-2.5 6s1 4 1 6-1.5 4-3 5.5M12 20c2-2 4-4 4-7s-1.5-5-1.5-7.5S16 2 17.5 1M8 14c-1 0-4 1-4 3.5S6 21 8 21s4-1 4-3.5S9 14 8 14z',
-  'Dairy & Eggs': 'M8 2h8l1 5v11a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V7l1-5zM7 7h10',
-  'Frozen': 'M12 2v20M17 7l-10 10M2 12h20M7 7l10 10M17 17l-5-5M7 17l5-5',
-  'Pantry & Dry Goods': 'M21 8l-2-4H5L3 8m18 0v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8m18 0H3m7 4h4',
-  'Snacks & Candy': 'M12 2a5.5 5.5 0 0 0-4 9.5A5.5 5.5 0 0 0 12 22a5.5 5.5 0 0 0 4-10.5A5.5 5.5 0 0 0 12 2zM9 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zM15 14a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z',
-  'Beverages': 'M17 8h1a4 4 0 0 1 0 8h-1M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8zM6 1v3M10 1v3M14 1v3',
-  'Household & Cleaning': 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9zM9 22V12h6v10',
-  'Health & Personal Care': 'M22 12h-4l-3 9L9 3l-3 9H2',
-  'Other': 'M12 12h.01M8 12h.01M16 12h.01',
+  'Produce': '🥬',
+  'Bakery & Deli': '🥖',
+  'Meat & Seafood': '🥩',
+  'Dairy & Eggs': '🥛',
+  'Frozen': '❄️',
+  'Pantry & Dry Goods': '🫙',
+  'Snacks & Candy': '🍿',
+  'Beverages': '☕',
+  'Household & Cleaning': '🧹',
+  'Health & Personal Care': '💊',
+  'Other': '📦',
 }
 
 function DeptIcon({ dept }: { dept: string }) {
-  const path = DEPT_ICONS[dept]
-  if (!path) return null
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-      <path d={path} />
-    </svg>
-  )
+  const icon = DEPT_ICONS[dept]
+  if (!icon) return null
+  return <span style={{ fontSize: '32px', lineHeight: 1, flexShrink: 0 }}>{icon}</span>
 }
 
 // Avenir with system fallbacks for platforms that don't have it.
@@ -261,7 +257,6 @@ function PennyAvatar({ size = 28 }: { size?: number }) {
 function BrandLogo({ brand, size = 52, opacity = 1 }: { brand?: string; size?: number; opacity?: number }) {
   const radius = size > 60 ? '12px' : size > 48 ? '10px' : '8px'
   const pad = size > 60 ? '4px' : size > 48 ? '3px' : '2px'
-  const iconSize = Math.round(size * 0.4)
   return (
     <div style={{ width: size, height: size, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {brand ? (
@@ -275,11 +270,7 @@ function BrandLogo({ brand, size = 52, opacity = 1 }: { brand?: string; size?: n
           onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
         />
       ) : (
-        <div style={{ width: size, height: size, borderRadius: radius, backgroundColor: '#FAFAFA', border: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity }}>
-          <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="#D1D0CC" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 8l-2-4H5L3 8m18 0v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8m18 0H3m7 4h4" />
-          </svg>
-        </div>
+        <div style={{ width: size, height: size, borderRadius: radius, backgroundColor: '#FAFAFA', border: '1px solid rgba(0,0,0,0.06)', opacity }} />
       )}
     </div>
   )
@@ -2987,7 +2978,9 @@ const handleCodeChange = (index: number, value: string) => {
                   style={listStyles.deptHeader(isOpen, deptIdx === 0)}
                   onClick={() => handleDeptClick(dept)}
                 >
-                  {deptDone ? <span style={{ color: BRAND, fontSize: '15px', marginRight: '2px' }}>✓</span> : <DeptIcon dept={dept} />}
+                  <span style={{ width: '42px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    {deptDone ? <span style={{ color: BRAND, fontSize: '15px' }}>✓</span> : <DeptIcon dept={dept} />}
+                  </span>
                   <span style={deptDone ? { textDecoration: 'line-through', opacity: 0.5 } : undefined}>{dept}</span>
                   <span style={listStyles.deptCount}>{deptChecked}/{deptTotal}</span>
                   <span style={listStyles.deptChevron(isOpen)}>›</span>
@@ -3414,7 +3407,7 @@ const handleCodeChange = (index: number, value: string) => {
       {selectedItem && (
         <ActionSheet isOpen={true} onClose={() => closeEditSheet()} title="Edit item" maxHeight="75dvh">
             {/* Brand field with logo */}
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '10px', marginBottom: '0' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px', marginBottom: '0' }}>
               <div style={{ flex: 1 }}>
                 <FloatingLabelField label="Brand">
                   <input
@@ -3428,7 +3421,7 @@ const handleCodeChange = (index: number, value: string) => {
                 </FloatingLabelField>
               </div>
               <div style={{ marginBottom: '8px' }}>
-                <BrandLogo brand={displayBrand || undefined} size={44} />
+                <BrandLogo brand={displayBrand || undefined} size={72} />
               </div>
             </div>
 

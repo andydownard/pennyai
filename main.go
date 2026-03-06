@@ -2137,6 +2137,8 @@ CRITICAL RULES:
 2. Flavor/variety is part of the name, NOT the brand. "LaCroix Tangerine" → name: "Tangerine Sparkling Water", brand: "LaCroix"
 3. Do NOT rename products. "Waterloo Grape" → name: "Grape Sparkling Water", brand: "Waterloo", NOT "Grapes"
 4. When in doubt, keep the user's exact words in the name rather than guessing a generic version.
+5. NEVER change defining characteristics like flavor, type, variety, or style. Only fix obvious misspellings. "chcken thigs" → "Chicken Thighs", but "honey mustard" stays "Honey Mustard" not "Mustard".
+6. If the user provides extra qualifiers (e.g. "organic", "gluten-free", "sugar-free"), keep them in the name. Put secondary details like color, preference, or preparation style in "notes".
 
 Separate brand from product name. Examples:
 - "jif pb" → {"name":"Peanut Butter","brand":"Jif","department":"Pantry & Dry Goods","quantity":1,"size":"","notes":""}
@@ -2264,12 +2266,12 @@ Actions you can take:
 - "clear": Clear all checked items from the list.
 
 For add/update items, include full item details:
-- "name": specific product name WITHOUT the brand, preserving flavor/variety
+- "name": specific product name WITHOUT the brand, preserving flavor/variety. NEVER change defining characteristics like flavor, type, variety, or style. Only fix obvious misspellings.
 - "brand": brand name if mentioned
 - "department": one of: Produce, Bakery & Deli, Meat & Seafood, Dairy & Eggs, Frozen, Pantry & Dry Goods, Snacks & Candy, Beverages, Household & Cleaning, Health & Personal Care, Other
 - "quantity": number of units, default 1
 - "size": package size if specified
-- "notes": extra detail
+- "notes": extra detail (color, preference, preparation style)
 
 For remove/check/uncheck, you only need the "name" field (match against current list).
 
