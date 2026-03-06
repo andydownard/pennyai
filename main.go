@@ -2279,6 +2279,12 @@ For add items, include full item details:
 - "size": package size if specified
 - "notes": extra detail (color, preference, preparation style)
 
+CRITICAL RULES for item names:
+1. NEVER genericize product names. "Waterloo Grape" → name: "Grape Sparkling Water", brand: "Waterloo", NOT "Grapes"
+2. Flavor/variety is part of the name, NOT the brand. "LaCroix Tangerine" → name: "Tangerine Sparkling Water", brand: "LaCroix"
+3. Do NOT strip flavors. "waterloo grape" is a grape-flavored sparkling water, not grapes the fruit.
+4. When in doubt, keep the user's exact words rather than guessing a generic version.
+
 For update items: use "name" to match the CURRENT item on the list, and include any fields to change. To rename an item (e.g. change flavor), set "new_name" to the new product name.
 - "name": the CURRENT name from the list (for matching)
 - "new_name": the new product name (only if changing the name/flavor)
