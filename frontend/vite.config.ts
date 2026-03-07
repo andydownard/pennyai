@@ -27,6 +27,7 @@ export default defineConfig({
 
   // During local development, proxy API calls to the Go backend
   server: {
+    host: true,
     proxy: {
       '/auth': 'http://localhost:8080',
       '/api': 'http://localhost:8080',

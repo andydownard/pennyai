@@ -407,7 +407,7 @@ func newTestSessionStore(t *testing.T) *SessionStore {
 
 func TestSessionStore_CreateAndGet(t *testing.T) {
 	store := newTestSessionStore(t)
-	token, err := store.CreateSession(1, "5551234567")
+	token, err := store.CreateSession(1, "5551234567", "phone")
 
 	if err != nil {
 		t.Fatalf("CreateSession error: %v", err)
@@ -441,7 +441,7 @@ func TestSessionStore_GetNonexistent(t *testing.T) {
 
 func TestSessionStore_Delete(t *testing.T) {
 	store := newTestSessionStore(t)
-	token, _ := store.CreateSession(1, "5551234567")
+	token, _ := store.CreateSession(1, "5551234567", "phone")
 	store.DeleteSession(token)
 
 	_, ok := store.GetSession(token)
@@ -452,8 +452,8 @@ func TestSessionStore_Delete(t *testing.T) {
 
 func TestSessionStore_MultipleSessions(t *testing.T) {
 	store := newTestSessionStore(t)
-	token1, _ := store.CreateSession(1, "5551111111")
-	token2, _ := store.CreateSession(2, "5552222222")
+	token1, _ := store.CreateSession(1, "5551111111", "phone")
+	token2, _ := store.CreateSession(2, "5552222222", "phone")
 
 	if token1 == token2 {
 		t.Error("Two sessions got the same token")
@@ -469,8 +469,8 @@ func TestSessionStore_MultipleSessions(t *testing.T) {
 
 func TestSessionStore_DeleteDoesNotAffectOthers(t *testing.T) {
 	store := newTestSessionStore(t)
-	token1, _ := store.CreateSession(1, "5551111111")
-	token2, _ := store.CreateSession(2, "5552222222")
+	token1, _ := store.CreateSession(1, "5551111111", "phone")
+	token2, _ := store.CreateSession(2, "5552222222", "phone")
 
 	store.DeleteSession(token1)
 
@@ -712,7 +712,7 @@ func TestVerifyCode_MalformedJSON(t *testing.T) {
 func TestMe_LoggedIn(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 	user, _ := upsertUser(server.db, "5551234567")
-	token, _ := server.sessions.CreateSession(user.ID, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
 
 	rr := doRequest(server.handleMe, "GET", "/auth/me", nil,
 		[]*http.Cookie{{Name: "session", Value: token}})
@@ -764,7 +764,7 @@ func TestMe_WrongMethod(t *testing.T) {
 
 func TestLogout_ClearsSession(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	token, _ := server.sessions.CreateSession(1, "5551234567")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
 
 	rr := doRequest(server.handleLogout, "POST", "/auth/logout", nil,
 		[]*http.Cookie{{Name: "session", Value: token}})
@@ -890,7 +890,7 @@ func loginUser(t *testing.T, server *Server, phone string) (*http.Cookie, int) {
 	if err != nil {
 		t.Fatalf("upsertUser: %v", err)
 	}
-	token, err := server.sessions.CreateSession(user.ID, phone)
+	token, err := server.sessions.CreateSession(user.ID, phone, "phone")
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -2794,7 +2794,7 @@ func TestInviteAutoCreatesHousehold(t *testing.T) {
 	var userID int
 	server.db.QueryRow("SELECT id FROM users WHERE phone_number = '5551234567'").Scan(&userID)
 
-	token, _ := server.sessions.CreateSession(userID, "5551234567")
+	token, _ := server.sessions.CreateSession(userID, "5551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	// Verify user has no household
@@ -4258,6 +4258,7 @@ func TestSMSWebhook_WithMediaURL(t *testing.T) {
 
 func TestDecodeJSON_InvalidBody(t *testing.T) {
 	req := httptest.NewRequest("POST", "/test", strings.NewReader("not json"))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
 	var data struct{ Name string }
@@ -4272,6 +4273,7 @@ func TestDecodeJSON_InvalidBody(t *testing.T) {
 
 func TestDecodeJSON_ValidBody(t *testing.T) {
 	req := httptest.NewRequest("POST", "/test", strings.NewReader(`{"name":"Alice"}`))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
 	var data struct{ Name string }
@@ -4932,12 +4934,12 @@ func TestJoin_SelfHousehold(t *testing.T) {
 	body := parseJSON(rr)
 	code := body["code"].(string)
 
-	// Join own household
+	// Join own household — should be rejected
 	rr = doRequest(server.handleJoin, "POST", "/api/join",
 		map[string]string{"code": code},
 		[]*http.Cookie{cookie})
-	if rr.Code != http.StatusOK {
-		t.Errorf("Status: got %d, want 200", rr.Code)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Status: got %d, want 400 (self-join rejected)", rr.Code)
 	}
 }
 
@@ -5756,7 +5758,7 @@ func TestAdminDashboard_ForbiddenForNonAdmin(t *testing.T) {
 
 	// Create a non-admin user session
 	user, _ := upsertUser(server.db, "5551234567")
-	token, _ := server.sessions.CreateSession(user.ID, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	rr := doRequest(server.handleAdminDashboard, "GET", "/api/admin/dashboard", nil, []*http.Cookie{cookie})
@@ -5770,7 +5772,7 @@ func TestAdminDashboard_Success(t *testing.T) {
 
 	// Create admin user
 	user, _ := upsertUser(server.db, "3104861833")
-	token, _ := server.sessions.CreateSession(user.ID, "3104861833")
+	token, _ := server.sessions.CreateSession(user.ID, "3104861833", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	// Create some additional users
@@ -5826,7 +5828,7 @@ func TestAdminDashboard_MultipleNonAdminPhones(t *testing.T) {
 	phones := []string{"5551234567", "3104861834", "3104861832", "0000000000"}
 	for _, phone := range phones {
 		user, _ := upsertUser(server.db, phone)
-		token, _ := server.sessions.CreateSession(user.ID, phone)
+		token, _ := server.sessions.CreateSession(user.ID, phone, "phone")
 		cookie := &http.Cookie{Name: "session", Value: token}
 
 		rr := doRequest(server.handleAdminDashboard, "GET", "/api/admin/dashboard", nil, []*http.Cookie{cookie})
@@ -5841,7 +5843,7 @@ func TestAdminDashboard_OnlyExactPhoneAllowed(t *testing.T) {
 
 	// The exact admin phone should succeed
 	user, _ := upsertUser(server.db, "3104861833")
-	token, _ := server.sessions.CreateSession(user.ID, "3104861833")
+	token, _ := server.sessions.CreateSession(user.ID, "3104861833", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	rr := doRequest(server.handleAdminDashboard, "GET", "/api/admin/dashboard", nil, []*http.Cookie{cookie})
@@ -5851,7 +5853,7 @@ func TestAdminDashboard_OnlyExactPhoneAllowed(t *testing.T) {
 
 	// A phone that contains the admin number but isn't exact should fail
 	user2, _ := upsertUser(server.db, "1310486183")
-	token2, _ := server.sessions.CreateSession(user2.ID, "1310486183")
+	token2, _ := server.sessions.CreateSession(user2.ID, "1310486183", "phone")
 	cookie2 := &http.Cookie{Name: "session", Value: token2}
 
 	rr2 := doRequest(server.handleAdminDashboard, "GET", "/api/admin/dashboard", nil, []*http.Cookie{cookie2})
@@ -5864,7 +5866,7 @@ func TestAdminDashboard_CustomDaysParam(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	user, _ := upsertUser(server.db, "3104861833")
-	token, _ := server.sessions.CreateSession(user.ID, "3104861833")
+	token, _ := server.sessions.CreateSession(user.ID, "3104861833", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	for _, days := range []string{"7", "90"} {
@@ -5885,7 +5887,7 @@ func TestAdminDashboard_InvalidDaysDefaultsTo30(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	user, _ := upsertUser(server.db, "3104861833")
-	token, _ := server.sessions.CreateSession(user.ID, "3104861833")
+	token, _ := server.sessions.CreateSession(user.ID, "3104861833", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	rr := doRequest(server.handleAdminDashboard, "GET", "/api/admin/dashboard?days=abc", nil, []*http.Cookie{cookie})
@@ -5903,7 +5905,7 @@ func TestAdminDashboard_ActiveUsersCount(t *testing.T) {
 
 	// Create admin and some users
 	admin, _ := upsertUser(server.db, "3104861833")
-	token, _ := server.sessions.CreateSession(admin.ID, "3104861833")
+	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	// upsertUser sets last_active for admin, user1, user2
@@ -5929,7 +5931,7 @@ func TestAdminDashboard_KFactor(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	admin, _ := upsertUser(server.db, "3104861833")
-	token, _ := server.sessions.CreateSession(admin.ID, "3104861833")
+	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	// Create 2 new users and 4 referrals — k-factor should be 4/3 (3 new users including admin)
@@ -5954,7 +5956,7 @@ func TestAdminDashboard_EmptyLeaderboard(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	admin, _ := upsertUser(server.db, "3104861833")
-	token, _ := server.sessions.CreateSession(admin.ID, "3104861833")
+	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	rr := doRequest(server.handleAdminDashboard, "GET", "/api/admin/dashboard", nil, []*http.Cookie{cookie})
@@ -6228,7 +6230,7 @@ func TestRequireAdmin_NonAdminUser(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	user, _ := upsertUser(server.db, "5551234567")
-	token, _ := server.sessions.CreateSession(user.ID, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
 
 	req := httptest.NewRequest("GET", "/api/admin/dashboard", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: token})
@@ -6247,7 +6249,7 @@ func TestRequireAdmin_AdminUser(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	user, _ := upsertUser(server.db, "3104861833")
-	token, _ := server.sessions.CreateSession(user.ID, "3104861833")
+	token, _ := server.sessions.CreateSession(user.ID, "3104861833", "phone")
 
 	req := httptest.NewRequest("GET", "/api/admin/dashboard", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: token})
@@ -7232,11 +7234,11 @@ func TestHandleListDelete_NotOwned(t *testing.T) {
 		map[string]string{"name": "Milk"}, []*http.Cookie{cookie1})
 	itemID := int(parseJSON(rr)["id"].(float64))
 
-	// User2 tries to delete it (not in same household)
+	// User2 tries to delete it (not in same household) — should get 404
 	rr = doRequest(server.handleList, "DELETE", fmt.Sprintf("/api/list/%d", itemID),
 		nil, []*http.Cookie{cookie2})
-	if rr.Code != http.StatusOK {
-		t.Errorf("Expected 200, got %d", rr.Code)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Expected 404 for non-owned item, got %d", rr.Code)
 	}
 }
 
@@ -8684,7 +8686,7 @@ func TestSavedListLoad_OverwriteClearsExisting(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	user, _ := upsertUser(server.db, "5551234567")
-	token, _ := server.sessions.CreateSession(user.ID, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Add an existing item to the active list
@@ -8732,7 +8734,7 @@ func TestSavedListUpdate_EmptyList(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	user, _ := upsertUser(server.db, "5551234567")
-	token, _ := server.sessions.CreateSession(user.ID, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Create an empty saved list
@@ -9014,7 +9016,7 @@ func TestLogoColor_Deterministic(t *testing.T) {
 }
 
 func TestFetchBrandLogo_EmptyToken(t *testing.T) {
-	data, ct := fetchBrandLogo("kraft.com", "")
+	data, ct := fetchBrandLogo("kraft.com", "", "")
 	if data != nil || ct != "" {
 		t.Error("Expected nil result with empty token")
 	}
@@ -9075,6 +9077,8 @@ func TestSPARouting_FrontendPaths(t *testing.T) {
 		"/verify",
 		"/about",
 		"/share",
+		"/penny",
+		"/profile",
 		"/settings",
 		"/settings/profile",
 		"/settings/saved",
@@ -9188,6 +9192,1059 @@ func TestSPARouting_UnknownPathsFallbackToIndex(t *testing.T) {
 				t.Errorf("GET %s: expected index.html fallback", path)
 			}
 		})
+	}
+}
+
+// =============================================================================
+// MASK PHONE TESTS
+// =============================================================================
+
+func TestMaskPhone_TenDigits(t *testing.T) {
+	// 10-digit domestic format: show first 3 and last 3, mask middle
+	got := maskPhone("5551234567")
+	want := "555***567"
+	if got != want {
+		t.Errorf("maskPhone(%q) = %q, want %q", "5551234567", got, want)
+	}
+}
+
+func TestMaskPhone_E164Format(t *testing.T) {
+	// E.164 (+15551234567): show prefix and last 3, mask middle
+	got := maskPhone("+15551234567")
+	if got == "+15551234567" {
+		t.Error("maskPhone should not return the full E.164 number unmasked")
+	}
+	if !strings.Contains(got, "***") {
+		t.Errorf("maskPhone(%q) = %q: expected *** in output", "+15551234567", got)
+	}
+}
+
+func TestMaskPhone_ShortString(t *testing.T) {
+	// Very short strings should return "***"
+	got := maskPhone("12")
+	if got != "***" {
+		t.Errorf("maskPhone(%q) = %q, want ***", "12", got)
+	}
+}
+
+func TestMaskPhone_FourDigits(t *testing.T) {
+	// Exactly 4 digits — boundary: should return "***"
+	got := maskPhone("1234")
+	if got != "***" {
+		t.Errorf("maskPhone(%q) = %q, want ***", "1234", got)
+	}
+}
+
+func TestMaskPhone_FiveDigits(t *testing.T) {
+	// 5 digits falls to the default case: first 2 + "***" + last 2
+	got := maskPhone("12345")
+	if !strings.Contains(got, "***") {
+		t.Errorf("maskPhone(%q) = %q: expected *** in output", "12345", got)
+	}
+}
+
+// =============================================================================
+// RESOLVE OR CREATE USER TESTS
+// =============================================================================
+
+func TestResolveOrCreateUser_NewProvider(t *testing.T) {
+	db, err := initDB(":memory:")
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	user, err := resolveOrCreateUser(db, "google", "google-sub-123", "alice@example.com", "Alice")
+	if err != nil {
+		t.Fatalf("resolveOrCreateUser: %v", err)
+	}
+	if user.ID == 0 {
+		t.Error("Expected non-zero user ID")
+	}
+	if user.Email != "alice@example.com" {
+		t.Errorf("Email: got %q, want %q", user.Email, "alice@example.com")
+	}
+}
+
+func TestResolveOrCreateUser_SameProviderReturnsSameUser(t *testing.T) {
+	db, err := initDB(":memory:")
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	u1, err := resolveOrCreateUser(db, "google", "google-sub-456", "bob@example.com", "Bob")
+	if err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	u2, err := resolveOrCreateUser(db, "google", "google-sub-456", "bob@example.com", "Bob")
+	if err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	if u1.ID != u2.ID {
+		t.Errorf("Same provider+sub created two users: %d vs %d", u1.ID, u2.ID)
+	}
+}
+
+func TestResolveOrCreateUser_EmailMergeAcrossProviders(t *testing.T) {
+	db, err := initDB(":memory:")
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	// Register via email first
+	u1, err := resolveOrCreateUser(db, "email", "carol@example.com", "carol@example.com", "Carol")
+	if err != nil {
+		t.Fatalf("email user: %v", err)
+	}
+	// Set the user's email directly so the merge lookup can find it
+	db.Exec("UPDATE users SET email = 'carol@example.com' WHERE id = ?", u1.ID)
+
+	// Now sign in via Google with same email — should merge to same user
+	u2, err := resolveOrCreateUser(db, "google", "google-carol-sub", "carol@example.com", "Carol")
+	if err != nil {
+		t.Fatalf("google user: %v", err)
+	}
+	if u1.ID != u2.ID {
+		t.Errorf("Same email across providers created two users: %d vs %d", u1.ID, u2.ID)
+	}
+}
+
+func TestResolveOrCreateUser_LoginCountIncremented(t *testing.T) {
+	db, err := initDB(":memory:")
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	user, _ := resolveOrCreateUser(db, "email", "dave@example.com", "dave@example.com", "Dave")
+
+	// Call again to trigger the login_count increment path
+	resolveOrCreateUser(db, "email", "dave@example.com", "dave@example.com", "Dave")
+
+	var loginCount int
+	db.QueryRow("SELECT login_count FROM users WHERE id = ?", user.ID).Scan(&loginCount)
+	if loginCount < 1 {
+		t.Errorf("login_count: got %d, want >= 1", loginCount)
+	}
+}
+
+// =============================================================================
+// EMAIL REGISTER HANDLER TESTS
+// =============================================================================
+
+func TestEmailRegister_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleEmailRegister, "POST", "/auth/email/register",
+		map[string]string{"email": "eve@example.com", "password": "securepassword1", "name": "Eve"}, nil)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	if body["success"] != true {
+		t.Error("Expected success=true")
+	}
+	if uid, ok := body["user_id"].(float64); !ok || uid < 1 {
+		t.Errorf("user_id: got %v, want positive integer", body["user_id"])
+	}
+	// Session cookie must be set
+	if getSessionCookie(rr) == nil {
+		t.Error("No session cookie set after register")
+	}
+}
+
+func TestEmailRegister_InvalidEmail(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleEmailRegister, "POST", "/auth/email/register",
+		map[string]string{"email": "not-an-email", "password": "securepassword1"}, nil)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Status: got %d, want 400", rr.Code)
+	}
+}
+
+func TestEmailRegister_PasswordTooShort(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleEmailRegister, "POST", "/auth/email/register",
+		map[string]string{"email": "frank@example.com", "password": "short"}, nil)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Status: got %d, want 400", rr.Code)
+	}
+}
+
+func TestEmailRegister_DuplicateEmail(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Register once
+	doRequest(server.handleEmailRegister, "POST", "/auth/email/register",
+		map[string]string{"email": "grace@example.com", "password": "securepassword1"}, nil)
+
+	// Try to register again with the same email
+	rr := doRequest(server.handleEmailRegister, "POST", "/auth/email/register",
+		map[string]string{"email": "grace@example.com", "password": "differentpass99"}, nil)
+
+	if rr.Code != http.StatusConflict {
+		t.Errorf("Status: got %d, want 409 Conflict", rr.Code)
+	}
+}
+
+func TestEmailRegister_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleEmailRegister, "GET", "/auth/email/register", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status: got %d, want 405", rr.Code)
+	}
+}
+
+// =============================================================================
+// EMAIL LOGIN HANDLER TESTS
+// =============================================================================
+
+func TestEmailLogin_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Register first
+	doRequest(server.handleEmailRegister, "POST", "/auth/email/register",
+		map[string]string{"email": "henry@example.com", "password": "correcthorsebattery"}, nil)
+
+	// Then log in
+	rr := doRequest(server.handleEmailLogin, "POST", "/auth/email/login",
+		map[string]string{"email": "henry@example.com", "password": "correcthorsebattery"}, nil)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	if body["success"] != true {
+		t.Error("Expected success=true")
+	}
+	if getSessionCookie(rr) == nil {
+		t.Error("No session cookie set after login")
+	}
+}
+
+func TestEmailLogin_WrongPassword(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	doRequest(server.handleEmailRegister, "POST", "/auth/email/register",
+		map[string]string{"email": "iris@example.com", "password": "correctpassword1"}, nil)
+
+	rr := doRequest(server.handleEmailLogin, "POST", "/auth/email/login",
+		map[string]string{"email": "iris@example.com", "password": "wrongpassword99"}, nil)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestEmailLogin_UnknownEmail(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleEmailLogin, "POST", "/auth/email/login",
+		map[string]string{"email": "nobody@example.com", "password": "somepassword1"}, nil)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestEmailLogin_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleEmailLogin, "GET", "/auth/email/login", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status: got %d, want 405", rr.Code)
+	}
+}
+
+func TestEmailLogin_EmailCaseInsensitive(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Register with lowercase email
+	doRequest(server.handleEmailRegister, "POST", "/auth/email/register",
+		map[string]string{"email": "julia@example.com", "password": "testpassword1"}, nil)
+
+	// Log in with uppercase email — should still work
+	rr := doRequest(server.handleEmailLogin, "POST", "/auth/email/login",
+		map[string]string{"email": "JULIA@EXAMPLE.COM", "password": "testpassword1"}, nil)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200 (email login should be case-insensitive)", rr.Code)
+	}
+}
+
+// =============================================================================
+// EMAIL FORGOT / RESET HANDLER TESTS
+// =============================================================================
+
+func TestEmailForgot_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleEmailForgot, "GET", "/auth/email/forgot", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status: got %d, want 405", rr.Code)
+	}
+}
+
+func TestEmailForgot_UnknownEmail_ReturnsOK(t *testing.T) {
+	// For security, the forgot-password endpoint should always return 200
+	// regardless of whether the email exists (prevents user enumeration).
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleEmailForgot, "POST", "/auth/email/forgot",
+		map[string]string{"email": "nosuchuser@example.com"}, nil)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200 (should not reveal whether email exists)", rr.Code)
+	}
+}
+
+func TestEmailReset_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleEmailReset, "GET", "/auth/email/reset", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status: got %d, want 405", rr.Code)
+	}
+}
+
+func TestEmailReset_InvalidToken(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleEmailReset, "POST", "/auth/email/reset",
+		map[string]string{"token": "bogus-token", "password": "newpassword1"}, nil)
+
+	if rr.Code != http.StatusBadRequest && rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 400 or 401 for invalid reset token", rr.Code)
+	}
+}
+
+// =============================================================================
+// UTILITY FUNCTION TESTS
+// =============================================================================
+
+func TestExtractEmail_BareAddress(t *testing.T) {
+	got := extractEmail("user@example.com")
+	if got != "user@example.com" {
+		t.Errorf("extractEmail bare: got %q, want %q", got, "user@example.com")
+	}
+}
+
+func TestExtractEmail_NameAngleBracket(t *testing.T) {
+	got := extractEmail("John Doe <john@example.com>")
+	if got != "john@example.com" {
+		t.Errorf("extractEmail angle-bracket: got %q, want %q", got, "john@example.com")
+	}
+}
+
+func TestExtractEmail_TrimsWhitespace(t *testing.T) {
+	got := extractEmail("  hello@example.com  ")
+	if got != "hello@example.com" {
+		t.Errorf("extractEmail trim: got %q, want %q", got, "hello@example.com")
+	}
+}
+
+func TestExtractEmail_AngleBracketWithSpaces(t *testing.T) {
+	got := extractEmail("My Name < spaced@example.com >")
+	if got != "spaced@example.com" {
+		t.Errorf("extractEmail spaced angle: got %q, want %q", got, "spaced@example.com")
+	}
+}
+
+func TestMaskPhone_TenDigit(t *testing.T) {
+	got := maskPhone("3101234567")
+	// phone[:3] + "***" + phone[7:] => "310" + "***" + "567"
+	if got != "310***567" {
+		t.Errorf("maskPhone 10-digit: got %q, want %q", got, "310***567")
+	}
+}
+
+func TestMaskPhone_E164(t *testing.T) {
+	got := maskPhone("+13101234567")
+	// Should mask middle digits
+	if len(got) == 0 || got == "+13101234567" {
+		t.Errorf("maskPhone E.164: expected masking, got %q", got)
+	}
+}
+
+func TestMaskPhone_Short(t *testing.T) {
+	got := maskPhone("123")
+	if got != "***" {
+		t.Errorf("maskPhone short: got %q, want %q", got, "***")
+	}
+}
+
+func TestLogoInitials_Empty(t *testing.T) {
+	got := logoInitials("")
+	if got != "?" {
+		t.Errorf("logoInitials empty: got %q, want %q", got, "?")
+	}
+}
+
+func TestLogoInitials_SingleWord(t *testing.T) {
+	got := logoInitials("Whole Foods")
+	if got != "WF" {
+		t.Errorf("logoInitials two words: got %q, want %q", got, "WF")
+	}
+}
+
+func TestLogoInitials_SingleWordOnly(t *testing.T) {
+	got := logoInitials("Costco")
+	if got != "C" {
+		t.Errorf("logoInitials single word: got %q, want %q", got, "C")
+	}
+}
+
+func TestLogoColor_ReturnsHex(t *testing.T) {
+	got := logoColor("Trader Joe's")
+	if len(got) == 0 || got[0] != '#' {
+		t.Errorf("logoColor: expected hex color starting with #, got %q", got)
+	}
+}
+
+func TestLogoColor_SameName_SameResult(t *testing.T) {
+	a := logoColor("Safeway")
+	b := logoColor("Safeway")
+	if a != b {
+		t.Errorf("logoColor should be deterministic: got %q and %q", a, b)
+	}
+}
+
+func TestLogoColor_DifferentNames(t *testing.T) {
+	// Not guaranteed to differ but extremely likely for these two
+	a := logoColor("Whole Foods")
+	b := logoColor("Trader Joe's")
+	_ = a
+	_ = b
+	// Just ensure neither panics and both are valid hex colors
+	if len(a) == 0 || a[0] != '#' {
+		t.Errorf("logoColor Whole Foods: got %q", a)
+	}
+	if len(b) == 0 || b[0] != '#' {
+		t.Errorf("logoColor Trader Joe's: got %q", b)
+	}
+}
+
+func TestGetClientIP_RemoteAddr(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "192.168.1.1:54321"
+	got := getClientIP(req)
+	if got != "192.168.1.1" {
+		t.Errorf("getClientIP RemoteAddr: got %q, want %q", got, "192.168.1.1")
+	}
+}
+
+func TestGetClientIP_XForwardedFor(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-Forwarded-For", "10.0.0.1, 172.16.0.1")
+	req.RemoteAddr = "192.168.1.1:54321"
+	got := getClientIP(req)
+	if got != "10.0.0.1" {
+		t.Errorf("getClientIP X-Forwarded-For: got %q, want %q", got, "10.0.0.1")
+	}
+}
+
+func TestGetClientIP_IPv6(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "[::1]:8080"
+	got := getClientIP(req)
+	// Should not panic and should return something reasonable
+	if got == "" {
+		t.Errorf("getClientIP IPv6: got empty string")
+	}
+}
+
+func TestStripCodeFence_NoFence(t *testing.T) {
+	input := `{"action":"add"}`
+	got := stripCodeFence(input)
+	if got != input {
+		t.Errorf("stripCodeFence no fence: got %q, want %q", got, input)
+	}
+}
+
+func TestStripCodeFence_WithJsonFence(t *testing.T) {
+	input := "```json\n{\"action\":\"add\"}\n```"
+	got := stripCodeFence(input)
+	if got != `{"action":"add"}` {
+		t.Errorf("stripCodeFence json fence: got %q, want %q", got, `{"action":"add"}`)
+	}
+}
+
+func TestStripCodeFence_PlainFence(t *testing.T) {
+	input := "```\nhello\n```"
+	got := stripCodeFence(input)
+	if got != "hello" {
+		t.Errorf("stripCodeFence plain fence: got %q, want %q", got, "hello")
+	}
+}
+
+// =============================================================================
+// SETTINGS HANDLER TESTS
+// =============================================================================
+
+func TestSettingsGet_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleSettingsGet, "GET", "/api/settings", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestSettingsGet_ReturnsData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559990001")
+
+	rr := doRequest(server.handleSettingsGet, "GET", "/api/settings", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200", rr.Code)
+	}
+	// Should return valid JSON
+	data := parseJSON(rr)
+	if data == nil {
+		t.Error("Expected JSON response, got nil")
+	}
+}
+
+func TestSettingsUpdate_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleSettingsUpdate, "PATCH", "/api/settings",
+		map[string]string{"name": "Alice"}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestSettingsUpdate_Name(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5559990002")
+
+	rr := doRequest(server.handleSettingsUpdate, "PATCH", "/api/settings",
+		map[string]string{"name": "Alice"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200", rr.Code)
+	}
+
+	// Verify name was saved in DB
+	var name string
+	server.db.QueryRow("SELECT COALESCE(name,'') FROM users WHERE id = ?", userID).Scan(&name)
+	if name != "Alice" {
+		t.Errorf("Name in DB: got %q, want %q", name, "Alice")
+	}
+}
+
+func TestSettings_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559990003")
+	rr := doRequest(server.handleSettings, "DELETE", "/api/settings", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status: got %d, want 405", rr.Code)
+	}
+}
+
+// =============================================================================
+// TRIPS HANDLER TESTS
+// =============================================================================
+
+func TestTrips_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleTrips, "GET", "/api/trips", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestTrips_GetEmptyList(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559990010")
+
+	rr := doRequest(server.handleTrips, "GET", "/api/trips", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200", rr.Code)
+	}
+
+	var trips []interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &trips); err != nil {
+		t.Errorf("Expected JSON array, got: %s", rr.Body.String())
+	}
+	if len(trips) != 0 {
+		t.Errorf("Expected empty trips list, got %d trips", len(trips))
+	}
+}
+
+func TestTrips_PostAndRetrieve(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559990011")
+
+	// POST a new trip
+	body := map[string]string{
+		"trip_date":  "2099-01-15",
+		"trip_time":  "10:00",
+		"time_label": "Morning",
+	}
+	rr := doRequest(server.handleTrips, "POST", "/api/trips", body, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("POST Status: got %d, want 200", rr.Code)
+	}
+
+	// GET should now include the trip
+	rr = doRequest(server.handleTrips, "GET", "/api/trips", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("GET Status: got %d, want 200", rr.Code)
+	}
+
+	var trips []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &trips)
+	if len(trips) == 0 {
+		t.Error("Expected at least one trip after POST")
+	}
+}
+
+func TestTrips_Delete(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559990012")
+
+	// Create a trip
+	doRequest(server.handleTrips, "POST", "/api/trips",
+		map[string]string{"trip_date": "2099-02-01", "trip_time": "09:00", "time_label": "Morning"},
+		[]*http.Cookie{cookie})
+
+	// Delete it
+	rr := doRequest(server.handleTrips, "DELETE", "/api/trips", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("DELETE Status: got %d, want 200", rr.Code)
+	}
+}
+
+// =============================================================================
+// NPS HANDLER TESTS
+// =============================================================================
+
+func TestNPSCheck_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleNPSCheck, "GET", "/api/nps/check", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestNPSCheck_ReturnsShowNPSField(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559990020")
+
+	rr := doRequest(server.handleNPSCheck, "GET", "/api/nps/check", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200", rr.Code)
+	}
+	data := parseJSON(rr)
+	if _, ok := data["show_nps"]; !ok {
+		t.Errorf("Expected 'show_nps' field in NPS check response, got: %v", data)
+	}
+}
+
+func TestNPS_Submit(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559990021")
+
+	rr := doRequest(server.handleNPS, "POST", "/api/nps",
+		map[string]interface{}{"score": 9, "feedback": "Love it!"},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200", rr.Code)
+	}
+}
+
+func TestNPS_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleNPS, "POST", "/api/nps",
+		map[string]interface{}{"score": 7}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+// =============================================================================
+// VCARD HANDLER TESTS
+// =============================================================================
+
+func TestVCard_ReturnsVCardContentType(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleVCard, "GET", "/api/penny.vcf", nil, nil)
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200", rr.Code)
+	}
+	ct := rr.Header().Get("Content-Type")
+	if ct != "text/vcard" {
+		t.Errorf("Content-Type: got %q, want %q", ct, "text/vcard")
+	}
+	if !strings.Contains(rr.Body.String(), "BEGIN:VCARD") {
+		t.Error("Expected vCard body to contain BEGIN:VCARD")
+	}
+}
+
+func TestVCard_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleVCard, "POST", "/api/penny.vcf", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status: got %d, want 405", rr.Code)
+	}
+}
+
+// =============================================================================
+// VALIDATE TWILIO SIGNATURE TESTS
+// =============================================================================
+
+func TestValidateTwilioSignature_MissingHeader(t *testing.T) {
+	req := httptest.NewRequest("POST", "/api/sms", strings.NewReader("Body=hello"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// No X-Twilio-Signature header
+	if validateTwilioSignature(req, "authtoken", "https://example.com") {
+		t.Error("Expected false when X-Twilio-Signature is missing")
+	}
+}
+
+func TestValidateTwilioSignature_WrongSignature(t *testing.T) {
+	req := httptest.NewRequest("POST", "/api/sms", strings.NewReader("Body=hello"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Twilio-Signature", "not-the-right-signature")
+	if validateTwilioSignature(req, "authtoken", "https://example.com") {
+		t.Error("Expected false for wrong signature")
+	}
+}
+
+// =============================================================================
+// REQUIRE SAVED LIST ACCESS TESTS
+// =============================================================================
+
+func TestRequireSavedListAccess_MissingList(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5559990030")
+
+	rr := httptest.NewRecorder()
+
+	ok := server.requireSavedListAccess(rr, userID, 99999)
+	if ok {
+		t.Error("Expected false for non-existent list ID")
+	}
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Status: got %d, want 404", rr.Code)
+	}
+}
+
+func TestRequireSavedListAccess_OtherUsersListDenied(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, user1ID := loginUser(t, server, "5559990031")
+	_, user2ID := loginUser(t, server, "5559990032")
+
+	// Create a saved list belonging to user1
+	res, err := server.db.Exec(
+		"INSERT INTO saved_lists (user_id, name) VALUES (?, ?)", user1ID, "User1 List",
+	)
+	if err != nil {
+		t.Fatalf("insert saved_list: %v", err)
+	}
+	listID, _ := res.LastInsertId()
+
+	// user2 should not be able to access it
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/", nil)
+	_ = req
+
+	ok := server.requireSavedListAccess(rr, user2ID, int(listID))
+	if ok {
+		t.Error("Expected false when accessing another user's saved list")
+	}
+}
+
+func TestRequireSavedListAccess_OwnerCanAccess(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5559990033")
+
+	// Create a saved list belonging to the user
+	res, err := server.db.Exec(
+		"INSERT INTO saved_lists (user_id, name) VALUES (?, ?)", userID, "My List",
+	)
+	if err != nil {
+		t.Fatalf("insert saved_list: %v", err)
+	}
+	listID, _ := res.LastInsertId()
+
+	rr := httptest.NewRecorder()
+	ok := server.requireSavedListAccess(rr, userID, int(listID))
+	if !ok {
+		t.Error("Expected true when owner accesses their own saved list")
+	}
+}
+
+// =============================================================================
+// REFERRAL HANDLER TESTS
+// =============================================================================
+
+func TestReferralClaim_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleReferralClaim, "POST", "/api/referral/claim", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestReferral_GetCode(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559990040")
+
+	rr := doRequest(server.handleReferral, "GET", "/api/referral", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200", rr.Code)
+	}
+	data := parseJSON(rr)
+	if data["code"] == nil {
+		t.Error("Expected 'code' field in referral response")
+	}
+}
+
+// =============================================================================
+// ROUND 3 — Constants, Restore, Cross-Household, NPS, Referral Tests
+// =============================================================================
+
+func TestListRestore_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	items := []map[string]interface{}{
+		{"name": "Milk", "department": "Dairy & Eggs", "quantity": 2, "checked": false},
+		{"name": "Bread", "department": "Bakery", "quantity": 1, "checked": true},
+	}
+	rr := doRequest(server.handleListRestore, "POST", "/api/list/restore", items, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("restore status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM list_items WHERE user_id = ?", userID).Scan(&count)
+	if count != 2 {
+		t.Errorf("expected 2 restored items, got %d", count)
+	}
+}
+
+func TestListRestore_DefaultsEmptyDepartment(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	items := []map[string]interface{}{
+		{"name": "Widget", "quantity": 1},
+	}
+	doRequest(server.handleListRestore, "POST", "/api/list/restore", items, []*http.Cookie{cookie})
+
+	var dept string
+	server.db.QueryRow("SELECT department FROM list_items WHERE user_id = ?", userID).Scan(&dept)
+	if dept != "Other" {
+		t.Errorf("expected department='Other', got %q", dept)
+	}
+}
+
+func TestListRestore_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+	rr := doRequest(server.handleListRestore, "GET", "/api/list/restore", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestListRestore_EmptyBody(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+	rr := doRequest(server.handleListRestore, "POST", "/api/list/restore", []interface{}{}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for empty restore, got %d; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestListRestore_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleListRestore, "POST", "/api/list/restore", []interface{}{}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without auth, got %d", rr.Code)
+	}
+}
+
+func TestReferralConstants_RedeemThreshold(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	server.db.Exec("UPDATE users SET referral_points = ? WHERE id = ?", referralRedeemThreshold-1, userID)
+	rr := doRequest(server.handleReferralRedeem, "POST", "/api/referral/redeem", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 with %d points, got %d", referralRedeemThreshold-1, rr.Code)
+	}
+
+	server.db.Exec("UPDATE users SET referral_points = ? WHERE id = ?", referralRedeemThreshold, userID)
+	rr = doRequest(server.handleReferralRedeem, "POST", "/api/referral/redeem", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 with %d points, got %d; body=%s", referralRedeemThreshold, rr.Code, rr.Body.String())
+	}
+}
+
+func TestReferralConstants_PointsAwardedPerInvite(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	cookie1, inviterID := loginUser(t, server, "5551111111")
+
+	inviteReq := map[string]interface{}{"phone": ""}
+	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite", inviteReq, []*http.Cookie{cookie1})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("invite create failed: %d", rr.Code)
+	}
+	data := parseJSON(rr)
+	link, _ := data["link"].(string)
+	parts := strings.Split(strings.TrimSuffix(link, "/"), "/")
+	code := parts[len(parts)-1]
+
+	cookie2, _ := loginUser(t, server, "5552222222")
+	joinReq := map[string]interface{}{"code": code}
+	rr = doRequest(server.handleJoin, "POST", "/api/settings/join", joinReq, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("join failed: %d; body=%s", rr.Code, rr.Body.String())
+	}
+
+	var points int
+	server.db.QueryRow("SELECT COALESCE(referral_points, 0) FROM users WHERE id = ?", inviterID).Scan(&points)
+	if points != referralPointsPerInvite {
+		t.Errorf("expected inviter to receive %d points, got %d", referralPointsPerInvite, points)
+	}
+}
+
+func TestNPSConstants_MinLoginThreshold(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+	server.config.NPSIntervalDays = 90
+
+	server.db.Exec("UPDATE users SET login_count = ? WHERE id = ?", npsMinLogins-1, userID)
+	rr := doRequest(server.handleNPSCheck, "GET", "/api/nps/check", nil, []*http.Cookie{cookie})
+	result := parseJSON(rr)
+	if result["show_nps"] != false {
+		t.Errorf("expected show_nps=false at %d logins, got %v", npsMinLogins-1, result["show_nps"])
+	}
+
+	server.db.Exec("UPDATE users SET login_count = ? WHERE id = ?", npsMinLogins, userID)
+	rr = doRequest(server.handleNPSCheck, "GET", "/api/nps/check", nil, []*http.Cookie{cookie})
+	result = parseJSON(rr)
+	if result["show_nps"] != true {
+		t.Errorf("expected show_nps=true at %d logins, got %v", npsMinLogins, result["show_nps"])
+	}
+}
+
+func TestSettingsUpdate_AddressField(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	update := map[string]interface{}{
+		"name":    "Jane Doe",
+		"email":   "jane@example.com",
+		"address": "123 Main St, Springfield, IL 62701",
+	}
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings", update, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH settings: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	rr = doRequest(server.handleSettings, "GET", "/api/settings", nil, []*http.Cookie{cookie})
+	result := parseJSON(rr)
+	if result["address"] != "123 Main St, Springfield, IL 62701" {
+		t.Errorf("expected address from GET, got %v", result["address"])
+	}
+}
+
+func TestSettingsUpdate_AddressClearedByEmpty(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	doRequest(server.handleSettings, "PATCH", "/api/settings", map[string]interface{}{"address": "123 Main St"}, []*http.Cookie{cookie})
+	doRequest(server.handleSettings, "PATCH", "/api/settings", map[string]interface{}{"address": ""}, []*http.Cookie{cookie})
+
+	rr := doRequest(server.handleSettings, "GET", "/api/settings", nil, []*http.Cookie{cookie})
+	result := parseJSON(rr)
+	if result["address"] != "" {
+		t.Errorf("expected empty address after clear, got %v", result["address"])
+	}
+}
+
+func TestLogoCacheHeader_Format(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	testData := []byte("<svg>test</svg>")
+	server.logoCache.Store("example.com", &cachedLogo{data: testData, contentType: "image/svg+xml"})
+
+	req := httptest.NewRequest("GET", "/api/logo?brand=Example&domain=example.com", nil)
+	rr := httptest.NewRecorder()
+	server.handleLogoProxy(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	cc := rr.Header().Get("Cache-Control")
+	want := fmt.Sprintf("public, max-age=%d", logoCacheMaxAge)
+	if cc != want {
+		t.Errorf("Cache-Control: got %q, want %q", cc, want)
+	}
+}
+
+func TestNormalizePhone_EmptyString(t *testing.T) {
+	_, ok := normalizePhone("")
+	if ok {
+		t.Error("expected ok=false for empty string")
+	}
+}
+
+func TestListClaim_AcrossHousehold(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	cookie1, userID1 := loginUser(t, server, "5551111111")
+	createListItem(t, server.db, userID1, "Eggs", "Dairy & Eggs")
+
+	inviteReq := map[string]interface{}{"phone": ""}
+	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite", inviteReq, []*http.Cookie{cookie1})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("invite failed: %d", rr.Code)
+	}
+	link := parseJSON(rr)["link"].(string)
+	parts := strings.Split(strings.TrimSuffix(link, "/"), "/")
+	code := parts[len(parts)-1]
+
+	cookie2, _ := loginUser(t, server, "5552222222")
+	doRequest(server.handleJoin, "POST", "/api/settings/join", map[string]interface{}{"code": code}, []*http.Cookie{cookie2})
+
+	rr = doRequest(server.handleListGet, "GET", "/api/list", nil, []*http.Cookie{cookie1})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list get failed: %d", rr.Code)
+	}
+	var items []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&items)
+	if len(items) == 0 {
+		t.Fatal("expected at least one item")
+	}
+	itemID := int(items[0]["id"].(float64))
+
+	claimPath := fmt.Sprintf("/api/list/%d/claim", itemID)
+	req := httptest.NewRequest("PATCH", claimPath, nil)
+	req.AddCookie(cookie2)
+	rw := httptest.NewRecorder()
+	server.handleList(rw, req)
+	if rw.Code != http.StatusOK {
+		t.Fatalf("claim failed: %d; body=%s", rw.Code, rw.Body.String())
+	}
+
+	rr = doRequest(server.handleListGet, "GET", "/api/list", nil, []*http.Cookie{cookie1})
+	var itemsAfter []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&itemsAfter)
+	if len(itemsAfter) == 0 {
+		t.Fatal("expected items after claim")
+	}
+	claimedByID := itemsAfter[0]["claimed_by_id"]
+	if claimedByID == nil || claimedByID == float64(0) {
+		t.Error("expected item to be claimed when viewed by other household member")
 	}
 }
 

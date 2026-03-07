@@ -1,28 +1,30 @@
 // =============================================================================
 // thriftly — App.tsx
 //
-// The entire frontend in one React component. Three screens:
-//   1. Phone input: user types 10 digits → formats as (555) 123-4567
-//   2. Code input: 6 individual boxes, auto-advances, auto-submits
-//   3. Home: logged in (placeholder — we'll build the list/chat later)
-//
-// DESIGN DECISIONS:
-//   - All styles are inline (CSS-in-JS objects) to keep everything in one file.
-//     In a bigger app you'd use CSS modules or Tailwind. For now, this is
-//     simpler to read and modify.
-//   - inputMode="numeric" tells mobile browsers to show the number pad.
-//   - All API calls go to the Go backend (no logic in the frontend).
-//   - Phone numbers are stored as 10 raw digits. The backend adds "+1".
+// Screens: phone → code → home, penny settings, profile, share, admin
+// All styles inline. All API calls go to the Go backend.
 // =============================================================================
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+
+import { PennyAvatar } from './components/PennyAvatar'
+import { BrandLogo } from './components/BrandLogo'
+import { ActionSheet, SectionHeader } from './components/ActionSheet'
+import { ConfirmModal } from './components/ConfirmModal'
+import { Confetti } from './components/Confetti'
+import { FloatingLabelField } from './components/FloatingLabelField'
+import { ErrorBoundary } from './components/ErrorBoundary'
+import {
+  BRAND, BG, TEXT, TEXT_SECONDARY, BORDER, ERROR_RED, WHITE, FONT,
+  DEPARTMENTS, DEPT_ICONS,
+} from './styles'
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
 // The screens the app can show
-type Screen = 'phone' | 'code' | 'home' | 'saved' | 'settings' | 'about' | 'invite' | 'settings-profile' | 'settings-share' | 'admin'
+type Screen = 'phone' | 'code' | 'home' | 'penny' | 'profile' | 'settings-share' | 'admin' | 'email-login' | 'email-register' | 'forgot-password' | 'reset-password'
 
 // Declare gtag for TypeScript
 declare function gtag(...args: unknown[]): void
@@ -35,26 +37,34 @@ const SCREEN_PATHS: Record<Screen, string> = {
   phone: '/login',
   code: '/verify',
   home: '/',
-  about: '/about',
+  penny: '/penny',
+  profile: '/profile',
   'settings-share': '/share',
-  settings: '/settings',
-  'settings-profile': '/settings/profile',
-  saved: '/settings/saved',
   admin: '/admin',
-  invite: '/share',
+  'email-login': '/login/email',
+  'email-register': '/login/email/register',
+  'forgot-password': '/login/forgot',
+  'reset-password': '/reset-password',
 }
 
 const PATH_TO_SCREEN: Record<string, Screen> = {
   '/login': 'phone',
   '/verify': 'code',
   '/': 'home',
-  '/about': 'about',
+  '/penny': 'penny',
+  '/profile': 'profile',
   '/share': 'settings-share',
-  '/settings': 'settings',
-  '/settings/profile': 'settings-profile',
-  '/settings/saved': 'saved',
+  '/settings': 'penny',
+  '/settings/profile': 'profile',
+  '/settings/saved': 'profile',
   '/admin': 'admin',
+  '/login/email': 'email-login',
+  '/login/email/register': 'email-register',
+  '/login/forgot': 'forgot-password',
+  '/reset-password': 'reset-password',
 }
+
+const AUTH_SCREENS: Screen[] = ['phone', 'code', 'email-login', 'email-register', 'forgot-password', 'reset-password']
 
 type ListItem = {
   id: number
@@ -72,13 +82,6 @@ type ListItem = {
   added_by_phone: string
   claimed_by_id: number | null
   claimed_by_name: string
-}
-
-type SavedList = {
-  id: number
-  name: string
-  item_count: number
-  created_at: string
 }
 
 type ItemModification = {
@@ -104,54 +107,13 @@ type ShoppingTrip = {
 // CONSTANTS
 // =============================================================================
 
-const BRAND = '#35644F'
-const BG = '#F7F6F3'
-const TEXT = '#2A2A2A'
-const TEXT_SECONDARY = '#6B6B6B'
-const BORDER = '#E0DDD6'
-const ERROR_RED = '#C53030'
-const WHITE = '#FFFFFF'
-
-const DEPARTMENTS = [
-  'Produce',
-  'Bakery & Deli',
-  'Meat & Seafood',
-  'Dairy & Eggs',
-  'Frozen',
-  'Pantry & Dry Goods',
-  'Snacks & Candy',
-  'Beverages',
-  'Household & Cleaning',
-  'Health & Personal Care',
-  'Other',
-]
-
-// Department icons — emoji for clarity and cross-platform consistency
-const DEPT_ICONS: Record<string, string> = {
-  'Produce': '🥬',
-  'Bakery & Deli': '🥖',
-  'Meat & Seafood': '🥩',
-  'Dairy & Eggs': '🥛',
-  'Frozen': '❄️',
-  'Pantry & Dry Goods': '🫙',
-  'Snacks & Candy': '🍿',
-  'Beverages': '☕',
-  'Household & Cleaning': '🧹',
-  'Health & Personal Care': '💊',
-  'Other': '📦',
-}
 
 function DeptIcon({ dept }: { dept: string }) {
   const icon = DEPT_ICONS[dept]
   if (!icon) return null
-  return <span style={{ fontSize: '29px', lineHeight: 1, flexShrink: 0 }}>{icon}</span>
+  return <span style={{ fontSize: '22px', lineHeight: 1, flexShrink: 0 }}>{icon}</span>
 }
 
-// Avenir with system fallbacks for platforms that don't have it.
-// Avenir comes pre-installed on macOS and iOS.
-// "Avenir Next" is the updated version on Apple platforms.
-// On Windows/Android, it falls back to system sans-serif.
-const FONT = "'Avenir', 'Avenir Next', -apple-system, 'Segoe UI', sans-serif"
 
 // =============================================================================
 // HELPER: format 10 raw digits as (555) 123-4567
@@ -227,59 +189,14 @@ function Logo() {
   )
 }
 
-// =============================================================================
-// PENNY AVATAR
-// =============================================================================
-
-function PennyAvatar({ size = 28 }: { size?: number }) {
-  return (
-    <div style={{
-      width: size,
-      height: size,
-      borderRadius: '50%',
-      overflow: 'hidden',
-      flexShrink: 0,
-      backgroundColor: '#e8e4df',
-      border: `1px solid ${BORDER}`,
-    }}>
-      <img
-        src="/penny.png"
-        alt="Penny"
-        width={size}
-        height={size}
-        style={{ objectFit: 'cover', objectPosition: 'center 15%', display: 'block' }}
-      />
-    </div>
-  )
-}
-
-// Brand logo with consistent styling — renders empty box when no brand
-function BrandLogo({ brand, size = 52, opacity = 1 }: { brand?: string; size?: number; opacity?: number }) {
-  const radius = size > 60 ? '12px' : size > 48 ? '10px' : '8px'
-  const pad = size > 60 ? '4px' : size > 48 ? '3px' : '2px'
-  return (
-    <div style={{ width: size, height: size, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      {brand ? (
-        <img
-          src={`/api/logo?brand=${encodeURIComponent(brand)}&v=4`}
-          alt=""
-          width={size}
-          height={size}
-          loading="lazy"
-          style={{ borderRadius: radius, objectFit: 'contain' as const, backgroundColor: '#FAFAFA', border: '1px solid rgba(0,0,0,0.06)', padding: pad, opacity, transition: 'opacity 0.15s' }}
-          onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-        />
-      ) : (
-        <div style={{ width: size, height: size, borderRadius: radius, backgroundColor: '#FAFAFA', border: '1px solid rgba(0,0,0,0.06)', opacity }} />
-      )}
-    </div>
-  )
-}
 
 // Toggle switch — used for urgent and claim toggles
-function ToggleSwitch({ value, onChange }: { value: boolean; onChange: () => void }) {
+function ToggleSwitch({ value, onChange, label }: { value: boolean; onChange: () => void; label?: string }) {
   return (
     <button
+      role="switch"
+      aria-checked={value}
+      aria-label={label}
       onClick={onChange}
       style={{
         width: '44px', height: '24px', borderRadius: '12px', border: 'none', cursor: 'pointer',
@@ -303,13 +220,6 @@ const avatarCircleStyle = (size = 32): React.CSSProperties => ({
   fontFamily: FONT, fontSize: '15px', fontWeight: 600, flexShrink: 0,
 })
 
-// Quantity stepper button style
-const qtyBtnStyle: React.CSSProperties = {
-  width: '34px', height: '34px', border: 'none', background: 'none',
-  fontSize: '17px', color: BRAND, cursor: 'pointer',
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-}
-
 // =============================================================================
 // PENNY LOADING MESSAGES
 // =============================================================================
@@ -318,59 +228,8 @@ const PENNY_STEP1 = ["Reading your list...", "Let me see what you wrote...", "Hm
 const PENNY_STEP2 = ["Checking it twice!", "Sorting by aisle...", "Organizing...", "I know just where these go..."]
 const PENNY_STEP3 = ["Adding to your list...", "Almost done!", "Stocking up!"]
 const PENNY_STEPS = [PENNY_STEP1, PENNY_STEP2, PENNY_STEP3]
-const PENNY_QUOTES = [
-  "I work hard so that shopping is effortless and affordable for you and the people you love.",
-  "I coordinate with your whole household so nothing gets forgotten and nothing gets doubled.",
-  "I make sure you get the right amount of the right things — no more, no less.",
-  "I find the best deals so you can spend less time comparing and more time living.",
-  "I keep your list organized by aisle so you can breeze through the store.",
-  "I'm always listening — text me anytime and I'll take care of the rest.",
-  "You can text or email me — I'll add it to your list!",
-]
-
 function pickRandom(arr: string[]) {
   return arr[Math.floor(Math.random() * arr.length)]
-}
-
-// =============================================================================
-// EXTRACTED COMPONENTS
-// =============================================================================
-
-function ActionSheet({ isOpen, onClose, title, children, maxHeight }: {
-  isOpen: boolean
-  onClose: () => void
-  title?: string
-  children: React.ReactNode
-  maxHeight?: string
-}) {
-  if (!isOpen) return null
-  return (
-    <div style={listStyles.overlay} onClick={onClose}>
-      <div style={{ ...listStyles.sheet, ...(maxHeight ? { maxHeight } : {}) }} onClick={e => e.stopPropagation()}>
-        {title && <p style={listStyles.sheetTitle}>{title}</p>}
-        {children}
-      </div>
-    </div>
-  )
-}
-
-function SectionHeader({ label }: { label: string }) {
-  return (
-    <p style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: TEXT_SECONDARY, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px' }}>{label}</p>
-  )
-}
-
-function FloatingLabelField({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ textAlign: 'left' as const }}>
-      <div style={{
-        fontSize: '11px', fontWeight: 600, color: TEXT_SECONDARY,
-        textTransform: 'uppercase' as const, letterSpacing: '0.5px', fontFamily: FONT,
-        marginBottom: '6px',
-      }}>{label}</div>
-      {children}
-    </div>
-  )
 }
 
 function QuantityControl({ value, onChange }: {
@@ -381,54 +240,15 @@ function QuantityControl({ value, onChange }: {
     <div style={{ display: 'flex', alignItems: 'center', border: `1.5px solid ${BORDER}`, borderRadius: '12px', backgroundColor: WHITE, flexShrink: 0 }}>
       <button
         onClick={() => onChange(Math.max(1, value - 1))}
+        aria-label={`Decrease quantity, currently ${value}`}
         style={{ width: '38px', height: '42px', border: 'none', background: 'none', fontSize: '17px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       >−</button>
-      <span style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, minWidth: '24px', textAlign: 'center' }}>{value}</span>
+      <span aria-live="polite" aria-atomic="true" style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, minWidth: '24px', textAlign: 'center' }}>{value}</span>
       <button
         onClick={() => onChange(value + 1)}
+        aria-label={`Increase quantity, currently ${value}`}
         style={{ width: '38px', height: '42px', border: 'none', background: 'none', fontSize: '17px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       >+</button>
-    </div>
-  )
-}
-
-function ConfirmModal({ open, title, message, confirmLabel, onConfirm, onCancel, destructive }: {
-  open: boolean
-  title: string
-  message?: string
-  confirmLabel?: string
-  onConfirm: () => void
-  onCancel: () => void
-  destructive?: boolean
-}) {
-  if (!open) return null
-  return (
-    <div onClick={onCancel} style={{
-      position: 'fixed', inset: 0, zIndex: 9999,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      backgroundColor: 'rgba(0,0,0,0.4)',
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        backgroundColor: '#fff', borderRadius: '14px', width: '270px',
-        overflow: 'hidden', textAlign: 'center', fontFamily: FONT,
-      }}>
-        <div style={{ padding: '20px 16px 0' }}>
-          <div style={{ fontSize: '17px', fontWeight: 600, color: TEXT }}>{title}</div>
-          {message && <div style={{ fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px' }}>{message}</div>}
-        </div>
-        <div style={{ display: 'flex', borderTop: '1px solid #e5e5e5', marginTop: '16px' }}>
-          <button onClick={onCancel} style={{
-            flex: 1, padding: '12px', border: 'none', background: 'none',
-            fontSize: '17px', fontFamily: FONT, color: '#007AFF', cursor: 'pointer',
-            borderRight: '1px solid #e5e5e5',
-          }}>Cancel</button>
-          <button onClick={onConfirm} style={{
-            flex: 1, padding: '12px', border: 'none', background: 'none',
-            fontSize: '17px', fontWeight: 600, fontFamily: FONT, cursor: 'pointer',
-            color: destructive ? ERROR_RED : '#007AFF',
-          }}>{confirmLabel || 'Confirm'}</button>
-        </div>
-      </div>
     </div>
   )
 }
@@ -440,11 +260,11 @@ function LegalLinks() {
         href="https://thrift.ly"
         target="_blank"
         rel="noopener noreferrer"
-        style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, textDecoration: 'none', marginTop: '48px', opacity: 0.5 }}
+        style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, textDecoration: 'none', marginTop: '48px', opacity: 0.7 }}
       >
         powered by <span style={{ fontWeight: 600 }}>thriftly</span>
       </a>
-      <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '12px', opacity: 0.45 }}>
+      <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '12px', opacity: 0.6 }}>
         <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: TEXT_SECONDARY, textDecoration: 'none' }}>Privacy</a>
         {' · '}
         <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: TEXT_SECONDARY, textDecoration: 'none' }}>Terms</a>
@@ -454,52 +274,10 @@ function LegalLinks() {
 }
 
 // =============================================================================
-// CONFETTI COMPONENT — pure CSS, no canvas, no library
-// =============================================================================
-const CONFETTI_COLORS = ['#35644F', '#4CAF50', '#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#FF6F91']
-
-function Confetti({ onComplete }: { onComplete: () => void }) {
-  const particles = useMemo(() =>
-    Array.from({ length: 120 }, (_, i) => ({
-      id: i,
-      color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-      left: Math.random() * 100,
-      size: 6 + Math.random() * 4,
-      delay: Math.random() * 1.2,
-      duration: 2 + Math.random() * 1.5,
-    })), [])
-
-  const onCompleteRef = useRef(onComplete)
-  onCompleteRef.current = onComplete
-  useEffect(() => {
-    const timer = setTimeout(() => onCompleteRef.current(), 5000)
-    return () => clearTimeout(timer)
-  }, [])
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 9999, overflow: 'hidden' }}>
-      {particles.map((p: { id: number; color: string; left: number; size: number; delay: number; duration: number }) => (
-        <div key={p.id} style={{
-          position: 'absolute',
-          top: '-10px',
-          left: `${p.left}%`,
-          width: `${p.size}px`,
-          height: `${p.size}px`,
-          backgroundColor: p.color,
-          borderRadius: p.id % 3 === 0 ? '50%' : '2px',
-          animation: `confetti-fall ${p.duration}s ease-in ${p.delay}s forwards`,
-          opacity: 0,
-        }} />
-      ))}
-    </div>
-  )
-}
-
-// =============================================================================
 // MAIN APP COMPONENT
 // =============================================================================
 
-export default function App() {
+function AppInner() {
   // --- State ---
   const [screen, setScreenRaw] = useState<Screen>('phone')
   const scrollPositions = useRef<Record<string, number>>({})
@@ -524,10 +302,11 @@ export default function App() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)    // checking existing session on load
-  const [pennyMessage, setPennyMessage] = useState('')
-  const [pennyTyping, setPennyTyping] = useState(false)
-  const pennyQuoteIdx = useRef(0)
-  const pennyCancelled = useRef(false)
+
+
+  // Login page Penny typewriter
+  const [loginPennyText, setLoginPennyText] = useState('')
+  const loginTypingRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Home page Penny typewriter
   const [homePennyText, setHomePennyText] = useState('')
@@ -544,13 +323,8 @@ export default function App() {
   const [chatLoading, setChatLoading] = useState(false)
   const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set())
   const [selectedItem, setSelectedItem] = useState<ListItem | null>(null)
-  const [editName, setEditName] = useState('')
-  const [editBrand, setEditBrand] = useState('')
+  const [editForm, setEditForm] = useState({ name: '', brand: '', dept: '', qty: 1, size: '', notes: '' })
   const [displayBrand, setDisplayBrand] = useState('')
-  const [editDept, setEditDept] = useState('')
-  const [editQty, setEditQty] = useState(1)
-  const [editSize, setEditSize] = useState('')
-  const [editNotes, setEditNotes] = useState('')
   const [editLoading, setEditLoading] = useState(false)
   const [itemHistory, setItemHistory] = useState<ItemModification[]>([])
   const deptRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -558,12 +332,15 @@ export default function App() {
   // --- Toast state ---
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; action?: { label: string; onClick: () => void } } | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const settingsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sliderSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // --- Review state (items from last parse) ---
   const [lastAdded, setLastAdded] = useState<ListItem[]>([])
   const [lastSkipped, setLastSkipped] = useState<{ parsed: { name: string; brand: string; quantity: number; size: string; department: string }; existing_id: number }[]>([])
   const [showReviewSheet, setShowReviewSheet] = useState(false)
   const [returnToReview, setReturnToReview] = useState(false)
+  const hasReviewedRef = useRef(false)
 
   // --- Photo state ---
   const [pendingImages, setPendingImages] = useState<string[]>([])
@@ -589,10 +366,8 @@ export default function App() {
   const [tripExactTime, setTripExactTime] = useState('')
 
   // --- Saved lists state ---
-  const [savedLists, setSavedLists] = useState<SavedList[]>([])
   const [showSaveSheet, setShowSaveSheet] = useState(false)
   const [saveNameInput, setSaveNameInput] = useState('')
-  const [selectedSavedList, setSelectedSavedList] = useState<SavedList | null>(null)
 
   // --- Confirm modal state ---
   const [confirmModal, setConfirmModal] = useState<{
@@ -618,13 +393,13 @@ export default function App() {
   const [settingsLastName, setSettingsLastName] = useState('')
   const [settingsEmail, setSettingsEmail] = useState('')
   const [settingsAddress, setSettingsAddress] = useState('')
-  const [googlePlacesKey, setGooglePlacesKey] = useState('')
+  const [placesReady, setPlacesReady] = useState(false)
   const [addressSuggestions, setAddressSuggestions] = useState<{ description: string; placeId: string }[]>([])
   const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
-  const placesReadyRef = useRef(false)
-  const sessionTokenRef = useRef<unknown>(null)
   const addressSuggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [settingsMembers, setSettingsMembers] = useState<{ name: string; phone: string }[]>([])
+  const [settingsPennyPhone, setSettingsPennyPhone] = useState('')
+  const [settingsUserPhone, setSettingsUserPhone] = useState('')
   const [inviteLoading, setInviteLoading] = useState(false)
 
   // --- Referral state ---
@@ -645,6 +420,13 @@ export default function App() {
     nps_detractors: number;
   } | null>(null)
   const [adminDays, setAdminDays] = useState(30)
+  const [analyticsData, setAnalyticsData] = useState<{
+    days: number; items_created: number;
+    items_by_source: Record<string, number>;
+    items_by_department: Record<string, number>;
+    events_by_action: Record<string, number>;
+    events_by_day: { date: string; count: number }[];
+  } | null>(null)
 
   // --- NPS state ---
   const [showNPS, setShowNPS] = useState(false)
@@ -657,12 +439,34 @@ export default function App() {
   // --- SMS opt-in state ---
   const [smsOptIn, setSmsOptIn] = useState(true)
 
+  // --- Email/Google auth state ---
+  const [emailInput, setEmailInput] = useState('')
+  const [passwordInput, setPasswordInput] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [nameInput, setNameInput] = useState('')
+  const [lastNameInput, setLastNameInput] = useState('')
+  const [googleClientId, setGoogleClientId] = useState('')
+  const [resetToken, setResetToken] = useState('')
+  const [resetSent, setResetSent] = useState(false)
+  const [magicLinkSent, setMagicLinkSent] = useState(false)
+
   // --- New item highlight state ---
   const [newItemIds, setNewItemIds] = useState<Set<number>>(new Set())
   const newItemTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // --- Penny loading spinner state ---
   const [pennyStatus, setPennyStatus] = useState<string | null>(null)
+
+  // --- Brand disambiguation state ---
+  const [pennyDisambig, setPennyDisambig] = useState<{
+    item_id: number; product_category: string; current_brand: string; alternatives: string[];
+  }[]>([])
+  const [pennyDisambigIndex, setPennyDisambigIndex] = useState(0)
+  const [pennySlider, setPennySlider] = useState(35)
+  const [pennyAutotune, setPennyAutotune] = useState(true)
+  const [pennyDeals, setPennyDeals] = useState(false)
+  const [keyboardOpen, setKeyboardOpen] = useState(false)
 
   // --- Penny chime-in state ---
   const [pennyChimeIn, setPennyChimeIn] = useState<string | null>(null)
@@ -726,6 +530,12 @@ export default function App() {
           .catch(() => showChimeIn(pickRandom(CHIME_IN_MESSAGES), 5000))
       }
     }
+    // Reset done state if items are no longer all checked (e.g., new items added)
+    if (showDoneToast && !(items.length > 0 && items.every(i => i.checked))) {
+      setShowDoneToast(false)
+      setShowFireworks(false)
+      setShowDoneOverlay(false)
+    }
     prevDeptDoneRef.current = nowDone
     prevCheckedRef.current = checked
   }, [items])
@@ -743,6 +553,28 @@ export default function App() {
     }, 2000)
     return () => clearInterval(interval)
   }, [chatLoading])
+
+  // Detect keyboard open/close via visualViewport
+  useEffect(() => {
+    if (!window.visualViewport) return
+    const handler = () => {
+      const shrunk = window.innerHeight - window.visualViewport!.height
+      setKeyboardOpen(shrunk > 100)
+    }
+    window.visualViewport.addEventListener('resize', handler)
+    return () => window.visualViewport!.removeEventListener('resize', handler)
+  }, [])
+
+  // Clean up all timers on unmount
+  useEffect(() => {
+    return () => {
+      if (homePennyInterval.current) clearInterval(homePennyInterval.current)
+      if (chimeInTimer.current) clearTimeout(chimeInTimer.current)
+      if (idleTimer.current) clearTimeout(idleTimer.current)
+      if (toastTimer.current) clearTimeout(toastTimer.current)
+      if (newItemTimerRef.current) clearTimeout(newItemTimerRef.current)
+    }
+  }, [])
 
   // --- Refs ---
   // We need refs to programmatically focus inputs (autofocus, auto-advance)
@@ -787,7 +619,6 @@ export default function App() {
         setShowReviewSheet(false)
         setShowSaveSheet(false)
         setShowTripSheet(false)
-        setSelectedSavedList(null)
         setMenuOpen(false)
       } else {
         // No state — resolve from URL
@@ -803,8 +634,7 @@ export default function App() {
           setShowReviewSheet(false)
           setShowSaveSheet(false)
           setShowTripSheet(false)
-          setSelectedSavedList(null)
-          setMenuOpen(false)
+            setMenuOpen(false)
         }
       }
     }
@@ -824,7 +654,7 @@ export default function App() {
         })
         if (res.ok) {
           localStorage.removeItem('thriftly_join_code')
-          showToast('Joined household list!')
+          showToast('You joined the shared list!')
         } else {
           localStorage.removeItem('thriftly_join_code')
           const data = await res.json().catch(() => null)
@@ -867,10 +697,11 @@ export default function App() {
             if (data.user_id) setCurrentUserId(data.user_id)
           }).catch(() => {})
           tryJoinCode()
+          loadSettings() // Load settings once at auth
           // Resolve screen from pathname (or migrated hash)
           const path = window.location.pathname
           const resolved = PATH_TO_SCREEN[path]
-          if (resolved && !['phone', 'code'].includes(resolved)) {
+          if (resolved && !AUTH_SCREENS.includes(resolved)) {
             setScreen(resolved, true)
           } else {
             // Check for stored redirect from pre-login deep link
@@ -887,10 +718,15 @@ export default function App() {
           // Not authenticated — store intended destination for post-login redirect
           const path = window.location.pathname
           const resolved = PATH_TO_SCREEN[path]
-          if (resolved && !['phone', 'code'].includes(resolved)) {
+          if (resolved && !AUTH_SCREENS.includes(resolved)) {
             sessionStorage.setItem('thriftly_redirect', path)
           }
-          setScreen('phone', true)
+          // Check if on a specific auth screen (email login, reset password, etc.)
+          if (resolved && AUTH_SCREENS.includes(resolved)) {
+            setScreen(resolved, true)
+          } else {
+            setScreen('phone', true)
+          }
         }
       })
       .catch(() => {
@@ -899,6 +735,70 @@ export default function App() {
       })
       .finally(() => setChecking(false))
   }, [])
+
+  // Fetch Google Client ID and extract reset token from URL
+  useEffect(() => {
+    fetch('/api/config').then(r => r.json()).then((data: { google_client_id?: string }) => {
+      if (data.google_client_id) setGoogleClientId(data.google_client_id)
+    }).catch(() => {})
+
+    // Extract reset token from URL if present
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('token')
+    if (token && window.location.pathname === '/reset-password') {
+      setResetToken(token)
+    }
+  }, [])
+
+  // Initialize Google Sign-In when on login screens
+  useEffect(() => {
+    if (!googleClientId) return
+    if (!['phone', 'email-login'].includes(screen)) return
+
+    const g = (window as unknown as { google?: { accounts: { id: { initialize: (opts: unknown) => void; renderButton: (el: HTMLElement, opts: unknown) => void } } } }).google
+    if (!g) return
+
+    g.accounts.id.initialize({
+      client_id: googleClientId,
+      callback: async (response: { credential: string }) => {
+        setLoading(true)
+        setError('')
+        try {
+          const res = await fetch('/auth/google', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ credential: response.credential }),
+          })
+          const data = await res.json()
+          if (res.ok && data.success) {
+            setScreen('home', true)
+          } else {
+            setError(data.error || 'Google sign-in failed')
+          }
+        } catch {
+          setError('Google sign-in failed')
+        } finally {
+          setLoading(false)
+        }
+      },
+    })
+
+    // Render button
+    setTimeout(() => {
+      const el = document.getElementById('google-signin-btn')
+      if (el && g) {
+        el.innerHTML = ''
+        g.accounts.id.renderButton(el, {
+          type: 'standard',
+          shape: 'rectangular',
+          theme: 'outline',
+          text: 'continue_with',
+          size: 'large',
+          width: Math.min(el.parentElement?.offsetWidth || 400, 400),
+        })
+      }
+    }, 100)
+  }, [googleClientId, screen])
 
   // =========================================================================
   // AUTOFOCUS MANAGEMENT
@@ -927,56 +827,52 @@ export default function App() {
     }
   }, [screen, checking])
 
-  // Penny cycling typewriter — used on login and about pages
+  // Login page typewriter — cycles Penny quotes with value props
+  const LOGIN_MESSAGES = [
+    "Hi, I'm Penny — your household's AI shopping assistant.",
+    "Tell me what you need and I'll organize your list by aisle.",
+    "I learn your brand preferences over time.",
+    "Share your list with your whole household.",
+    "Text or email me items anytime — I'll add them for you.",
+    "Snap a photo of your fridge and I'll spot what's missing.",
+  ]
+
   useEffect(() => {
-    if (screen !== 'phone' && screen !== 'code' && screen !== 'about') {
-      setPennyMessage('')
-      setPennyTyping(false)
+    if (screen !== 'phone' && screen !== 'email-login' && screen !== 'email-register') {
+      if (loginTypingRef.current) clearTimeout(loginTypingRef.current)
       return
     }
-    pennyCancelled.current = false
-    let activeInterval: ReturnType<typeof setInterval> | null = null
-    let activeTimeout: ReturnType<typeof setTimeout> | null = null
-    const typeQuote = (quote: string) => {
-      setPennyTyping(true)
-      let i = 0
-      activeInterval = setInterval(() => {
-        if (pennyCancelled.current) { clearInterval(activeInterval!); return }
-        i++
-        setPennyMessage(quote.slice(0, i))
-        if (i >= quote.length) {
-          clearInterval(activeInterval!)
-          activeInterval = null
-          setPennyTyping(false)
-          activeTimeout = setTimeout(() => {
-            if (!pennyCancelled.current) runQuote()
-          }, 5000)
-        }
-      }, 30)
+    let cancelled = false
+    let msgIndex = 0
+    let charIndex = 0
+
+    const typeMessage = () => {
+      if (cancelled) return
+      const msg = LOGIN_MESSAGES[msgIndex]
+      charIndex++
+      setLoginPennyText(msg.slice(0, charIndex))
+      if (charIndex < msg.length) {
+        loginTypingRef.current = setTimeout(typeMessage, 35)
+      } else {
+        // Pause, then move to next message
+        loginTypingRef.current = setTimeout(() => {
+          if (cancelled) return
+          msgIndex = (msgIndex + 1) % LOGIN_MESSAGES.length
+          charIndex = 0
+          setLoginPennyText('')
+          loginTypingRef.current = setTimeout(typeMessage, 400)
+        }, 4000)
+      }
     }
-    const runQuote = () => {
-      fetch('/api/penny/quote?context=login')
-        .then(r => r.ok ? r.json() : null)
-        .then(data => {
-          if (pennyCancelled.current) return
-          const quote = data?.quote || PENNY_QUOTES[pennyQuoteIdx.current % PENNY_QUOTES.length]
-          pennyQuoteIdx.current++
-          typeQuote(quote)
-        })
-        .catch(() => {
-          if (pennyCancelled.current) return
-          const quote = PENNY_QUOTES[pennyQuoteIdx.current % PENNY_QUOTES.length]
-          pennyQuoteIdx.current++
-          typeQuote(quote)
-        })
-    }
-    activeTimeout = setTimeout(() => { if (!pennyCancelled.current) runQuote() }, 1000)
+    setLoginPennyText('')
+    loginTypingRef.current = setTimeout(typeMessage, 300)
     return () => {
-      pennyCancelled.current = true
-      if (activeInterval) clearInterval(activeInterval)
-      if (activeTimeout) clearTimeout(activeTimeout)
+      cancelled = true
+      if (loginTypingRef.current) clearTimeout(loginTypingRef.current)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen])
+
 
   // =========================================================================
   // LOAD LIST when on home screen
@@ -986,6 +882,7 @@ export default function App() {
     [...arr].sort((a, b) => a.name.localeCompare(b.name))
 
   const handleSessionExpired = () => {
+    setChatLoading(false)
     setScreen('phone', true)
     setPhone('')
     setError('')
@@ -995,10 +892,36 @@ export default function App() {
   // Centralized fetch wrapper: handles 401 session expiry and JSON parsing.
   // Returns parsed JSON on success, or null on failure.
   const fetchAPI = async (url: string, options?: RequestInit): Promise<Record<string, unknown> | unknown[] | null> => {
-    const res = await fetch(url, options)
+    let res: Response
+    try {
+      res = await fetch(url, options)
+    } catch {
+      return null // network error
+    }
     if (res.status === 401) { handleSessionExpired(); return null }
     if (!res.ok) return null
-    return res.json()
+    try {
+      return await res.json()
+    } catch {
+      return null // invalid JSON
+    }
+  }
+
+  // Fetch wrapper for actions that don't need a JSON body back (delete, clear, etc.)
+  // Returns { ok, status, error? } — always handles 401.
+  const fetchAction = async (url: string, options?: RequestInit): Promise<{ ok: boolean; status: number; error?: string }> => {
+    let res: Response
+    try {
+      res = await fetch(url, options)
+    } catch {
+      return { ok: false, status: 0, error: 'Network error' }
+    }
+    if (res.status === 401) { handleSessionExpired(); return { ok: false, status: 401 } }
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null)
+      return { ok: false, status: res.status, error: errData?.error || `Error ${res.status}` }
+    }
+    return { ok: true, status: res.status }
   }
 
   // Update a single item in the items list by id
@@ -1033,11 +956,11 @@ export default function App() {
 
   useEffect(() => {
     if (screen !== 'home') return
-    reloadList().catch(() => {})
-    loadTrips().catch(() => {})
+    reloadList().catch(e => console.warn('[load] list failed:', e))
+    loadTrips().catch(e => console.warn('[load] trips failed:', e))
     fetchAPI('/api/nps/check')
       .then(data => { if (data && !Array.isArray(data) && data.show_nps) setShowNPS(true) })
-      .catch(() => {})
+      .catch(e => console.warn('[load] nps check failed:', e))
   }, [screen])
 
   // --- Trip planner helpers ---
@@ -1065,7 +988,7 @@ export default function App() {
   const isTripInProgress = (trip: ShoppingTrip) => {
     if (!trip.trip_time) {
       // No time set — "in progress" if date is today
-      const today = new Date().toISOString().split('T')[0]
+      const today = fmtDate(new Date())
       return trip.trip_date === today
     }
     const now = new Date()
@@ -1092,11 +1015,12 @@ export default function App() {
     const timeMap: Record<string, string> = { morning: '09:00', afternoon: '14:00', evening: '18:00' }
     const tripTime = tripTimeLabel === 'exact' ? tripExactTime : (timeMap[tripTimeLabel] || '')
     const timeLabel = tripTimeLabel && tripTimeLabel !== 'exact' ? tripTimeLabel : ''
-    await fetch('/api/trips', {
+    const data = await fetchAPI('/api/trips', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ trip_date: tripDay, trip_time: tripTime, time_label: timeLabel }),
     })
+    if (!data) { showToast('Couldn\'t save your trip — please try again', 'error'); return }
     if (addToCalendar) {
       const fakeTrip = { trip_date: tripDay, trip_time: tripTime, time_label: timeLabel } as ShoppingTrip
       const link = document.createElement('a')
@@ -1109,11 +1033,12 @@ export default function App() {
     setTripTimeLabel('')
     setTripExactTime('')
     loadTrips()
-    showToast('Trip planned!')
+    showToast('Trip added! Everyone will see it.')
   }
 
   const handleCancelTrip = async () => {
-    await fetch('/api/trips', { method: 'DELETE' })
+    const data = await fetchAPI('/api/trips', { method: 'DELETE' })
+    if (!data) { showToast('Couldn\'t cancel your trip — please try again', 'error'); return }
     loadTrips()
     showToast('Trip cancelled')
   }
@@ -1126,7 +1051,8 @@ export default function App() {
     if (trip.trip_time) {
       dtStart += trip.trip_time.replace(':', '') + '00'
       const [h, m] = trip.trip_time.split(':').map(Number)
-      dtEnd += `${String(h + 1).padStart(2, '0')}${String(m).padStart(2, '0')}00`
+      const endH = (h + 1) % 24
+      dtEnd += `${String(endH).padStart(2, '0')}${String(m).padStart(2, '0')}00`
     } else if (trip.time_label && timeMap[trip.time_label]) {
       dtStart += timeMap[trip.time_label]
       const h = parseInt(timeMap[trip.time_label].slice(0, 2)) + 1
@@ -1135,12 +1061,13 @@ export default function App() {
       dtStart += '100000'
       dtEnd += '110000'
     }
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'
     const ics = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
       'BEGIN:VEVENT',
-      `DTSTART:${dtStart}`,
-      `DTEND:${dtEnd}`,
+      `DTSTART;TZID=${tz}:${dtStart}`,
+      `DTEND;TZID=${tz}:${dtEnd}`,
       'SUMMARY:Grocery Shopping',
       'DESCRIPTION:Planned via Thriftly',
       'END:VEVENT',
@@ -1157,19 +1084,20 @@ export default function App() {
       d.setDate(d.getDate() + i)
       options.push({
         label: d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }),
-        value: d.toISOString().split('T')[0],
+        value: fmtDate(d),
       })
     }
     return options
   }
 
-  const todayStr = new Date().toISOString().split('T')[0]
+  const fmtDate = (d: Date) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+  const todayStr = fmtDate(new Date())
   const tomorrowDate = new Date()
   tomorrowDate.setDate(tomorrowDate.getDate() + 1)
-  const tomorrowStr = tomorrowDate.toISOString().split('T')[0]
+  const tomorrowStr = fmtDate(tomorrowDate)
   const satDate = new Date()
   satDate.setDate(satDate.getDate() + (6 - satDate.getDay() || 7))
-  const satStr = satDate.toISOString().split('T')[0]
+  const satStr = fmtDate(satDate)
 
   // Show Penny chime-in when a household member has a trip planned
   const tripChimeShown = useRef(false)
@@ -1185,16 +1113,6 @@ export default function App() {
     }
   }, [trips])
 
-  const loadSavedLists = () => {
-    fetchAPI('/api/saved-lists')
-      .then(data => setSavedLists(Array.isArray(data) ? [...(data as SavedList[])].sort((a, b) => a.name.localeCompare(b.name)) : []))
-      .catch(() => {})
-  }
-
-  useEffect(() => {
-    if (screen !== 'saved') return
-    loadSavedLists()
-  }, [screen])
 
   const loadSettings = () => {
     fetchAPI('/api/settings')
@@ -1205,55 +1123,27 @@ export default function App() {
           setSettingsLastName(parts.slice(1).join(' '))
           setSettingsEmail((data.email as string) || '')
           setSettingsAddress((data.address as string) || '')
-          if (data.google_places_key) setGooglePlacesKey(data.google_places_key as string)
+          if (data.google_places_ready) setPlacesReady(true)
+          if (data.phone) setSettingsUserPhone(data.phone as string)
+          if (data.penny_phone) setSettingsPennyPhone(data.penny_phone as string)
           setSettingsMembers((data.household_members as { name: string; phone: string }[]) || [])
+          if (data.penny_slider != null) setPennySlider(data.penny_slider as number)
+          if (data.penny_autotune != null) setPennyAutotune(data.penny_autotune as boolean)
+          if (data.penny_deals != null) setPennyDeals(data.penny_deals as boolean)
         }
       })
-      .catch(() => {})
+      .catch(e => console.warn('[load] settings failed:', e))
   }
 
-  // Load Google Maps JS API (new) for address autocomplete
-  useEffect(() => {
-    if (!googlePlacesKey || placesReadyRef.current) return
-    const scriptId = 'google-places-script'
-    if (document.getElementById(scriptId)) return
-    const script = document.createElement('script')
-    script.id = scriptId
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${googlePlacesKey}&loading=async`
-    script.async = true
-    script.onload = async () => {
-      try {
-        const g = (window as unknown as Record<string, unknown>).google as { maps: { importLibrary: (lib: string) => Promise<Record<string, unknown>> } }
-        const places = await g.maps.importLibrary('places') as Record<string, unknown>
-        const TokenClass = places.AutocompleteSessionToken as new () => unknown
-        sessionTokenRef.current = new TokenClass()
-        placesReadyRef.current = true
-      } catch { /* silent */ }
-    }
-    document.head.appendChild(script)
-  }, [googlePlacesKey])
-
   const fetchAddressSuggestions = async (input: string) => {
-    if (!placesReadyRef.current || input.length < 3) {
+    if (!placesReady || input.length < 3) {
       setAddressSuggestions([])
       setShowAddressSuggestions(false)
       return
     }
     try {
-      const g = (window as unknown as Record<string, unknown>).google as { maps: { importLibrary: (lib: string) => Promise<Record<string, unknown>> } }
-      const places = await g.maps.importLibrary('places') as Record<string, unknown>
-      const SuggestionClass = places.AutocompleteSuggestion as { fetchAutocompleteSuggestions: (req: Record<string, unknown>) => Promise<{ suggestions: Array<{ placePrediction: { toPlace: () => { fetchFields: (opts: Record<string, unknown>) => Promise<void>; formattedAddress?: string }; placeId: string; text: { text: string } } }> }> }
-      const { suggestions } = await SuggestionClass.fetchAutocompleteSuggestions({
-        input,
-        sessionToken: sessionTokenRef.current,
-        includedPrimaryTypes: ['street_address', 'subpremise', 'route', 'locality', 'postal_code'],
-        includedRegionCodes: ['us'],
-        language: 'en-US',
-      })
-      const items = suggestions.map(s => ({
-        description: s.placePrediction.text.text,
-        placeId: s.placePrediction.placeId,
-      }))
+      const data = await fetchAPI(`/api/places/autocomplete?input=${encodeURIComponent(input)}`)
+      const items = (data as { description: string; placeId: string }[]) || []
       setAddressSuggestions(items)
       setShowAddressSuggestions(items.length > 0)
     } catch {
@@ -1265,16 +1155,10 @@ export default function App() {
   const selectAddressSuggestion = async (placeId: string) => {
     setShowAddressSuggestions(false)
     try {
-      const g = (window as unknown as Record<string, unknown>).google as { maps: { importLibrary: (lib: string) => Promise<Record<string, unknown>> } }
-      const places = await g.maps.importLibrary('places') as Record<string, unknown>
-      const PlaceClass = places.Place as { new (opts: { id: string }): { fetchFields: (opts: { fields: string[] }) => Promise<void>; formattedAddress?: string } }
-      const place = new PlaceClass({ id: placeId })
-      await place.fetchFields({ fields: ['formattedAddress'] })
-      if (place.formattedAddress) {
-        setSettingsAddress(place.formattedAddress)
-        // New session token for next search
-        const TokenClass = places.AutocompleteSessionToken as new () => unknown
-        sessionTokenRef.current = new TokenClass()
+      const data = await fetchAPI(`/api/places/detail?place_id=${encodeURIComponent(placeId)}`)
+      const address = (data as { address: string })?.address
+      if (address) {
+        setSettingsAddress(address)
         // Auto-save after selecting address
         if (settingsSaveTimer.current) clearTimeout(settingsSaveTimer.current)
         settingsSaveTimer.current = setTimeout(async () => {
@@ -1282,7 +1166,7 @@ export default function App() {
             await fetchAPI('/api/settings', {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name: [settingsFirstName.trim(), settingsLastName.trim()].filter(Boolean).join(' '), email: settingsEmail.trim(), address: place.formattedAddress!.trim() }),
+              body: JSON.stringify({ name: [settingsFirstName.trim(), settingsLastName.trim()].filter(Boolean).join(' '), email: settingsEmail.trim(), address: address.trim() }),
             })
           } catch { /* silent */ }
         }, 300)
@@ -1291,7 +1175,8 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!['home', 'settings', 'about', 'invite', 'settings-profile', 'settings-share'].includes(screen)) return
+    // Only re-fetch settings when entering profile (where edits happen) or share (household changes)
+    if (screen !== 'penny' && screen !== 'profile' && screen !== 'settings-share') return
     loadSettings()
   }, [screen])
 
@@ -1303,7 +1188,7 @@ export default function App() {
           setReferralFriends((data.friends as { name: string; created_at: string }[]) || [])
         }
       })
-      .catch(() => {})
+      .catch(e => console.warn('[load] referral failed:', e))
   }
 
   useEffect(() => {
@@ -1315,13 +1200,11 @@ export default function App() {
     if (screen !== 'admin') return
     fetchAPI(`/api/admin/dashboard?days=${adminDays}`)
       .then(data => { if (data) setAdminData(data as typeof adminData) })
-      .catch(() => {})
+      .catch(e => console.warn('[load] admin dashboard failed:', e))
+    fetchAPI(`/api/admin/analytics?days=${adminDays}`)
+      .then(data => { if (data) setAnalyticsData(data as typeof analyticsData) })
+      .catch(e => console.warn('[load] admin analytics failed:', e))
   }, [screen, adminDays])
-
-  // Redirect legacy invite screen to settings-family
-  useEffect(() => {
-    if (screen === 'invite') setScreen('settings-share', true)
-  }, [screen])
 
   const showToast = (message: string, type: 'success' | 'error' = 'success', action?: { label: string; onClick: () => void }) => {
     if (toastTimer.current) clearTimeout(toastTimer.current)
@@ -1369,7 +1252,7 @@ export default function App() {
     } else if (toast) {
       const btns: { label: string; onClick: () => void }[] = []
       if (toast.action) btns.push({ label: toast.action.label, onClick: () => { toast.action!.onClick(); setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) } })
-      else if ((lastAdded.length > 0 || lastSkipped.length > 0) && toast.type !== 'error') btns.push({ label: 'Review', onClick: () => { pushModalState(); setShowReviewSheet(true); setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) } })
+      else if ((lastAdded.length > 0 || lastSkipped.length > 0) && toast.type !== 'error' && !hasReviewedRef.current) btns.push({ label: 'Review', onClick: () => { hasReviewedRef.current = true; pushModalState(); setShowReviewSheet(true); setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) } })
       typePennyHome(toast.message, btns)
     } else if (pennyChimeIn) {
       // Don't let chime-ins interrupt an actively typing message
@@ -1409,6 +1292,48 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, pennyStatus, toast, pennyChimeIn, showDoneToast])
 
+  // Track sessions for invite prompt timing
+  useEffect(() => {
+    if (screen !== 'home') return
+    const count = parseInt(localStorage.getItem('penny_session_count') || '0')
+    // Only increment once per mount
+    if (!(window as any).__pennySessionCounted) {
+      (window as any).__pennySessionCounted = true
+      localStorage.setItem('penny_session_count', String(count + 1))
+    }
+  }, [screen])
+
+  // Penny invite prompt — session 3+, every 14 days, max 4 prompts, stops when household exists
+  useEffect(() => {
+    if (screen !== 'home' || settingsMembers.length > 0) return
+    const promptCount = parseInt(localStorage.getItem('penny_invite_prompt_count') || '0')
+    if (promptCount >= 4) return
+    const sessionCount = parseInt(localStorage.getItem('penny_session_count') || '0')
+    if (sessionCount < 3) return
+    const INVITE_INTERVAL = 14 * 24 * 60 * 60 * 1000
+    const lastPrompt = localStorage.getItem('penny_invite_prompt')
+    if (lastPrompt && Date.now() - Number(lastPrompt) < INVITE_INTERVAL) return
+
+    const timer = setTimeout(() => {
+      if (pennyStatus || toast || pennyChimeIn || showDoneToast) return
+      localStorage.setItem('penny_invite_prompt', String(Date.now()))
+      localStorage.setItem('penny_invite_prompt_count', String(promptCount + 1))
+      const messages = [
+        "Shopping's better together — invite someone to share this list!",
+        "Still flying solo? Invite someone to share this list in real time.",
+        "One more nudge — sharing your list takes about 10 seconds.",
+        "Last time I'll ask — want to share your list with someone?",
+      ]
+      typePennyHome(messages[Math.min(promptCount, messages.length - 1)], [{
+        label: 'Share',
+        onClick: () => setScreen('settings-share'),
+      }])
+    }, 12000)
+
+    return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, settingsMembers.length])
+
   const resizeAndSetPhoto = (file: Blob) => {
     const img = new Image()
     const objectUrl = URL.createObjectURL(file)
@@ -1424,7 +1349,8 @@ export default function App() {
       canvas.width = w
       canvas.height = h
       const ctx = canvas.getContext('2d')
-      ctx?.drawImage(img, 0, 0, w, h)
+      if (!ctx) { URL.revokeObjectURL(objectUrl); return }
+      ctx.drawImage(img, 0, 0, w, h)
       setPendingImages(prev => [...prev, canvas.toDataURL('image/jpeg', 0.8)])
       URL.revokeObjectURL(objectUrl)
     }
@@ -1435,16 +1361,20 @@ export default function App() {
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files) return
-    for (let i = 0; i < files.length; i++) {
+    const remaining = 5 - pendingImages.length
+    if (remaining <= 0) { showToast('Max 5 images at a time', 'error'); e.target.value = ''; return }
+    const count = Math.min(files.length, remaining)
+    for (let i = 0; i < count; i++) {
       resizeAndSetPhoto(files[i])
     }
-    // Reset file input so re-selecting same file triggers change
+    if (files.length > count) showToast(`Only added ${count} of ${files.length} images (max 5)`, 'error')
     e.target.value = ''
   }
 
   const handlePaste = (e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items
     if (!items) return
+    if (pendingImages.length >= 5) return
     let foundImage = false
     for (const item of items) {
       if (item.type.startsWith('image/')) {
@@ -1452,8 +1382,10 @@ export default function App() {
           e.preventDefault()
           foundImage = true
         }
-        const file = item.getAsFile()
-        if (file) resizeAndSetPhoto(file)
+        if (pendingImages.length < 5) {
+          const file = item.getAsFile()
+          if (file) resizeAndSetPhoto(file)
+        }
       }
     }
   }
@@ -1465,23 +1397,21 @@ export default function App() {
   }
 
   const handleToggle = async (id: number) => {
-    setItems(prev => {
-      const next = prev.map(item => item.id === id ? { ...item, checked: !item.checked } : item)
-      checkAllDone(next)
-      return next
-    })
+    // Capture current checked state before optimistic update
+    const oldChecked = items.find(i => i.id === id)?.checked
+    setItems(prev => prev.map(item => item.id === id ? { ...item, checked: !item.checked } : item))
     try {
       const data = await fetchAPI(`/api/list/${id}/toggle`, { method: 'PATCH' })
       if (data) {
         const updated = data as ListItem
         setItems(prev => { const next = prev.map(item => item.id === updated.id ? updated : item); checkAllDone(next); return next })
       } else {
-        updateItem(id, { checked: items.find(i => i.id === id)?.checked })
-        showToast('Failed to update item', 'error')
+        updateItem(id, { checked: oldChecked })
+        showToast('Couldn\'t update that item — please try again', 'error')
       }
     } catch {
-      updateItem(id, { checked: items.find(i => i.id === id)?.checked })
-      showToast('Failed to update item', 'error')
+      updateItem(id, { checked: oldChecked })
+      showToast("Hmm, that change didn't stick. Try again?", 'error')
     }
   }
 
@@ -1496,11 +1426,11 @@ export default function App() {
         if (updated.urgent) showChimeIn(`Marked ${updated.name} as urgent!`, 3000)
       } else {
         updateItem(id, { urgent: was })
-        showToast('Failed to update item', 'error')
+        showToast('Couldn\'t update that item — please try again', 'error')
       }
     } catch {
       updateItem(id, { urgent: was })
-      showToast('Failed to update item', 'error')
+      showToast("Hmm, that change didn't stick. Try again?", 'error')
     }
   }
 
@@ -1516,28 +1446,100 @@ export default function App() {
         showChimeIn(updated.claimed_by_id ? `You claimed ${updated.name}!` : `Unclaimed ${updated.name}`, 3000)
       } else {
         if (oldItem) updateItem(id, oldItem)
-        showToast('Failed to claim item', 'error')
+        showToast('Couldn\'t claim that item — please try again', 'error')
       }
     } catch {
       if (oldItem) updateItem(id, oldItem)
-      showToast('Failed to claim item', 'error')
+      showToast("Couldn't claim that item. Try again?", 'error')
+    }
+  }
+
+  const advanceDisambig = () => {
+    const next = pennyDisambigIndex + 1
+    if (next >= pennyDisambig.length) {
+      setPennyDisambig([])
+      setPennyDisambigIndex(0)
+      typePennyHome("All set! I'll remember those for next time.")
+    } else {
+      setPennyDisambigIndex(next)
+    }
+  }
+
+  const handleBrandPick = async (brand: string) => {
+    const d = pennyDisambig[pennyDisambigIndex]
+    if (!d) return
+    const result = await fetchAction('/api/list/brand-resolve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_id: d.item_id, brand, product_category: d.product_category }),
+    })
+    if (result.ok) {
+      setItems(prev => prev.map(i => i.id === d.item_id ? { ...i, brand } : i))
+      setLastAdded(prev => prev.map(i => i.id === d.item_id ? { ...i, brand } : i))
+      advanceDisambig()
+    } else if (result.status !== 401) {
+      showToast('Couldn\'t save brand preference — try again', 'error')
     }
   }
 
   const handleSendChat = async () => {
     if ((!chatText.trim() && pendingImages.length === 0) || chatLoading) return
+
+    // Disambiguation-aware routing: handle brand picks via chat input
+    if (pennyDisambig.length > 0 && chatText.trim() && pendingImages.length === 0) {
+      const text = chatText.trim().toLowerCase()
+      // Simple phrases to skip/dismiss
+      if (['skip', 'next'].includes(text)) {
+        setChatText('')
+        advanceDisambig()
+        return
+      }
+      if (['skip all', 'just pick for me', 'just pick', 'you decide'].includes(text)) {
+        setChatText('')
+        setPennyDisambig([])
+        setPennyDisambigIndex(0)
+        typePennyHome("All set! I'll remember those for next time.")
+        return
+      }
+      // Check if text matches an alternative for the current item
+      const d = pennyDisambig[pennyDisambigIndex]
+      if (d) {
+        const matchedAlt = d.alternatives.find(a => a.toLowerCase() === text)
+        if (matchedAlt !== undefined) {
+          setChatText('')
+          handleBrandPick(matchedAlt || d.current_brand)
+          return
+        }
+        // Treat as a custom brand name for the current item
+        if (text.length < 40 && !text.includes(' and ') && !text.includes(',')) {
+          setChatText('')
+          handleBrandPick(chatText.trim())
+          return
+        }
+      }
+      // Otherwise fall through to normal parsing (e.g. "also get bread")
+    }
+
+    const chatPayloadText = chatText.trim()
+    const chatPayloadImages = [...pendingImages]
+    setChatText('')
+    setPendingImages([])
+    if (chatInputRef.current) chatInputRef.current.style.height = 'auto'
     setChatLoading(true)
     setLastAdded([])
     setLastSkipped([])
+    hasReviewedRef.current = false
+    setPennyDisambig([])
+    setPennyDisambigIndex(0)
     try {
-      const payload = JSON.stringify({ text: chatText.trim(), images: pendingImages })
-      console.log('[penny] sending parse request, payload size:', payload.length)
+      const payload = JSON.stringify({ text: chatPayloadText, images: chatPayloadImages })
+
       const res = await fetch('/api/list/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: payload,
       })
-      console.log('[penny] parse response status:', res.status)
+
       if (res.status === 401) { handleSessionExpired(); return }
       if (res.ok) {
         const data = await res.json()
@@ -1569,11 +1571,43 @@ export default function App() {
             for (const item of updatedItems) map.set(item.id, item)
             return sortItems(Array.from(map.values()))
           })
+        } else if (action === 'share') {
+          // Show Penny's message with inline Invite button
+          if (pennyMsg) {
+            typePennyHome(pennyMsg, [{
+              label: 'Invite',
+              onClick: () => handleTextInviteLink(),
+            }])
+          }
         } else if (action === 'save') {
           // Saved — just show message
+        } else if (action === 'load_saved_list') {
+          const savedListsData: { id: number; name: string; item_count: number }[] = data.saved_lists || []
+          if (savedListsData.length === 0) {
+            // No saved lists — Penny's message already says so
+          } else if (data.added > 0) {
+            // A specific list was auto-loaded — reload list
+            reloadList()
+          } else {
+            // Show saved list options as buttons
+            const btns = savedListsData.map(sl => ({
+              label: `${sl.name} (${sl.item_count})`,
+              onClick: () => {
+                handleLoadSavedList(sl.id, 'merge')
+              },
+            }))
+            typePennyHome(pennyMsg, btns)
+            return // typePennyHome already handles the message
+          }
+        } else if (action === 'delete_saved_list') {
+          // Deleted — just show Penny's message
         } else if (action === 'clear') {
-          // Reload list to reflect cleared items
-          reloadList()
+          // Ask for confirmation before clearing
+          typePennyHome(pennyMsg || 'Clear your entire list?', [
+            { label: 'Yes, clear it', onClick: () => handleClearList() },
+            { label: 'Cancel', onClick: () => typePennyHome('No problem, your list is safe!') },
+          ])
+          return // typePennyHome already handles the message
         } else {
           // Default "add" flow
           setItems(prev => {
@@ -1609,12 +1643,19 @@ export default function App() {
             }
           }
         }
-        setChatText('')
-        setPendingImages([])
-        if (chatInputRef.current) chatInputRef.current.style.height = 'auto'
         setTimeout(() => chatInputRef.current?.focus(), 150)
+
+        // Handle brand disambiguations
+        const disambiguations = (data.brand_disambiguations || []) as { item_id: number; product_category: string; current_brand: string; alternatives: string[] }[]
+        if (disambiguations.length > 0) {
+          setPennyDisambig(disambiguations)
+          setPennyDisambigIndex(0)
+        }
+
         // Show Penny's message or fallback toast
-        if (pennyMsg) {
+        if (action === 'share') {
+          // Already handled via typePennyHome above
+        } else if (pennyMsg) {
           showToast(pennyMsg)
         } else {
           const parts: string[] = []
@@ -1624,13 +1665,10 @@ export default function App() {
           if (updatedItems.length > 0) parts.push(`Updated ${updatedItems.length} item${updatedItems.length === 1 ? '' : 's'}`)
           if (checkedItems.length > 0) parts.push(`${action === 'check' ? 'Checked' : 'Unchecked'} ${checkedItems.length} item${checkedItems.length === 1 ? '' : 's'}`)
           if (parts.length > 0) showToast(parts.join(' · '))
-          else if (action === 'add' && addedItems.length === 0 && skippedItems.length === 0) showToast('No items found', 'error')
+          else if (action === 'add' && addedItems.length === 0 && skippedItems.length === 0) showToast("I couldn't find any items in that — try rewording it?", 'error')
         }
-      } else if (res.status === 401) {
-        setScreen('phone')
-        setPhone('')
-        setError('')
-        showToast('Session expired — please log in again', 'error')
+      } else if (res.status === 429) {
+        showToast('Hold on — give it a minute and try again', 'error')
       } else {
         const errData = await res.json().catch(() => null)
         const errMsg = errData?.error || `Error ${res.status}`
@@ -1639,25 +1677,27 @@ export default function App() {
       }
     } catch (err) {
       console.error('[penny] parse error:', err)
-      showToast('Network error', 'error')
+      showToast('Couldn\'t connect — check your connection and try again', 'error')
     }
     finally { setChatLoading(false) }
   }
 
   const handleNPSSubmit = async () => {
     if (npsScore === null) return
-    try {
-      await fetch('/api/nps', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ score: npsScore, comment: npsComment }),
-      })
+    const result = await fetchAction('/api/nps', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ score: npsScore, comment: npsComment }),
+    })
+    if (result.ok) {
       showToast('Thanks for your feedback!')
-    } catch { /* ignore */ }
-    setShowNPS(false)
-    setNpsScore(null)
-    setNpsStep(1)
-    setNpsComment('')
+      setShowNPS(false)
+      setNpsScore(null)
+      setNpsStep(1)
+      setNpsComment('')
+    } else if (result.status !== 401) {
+      showToast('Couldn\'t save feedback — please try again', 'error')
+    }
   }
 
   const closeNPS = () => {
@@ -1698,17 +1738,12 @@ export default function App() {
   const openDetail = (item: ListItem) => {
     pushModalState()
     setSelectedItem(item)
-    setEditName(item.name)
-    setEditBrand(item.brand)
+    setEditForm({ name: item.name, brand: item.brand, dept: item.department, qty: item.quantity || 1, size: item.size, notes: item.notes || '' })
     setDisplayBrand(item.brand)
-    setEditDept(item.department)
-    setEditQty(item.quantity || 1)
-    setEditSize(item.size)
-    setEditNotes(item.notes || '')
     setItemHistory([])
     fetchAPI(`/api/list/${item.id}/history`)
       .then(data => setItemHistory(Array.isArray(data) ? data as ItemModification[] : []))
-      .catch(() => {})
+      .catch(e => console.warn('[load] item history failed:', e))
   }
 
   const openDetailFromReview = (item: ListItem) => {
@@ -1750,23 +1785,23 @@ export default function App() {
   }
 
   const handleEditSave = async () => {
-    if (!selectedItem || !editName.trim() || editLoading) return
-    setDisplayBrand(editBrand)
+    if (!selectedItem || !editForm.name.trim() || editLoading) return
+    setDisplayBrand(editForm.brand)
     setEditLoading(true)
     try {
       const data = await fetchAPI(`/api/list/${selectedItem.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: editName.trim(), brand: editBrand.trim(), department: editDept, quantity: editQty, size: editSize.trim(), notes: editNotes.trim() }),
+        body: JSON.stringify({ name: editForm.name.trim(), brand: editForm.brand.trim(), department: editForm.dept, quantity: editForm.qty, size: editForm.size.trim(), notes: editForm.notes.trim() }),
       })
       if (data) {
         const updated = data as ListItem
         setItems(prev => sortItems(prev.map(item => item.id === updated.id ? updated : item)))
         closeEditSheet(undefined, updated)
       } else {
-        showToast('Failed to save changes', 'error')
+        showToast('Couldn\'t save changes — please try again', 'error')
       }
-    } catch { showToast('Failed to save changes', 'error') }
+    } catch { showToast('Couldn\'t save changes — please try again', 'error') }
     finally { setEditLoading(false) }
   }
 
@@ -1775,37 +1810,20 @@ export default function App() {
     const deletingId = selectedItem.id
     setEditLoading(true)
     try {
-      const res = await fetch(`/api/list/${deletingId}`, { method: 'DELETE' })
-      if (res.status === 401) { handleSessionExpired(); return }
-      if (res.ok) {
+      const result = await fetchAction(`/api/list/${deletingId}`, { method: 'DELETE' })
+      if (result.ok) {
         setItems(prev => prev.filter(item => item.id !== deletingId))
         closeEditSheet(deletingId)
-      } else { showToast('Failed to delete item', 'error') }
-    } catch { showToast('Failed to delete item', 'error') }
-    finally { setEditLoading(false) }
+      } else if (result.status !== 401) { showToast('Couldn\'t delete that item — please try again', 'error') }
+    } finally { setEditLoading(false) }
   }
 
   const handleClearList = async () => {
-    const cached = [...items]
-    try {
-      const res = await fetch('/api/list/clear', { method: 'POST' })
-      if (res.status === 401) { handleSessionExpired(); return }
-      if (!res.ok) { showToast('Failed to clear list', 'error'); return }
-      setItems([]); setExpandedDepts(new Set()); setShowDoneToast(false); setShowFireworks(false); setPennyChimeIn(null)
-      showToast('List cleared', 'success', {
-        label: 'Undo',
-        onClick: () => {
-          fetch('/api/list/restore', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(cached.map(item => ({
-              name: item.name, brand: item.brand, department: item.department,
-              quantity: item.quantity, size: item.size, checked: item.checked, urgent: item.urgent,
-            }))),
-          }).then(() => reloadList())
-        },
-      })
-    } catch { showToast('Failed to clear list', 'error') }
+    const result = await fetchAction('/api/list/clear', { method: 'POST' })
+    if (result.ok) {
+      setItems(prev => prev.filter(i => !i.checked)); setExpandedDepts(new Set()); setShowDoneToast(false); setShowFireworks(false); setPennyChimeIn(null)
+      showToast('List cleared', 'success')
+    } else if (result.status !== 401) { showToast('Couldn\'t clear your list — please try again', 'error') }
   }
 
   const handleSaveList = async () => {
@@ -1816,30 +1834,121 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: saveNameInput.trim() }),
       })
-      if (data) { setShowSaveSheet(false); setSaveNameInput(''); showToast('List saved!') }
-      else showToast('Failed to save list', 'error')
-    } catch { showToast('Failed to save list', 'error') }
+      if (data) { setShowSaveSheet(false); setSaveNameInput(''); handleClearList(); showToast('List saved and cleared!') }
+      else showToast('Couldn\'t save your list — please try again', 'error')
+    } catch { showToast('Couldn\'t save your list — please try again', 'error') }
   }
 
   const handleLoadSavedList = async (id: number, mode: 'merge' | 'overwrite' = 'merge') => {
     const url = mode === 'overwrite' ? `/api/saved-lists/${id}/load?mode=overwrite` : `/api/saved-lists/${id}/load`
-    popModalState()
-    setSelectedSavedList(null)
-    try {
-      const res = await fetch(url, { method: 'POST' })
-      if (res.status === 401) { handleSessionExpired(); return }
-      if (!res.ok) { showToast('Failed to load list', 'error'); return }
+    const result = await fetchAction(url, { method: 'POST' })
+    if (result.ok) {
       setScreen('home')
-      showToast(mode === 'overwrite' ? 'List replaced!' : 'List merged!')
-    } catch { showToast('Failed to load list', 'error') }
+      reloadList()
+      showToast('List loaded!')
+    } else if (result.status !== 401) { showToast('Couldn\'t load that list — please try again', 'error') }
   }
 
-  const handleDeleteSavedList = async (id: number) => {
+  // =========================================================================
+  // EMAIL AUTH HANDLERS
+  // =========================================================================
+
+  const handleEmailRegister = async () => {
+    setError('')
+    if (!emailInput.trim()) { setError('Please enter your email'); return }
+    if (passwordInput.length < 8) { setError('Password must be at least 8 characters'); return }
+    if (passwordInput !== confirmPassword) { setError('Passwords do not match'); return }
+    setLoading(true)
     try {
-      const res = await fetch(`/api/saved-lists/${id}`, { method: 'DELETE' })
-      if (res.status === 401) { handleSessionExpired(); return }
-      if (res.ok) { setSelectedSavedList(null); loadSavedLists(); showToast('List deleted') }
-    } catch { showToast('Failed to delete list', 'error') }
+      const res = await fetch('/auth/email/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailInput.trim(), password: passwordInput, name: `${nameInput.trim()} ${lastNameInput.trim()}`.trim() }),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        setPasswordInput(''); setConfirmPassword('')
+        setScreen('home', true)
+      } else {
+        setError(data.error || 'Registration failed')
+      }
+    } catch { setError('Registration failed') }
+    finally { setLoading(false) }
+  }
+
+  const handleEmailLogin = async () => {
+    setError('')
+    if (!emailInput.trim() || !passwordInput) { setError('Please enter email and password'); return }
+    setLoading(true)
+    try {
+      const res = await fetch('/auth/email/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailInput.trim(), password: passwordInput }),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        setPasswordInput(''); setConfirmPassword('')
+        setScreen('home', true)
+      } else {
+        setError(data.error || 'Invalid email or password')
+      }
+    } catch { setError('Sign in failed') }
+    finally { setLoading(false) }
+  }
+
+  const handleForgotPassword = async () => {
+    setError('')
+    if (!emailInput.trim()) { setError('Please enter your email'); return }
+    setLoading(true)
+    try {
+      await fetch('/auth/email/forgot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailInput.trim() }),
+      })
+      setResetSent(true)
+    } catch { setError('Failed to send reset link') }
+    finally { setLoading(false) }
+  }
+
+  const handleMagicLink = async () => {
+    setError('')
+    if (!emailInput.trim()) { setError('Please enter your email'); return }
+    setLoading(true)
+    try {
+      await fetch('/auth/email/magic-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailInput.trim() }),
+      })
+      setMagicLinkSent(true)
+    } catch { setError('Couldn\'t send the link — check your connection and try again') }
+    finally { setLoading(false) }
+  }
+
+  const handleResetPassword = async () => {
+    setError('')
+    if (passwordInput.length < 8) { setError('Password must be at least 8 characters'); return }
+    if (passwordInput !== confirmPassword) { setError('Passwords do not match'); return }
+    setLoading(true)
+    try {
+      const res = await fetch('/auth/email/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: resetToken, password: passwordInput }),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        showToast('Password reset! Please sign in.')
+        setPasswordInput('')
+        setConfirmPassword('')
+        setScreen('email-login')
+      } else {
+        setError(data.error || 'Failed to reset password')
+      }
+    } catch { setError('Failed to reset password') }
+    finally { setLoading(false) }
   }
 
   // =========================================================================
@@ -1859,8 +1968,14 @@ export default function App() {
       raw = raw.slice(1)
     }
 
-    setPhone(raw.slice(0, 10))
+    const digits = raw.slice(0, 10)
+    setPhone(digits)
     setError('')
+
+    // Auto-advance to code screen when 10 digits entered and SMS opt-in checked
+    if (digits.length === 10 && smsOptIn) {
+      setTimeout(() => handleSendCode(digits), 300)
+    }
   }
 
   // =========================================================================
@@ -1870,8 +1985,9 @@ export default function App() {
   // Posts the raw 10-digit number to the backend.
   // =========================================================================
 
-  const handleSendCode = async () => {
-    if (phone.length !== 10 || loading) return
+  const handleSendCode = async (phoneOverride?: string) => {
+    const p = phoneOverride || phone
+    if (p.length !== 10 || loading) return
 
     setLoading(true)
     setError('')
@@ -1880,10 +1996,10 @@ export default function App() {
       const res = await fetch('/auth/send-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone_number: phone }),
+        body: JSON.stringify({ phone_number: p }),
       })
 
-      const data = await res.json()
+      const data = await res.json().catch(() => ({} as Record<string, string>))
 
       if (res.ok) {
         setScreen('code')
@@ -1922,7 +2038,7 @@ export default function App() {
         body: JSON.stringify({ phone_number: phone, code: fullCode }),
       })
 
-      const data = await res.json()
+      const data = await res.json().catch(() => ({} as Record<string, unknown>))
 
       if (res.ok) {
         if (data.is_admin) setIsAdmin(true)
@@ -2012,18 +2128,32 @@ const handleCodeChange = (index: number, value: string) => {
   // SETTINGS HANDLERS
   // =========================================================================
 
-  const settingsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const settingsFirstNameRef = useRef(settingsFirstName)
+  const settingsLastNameRef = useRef(settingsLastName)
+  const settingsEmailRef = useRef(settingsEmail)
+  const settingsAddressRef = useRef(settingsAddress)
+  settingsFirstNameRef.current = settingsFirstName
+  settingsLastNameRef.current = settingsLastName
+  settingsEmailRef.current = settingsEmail
+  settingsAddressRef.current = settingsAddress
+  const settingsSaving = useRef(false)
+  const settingsQueued = useRef(false)
+  const doSettingsSave = async () => {
+    if (settingsSaving.current) { settingsQueued.current = true; return }
+    settingsSaving.current = true
+    try {
+      await fetchAPI('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: [settingsFirstNameRef.current.trim(), settingsLastNameRef.current.trim()].filter(Boolean).join(' '), email: settingsEmailRef.current.trim(), address: settingsAddressRef.current.trim() }),
+      })
+    } catch { /* silent */ }
+    settingsSaving.current = false
+    if (settingsQueued.current) { settingsQueued.current = false; doSettingsSave() }
+  }
   const handleSettingsAutoSave = () => {
     if (settingsSaveTimer.current) clearTimeout(settingsSaveTimer.current)
-    settingsSaveTimer.current = setTimeout(async () => {
-      try {
-        await fetchAPI('/api/settings', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: [settingsFirstName.trim(), settingsLastName.trim()].filter(Boolean).join(' '), email: settingsEmail.trim(), address: settingsAddress.trim() }),
-        })
-      } catch { /* silent */ }
-    }, 500)
+    settingsSaveTimer.current = setTimeout(doSettingsSave, 500)
   }
 
   const withInviteLink = async (onLink: (link: string) => void) => {
@@ -2036,22 +2166,22 @@ const handleCodeChange = (index: number, value: string) => {
         body: JSON.stringify({ phone: '' }),
       })
       if (data && !Array.isArray(data) && data.link) onLink(data.link as string)
-      else showToast('Failed to create invite', 'error')
-    } catch { showToast('Network error', 'error') }
+      else showToast('Couldn\'t create invite link — please try again', 'error')
+    } catch { showToast('Couldn\'t connect — check your connection and try again', 'error') }
     finally { setInviteLoading(false) }
   }
 
   const handleTextInviteLink = () => withInviteLink(async link => {
     const message = `Join our household shopping list on Thriftly! ${link}`
-    // On mobile with share API, use native share; on desktop, copy to clipboard
-    if (navigator.share && /Mobi|Android/i.test(navigator.userAgent)) {
-      navigator.share({ title: 'Join Thriftly', text: message }).catch(() => {})
+    if (/Mobi|Android/i.test(navigator.userAgent)) {
+      // Mobile: open Messages app with pre-filled invite text
+      window.location.href = `sms:?&body=${encodeURIComponent(message)}`
     } else {
+      // Desktop: copy invite link to clipboard
       try {
         await navigator.clipboard.writeText(link)
         showToast('Invite link copied!')
       } catch {
-        // Fallback: open SMS
         window.location.href = `sms:?&body=${encodeURIComponent(message)}`
       }
     }
@@ -2077,8 +2207,9 @@ const handleCodeChange = (index: number, value: string) => {
   if (checking) {
     return (
       <div style={styles.container}>
-        <div style={styles.card}>
+        <div style={{ ...styles.card, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
           <Logo />
+          <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: 0 }}>Loading…</p>
         </div>
       </div>
     )
@@ -2090,37 +2221,41 @@ const handleCodeChange = (index: number, value: string) => {
 
   if (screen === 'phone') {
     const isValid = phone.length === 10
-    return (
-      <div style={styles.container}>
-        <div style={styles.card}>
-          <Logo />
-          <h1 style={styles.wordmark}>Shared shopping list</h1>
 
-          {/* Penny chat area — fixed height so input/button below never shift */}
-          <div style={{ width: '100%', marginBottom: '24px', height: '100px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', height: '100%' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
-                <PennyAvatar size={53} />
-                <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px', fontWeight: 500 }}>Penny</span>
-              </div>
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-                {(pennyMessage || pennyTyping) && (
-                  <div style={{
-                    backgroundColor: BG, borderRadius: '16px', borderTopLeftRadius: '4px',
-                    padding: '12px 16px', textAlign: 'left' as const,
-                  }}>
-                    <span style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, lineHeight: 1.6 }}>
-                      {pennyMessage}
-                    </span>
-                    {pennyTyping && <span className="cursor-blink" style={{ fontWeight: 300, marginLeft: '1px' }}>|</span>}
-                  </div>
-                )}
-              </div>
-            </div>
+    return (
+      <div style={{
+        backgroundColor: BG,
+        fontFamily: FONT,
+        minHeight: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        padding: '32px 20px 40px',
+        boxSizing: 'border-box',
+      }}>
+        <div style={{
+          width: '100%',
+          maxWidth: '400px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          flex: 1,
+        }}>
+
+          {/* Penny hero */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '28px', width: '100%' }}>
+            <PennyAvatar size={130} />
+            <div style={{
+              fontFamily: FONT, fontSize: '18px', fontWeight: 500,
+              color: TEXT, lineHeight: 1.5, fontStyle: 'italic',
+              textAlign: 'left', marginTop: '16px',
+              minHeight: '54px', maxWidth: '320px', width: '100%',
+            }}>{loginPennyText}<span style={{ opacity: 0.4 }} className="cursor-blink">|</span></div>
           </div>
 
-          <div style={{ width: '100%', marginBottom: '16px' }}>
-            <FloatingLabelField label="Phone number">
+          {/* ── Phone input ── */}
+          <div style={{ width: '100%', marginBottom: '12px' }}>
+            <FloatingLabelField label="Your mobile number">
               <input
                 ref={phoneInputRef}
                 type="tel"
@@ -2129,39 +2264,376 @@ const handleCodeChange = (index: number, value: string) => {
                 placeholder="(555) 123-4567"
                 value={formatPhone(phone)}
                 onChange={handlePhoneChange}
-                onKeyDown={e => { if (e.key === 'Enter' && isValid) handleSendCode() }}
+                onKeyDown={e => { if (e.key === 'Enter' && isValid && smsOptIn) handleSendCode() }}
                 style={{ ...listStyles.floatingInput, fontSize: '20px', fontWeight: 500, letterSpacing: '0.5px' }}
                 autoFocus
               />
             </FloatingLabelField>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px', paddingLeft: '16px', cursor: 'pointer', userSelect: 'none' as const }}>
-              <input
-                type="checkbox"
-                checked={smsOptIn}
-                onChange={e => setSmsOptIn(e.target.checked)}
-                style={{ accentColor: BORDER, width: '14px', height: '14px', flexShrink: 0, opacity: 0.7 }}
-              />
-              <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, opacity: 0.7 }}>
-                I want to text Penny AI
-              </span>
-            </label>
           </div>
 
-          {error && <p style={styles.error}>{error}</p>}
+          {/* SMS opt-in */}
+          <label style={{
+            display: 'flex', alignItems: 'flex-start', gap: '8px',
+            width: '100%', marginBottom: '20px',
+            cursor: 'pointer', userSelect: 'none' as const,
+          }}>
+            <input
+              type="checkbox"
+              checked={smsOptIn}
+              onChange={e => setSmsOptIn(e.target.checked)}
+              style={{ accentColor: BRAND, width: '16px', height: '16px', flexShrink: 0, marginTop: '1px' }}
+            />
+            <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, lineHeight: 1.5, whiteSpace: 'nowrap' }}>
+              I agree to receive a one-time login code via text
+            </span>
+          </label>
+
+          {error && <p style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
 
           <button
-            onClick={handleSendCode}
+            onClick={() => handleSendCode()}
             disabled={!isValid || !smsOptIn || loading}
             style={{
-              ...styles.button,
-              opacity: isValid && smsOptIn && !loading ? 1 : 0.4,
+              width: '100%', padding: '17px', fontSize: '16px',
+              fontFamily: FONT, fontWeight: 700, color: WHITE,
+              backgroundColor: BRAND, border: 'none', borderRadius: '14px',
               cursor: isValid && smsOptIn && !loading ? 'pointer' : 'default',
+              transition: 'opacity 0.2s, transform 0.1s',
+              WebkitTapHighlightColor: 'transparent',
+              letterSpacing: '0.2px',
+              opacity: isValid && smsOptIn && !loading ? 1 : 0.35,
+              marginBottom: '4px',
             }}
           >
-            {loading ? 'Sending…' : 'Send Code'}
+            {loading ? 'Sending…' : 'Continue →'}
           </button>
 
-          <LegalLinks />
+          {/* Divider + alternative auth */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', margin: '20px 0 16px' }}>
+            <div style={{ flex: 1, height: '1px', backgroundColor: BORDER }} />
+            <span style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY }}>or</span>
+            <div style={{ flex: 1, height: '1px', backgroundColor: BORDER }} />
+          </div>
+
+          {googleClientId && (
+            <div id="google-signin-btn" style={{ width: '100%', display: 'flex', justifyContent: 'center', marginBottom: '12px' }} />
+          )}
+
+          <button
+            onClick={() => { setError(''); setScreen('email-login') }}
+            style={listStyles.subtleLink}
+          >Use email instead</button>
+
+          <div style={{ marginTop: 'auto', paddingTop: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <LegalLinks />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // =========================================================================
+  // EMAIL LOGIN SCREEN
+  // =========================================================================
+
+  if (screen === 'email-login') {
+    return (
+      <div style={{
+        backgroundColor: BG, fontFamily: FONT, minHeight: '100%',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        padding: '32px 20px 40px', boxSizing: 'border-box',
+      }}>
+        <div style={{ width: '100%', maxWidth: '400px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          {/* Penny hero */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '24px', width: '100%' }}>
+            <PennyAvatar size={80} />
+            <div style={{
+              fontFamily: FONT, fontSize: '15px', fontWeight: 500,
+              color: TEXT, lineHeight: 1.5, fontStyle: 'italic',
+              textAlign: 'left', marginTop: '12px',
+              minHeight: '44px', maxWidth: '320px', width: '100%',
+            }}>{loginPennyText}<span style={{ opacity: 0.4 }} className="cursor-blink">|</span></div>
+          </div>
+
+          <div style={{ width: '100%', marginBottom: '12px' }}>
+            <FloatingLabelField label="Email">
+              <input
+                type="email"
+                autoComplete="email"
+                value={emailInput}
+                onChange={e => setEmailInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleEmailLogin() }}
+                style={listStyles.floatingInput}
+                autoFocus
+              />
+            </FloatingLabelField>
+          </div>
+
+          <div style={{ width: '100%', marginBottom: '12px', position: 'relative' }}>
+            <FloatingLabelField label="Password">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                value={passwordInput}
+                onChange={e => setPasswordInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleEmailLogin() }}
+                style={{ ...listStyles.floatingInput, paddingRight: '44px' }}
+              />
+            </FloatingLabelField>
+            <button type="button" onClick={() => setShowPassword(p => !p)} aria-label={showPassword ? 'Hide password' : 'Show password'} style={{ position: 'absolute', right: '12px', bottom: '12px', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: TEXT_SECONDARY }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{showPassword ? <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></> : <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>}</svg>
+            </button>
+          </div>
+
+          {error && <p style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
+          {magicLinkSent && <p style={{ fontFamily: FONT, fontSize: '14px', color: BRAND, fontWeight: 500, width: '100%', textAlign: 'left' as const, marginBottom: '12px' }}>We sent a sign-in link to your email — check your inbox!</p>}
+
+          <button
+            onClick={handleEmailLogin}
+            disabled={loading}
+            style={{
+              width: '100%', padding: '17px', fontSize: '16px',
+              fontFamily: FONT, fontWeight: 700, color: WHITE,
+              backgroundColor: BRAND, border: 'none', borderRadius: '14px',
+              cursor: loading ? 'default' : 'pointer',
+              opacity: loading ? 0.5 : 1, marginBottom: '16px',
+            }}
+          >
+            {loading ? 'Signing in…' : 'Sign in'}
+          </button>
+
+          <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
+            <button onClick={() => { setError(''); setMagicLinkSent(false); setScreen('forgot-password') }} style={listStyles.subtleLink}>Forgot password?</button>
+            <button onClick={handleMagicLink} disabled={loading} style={{ ...listStyles.subtleLink, opacity: loading ? 0.5 : 1 }}>Email me a sign-in link</button>
+            <button onClick={() => { setError(''); setMagicLinkSent(false); setScreen('email-register') }} style={listStyles.subtleLink}>Create an account</button>
+          </div>
+
+          {/* Divider + alternative auth */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', margin: '8px 0 16px' }}>
+            <div style={{ flex: 1, height: '1px', backgroundColor: BORDER }} />
+            <span style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY }}>or</span>
+            <div style={{ flex: 1, height: '1px', backgroundColor: BORDER }} />
+          </div>
+
+          {googleClientId && (
+            <div id="google-signin-btn" style={{ width: '100%', display: 'flex', justifyContent: 'center', marginBottom: '12px' }} />
+          )}
+
+          <button onClick={() => { setError(''); setScreen('phone') }} style={listStyles.subtleLink}>Use phone number instead</button>
+
+          <div style={{ marginTop: '12px' }}><LegalLinks /></div>
+        </div>
+      </div>
+    )
+  }
+
+  // =========================================================================
+  // EMAIL REGISTER SCREEN
+  // =========================================================================
+
+  if (screen === 'email-register') {
+    return (
+      <div style={{
+        backgroundColor: BG, fontFamily: FONT, minHeight: '100%',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        padding: '32px 20px 40px', boxSizing: 'border-box',
+      }}>
+        <div style={{ width: '100%', maxWidth: '400px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          {/* Penny hero */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '24px', width: '100%' }}>
+            <PennyAvatar size={80} />
+            <div style={{
+              fontFamily: FONT, fontSize: '15px', fontWeight: 500,
+              color: TEXT, lineHeight: 1.5, fontStyle: 'italic',
+              textAlign: 'left', marginTop: '12px',
+              minHeight: '44px', maxWidth: '320px', width: '100%',
+            }}>{loginPennyText}<span style={{ opacity: 0.4 }} className="cursor-blink">|</span></div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px', width: '100%', marginBottom: '12px' }}>
+            <div style={{ flex: 1 }}>
+              <FloatingLabelField label="First name">
+                <input type="text" autoComplete="given-name" value={nameInput} onChange={e => setNameInput(e.target.value)} style={listStyles.floatingInput} autoFocus />
+              </FloatingLabelField>
+            </div>
+            <div style={{ flex: 1 }}>
+              <FloatingLabelField label="Last name">
+                <input type="text" autoComplete="family-name" value={lastNameInput} onChange={e => setLastNameInput(e.target.value)} style={listStyles.floatingInput} />
+              </FloatingLabelField>
+            </div>
+          </div>
+
+          <div style={{ width: '100%', marginBottom: '12px' }}>
+            <FloatingLabelField label="Email">
+              <input type="email" autoComplete="email" value={emailInput} onChange={e => setEmailInput(e.target.value)} style={listStyles.floatingInput} />
+            </FloatingLabelField>
+          </div>
+
+          <div style={{ width: '100%', marginBottom: '4px', position: 'relative' }}>
+            <FloatingLabelField label="Password">
+              <input type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={passwordInput} onChange={e => setPasswordInput(e.target.value)} style={{ ...listStyles.floatingInput, paddingRight: '44px' }} />
+            </FloatingLabelField>
+            <button type="button" onClick={() => setShowPassword(p => !p)} aria-label={showPassword ? 'Hide password' : 'Show password'} style={{ position: 'absolute', right: '12px', bottom: '12px', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: TEXT_SECONDARY }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{showPassword ? <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></> : <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>}</svg>
+            </button>
+          </div>
+          <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '12px', paddingLeft: '4px' }}>At least 8 characters</p>
+
+          <div style={{ width: '100%', marginBottom: '12px', position: 'relative' }}>
+            <FloatingLabelField label="Confirm password">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={e => setConfirmPassword(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleEmailRegister() }}
+                style={{ ...listStyles.floatingInput, paddingRight: '44px' }}
+              />
+            </FloatingLabelField>
+          </div>
+
+          {error && <p style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
+
+          <button
+            onClick={handleEmailRegister}
+            disabled={loading}
+            style={{
+              width: '100%', padding: '17px', fontSize: '16px',
+              fontFamily: FONT, fontWeight: 700, color: WHITE,
+              backgroundColor: BRAND, border: 'none', borderRadius: '14px',
+              cursor: loading ? 'default' : 'pointer',
+              opacity: loading ? 0.5 : 1, marginBottom: '16px',
+            }}
+          >
+            {loading ? 'Creating account…' : 'Create account'}
+          </button>
+
+          <button onClick={() => { setError(''); setScreen('email-login') }} style={listStyles.subtleLink}>Already have an account? Sign in</button>
+
+          <div style={{ marginTop: '12px' }}><LegalLinks /></div>
+        </div>
+      </div>
+    )
+  }
+
+  // =========================================================================
+  // FORGOT PASSWORD SCREEN
+  // =========================================================================
+
+  if (screen === 'forgot-password') {
+    return (
+      <div style={{
+        backgroundColor: BG, fontFamily: FONT, minHeight: '100%',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        padding: '32px 20px 40px', boxSizing: 'border-box',
+      }}>
+        <div style={{ width: '100%', maxWidth: '400px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div style={{ width: '100%', marginBottom: '24px', textAlign: 'center' }}>
+            <div style={{ fontFamily: FONT, fontSize: '22px', fontWeight: 700, color: TEXT, letterSpacing: '-0.5px', marginBottom: '6px' }}>
+              Reset your password
+            </div>
+            <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY }}>
+              {resetSent ? "If an account exists with that email, we've sent a reset link." : "Enter your email and we'll send you a reset link."}
+            </div>
+          </div>
+
+          {!resetSent && (
+            <>
+              <div style={{ width: '100%', marginBottom: '12px' }}>
+                <FloatingLabelField label="Email">
+                  <input
+                    type="email"
+                    autoComplete="email"
+                    value={emailInput}
+                    onChange={e => setEmailInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleForgotPassword() }}
+                    style={listStyles.floatingInput}
+                    autoFocus
+                  />
+                </FloatingLabelField>
+              </div>
+
+              {error && <p style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
+
+              <button
+                onClick={handleForgotPassword}
+                disabled={loading}
+                style={{
+                  width: '100%', padding: '17px', fontSize: '16px',
+                  fontFamily: FONT, fontWeight: 700, color: WHITE,
+                  backgroundColor: BRAND, border: 'none', borderRadius: '14px',
+                  cursor: loading ? 'default' : 'pointer',
+                  opacity: loading ? 0.5 : 1, marginBottom: '16px',
+                }}
+              >
+                {loading ? 'Sending…' : 'Send reset link'}
+              </button>
+            </>
+          )}
+
+          <button onClick={() => { setError(''); setResetSent(false); setScreen('email-login') }} style={listStyles.subtleLink}>Back to sign in</button>
+        </div>
+      </div>
+    )
+  }
+
+  // =========================================================================
+  // RESET PASSWORD SCREEN
+  // =========================================================================
+
+  if (screen === 'reset-password') {
+    return (
+      <div style={{
+        backgroundColor: BG, fontFamily: FONT, minHeight: '100%',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        padding: '32px 20px 40px', boxSizing: 'border-box',
+      }}>
+        <div style={{ width: '100%', maxWidth: '400px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div style={{ width: '100%', marginBottom: '24px', textAlign: 'center' }}>
+            <div style={{ fontFamily: FONT, fontSize: '22px', fontWeight: 700, color: TEXT, letterSpacing: '-0.5px', marginBottom: '6px' }}>
+              Set a new password
+            </div>
+          </div>
+
+          <div style={{ width: '100%', marginBottom: '12px', position: 'relative' }}>
+            <FloatingLabelField label="New password">
+              <input type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={passwordInput} onChange={e => setPasswordInput(e.target.value)} style={{ ...listStyles.floatingInput, paddingRight: '44px' }} autoFocus />
+            </FloatingLabelField>
+            <button type="button" onClick={() => setShowPassword(p => !p)} aria-label={showPassword ? 'Hide password' : 'Show password'} style={{ position: 'absolute', right: '12px', bottom: '12px', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: TEXT_SECONDARY }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{showPassword ? <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></> : <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>}</svg>
+            </button>
+          </div>
+
+          <div style={{ width: '100%', marginBottom: '12px' }}>
+            <FloatingLabelField label="Confirm password">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={e => setConfirmPassword(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleResetPassword() }}
+                style={listStyles.floatingInput}
+              />
+            </FloatingLabelField>
+          </div>
+
+          {error && <p style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
+
+          <button
+            onClick={handleResetPassword}
+            disabled={loading}
+            style={{
+              width: '100%', padding: '17px', fontSize: '16px',
+              fontFamily: FONT, fontWeight: 700, color: WHITE,
+              backgroundColor: BRAND, border: 'none', borderRadius: '14px',
+              cursor: loading ? 'default' : 'pointer',
+              opacity: loading ? 0.5 : 1, marginBottom: '16px',
+            }}
+          >
+            {loading ? 'Resetting…' : 'Reset password'}
+          </button>
+
+          <button onClick={() => { setError(''); setScreen('email-login') }} style={listStyles.subtleLink}>Back to sign in</button>
         </div>
       </div>
     )
@@ -2173,43 +2645,39 @@ const handleCodeChange = (index: number, value: string) => {
 
   if (screen === 'code') {
     return (
-      <div style={styles.container}>
-        <div style={styles.card}>
-          <Logo />
+      <div style={{
+        backgroundColor: BG,
+        fontFamily: FONT,
+        minHeight: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        padding: '32px 20px 40px',
+        boxSizing: 'border-box',
+      }}>
+        <div style={{
+          width: '100%',
+          maxWidth: '400px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          flex: 1,
+        }}>
 
-          <h1 style={styles.wordmark}>Shared shopping list</h1>
-
-          {/* Penny chat area — fixed height to match phone screen */}
-          <div style={{ width: '100%', marginBottom: '24px', height: '100px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', height: '100%' }}>
-              <PennyAvatar size={53} />
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-                {(pennyMessage || pennyTyping) && (
-                  <div style={{
-                    backgroundColor: BG, borderRadius: '16px', borderTopLeftRadius: '4px',
-                    padding: '12px 16px', textAlign: 'left' as const,
-                  }}>
-                    <span style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, lineHeight: 1.6 }}>
-                      {pennyMessage}
-                    </span>
-                    {pennyTyping && <span className="cursor-blink" style={{ fontWeight: 300, marginLeft: '1px' }}>|</span>}
-                  </div>
-                )}
-              </div>
+          {/* Headline */}
+          <div style={{ width: '100%', marginBottom: '24px', textAlign: 'center' }}>
+            <div style={{
+              fontFamily: FONT, fontSize: '22px', fontWeight: 700,
+              color: TEXT, letterSpacing: '-0.5px', lineHeight: 1.2,
+              marginBottom: '6px',
+            }}>Check your texts</div>
+            <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, lineHeight: 1.5 }}>
+              Enter the code sent to {formatPhone(phone)}
             </div>
           </div>
 
-          <p style={styles.codePrompt}>
-            Enter the code sent to
-          </p>
-          <button
-            onClick={() => { setScreen('phone'); setError('') }}
-            style={styles.phoneDisplay}
-          >
-            {formatPhone(phone)}
-          </button>
-
-          <div style={styles.codeRow}>
+          {/* ── Code boxes ── */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', width: '100%', justifyContent: 'center' }}>
             {code.map((digit, i) => (
               <input
                 key={i}
@@ -2222,24 +2690,49 @@ const handleCodeChange = (index: number, value: string) => {
                 value={digit}
                 onChange={e => handleCodeChange(i, e.target.value)}
                 onKeyDown={e => handleCodeKeyDown(i, e)}
-                onPaste={i === 0 ? handleCodePaste : undefined}
+                onPaste={handleCodePaste}
                 disabled={loading}
                 style={{
-                  ...styles.codeBox,
-                  borderColor: digit ? BRAND : BORDER,
-                  ...(loading ? { opacity: 0.5 } : {}),
+                  width: '48px', height: '60px',
+                  fontSize: '26px', fontFamily: FONT, fontWeight: 700,
+                  color: TEXT, textAlign: 'center' as const,
+                  backgroundColor: WHITE,
+                  border: `2px solid ${digit ? BRAND : BORDER}`,
+                  borderRadius: '12px', outline: 'none', caretColor: BRAND,
+                  transition: 'border-color 0.15s, box-shadow 0.15s',
+                  boxShadow: digit ? `0 0 0 3px ${BRAND}20` : 'none',
+                  WebkitTextSizeAdjust: '100%',
+                  opacity: loading ? 0.5 : 1,
+                  boxSizing: 'border-box',
                 }}
               />
             ))}
           </div>
 
           {loading && (
-            <p style={styles.verifying}>Verifying…</p>
+            <p style={{ fontFamily: FONT, fontSize: '15px', color: BRAND, fontWeight: 500, margin: '0 0 12px 0' }}>
+              Signing you in…
+            </p>
           )}
 
-          {error && <p style={styles.error}>{error}</p>}
+          {error && <p style={{ ...styles.error, width: '100%', textAlign: 'center' as const }}>{error}</p>}
 
-          <LegalLinks />
+          {/* Subtle helper links */}
+          <div style={{ display: 'flex', gap: '16px', marginTop: '8px' }}>
+            <button
+              onClick={() => { handleSendCode(phone) }}
+              disabled={loading}
+              style={{ ...listStyles.subtleLink, opacity: loading ? 0.5 : 1 }}
+            >Resend code</button>
+            <button
+              onClick={() => { setScreen('phone'); setError('') }}
+              style={listStyles.subtleLink}
+            >Use a different number</button>
+          </div>
+
+          <div style={{ marginTop: 'auto', paddingTop: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <LegalLinks />
+          </div>
         </div>
       </div>
     )
@@ -2251,10 +2744,10 @@ const handleCodeChange = (index: number, value: string) => {
 
   const renderMenu = (active: Screen) => (
     <div style={{ position: 'relative' }}>
-      <button onClick={() => setMenuOpen(!menuOpen)} style={listStyles.hamburgerBtn}>
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <path d="M3 5h14M3 10h14M3 15h14" stroke={TEXT} strokeWidth="1.8" strokeLinecap="round"/>
-        </svg>
+      <button onClick={() => setMenuOpen(!menuOpen)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, WebkitTapHighlightColor: 'transparent', display: 'flex', alignItems: 'center' }} aria-label="Navigation menu" aria-expanded={menuOpen} aria-haspopup="true">
+        <div style={{ ...avatarCircleStyle(30), fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {[settingsFirstName, settingsLastName].map(n => (n || '')[0]?.toUpperCase() || '').filter(Boolean).join('') || <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}
+        </div>
       </button>
       {menuOpen && (
         <>
@@ -2264,17 +2757,18 @@ const handleCodeChange = (index: number, value: string) => {
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
               Shopping List
             </button>
-            <button style={{ ...listStyles.menuItem(active === 'about'), display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => { setMenuOpen(false); setScreen('about') }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              How to text Penny
-            </button>
             <button style={{ ...listStyles.menuItem(active === 'settings-share'), display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => { setMenuOpen(false); setScreen('settings-share') }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2C6.48 2 2 5.58 2 10c0 2.13 1.06 4.04 2.72 5.41L3 22l4.73-2.37C9.1 19.87 10.52 20 12 20c5.52 0 10-3.58 10-8S17.52 2 12 2z"/><path d="M8 10h.01M12 10h.01M16 10h.01"/></svg>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
               Share & Earn
             </button>
-            <button style={{ ...listStyles.menuItem(active === 'settings' || active === 'settings-profile' as Screen), display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => { setMenuOpen(false); setScreen('settings') }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-              Settings
+            <button style={{ ...listStyles.menuItem(active === 'penny'), display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => { setMenuOpen(false); setScreen('penny') }}>
+              <PennyAvatar size={18} />
+              Penny
+            </button>
+            <div style={{ height: '1px', backgroundColor: BORDER, margin: '4px 0' }} />
+            <button style={{ ...listStyles.menuItem(active === 'profile'), display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => { setMenuOpen(false); setScreen('profile') }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              Profile
             </button>
             {isAdmin && (
               <button style={{ ...listStyles.menuItem(active === 'admin'), display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => { setMenuOpen(false); setScreen('admin') }}>
@@ -2328,11 +2822,11 @@ const handleCodeChange = (index: number, value: string) => {
   } as React.CSSProperties
 
   const pennyBtnStyle = { background: BRAND, border: 'none', color: WHITE, fontFamily: FONT, fontSize: '12px', fontWeight: 600, cursor: 'pointer', padding: '5px 12px', borderRadius: '12px', flexShrink: 0 } as React.CSSProperties
-  const pennyCloseStyle = { background: 'none', border: 'none', color: TEXT_SECONDARY, fontFamily: FONT, fontSize: '17px', cursor: 'pointer', padding: '0 2px', lineHeight: 1, flexShrink: 0, opacity: 0.6 } as React.CSSProperties
+  const pennyCloseStyle = { background: 'none', border: 'none', color: TEXT_SECONDARY, fontFamily: FONT, fontSize: '17px', cursor: 'pointer', padding: '8px 12px', lineHeight: 1, flexShrink: 0, opacity: 0.6, minWidth: '44px', minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center' } as React.CSSProperties
 
   const renderPennyToast = () => toast ? (
     <div style={{ ...pennyBarStyle, backgroundColor: toast.type === 'error' ? '#FEE2E2' : '#F5F3EF', color: toast.type === 'error' ? '#991B1B' : TEXT }}>
-      <PennyAvatar size={53} />
+      <PennyAvatar />
       <span style={{ flex: 1 }}>{toast.message}</span>
       {toast.action && (
         <button
@@ -2349,9 +2843,9 @@ const handleCodeChange = (index: number, value: string) => {
 
   const pageIcons: Record<string, React.ReactNode> = {
     'Shopping List': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>,
-    'How to text Penny': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
-    'Share & Earn': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2C6.48 2 2 5.58 2 10c0 2.13 1.06 4.04 2.72 5.41L3 22l4.73-2.37C9.1 19.87 10.52 20 12 20c5.52 0 10-3.58 10-8S17.52 2 12 2z"/><path d="M8 10h.01M12 10h.01M16 10h.01"/></svg>,
-    'Settings': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
+    'Penny': <PennyAvatar size={16} />,
+    'Share & Earn': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>,
+    'Settings': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l1.09 3.26L16.36 6l-2.6 2.14L14.53 12 12 9.77 9.47 12l.77-3.86L7.64 6l3.27-.74z"/><path d="M5 18l.7 2.1L8 20.8l-1.6 1.32.47 2.38L5 23.27 3.13 24.5l.47-2.38L2 20.8l2.3-.7z"/><path d="M19 15l.53 1.58 1.72.53-1.23.99.35 1.79L19 19.06l-1.37.83.35-1.79-1.23-.99 1.72-.53z"/></svg>,
     'Dashboard': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/></svg>,
     'Saved Lists': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>,
     'Profile': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
@@ -2382,172 +2876,153 @@ const handleCodeChange = (index: number, value: string) => {
   )
 
   // =========================================================================
-  // SUBPAGE HEADER (with back arrow)
+  // PENNY SETTINGS (merged: Penny + Profile + Saved Lists + Sign Out)
   // =========================================================================
 
-  const renderSubpageHeader = (title: string, backScreen: Screen) => (
-    <div style={{ flexShrink: 0, backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}` }}>
-      <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px' }}>
-        <button
-          onClick={() => window.history.back()}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px 4px 0', color: BRAND, fontSize: '20px', fontWeight: 600, display: 'flex', alignItems: 'center' }}
-        >
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <path d="M13 4l-6 6 6 6" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
-        <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 600, color: TEXT, display: 'flex', alignItems: 'center', gap: '6px' }}>{pageIcons[title]}{title}</span>
-        <div style={{ marginLeft: 'auto' }}>{renderMenu(backScreen)}</div>
-      </div>
-    </div>
-  )
-
-  // =========================================================================
-  // SETTINGS HUB
-  // =========================================================================
-
-  if (screen === 'settings') {
-    const settingsRows: { label: string; target: Screen; icon: React.ReactNode }[] = [
-      { label: 'Profile', target: 'settings-profile', icon: pageIcons['Profile'] },
-      { label: 'Saved Lists', target: 'saved', icon: pageIcons['Saved Lists'] },
-    ]
-    const chevronSvg = <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 3l5 5-5 5" stroke={TEXT_SECONDARY} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+  if (screen === 'penny') {
+    const saveSlider = (val: number) => {
+      setPennySlider(val)
+      if (sliderSaveTimeout.current) clearTimeout(sliderSaveTimeout.current)
+      sliderSaveTimeout.current = setTimeout(() => {
+        fetchAPI('/api/settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ penny_slider: val }),
+        })
+      }, 400)
+    }
+    const toggleAutotune = () => {
+      const next = !pennyAutotune
+      setPennyAutotune(next)
+      fetchAPI('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ penny_autotune: next }),
+      })
+    }
+    const toggleDeals = () => {
+      const next = !pennyDeals
+      setPennyDeals(next)
+      fetchAPI('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ penny_deals: next }),
+      })
+    }
+    const pennyPhoneFormatted = settingsPennyPhone ? formatPhone(settingsPennyPhone.replace('+1', '')) : ''
     return (
       <div style={listStyles.page}>
-        {renderPageHeader('Settings', 'settings')}
+        <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
+        {renderPageHeader('Penny', 'penny')}
         <div style={listStyles.listArea}>
-          {settingsRows.map(row => (
-            <button
-              key={row.label}
-              onClick={() => setScreen(row.target)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                width: '100%',
-                padding: '16px 20px',
-                background: 'none',
-                border: 'none',
-                borderBottom: `1px solid ${BORDER}`,
-                cursor: 'pointer',
-                textAlign: 'left' as const,
-                WebkitTapHighlightColor: 'transparent',
-              }}
-            >
-              <span style={{ color: BRAND, display: 'flex', alignItems: 'center' }}>{row.icon}</span>
-              <span style={{ flex: 1, fontFamily: FONT, fontSize: '16px', fontWeight: 500, color: TEXT }}>{row.label}</span>
-              {chevronSvg}
-            </button>
-          ))}
-          <button
-            onClick={handleLogout}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              width: '100%',
-              padding: '16px 20px',
-              background: 'none',
-              border: 'none',
-              borderBottom: `1px solid ${BORDER}`,
-              cursor: 'pointer',
-              textAlign: 'left' as const,
-              WebkitTapHighlightColor: 'transparent',
-            }}
-          >
-            <span style={{ flex: 1, fontFamily: FONT, fontSize: '16px', fontWeight: 500, color: ERROR_RED }}>Sign Out</span>
-          </button>
-        </div>
-        {renderPennyToast()}
-      </div>
-    )
-  }
+          <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
-  // =========================================================================
-  // SETTINGS — PROFILE
-  // =========================================================================
+            {/* ── How Penny works ── */}
 
-  if (screen === 'settings-profile') {
-    return (
-      <div style={listStyles.page}>
-        {renderSubpageHeader('Profile', 'settings')}
-        <div style={listStyles.listArea}>
-          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div style={{ display: 'flex', gap: '12px' }}>
+            {/* Learn from my choices toggle */}
+            <div onClick={toggleAutotune} style={listStyles.settingsCard}>
+              {/* Brain/learning icon */}
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><path d="M9 21h6"/><path d="M10 17v-2.5"/><path d="M14 17v-2.5"/>
+              </svg>
               <div style={{ flex: 1 }}>
-                <FloatingLabelField label="First name">
-                  <input
-                    type="text"
-                    value={settingsFirstName}
-                    onChange={e => setSettingsFirstName(e.target.value)}
-                    onBlur={handleSettingsAutoSave}
-                    placeholder="First"
-                    style={listStyles.floatingInput}
-                  />
-                </FloatingLabelField>
+                <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>Learn from my choices</div>
+                <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginTop: '1px' }}>Penny remembers your brand preferences over time</div>
               </div>
-              <div style={{ flex: 1 }}>
-                <FloatingLabelField label="Last name">
-                  <input
-                    type="text"
-                    value={settingsLastName}
-                    onChange={e => setSettingsLastName(e.target.value)}
-                    onBlur={handleSettingsAutoSave}
-                    placeholder="Last"
-                    style={listStyles.floatingInput}
-                  />
-                </FloatingLabelField>
-              </div>
+              <ToggleSwitch value={pennyAutotune} onChange={toggleAutotune} />
             </div>
-            <div>
-              <FloatingLabelField label="Email">
-                <input
-                  type="email"
-                  value={settingsEmail}
-                  onChange={e => setSettingsEmail(e.target.value)}
-                  onBlur={handleSettingsAutoSave}
-                  placeholder="your@email.com"
-                  style={listStyles.floatingInput}
-                />
-              </FloatingLabelField>
-              <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px', paddingLeft: '4px' }}>
-                Set your email to add items by emailing penny@list.thrift.ly
-              </p>
-            </div>
-            <div style={{ position: 'relative' }}>
-              <FloatingLabelField label="Address">
-                <input
-                  type="text"
-                  value={settingsAddress}
-                  onChange={e => {
-                    setSettingsAddress(e.target.value)
-                    if (addressSuggestTimer.current) clearTimeout(addressSuggestTimer.current)
-                    addressSuggestTimer.current = setTimeout(() => fetchAddressSuggestions(e.target.value), 300)
-                  }}
-                  onBlur={() => {
-                    setTimeout(() => setShowAddressSuggestions(false), 200)
-                    handleSettingsAutoSave()
-                  }}
-                  onFocus={() => { if (addressSuggestions.length > 0) setShowAddressSuggestions(true) }}
-                  placeholder="Start typing your address…"
-                  style={listStyles.floatingInput}
-                  autoComplete="off"
-                />
-              </FloatingLabelField>
-              {showAddressSuggestions && addressSuggestions.length > 0 && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1000, backgroundColor: '#fff', borderRadius: '10px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', border: `1px solid ${BORDER}`, marginTop: '4px', overflow: 'hidden' }}>
-                  {addressSuggestions.map((s, i) => (
-                    <button
-                      key={s.placeId}
-                      onMouseDown={e => { e.preventDefault(); selectAddressSuggestion(s.placeId) }}
-                      style={{ display: 'block', width: '100%', padding: '12px 16px', fontFamily: FONT, fontSize: '14px', color: TEXT, backgroundColor: 'transparent', border: 'none', borderTop: i > 0 ? `1px solid ${BORDER}` : 'none', textAlign: 'left', cursor: 'pointer', lineHeight: 1.4 }}
-                    >{s.description}</button>
-                  ))}
+
+            {/* Slider — only visible when autotune is OFF */}
+            <div style={{
+              maxHeight: pennyAutotune ? 0 : '200px',
+              opacity: pennyAutotune ? 0 : 1,
+              overflow: pennyAutotune ? 'hidden' : 'visible',
+              transition: 'max-height 0.3s ease, opacity 0.25s ease',
+              pointerEvents: pennyAutotune ? 'none' : 'auto',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {/* Repeat/loop arrow — convenience */}
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+                  </svg>
+                  <div>
+                    <div style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: TEXT }}>Convenience</div>
+                    <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY }}>Just grab my usual</div>
+                  </div>
                 </div>
-              )}
-              <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px', paddingLeft: '4px' }}>
-                Used to find nearby stores and deals
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: TEXT }}>Savings</div>
+                    <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY }}>Help me save</div>
+                  </div>
+                  {/* Price tag with % — savings */}
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/><text x="13" y="11" fontSize="7" fontWeight="bold" fill={TEXT} stroke="none" fontFamily="sans-serif">%</text>
+                  </svg>
+                </div>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={pennySlider}
+                onChange={e => saveSlider(Number(e.target.value))}
+                style={{
+                  width: '100%', height: '6px', appearance: 'none', WebkitAppearance: 'none',
+                  background: `linear-gradient(to right, ${BRAND} 0%, ${BRAND} ${pennySlider}%, ${BORDER} ${pennySlider}%, ${BORDER} 100%)`,
+                  borderRadius: '3px', outline: 'none', cursor: 'pointer',
+                  padding: '10px 0', margin: 0,
+                }}
+              />
+              <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '8px', textAlign: 'center' as const }}>
+                {pennySlider <= 30
+                  ? 'Penny sticks to your usual picks'
+                  : pennySlider <= 60
+                    ? 'Penny suggests a mix of favorites and new finds'
+                    : 'Penny loves trying new brands and products'}
               </p>
             </div>
+
+            {/* Deals toggle — only show if user has messaging (phone) */}
+            {settingsPennyPhone && (
+              <div onClick={toggleDeals} style={listStyles.settingsCard}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>
+                </svg>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>Notify me about deals</div>
+                  <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginTop: '1px' }}>Penny flags savings she thinks you'll love</div>
+                </div>
+                <ToggleSwitch value={pennyDeals} onChange={toggleDeals} />
+              </div>
+            )}
+
+            {/* ── Divider ── */}
+            <div style={{ height: '1px', backgroundColor: BORDER, margin: '4px 0' }} />
+
+            {/* ── Contact Penny ── */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <PennyAvatar size={52} />
+              <div>
+                <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT }}>Penny</div>
+                <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, marginTop: '2px' }}>Your household's AI shopping assistant</div>
+              </div>
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                {pennyPhoneFormatted && (
+                  <a href={`sms:${settingsPennyPhone}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', borderRadius: '50%', backgroundColor: BG, textDecoration: 'none', WebkitTapHighlightColor: 'transparent' }} aria-label="Text Penny">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                  </a>
+                )}
+                <a href="mailto:penny@list.thrift.ly" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', borderRadius: '50%', backgroundColor: BG, textDecoration: 'none', WebkitTapHighlightColor: 'transparent' }} aria-label="Email Penny">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                </a>
+                <a href="/api/penny.vcf" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', borderRadius: '50%', backgroundColor: BG, textDecoration: 'none', WebkitTapHighlightColor: 'transparent' }} aria-label="Add Penny to contacts">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+                </a>
+              </div>
+            </div>
+
           </div>
         </div>
         {renderPennyToast()}
@@ -2556,8 +3031,101 @@ const handleCodeChange = (index: number, value: string) => {
   }
 
   // =========================================================================
-  // SETTINGS — SHARE & EARN (combined with Household)
+  // PROFILE PAGE
   // =========================================================================
+
+  if (screen === 'profile') {
+    const initials = [settingsFirstName, settingsLastName].map(n => (n || '')[0]?.toUpperCase() || '').filter(Boolean).join('')
+    const displayName = [settingsFirstName, settingsLastName].filter(Boolean).join(' ')
+    const userPhoneFormatted = settingsUserPhone ? formatPhone(settingsUserPhone.replace('+1', '')) : ''
+    return (
+      <div style={listStyles.page}>
+        <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
+        {renderPageHeader('Profile', 'profile')}
+        <div style={listStyles.listArea}>
+          <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+
+            {/* Avatar + display info */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+              <div style={{
+                width: 80, height: 80, borderRadius: '50%',
+                backgroundColor: BRAND, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: FONT, fontSize: '28px', fontWeight: 700, color: WHITE,
+              }}>
+                {initials || '?'}
+              </div>
+              {displayName && <div style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 600, color: TEXT }}>{displayName}</div>}
+              {userPhoneFormatted && <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY }}>{userPhoneFormatted}</div>}
+            </div>
+
+            {/* ── Divider ── */}
+            <div style={listStyles.divider} />
+
+            {/* ── Profile fields ── */}
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <div style={{ flex: 1 }}>
+                <FloatingLabelField label="First name">
+                  <input type="text" value={settingsFirstName} onChange={e => setSettingsFirstName(e.target.value)} onBlur={handleSettingsAutoSave} placeholder="First" style={listStyles.floatingInput} />
+                </FloatingLabelField>
+              </div>
+              <div style={{ flex: 1 }}>
+                <FloatingLabelField label="Last name">
+                  <input type="text" value={settingsLastName} onChange={e => setSettingsLastName(e.target.value)} onBlur={handleSettingsAutoSave} placeholder="Last" style={listStyles.floatingInput} />
+                </FloatingLabelField>
+              </div>
+            </div>
+            <div>
+              <FloatingLabelField label="Email">
+                <input type="email" value={settingsEmail} onChange={e => setSettingsEmail(e.target.value)} onBlur={handleSettingsAutoSave} placeholder="your@email.com" style={listStyles.floatingInput} />
+              </FloatingLabelField>
+              <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px', paddingLeft: '4px' }}>
+                Once set, forward any recipe or list to penny@list.thrift.ly and Penny will add it for you.
+              </p>
+            </div>
+            <div style={{ position: 'relative' }}>
+              <FloatingLabelField label="Address">
+                <input
+                  type="text" value={settingsAddress}
+                  onChange={e => {
+                    setSettingsAddress(e.target.value)
+                    if (addressSuggestTimer.current) clearTimeout(addressSuggestTimer.current)
+                    addressSuggestTimer.current = setTimeout(() => fetchAddressSuggestions(e.target.value), 300)
+                  }}
+                  onBlur={() => { setTimeout(() => setShowAddressSuggestions(false), 200); handleSettingsAutoSave() }}
+                  onFocus={() => { if (addressSuggestions.length > 0) setShowAddressSuggestions(true) }}
+                  placeholder="Start typing your address…" style={listStyles.floatingInput} autoComplete="off"
+                />
+              </FloatingLabelField>
+              {showAddressSuggestions && addressSuggestions.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1000, backgroundColor: '#fff', borderRadius: '10px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', border: `1px solid ${BORDER}`, marginTop: '4px', overflow: 'hidden' }}>
+                  {addressSuggestions.map((s, i) => (
+                    <button key={s.placeId} onMouseDown={e => { e.preventDefault(); selectAddressSuggestion(s.placeId) }}
+                      style={{ display: 'block', width: '100%', padding: '12px 16px', fontFamily: FONT, fontSize: '14px', color: TEXT, backgroundColor: 'transparent', border: 'none', borderTop: i > 0 ? `1px solid ${BORDER}` : 'none', textAlign: 'left', cursor: 'pointer', lineHeight: 1.4 }}
+                    >{s.description}</button>
+                  ))}
+                </div>
+              )}
+              <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px', paddingLeft: '4px' }}>
+                Used to find nearby stores
+              </p>
+            </div>
+
+            {/* ── Divider ── */}
+            <div style={listStyles.divider} />
+
+            {/* Sign out */}
+            <button onClick={handleLogout} style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+              fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: ERROR_RED,
+              textAlign: 'left' as const, WebkitTapHighlightColor: 'transparent',
+            }}>Sign Out</button>
+
+          </div>
+        </div>
+
+      </div>
+    )
+  }
 
   if (screen === 'settings-share') {
     const handleShare = () => {
@@ -2581,7 +3149,7 @@ const handleCodeChange = (index: number, value: string) => {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 700, color: TEXT, textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>Your Household</span>
+                <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 700, color: TEXT, textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>Shared List</span>
               </div>
               {settingsMembers.length > 0 && renderMemberList()}
               <button
@@ -2593,16 +3161,16 @@ const handleCodeChange = (index: number, value: string) => {
                   opacity: inviteLoading ? 0.5 : 1,
                 }}
               >
-                {inviteLoading ? 'Creating...' : 'Invite a household member'}
+                {inviteLoading ? 'Creating link…' : 'Invite someone to share'}
               </button>
               <p style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, marginTop: '8px', lineHeight: 1.5 }}>
-                Household members share the same shopping list
+                Everyone on your list shops together in real time
               </p>
-              {settingsMembers.length > 0 && (
+              {settingsMembers.length > 0 && (<>
                 <button
                   onClick={() => openConfirmModal({
-                    title: 'Leave Household',
-                    message: 'You will be removed from this household.',
+                    title: 'Leave shared list?',
+                    message: "You'll keep your own list but will no longer share with this group.",
                     confirmLabel: 'Leave',
                     destructive: true,
                     onConfirm: () => {
@@ -2610,13 +3178,13 @@ const handleCodeChange = (index: number, value: string) => {
                         .then(res => {
                           if (res.status === 401) { handleSessionExpired(); return }
                           if (res.ok) {
-                            showToast('Left household')
+                            showToast('You left the shared list')
                             loadSettings()
                           } else {
-                            res.json().then(d => showToast(d?.error || 'Failed', 'error')).catch(() => showToast('Failed', 'error'))
+                            res.json().then(d => showToast(d?.error || 'Something went wrong — please try again', 'error')).catch(() => showToast('Something went wrong — please try again', 'error'))
                           }
                         })
-                        .catch(() => showToast('Network error', 'error'))
+                        .catch(() => showToast('Couldn\'t connect — check your connection and try again', 'error'))
                     },
                   })}
                   style={{
@@ -2631,20 +3199,31 @@ const handleCodeChange = (index: number, value: string) => {
                     cursor: 'pointer',
                     textAlign: 'left' as const,
                   }}
-                >Leave household</button>
-              )}
+                >Leave shared list</button>
+                <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px' }}>You'll still have your own list — you'll just stop sharing with this group.</div>
+              </>)}
             </div>
 
             {/* ── Friends who live elsewhere section ── */}
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2C6.48 2 2 5.58 2 10c0 2.13 1.06 4.04 2.72 5.41L3 22l4.73-2.37C9.1 19.87 10.52 20 12 20c5.52 0 10-3.58 10-8S17.52 2 12 2z"/><path d="M8 10h.01M12 10h.01M16 10h.01"/></svg>
-                <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 700, color: TEXT, textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>Friends who live elsewhere</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+                <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 700, color: TEXT, textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>Refer a Friend</span>
               </div>
 
               <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, margin: '0 0 16px 0', lineHeight: 1.6 }}>
                 Introduce your friends to Penny — they'll get their own list, and you'll both benefit as more people join.
               </p>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', backgroundColor: BG, borderRadius: '10px', border: `1px solid ${BORDER}`, marginBottom: '12px' }}>
+                <span style={{ flex: 1, fontFamily: FONT, fontSize: '13px', color: TEXT, wordBreak: 'break-all' as const }}>{`https://app.thrift.ly/r/${referralCode}`}</span>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(`https://app.thrift.ly/r/${referralCode}`).then(() => showToast('Link copied!')).catch(() => showToast('Could not copy', 'error'))
+                  }}
+                  style={{ padding: '6px 12px', fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: BRAND, backgroundColor: 'transparent', border: `1px solid ${BRAND}`, borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+                >Copy</button>
+              </div>
 
               <button onClick={handleShare} style={listStyles.sheetButton}>
                 Introduce your friends to Penny
@@ -2665,164 +3244,6 @@ const handleCodeChange = (index: number, value: string) => {
     )
   }
 
-  // =========================================================================
-  // TEXT PENNY SCREEN
-  // =========================================================================
-
-  if (screen === 'about') {
-    return (
-      <div style={listStyles.page}>
-        {renderPageHeader('How to text Penny', 'about')}
-
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '20px', gap: '28px' }}>
-
-            {/* Penny with chat bubble */}
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', minHeight: '60px' }}>
-              <PennyAvatar size={53} />
-              <div style={{ flex: 1, minHeight: '48px', display: 'flex', alignItems: 'center' }}>
-                <div style={{
-                  backgroundColor: BG, borderRadius: '16px', borderTopLeftRadius: '4px',
-                  padding: '12px 16px', textAlign: 'left' as const, minHeight: '24px',
-                }}>
-                  <span style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, lineHeight: 1.6 }}>
-                    {pennyMessage}
-                  </span>
-                  {pennyTyping && <span className="cursor-blink" style={{ fontWeight: 300, marginLeft: '1px' }}>|</span>}
-                </div>
-              </div>
-            </div>
-
-            {/* How it works */}
-            <ol style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, margin: 0, paddingLeft: '24px', lineHeight: '1.8' }}>
-              <li style={{ marginBottom: '8px' }}><strong>Add Penny to your contacts</strong> using the button below</li>
-              <li style={{ marginBottom: '8px' }}><strong>Text her what you need</strong> — a grocery list, a photo of your fridge, pantry, or a recipe</li>
-              <li><strong>She adds it to your list</strong> — works in group chats with your household too</li>
-            </ol>
-          </div>
-
-          {/* Anchored bottom */}
-          <div style={{ flexShrink: 0, padding: '0 20px 20px', display: 'flex', flexDirection: 'column', gap: '12px', paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}>
-            <a
-              href="/api/penny.vcf"
-              style={{
-                display: 'block',
-                textAlign: 'center',
-                padding: '13px',
-                fontFamily: FONT,
-                fontSize: '15px',
-                fontWeight: 600,
-                color: WHITE,
-                backgroundColor: BRAND,
-                borderRadius: '12px',
-                textDecoration: 'none',
-                cursor: 'pointer',
-                border: 'none',
-                boxSizing: 'border-box',
-              }}
-            >
-              Add Penny to Contacts
-            </a>
-
-            {!settingsEmail && (
-              <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, textAlign: 'center', margin: 0 }}>
-                Set your email in Settings to email Penny
-              </p>
-            )}
-          </div>
-        </div>
-
-        {renderPennyToast()}
-      </div>
-    )
-  }
-
-
-  // =========================================================================
-  // SAVED LISTS SCREEN
-  // =========================================================================
-
-  if (screen === 'saved') {
-    return (
-      <div style={listStyles.page}>
-        <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
-        {renderSubpageHeader('Saved Lists', 'settings')}
-
-        {/* Saved lists content */}
-        <div style={listStyles.listArea}>
-          {savedLists.length === 0 ? (
-            <div style={listStyles.emptyState}>
-              <p style={listStyles.emptyText}>No saved lists yet.</p>
-              <p style={listStyles.emptySubtext}>Save your current list to reuse it later.</p>
-            </div>
-          ) : (
-            savedLists.map(sl => (
-              <button
-                key={sl.id}
-                onClick={() => { pushModalState(); setSelectedSavedList(sl) }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  width: '100%',
-                  padding: '14px 20px',
-                  background: 'none',
-                  border: 'none',
-                  borderBottom: `1px solid ${BORDER}`,
-                  cursor: 'pointer',
-                  textAlign: 'left' as const,
-                  WebkitTapHighlightColor: 'transparent',
-                  gap: '12px',
-                }}
-              >
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 500, color: TEXT }}>
-                    {sl.name}
-                  </div>
-                  <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>
-                    {sl.item_count} item{sl.item_count !== 1 ? 's' : ''} · {new Date(sl.created_at).toLocaleDateString()}
-                  </div>
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-
-        {renderPennyToast()}
-
-        {/* Saved list action sheet */}
-        {selectedSavedList && (
-          <ActionSheet isOpen={true} onClose={() => { popModalState(); setSelectedSavedList(null) }} title={selectedSavedList.name}>
-              <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: '0 0 8px 0' }}>
-                {selectedSavedList.item_count} item{selectedSavedList.item_count !== 1 ? 's' : ''}
-              </p>
-              <button
-                onClick={() => handleLoadSavedList(selectedSavedList.id, 'overwrite')}
-                style={listStyles.sheetButton}
-              >Replace Current List</button>
-              <button
-                onClick={() => handleLoadSavedList(selectedSavedList.id, 'merge')}
-                style={{
-                  ...listStyles.sheetButton,
-                  backgroundColor: 'transparent',
-                  color: BRAND,
-                  border: `1.5px solid ${BRAND}`,
-                }}
-              >Merge into Current List</button>
-              <button
-                onClick={() => openConfirmModal({
-                  title: 'Delete List',
-                  message: `Delete "${selectedSavedList.name}"? This cannot be undone.`,
-                  confirmLabel: 'Delete',
-                  destructive: true,
-                  onConfirm: () => handleDeleteSavedList(selectedSavedList.id),
-                })}
-                style={listStyles.sheetDeleteBtn}
-              >Delete List</button>
-          </ActionSheet>
-        )}
-      </div>
-    )
-  }
 
   // =========================================================================
   // ADMIN DASHBOARD SCREEN
@@ -2919,6 +3340,80 @@ const handleCodeChange = (index: number, value: string) => {
                   </div>
                 ))
               )}
+
+              {/* Item Analytics */}
+              {analyticsData && (
+                <>
+                  <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '28px', marginBottom: '12px' }}>
+                    Item Analytics
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+                    <div style={{ backgroundColor: WHITE, borderRadius: '12px', padding: '16px', border: `1px solid ${BORDER}` }}>
+                      <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '4px' }}>Items Created</div>
+                      <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>{analyticsData.items_created}</div>
+                    </div>
+                    <div style={{ backgroundColor: WHITE, borderRadius: '12px', padding: '16px', border: `1px solid ${BORDER}` }}>
+                      <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '4px' }}>Total Events</div>
+                      <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>{Object.values(analyticsData.events_by_action).reduce((a, b) => a + b, 0)}</div>
+                    </div>
+                  </div>
+
+                  {/* By Source */}
+                  {Object.keys(analyticsData.items_by_source).length > 0 && (
+                    <>
+                      <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT, marginBottom: '8px' }}>By Source</div>
+                      {Object.entries(analyticsData.items_by_source).sort((a, b) => b[1] - a[1]).map(([src, cnt]) => (
+                        <div key={src} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: `1px solid ${BORDER}` }}>
+                          <span style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>{src}</span>
+                          <span style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT }}>{cnt}</span>
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {/* By Department */}
+                  {Object.keys(analyticsData.items_by_department).length > 0 && (
+                    <>
+                      <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT, marginTop: '16px', marginBottom: '8px' }}>Top Departments</div>
+                      {Object.entries(analyticsData.items_by_department).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([dept, cnt]) => (
+                        <div key={dept} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: `1px solid ${BORDER}` }}>
+                          <span style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>{dept}</span>
+                          <span style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT }}>{cnt}</span>
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {/* Events by Action */}
+                  {Object.keys(analyticsData.events_by_action).length > 0 && (
+                    <>
+                      <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT, marginTop: '16px', marginBottom: '8px' }}>Events by Action</div>
+                      {Object.entries(analyticsData.events_by_action).sort((a, b) => b[1] - a[1]).map(([action, cnt]) => (
+                        <div key={action} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: `1px solid ${BORDER}` }}>
+                          <span style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>{action}</span>
+                          <span style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT }}>{cnt}</span>
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {/* Daily Activity */}
+                  {analyticsData.events_by_day.length > 0 && (
+                    <>
+                      <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT, marginTop: '16px', marginBottom: '8px' }}>Daily Activity</div>
+                      {analyticsData.events_by_day.slice(-14).map(d => (
+                        <div key={d.date} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                          <span style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY }}>{d.date}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ width: `${Math.min(120, Math.max(4, d.count * 3))}px`, height: '8px', backgroundColor: BRAND, borderRadius: '4px' }} />
+                            <span style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: TEXT, minWidth: '24px', textAlign: 'right' }}>{d.count}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </>
+              )}
             </>
           ) : (
             <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>Loading...</div>
@@ -2948,8 +3443,10 @@ const handleCodeChange = (index: number, value: string) => {
     })
   }
 
-  // Departments that have items, in store-aisle order
+  // Departments that have items, in store-aisle order (+ any unknown depts appended)
   const activeDepts = DEPARTMENTS.filter(d => items.some(i => i.department === d))
+  const extraDepts = [...new Set(items.map(i => i.department))].filter(d => !DEPARTMENTS.includes(d))
+  if (extraDepts.length > 0) activeDepts.push(...extraDepts)
 
   return (
     <div style={listStyles.page}>
@@ -2973,16 +3470,7 @@ const handleCodeChange = (index: number, value: string) => {
             alignItems: 'center',
             gap: '6px',
           }}>{pageIcons['Shopping List']} Shopping List</span>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <button
-              onClick={() => { pushModalState(); setShowTripSheet(true); if (!activeTrips.some(t => t.is_mine)) { setTripDay(''); setTripTimeLabel(''); setTripExactTime('') } }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-              title="Plan a shopping trip"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={activeTrips.length > 0 ? BRAND : TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-              </svg>
-            </button>
+          <div style={{ marginLeft: 'auto' }}>
             {renderMenu('home')}
           </div>
         </div>
@@ -3021,7 +3509,27 @@ const handleCodeChange = (index: number, value: string) => {
                 {isTripInProgress(trip) ? 'Shopping now!' : formatTripTime(trip)}
               </span>
               {trip.is_mine && (
-                <div style={{ display: 'flex', gap: '4px' }}>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {isTripInProgress(trip) && (
+                    <button
+                      onClick={() => {
+                        handleCancelTrip()
+                        if (items.length > 0) {
+                          const allChecked = items.every(i => i.checked)
+                          if (allChecked) {
+                            setShowDoneToast(true); setShowFireworks(true); setShowDoneOverlay(true)
+                          } else {
+                            showToast('Trip complete!')
+                          }
+                        }
+                      }}
+                      style={{
+                        fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: WHITE,
+                        backgroundColor: BRAND, border: 'none', borderRadius: '12px',
+                        padding: '4px 12px', cursor: 'pointer', whiteSpace: 'nowrap' as const,
+                      }}
+                    >Done</button>
+                  )}
                   <button
                     onClick={handleCancelTrip}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: TEXT_SECONDARY, display: 'flex' }}
@@ -3035,8 +3543,12 @@ const handleCodeChange = (index: number, value: string) => {
         </div>
       )}
 
-      {/* Scrollable list */}
-      <div ref={listAreaRef} style={listStyles.listArea}>
+      {/* Scrollable list — tap to dismiss keyboard */}
+      <div ref={listAreaRef} style={listStyles.listArea} onClick={e => {
+        if (e.target === e.currentTarget || !(e.target as HTMLElement).closest('button, a, input, textarea')) {
+          chatInputRef.current?.blur()
+        }
+      }}>
         {chatLoading && (
           <div style={{
             position: 'absolute',
@@ -3046,7 +3558,7 @@ const handleCodeChange = (index: number, value: string) => {
             pointerEvents: 'auto',
           }} />
         )}
-        {items.length === 0 ? (
+        {items.length === 0 && !chatLoading ? (
           <div style={listStyles.emptyState}>
             <p style={listStyles.emptyText}>Your list is empty.</p>
             <p style={listStyles.emptySubtext}>Tell Penny what you need.</p>
@@ -3063,6 +3575,7 @@ const handleCodeChange = (index: number, value: string) => {
                 <button
                   style={listStyles.deptHeader(isOpen, deptIdx === 0)}
                   onClick={() => handleDeptClick(dept)}
+                  aria-expanded={isOpen}
                 >
                   <span style={{ width: '52px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, paddingLeft: '9px', boxSizing: 'border-box' }}>
                     {deptDone ? <span style={{ color: BRAND, fontSize: '15px' }}>✓</span> : <DeptIcon dept={dept} />}
@@ -3088,9 +3601,9 @@ const handleCodeChange = (index: number, value: string) => {
                       </span>
                     </button>
                     <div style={{ marginRight: '10px' }}>
-                      <BrandLogo brand={item.brand} size={72} opacity={item.checked ? 0.4 : 1} />
+                      <BrandLogo brand={item.brand} size={52} opacity={item.checked ? 0.4 : 1} />
                     </div>
-                    <div style={listStyles.itemCenter} onClick={() => handleToggle(item.id)}>
+                    <div style={listStyles.itemCenter} onClick={() => openDetail(item)}>
                       <span style={listStyles.itemName(item.checked)}>
                         {item.brand ? `${item.brand} ` : ''}{item.name}
                       </span>
@@ -3122,14 +3635,6 @@ const handleCodeChange = (index: number, value: string) => {
                         )}
                       </div>
                     )}
-                    <button onClick={() => openDetail(item)} style={listStyles.itemEditBtn}>
-                      <span style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: BG, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                          <path d="M11.5 1.5a1.77 1.77 0 0 1 2.5 0 1.77 1.77 0 0 1 0 2.5L5.5 12.5 1.5 14l1.5-4L11.5 1.5z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                          <path d="M10 3.5l2.5 2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                        </svg>
-                      </span>
-                    </button>
                   </div>
                   )
                 })}
@@ -3176,8 +3681,6 @@ const handleCodeChange = (index: number, value: string) => {
         </div>
       ))}
 
-      {/* "All done" toast — rendered inline below in the penny status bar area */}
-
 
       {/* Hidden file input for camera/photo */}
       <input
@@ -3187,51 +3690,60 @@ const handleCodeChange = (index: number, value: string) => {
         multiple
         onChange={handlePhotoSelect}
         style={{ display: 'none' }}
+        aria-label="Upload photos"
       />
 
-      {/* Penny — always visible above chat */}
-      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px', backgroundColor: '#F5F3EF', borderTop: `1px solid ${BORDER}` }}>
-        <PennyAvatar size={53} />
-        <span style={{ flex: 1, fontFamily: FONT, fontSize: '14px', color: toast?.type === 'error' ? '#991B1B' : TEXT, fontWeight: 500, minHeight: '20px' }}>
-          {homePennyText}
-          {homePennyTyping && <span className="cursor-blink" style={{ fontWeight: 300, marginLeft: '1px' }}>|</span>}
-        </span>
-        {pennyStatus && <span className="penny-pulse" style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: BRAND, flexShrink: 0 }} />}
-        {homePennyBtns.map((btn, i) => (
-          <button key={i} onClick={btn.onClick} style={pennyBtnStyle}>{btn.label}</button>
-        ))}
+      {/* Penny — always visible above chat, keyboard-aware */}
+      <div style={{ flexShrink: 0, backgroundColor: toast?.type === 'error' ? '#FEE2E2' : '#F5F3EF', borderTop: `1px solid ${BORDER}`, overflow: 'hidden' }}>
+        <div style={{ padding: keyboardOpen ? '6px 12px' : '12px 16px', transition: 'padding 200ms ease' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: keyboardOpen ? '8px' : '10px' }}>
+            <PennyAvatar size={keyboardOpen ? 28 : 36} />
+            <span style={{ flex: 1, fontFamily: FONT, fontSize: keyboardOpen ? '13px' : '14px', color: toast?.type === 'error' ? '#991B1B' : TEXT, fontWeight: 500, display: '-webkit-box' as const, WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden', minHeight: keyboardOpen ? undefined : '20px', transition: 'font-size 200ms ease' }}>
+              {pennyDisambig.length > 0 && pennyDisambigIndex < pennyDisambig.length
+                ? (() => { const d = pennyDisambig[pennyDisambigIndex]; return d.current_brand ? `${d.product_category} (${d.current_brand}) — which brand?` : `${d.product_category} — which brand?` })()
+                : homePennyText}
+              {pennyDisambig.length === 0 && homePennyTyping && <span className="cursor-blink" style={{ fontWeight: 300, marginLeft: '1px' }}>|</span>}
+            </span>
+            {pennyDisambig.length > 1 && pennyDisambigIndex < pennyDisambig.length && keyboardOpen && (
+              <span style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, flexShrink: 0 }}>{pennyDisambigIndex + 1}/{pennyDisambig.length}</span>
+            )}
+            {pennyDisambig.length === 0 && pennyStatus && <span className="penny-pulse" style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: BRAND, flexShrink: 0 }} />}
+          </div>
+          {pennyDisambig.length === 0 && !keyboardOpen && homePennyBtns.length > 0 && (
+            <div style={{ display: 'flex', gap: '8px', marginTop: '8px', paddingLeft: keyboardOpen ? '36px' : '46px' }}>
+              {homePennyBtns.map((btn, i) => (
+                <button key={i} onClick={btn.onClick} style={pennyBtnStyle}>{btn.label}</button>
+              ))}
+            </div>
+          )}
+        </div>
+        {pennyDisambig.length > 0 && pennyDisambigIndex < pennyDisambig.length && (() => {
+          const d = pennyDisambig[pennyDisambigIndex]
+          return (
+            <div style={{ position: 'relative' }}>
+              <div style={{ display: 'flex', flexWrap: 'nowrap', overflowX: 'auto', gap: '6px', padding: keyboardOpen ? '4px 12px 6px 42px' : '4px 16px 10px 56px', WebkitOverflowScrolling: 'touch' as any, scrollbarWidth: 'none' as any, msOverflowStyle: 'none' as any }}>
+                {d.current_brand && !d.alternatives.includes(d.current_brand) && (
+                  <button onClick={() => handleBrandPick(d.current_brand)} style={{ ...pennyBtnStyle, padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0, boxShadow: `0 0 0 2px ${BRAND}` }}>{d.current_brand}</button>
+                )}
+                {d.alternatives.filter(a => a !== '').map((alt, i) => (
+                  <button key={i} onClick={() => handleBrandPick(alt)} style={{
+                    ...pennyBtnStyle,
+                    padding: keyboardOpen ? '4px 10px' : '5px 12px',
+                    flexShrink: 0,
+                    ...(alt === d.current_brand ? { boxShadow: `0 0 0 2px ${BRAND}` } : { background: 'transparent', color: TEXT, border: `1px solid ${BORDER}` }),
+                  }}>{alt}</button>
+                ))}
+                <button onClick={() => advanceDisambig()} style={{ ...pennyBtnStyle, background: 'transparent', color: TEXT_SECONDARY, border: `1px solid ${BORDER}`, padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0 }}>Skip</button>
+                {pennyDisambig.length > 1 && !keyboardOpen && (
+                  <span style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, alignSelf: 'center', paddingLeft: '4px', flexShrink: 0 }}>{pennyDisambigIndex + 1}/{pennyDisambig.length}</span>
+                )}
+              </div>
+              <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: '28px', background: `linear-gradient(to right, transparent, ${toast?.type === 'error' ? '#FEE2E2' : '#F5F3EF'})`, pointerEvents: 'none' }} />
+            </div>
+          )
+        })()}
       </div>
 
-      {/* Share FAB — only when user has no household members */}
-      {settingsMembers.length === 0 && (
-        <button
-          onClick={() => setScreen('settings-share')}
-          style={{
-            position: 'absolute',
-            bottom: '150px',
-            right: '56px',
-            width: '48px',
-            height: '48px',
-            borderRadius: '50%',
-            backgroundColor: BRAND,
-            border: 'none',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
-            zIndex: 20,
-          }}
-          title="Invite household members"
-        >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <circle cx="9" cy="7" r="4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <line x1="19" y1="8" x2="19" y2="14" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <line x1="22" y1="11" x2="16" y2="11" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
-      )}
 
       {/* Thumbnail strip above chat bar */}
       {pendingImages.length > 0 && (
@@ -3245,6 +3757,7 @@ const handleCodeChange = (index: number, value: string) => {
                 objectFit: 'cover',
               }} />
               <button
+                aria-label={`Remove image ${idx + 1}`}
                 onClick={() => setPendingImages(prev => prev.filter((_, i) => i !== idx))}
                 style={{
                   position: 'absolute',
@@ -3268,48 +3781,50 @@ const handleCodeChange = (index: number, value: string) => {
         </div>
       )}
 
-      {/* Bottom chat bar — flex item, anchors above keyboard via 100dvh */}
+      {/* Bottom chat bar — pill with + icon outside (iOS style) */}
       <div style={listStyles.chatBar}>
-        <button
-          style={listStyles.chatIconBtn}
-          title="Add photo"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-            <rect x="1" y="5" width="20" height="14" rx="3" stroke={TEXT_SECONDARY} strokeWidth="1.5"/>
-            <circle cx="11" cy="12" r="3.5" stroke={TEXT_SECONDARY} strokeWidth="1.5"/>
-            <path d="M7 5l1.5-2h5L15 5" stroke={TEXT_SECONDARY} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
-        <textarea
-          ref={chatInputRef}
-          rows={1}
-          placeholder="Tell Penny what you need…"
-          value={chatText}
-          onChange={e => {
-            setChatText(e.target.value)
-            e.target.style.height = 'auto'
-            e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
-          }}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat() }
-          }}
-          onPaste={handlePaste}
-          disabled={chatLoading}
-          style={{ ...listStyles.chatInput, resize: 'none' as const, overflowY: 'hidden' as const, maxHeight: '120px' }}
-        />
-        <button
-          onClick={handleSendChat}
-          disabled={(!chatText.trim() && pendingImages.length === 0) || chatLoading}
-          style={listStyles.chatSendBtn((!!chatText.trim() || pendingImages.length > 0) && !chatLoading)}
-        >
-          {chatLoading
-            ? <span style={{ fontSize: '12px', fontFamily: FONT }}>…</span>
-            : <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                <path d="M2 9h14M10 3l6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-          }
-        </button>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px' }}>
+          <button
+            title="Add photo"
+            onMouseDown={e => { e.preventDefault(); fileInputRef.current?.click() }}
+            onTouchEnd={e => { e.preventDefault(); fileInputRef.current?.click() }}
+            style={{ flexShrink: 0, width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', WebkitTapHighlightColor: 'transparent', padding: 0, marginBottom: '3px' }}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+        <div style={listStyles.chatPill}>
+          <textarea
+            ref={chatInputRef}
+            rows={1}
+            enterKeyHint="send"
+            placeholder={pennyDisambig.length > 0 && pennyDisambigIndex < pennyDisambig.length ? "Or type a brand name\u2026" : "Tell Penny what you need\u2026"}
+            value={chatText}
+            onChange={e => {
+              setChatText(e.target.value)
+              e.target.style.height = 'auto'
+              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat() }
+            }}
+            onPaste={handlePaste}
+            disabled={chatLoading}
+            style={{ ...listStyles.chatPillInput, resize: 'none' as const, overflowY: 'hidden' as const, maxHeight: '120px' }}
+          />
+          <button
+            onClick={handleSendChat}
+            disabled={(!chatText.trim() && pendingImages.length === 0) || chatLoading}
+            style={listStyles.chatPillSend((!!chatText.trim() || pendingImages.length > 0) && !chatLoading)}
+          >
+            {chatLoading
+              ? <span style={{ fontSize: '12px', fontFamily: FONT }}>…</span>
+              : <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+                  <path d="M18 2L9 11M18 2l-6 16-3-7-7-3 16-6z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+            }
+          </button>
+        </div>
+        </div>
       </div>
 
       {/* Trip planner bottom sheet */}
@@ -3326,7 +3841,7 @@ const handleCodeChange = (index: number, value: string) => {
                   {isTripInProgress(myTrip) ? 'Shopping now!' : formatTripTime(myTrip)}
                 </p>
                 <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: 0 }}>
-                  Your household can see this trip.
+                  Everyone on your list can see this.
                 </p>
               </div>
               <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
@@ -3340,78 +3855,96 @@ const handleCodeChange = (index: number, value: string) => {
         }
         return (
           <ActionSheet isOpen={true} onClose={() => { popModalState(); setShowTripSheet(false) }} title="Plan a shopping trip" maxHeight="60dvh">
-            <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: '-4px 0 16px 0' }}>
-              Let your household know when you're heading to the store.
-            </p>
-
-            <p style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: TEXT, marginBottom: '8px' }}>When?</p>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
-              {[
-                { label: 'Today', value: todayStr },
-                { label: 'Tomorrow', value: tomorrowStr },
-                { label: 'This weekend', value: satStr },
-              ].map(opt => (
-                <button
-                  key={opt.value}
-                  onClick={() => setTripDay(opt.value)}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <p style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: TEXT, margin: 0 }}>When?</p>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'nowrap', alignItems: 'center' }}>
+                {[
+                  { label: 'Today', value: todayStr },
+                  { label: 'Tomorrow', value: tomorrowStr },
+                  { label: 'Weekend', value: satStr },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setTripDay(opt.value)}
+                    style={{
+                      padding: '6px 12px', borderRadius: '20px', border: `1.5px solid ${tripDay === opt.value ? BRAND : BORDER}`,
+                      backgroundColor: tripDay === opt.value ? BRAND : WHITE, color: tripDay === opt.value ? WHITE : TEXT,
+                      fontFamily: FONT, fontSize: '14px', fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                    }}
+                  >{opt.label}</button>
+                ))}
+                <select
+                  value={getDayOptions().some(o => o.value === tripDay) ? tripDay : ''}
+                  onChange={e => setTripDay(e.target.value)}
                   style={{
-                    padding: '8px 16px', borderRadius: '20px', border: `1.5px solid ${tripDay === opt.value ? BRAND : BORDER}`,
-                    backgroundColor: tripDay === opt.value ? BRAND : WHITE, color: tripDay === opt.value ? WHITE : TEXT,
-                    fontFamily: FONT, fontSize: '15px', fontWeight: 500, cursor: 'pointer',
+                    padding: '6px 10px', borderRadius: '20px',
+                    border: `1.5px solid ${getDayOptions().some(o => o.value === tripDay) ? BRAND : BORDER}`,
+                    backgroundColor: getDayOptions().some(o => o.value === tripDay) ? BRAND : WHITE,
+                    color: getDayOptions().some(o => o.value === tripDay) ? WHITE : TEXT_SECONDARY,
+                    fontFamily: FONT, fontSize: '14px', cursor: 'pointer', flexShrink: 0, minWidth: 0,
                   }}
-                >{opt.label}</button>
-              ))}
-              <select
-                value={getDayOptions().some(o => o.value === tripDay) ? tripDay : ''}
-                onChange={e => setTripDay(e.target.value)}
-                style={{
-                  padding: '8px 12px', borderRadius: '20px', border: `1.5px solid ${BORDER}`,
-                  backgroundColor: WHITE, fontFamily: FONT, fontSize: '15px', color: TEXT, cursor: 'pointer',
-                }}
-              >
-                <option value="">Pick a day...</option>
-                {getDayOptions().map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
+                >
+                  <option value="">More...</option>
+                  {getDayOptions().map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
 
-            <p style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: TEXT, marginBottom: '8px' }}>
-              What time? <span style={{ fontWeight: 400, color: TEXT_SECONDARY }}>(optional)</span>
-            </p>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
-              {['morning', 'afternoon', 'evening', 'exact'].map(t => (
-                <button
-                  key={t}
-                  onClick={() => setTripTimeLabel(tripTimeLabel === t ? '' : t)}
-                  style={{
-                    padding: '8px 16px', borderRadius: '20px', border: `1.5px solid ${tripTimeLabel === t ? BRAND : BORDER}`,
-                    backgroundColor: tripTimeLabel === t ? BRAND : WHITE, color: tripTimeLabel === t ? WHITE : TEXT,
-                    fontFamily: FONT, fontSize: '15px', fontWeight: 500, cursor: 'pointer', textTransform: 'capitalize',
-                  }}
-                >{t}</button>
-              ))}
-            </div>
-            {tripTimeLabel === 'exact' && (
-              <input
-                type="time"
-                value={tripExactTime}
-                onChange={e => setTripExactTime(e.target.value)}
-                style={{
-                  padding: '10px 14px', borderRadius: '12px', border: `1.5px solid ${BORDER}`,
-                  fontFamily: FONT, fontSize: '16px', color: TEXT, width: '100%', boxSizing: 'border-box',
-                  marginBottom: '12px',
-                }}
-              />
-            )}
+              <p style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: TEXT, margin: 0 }}>
+                What time? <span style={{ fontWeight: 400, color: TEXT_SECONDARY }}>(optional)</span>
+              </p>
+              {tripTimeLabel === 'exact' ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <input
+                    type="time"
+                    value={tripExactTime}
+                    onChange={e => setTripExactTime(e.target.value)}
+                    autoFocus
+                    style={{
+                      flex: 1, padding: '6px 12px', borderRadius: '20px',
+                      border: `1.5px solid ${BRAND}`,
+                      fontFamily: FONT, fontSize: '14px', color: TEXT,
+                      height: '36px', boxSizing: 'border-box' as const,
+                    }}
+                  />
+                  <button
+                    onClick={() => setTripTimeLabel('')}
+                    style={{
+                      padding: '6px 12px', borderRadius: '20px', border: `1.5px solid ${BORDER}`,
+                      backgroundColor: WHITE, color: TEXT_SECONDARY,
+                      fontFamily: FONT, fontSize: '14px', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                    }}
+                  >Clear</button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'nowrap' }}>
+                  {['Morning', 'Afternoon', 'Evening', 'Exact'].map(t => (
+                    <button
+                      key={t}
+                      onClick={() => setTripTimeLabel(tripTimeLabel === t.toLowerCase() ? '' : t.toLowerCase())}
+                      style={{
+                        flex: 1, padding: '6px 4px', borderRadius: '20px',
+                        border: `1.5px solid ${tripTimeLabel === t.toLowerCase() ? BRAND : BORDER}`,
+                        backgroundColor: tripTimeLabel === t.toLowerCase() ? BRAND : WHITE,
+                        color: tripTimeLabel === t.toLowerCase() ? WHITE : TEXT,
+                        fontFamily: FONT, fontSize: '13px', fontWeight: 500, cursor: 'pointer',
+                      }}
+                    >{t}</button>
+                  ))}
+                </div>
+              )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
               <button
                 onClick={() => handleSetTrip(false)}
                 disabled={!tripDay}
-                style={{ ...listStyles.sheetButton, opacity: tripDay ? 1 : 0.4 }}
+                style={{ ...listStyles.sheetButton, padding: '12px', marginTop: '2px', opacity: tripDay ? 1 : 0.4 }}
               >Save</button>
               <button
                 onClick={() => setShowTripSheet(false)}
-                style={{ ...listStyles.sheetButton, backgroundColor: 'transparent', color: TEXT_SECONDARY, border: 'none' }}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY,
+                  padding: '4px 0', textAlign: 'center' as const, width: '100%',
+                }}
               >Cancel</button>
             </div>
           </ActionSheet>
@@ -3436,7 +3969,7 @@ const handleCodeChange = (index: number, value: string) => {
 
             {/* Penny speech bubble */}
             <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', paddingRight: '24px' }}>
-              <PennyAvatar size={53} />
+              <PennyAvatar />
               <div style={{
                 flex: 1, backgroundColor: BG, borderRadius: '14px', padding: '12px 14px',
                 fontFamily: FONT, fontSize: '15px', color: TEXT, lineHeight: '1.4', position: 'relative',
@@ -3468,7 +4001,7 @@ const handleCodeChange = (index: number, value: string) => {
                   <textarea
                     value={npsComment}
                     onChange={e => setNpsComment(e.target.value)}
-                    placeholder={`Tell us why you chose ${npsScore}`}
+                    placeholder={`What's behind your score of ${npsScore}? (optional)`}
                     rows={3}
                     autoFocus
                     style={{
@@ -3491,31 +4024,43 @@ const handleCodeChange = (index: number, value: string) => {
 
       {/* Item detail sheet */}
       {selectedItem && (
-        <ActionSheet isOpen={true} onClose={() => closeEditSheet()} title="Edit item" maxHeight="75dvh">
+        <div style={listStyles.overlay} onClick={() => closeEditSheet()} role="presentation">
+          <div role="dialog" aria-modal="true" aria-label="Edit item" style={{
+            width: '100%', height: '100dvh', backgroundColor: WHITE,
+            display: 'flex', flexDirection: 'column' as const,
+          }} onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
+              <button onClick={() => closeEditSheet()} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', color: TEXT }}>
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M15 5L5 15M5 5l10 10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
+              </button>
+              <span style={{ flex: 1, textAlign: 'center', fontFamily: FONT, fontSize: '17px', fontWeight: 600, color: TEXT }}>Edit item</span>
+              <div style={{ width: '28px' }} />
+            </div>
+            {/* Scrollable content */}
+            <div style={{ flex: 1, overflowY: 'auto' as const, padding: '20px', display: 'flex', flexDirection: 'column' as const, gap: '14px' }}>
             {/* Brand field with logo */}
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px', marginBottom: '0' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px' }}>
               <div style={{ flex: 1 }}>
                 <FloatingLabelField label="Brand">
                   <input
                     type="text"
-                    value={editBrand}
-                    onChange={e => setEditBrand(e.target.value)}
-                    onBlur={() => setDisplayBrand(editBrand)}
+                    value={editForm.brand}
+                    onChange={e => setEditForm(f => ({ ...f, brand: e.target.value }))}
+                    onBlur={() => setDisplayBrand(editForm.brand)}
                     placeholder="Optional"
                     style={listStyles.floatingInput}
                   />
                 </FloatingLabelField>
               </div>
-              <div style={{ marginBottom: '8px' }}>
-                <BrandLogo brand={displayBrand || undefined} size={72} />
-              </div>
+              <BrandLogo brand={displayBrand || undefined} size={44} />
             </div>
 
             <FloatingLabelField label="Name">
               <input
                 type="text"
-                value={editName}
-                onChange={e => setEditName(e.target.value)}
+                value={editForm.name}
+                onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
                 placeholder="Item name"
                 style={listStyles.floatingInput}
                 autoFocus
@@ -3524,8 +4069,8 @@ const handleCodeChange = (index: number, value: string) => {
 
             <FloatingLabelField label="Department">
               <select
-                value={editDept}
-                onChange={e => setEditDept(e.target.value)}
+                value={editForm.dept}
+                onChange={e => setEditForm(f => ({ ...f, dept: e.target.value }))}
                 style={listStyles.floatingSelect}
               >
                 {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
@@ -3538,8 +4083,8 @@ const handleCodeChange = (index: number, value: string) => {
                   <input
                     type="text"
                     list="size-suggestions"
-                    value={editSize}
-                    onChange={e => setEditSize(e.target.value)}
+                    value={editForm.size}
+                    onChange={e => setEditForm(f => ({ ...f, size: e.target.value }))}
                     placeholder="e.g. 16 oz, 1 lb"
                     style={listStyles.floatingInput}
                   />
@@ -3552,7 +4097,7 @@ const handleCodeChange = (index: number, value: string) => {
               </div>
               <div>
                 <FloatingLabelField label="Qty">
-                  <QuantityControl value={editQty} onChange={setEditQty} />
+                  <QuantityControl value={editForm.qty} onChange={(v: number) => setEditForm(f => ({ ...f, qty: v }))} />
                 </FloatingLabelField>
               </div>
             </div>
@@ -3560,8 +4105,8 @@ const handleCodeChange = (index: number, value: string) => {
             <FloatingLabelField label="Notes">
               <input
                 type="text"
-                value={editNotes}
-                onChange={e => setEditNotes(e.target.value)}
+                value={editForm.notes}
+                onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
                 placeholder="e.g. Tangerine flavor, organic"
                 style={listStyles.floatingInput}
               />
@@ -3571,7 +4116,7 @@ const handleCodeChange = (index: number, value: string) => {
             {selectedItem && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderTop: `1px solid ${BORDER}`, marginTop: '4px' }}>
                 <span style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>🔥 Urgent</span>
-                <ToggleSwitch value={selectedItem.urgent} onChange={() => { handleUrgentToggle(selectedItem.id); setSelectedItem(prev => prev ? { ...prev, urgent: !prev.urgent } : prev) }} />
+                <ToggleSwitch label="Urgent" value={selectedItem.urgent} onChange={() => { handleUrgentToggle(selectedItem.id); setSelectedItem(prev => prev ? { ...prev, urgent: !prev.urgent } : prev) }} />
               </div>
             )}
 
@@ -3599,23 +4144,6 @@ const handleCodeChange = (index: number, value: string) => {
                 )}
               </div>
             )}
-
-            <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <button
-                onClick={handleEditSave}
-                disabled={!editName.trim() || editLoading}
-                style={{
-                  ...listStyles.sheetButton,
-                  opacity: editName.trim() && !editLoading ? 1 : 0.4,
-                }}
-              >
-                {editLoading ? 'Saving…' : 'Save'}
-              </button>
-
-              <button onClick={handleEditDelete} disabled={editLoading} style={listStyles.sheetDeleteBtn}>
-                Delete item
-              </button>
-            </div>
 
             {itemHistory.length > 0 && (
               <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${BORDER}` }}>
@@ -3659,7 +4187,25 @@ const handleCodeChange = (index: number, value: string) => {
                 })}
               </div>
             )}
-        </ActionSheet>
+            </div>
+            {/* Anchored bottom buttons */}
+            <div style={{ flexShrink: 0, padding: '16px 20px', paddingBottom: 'max(16px, env(safe-area-inset-bottom))', borderTop: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column' as const, gap: '8px' }}>
+              <button
+                onClick={handleEditSave}
+                disabled={!editForm.name.trim() || editLoading}
+                style={{
+                  ...listStyles.sheetButton,
+                  opacity: editForm.name.trim() && !editLoading ? 1 : 0.4,
+                }}
+              >
+                {editLoading ? 'Saving…' : 'Save'}
+              </button>
+              <button onClick={() => openConfirmModal({ title: 'Delete Item', message: 'Remove this item from your list?', confirmLabel: 'Delete', destructive: true, onConfirm: () => handleEditDelete() })} disabled={editLoading} style={listStyles.sheetDeleteBtn}>
+                Delete item
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Review sheet — shows items from last parse */}
@@ -3704,7 +4250,7 @@ const handleCodeChange = (index: number, value: string) => {
                             setItems(prev => sortItems(prev.map(i => i.id === updated.id ? updated : i)))
                           }
                         }}
-                        style={qtyBtnStyle}
+                        style={{ width: '34px', height: '34px', border: 'none', background: 'none', fontSize: '17px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                       >−</button>
                       <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT, minWidth: '24px', textAlign: 'center' }}>{item.quantity}</span>
                       <button
@@ -3719,13 +4265,13 @@ const handleCodeChange = (index: number, value: string) => {
                             setItems(prev => sortItems(prev.map(i => i.id === updated.id ? updated : i)))
                           }
                         }}
-                        style={qtyBtnStyle}
+                        style={{ width: '34px', height: '34px', border: 'none', background: 'none', fontSize: '17px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                       >+</button>
                     </div>
                     <button
                       onClick={async () => {
-                        const delRes = await fetch(`/api/list/${item.id}`, { method: 'DELETE' })
-                        if (delRes.status === 401) { handleSessionExpired(); return }
+                        const delRes = await fetchAction(`/api/list/${item.id}`, { method: 'DELETE' })
+                        if (!delRes.ok) return
                         setItems(prev => prev.filter(i => i.id !== item.id))
                         const remaining = lastAdded.filter(i => i.id !== item.id)
                         setLastAdded(remaining)
@@ -3771,7 +4317,7 @@ const handleCodeChange = (index: number, value: string) => {
                           {skipped.parsed.brand ? `${skipped.parsed.brand} ` : ''}{skipped.parsed.name}
                         </span>
                         <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>
-                          Currently: ×{existing?.quantity ?? 1}{existing && <> · <span style={{ color: BRAND, fontSize: '12px' }}>edit</span></>}
+                          On list: {existing?.quantity ?? 1}{existing && <> · <span style={{ color: BRAND, fontSize: '12px' }}>edit</span></>}
                         </div>
                       </div>
                       <button
@@ -3811,8 +4357,8 @@ const handleCodeChange = (index: number, value: string) => {
               <button
                 onClick={async () => {
                   for (const item of lastAdded) {
-                    const dr = await fetch(`/api/list/${item.id}`, { method: 'DELETE' })
-                    if (dr.status === 401) { handleSessionExpired(); return }
+                    const dr = await fetchAction(`/api/list/${item.id}`, { method: 'DELETE' })
+                    if (!dr.ok) return
                   }
                   setItems(prev => {
                     const ids = new Set(lastAdded.map(i => i.id))
@@ -3862,6 +4408,10 @@ const handleCodeChange = (index: number, value: string) => {
   )
 }
 
+export default function App() {
+  return <ErrorBoundary><AppInner /></ErrorBoundary>
+}
+
 // =============================================================================
 // STYLES
 //
@@ -3896,158 +4446,12 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: 'center',
   },
 
-  wordmark: {
-    fontFamily: FONT,
-    fontSize: '32px',
-    fontWeight: 700,
-    color: BRAND,
-    margin: '16px 0 24px 0',
-    letterSpacing: '-0.5px',
-  },
-
-  tagline: {
-    fontFamily: FONT,
-    fontSize: '15px',
-    fontWeight: 400,
-    color: TEXT_SECONDARY,
-    margin: '8px 0 32px 0',
-    lineHeight: '1.5',
-    maxWidth: '280px',
-  },
-
-  inputGroup: {
-    width: '100%',
-    marginBottom: '16px',
-  },
-
-  label: {
-    display: 'block',
-    fontFamily: FONT,
-    fontSize: '12px',
-    fontWeight: 500,
-    color: TEXT_SECONDARY,
-    marginBottom: '8px',
-    textAlign: 'left' as const,
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.5px',
-    paddingLeft: '16px',
-  },
-
-  phoneInput: {
-    width: '100%',
-    padding: '16px',
-    fontSize: '20px',
-    fontFamily: FONT,
-    fontWeight: 500,
-    color: TEXT,
-    backgroundColor: WHITE,
-    border: `2px solid ${BORDER}`,
-    borderRadius: '12px',
-    outline: 'none',
-    boxSizing: 'border-box' as const,
-    textAlign: 'left' as const,
-    letterSpacing: '0.5px',
-    // Prevent iOS zoom on focus (happens when font-size < 16px)
-    WebkitTextSizeAdjust: '100%',
-  },
-
-  button: {
-    width: '100%',
-    padding: '16px',
-    fontSize: '16px',
-    fontFamily: FONT,
-    fontWeight: 600,
-    color: WHITE,
-    backgroundColor: BRAND,
-    border: 'none',
-    borderRadius: '12px',
-    cursor: 'pointer',
-    transition: 'opacity 0.2s, transform 0.1s',
-    WebkitTapHighlightColor: 'transparent',
-    letterSpacing: '0.3px',
-  },
-
   error: {
     fontFamily: FONT,
     fontSize: '15px',
     color: ERROR_RED,
     margin: '0 0 12px 0',
     fontWeight: 500,
-  },
-
-  // --- Code screen styles ---
-
-  codePrompt: {
-    fontFamily: FONT,
-    fontSize: '15px',
-    color: TEXT_SECONDARY,
-    margin: '12px 0 4px 0',
-  },
-
-  phoneDisplay: {
-    fontFamily: FONT,
-    fontSize: '17px',
-    fontWeight: 600,
-    color: BRAND,
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    padding: '4px 8px',
-    borderRadius: '6px',
-    marginBottom: '28px',
-    textDecoration: 'underline',
-    textDecorationColor: `${BRAND}40`,
-    textUnderlineOffset: '3px',
-    transition: 'background-color 0.15s',
-  },
-
-  codeRow: {
-    display: 'flex',
-    gap: '8px',
-    marginBottom: '20px',
-    width: '100%',
-    justifyContent: 'center',
-  },
-
-  codeBox: {
-    width: '48px',
-    height: '56px',
-    fontSize: '24px',
-    fontFamily: FONT,
-    fontWeight: 600,
-    color: TEXT,
-    textAlign: 'center' as const,
-    backgroundColor: WHITE,
-    border: `2px solid ${BORDER}`,
-    borderRadius: '10px',
-    outline: 'none',
-    caretColor: BRAND,
-    transition: 'border-color 0.15s',
-    WebkitTextSizeAdjust: '100%',
-  },
-
-  verifying: {
-    fontFamily: FONT,
-    fontSize: '15px',
-    color: BRAND,
-    fontWeight: 500,
-    margin: '0 0 8px 0',
-  },
-
-  // --- Home screen styles ---
-
-  logoutButton: {
-    fontFamily: FONT,
-    fontSize: '15px',
-    fontWeight: 500,
-    color: TEXT_SECONDARY,
-    background: 'none',
-    border: `1px solid ${BORDER}`,
-    borderRadius: '8px',
-    padding: '10px 24px',
-    cursor: 'pointer',
-    marginTop: '8px',
-    transition: 'border-color 0.15s',
   },
 }
 
@@ -4079,19 +4483,6 @@ const listStyles = {
     fontWeight: 700,
     color: BRAND,
     letterSpacing: '-0.5px',
-  } as React.CSSProperties,
-
-  hamburgerBtn: {
-    width: '40px',
-    height: '40px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    borderRadius: '8px',
-    WebkitTapHighlightColor: 'transparent',
   } as React.CSSProperties,
 
   menuOverlay: {
@@ -4160,36 +4551,40 @@ const listStyles = {
     display: 'flex',
     alignItems: 'center',
     width: '100%',
-    padding: '13px 20px 13px 0',
+    padding: '10px 20px 10px 0',
     marginTop: isFirst ? 0 : '8px',
-    background: open ? `${BRAND}0D` : 'none',
+    background: open ? `${BRAND}18` : '#F4F2EE',
     border: 'none',
     borderTop: isFirst ? 'none' : `1px solid ${BORDER}`,
     borderBottom: `1px solid ${BORDER}`,
+    borderLeft: open ? `3px solid ${BRAND}` : '3px solid transparent',
     cursor: 'pointer',
     textAlign: 'left' as const,
     WebkitTapHighlightColor: 'transparent',
     gap: '0px',
     fontFamily: FONT,
-    fontSize: '12px',
-    fontWeight: 600,
-    color: open ? BRAND : TEXT_SECONDARY,
+    fontSize: '13px',
+    fontWeight: 700,
+    color: open ? BRAND : '#4A4A4A',
     textTransform: 'uppercase' as const,
-    letterSpacing: '0.7px',
+    letterSpacing: '0.8px',
   }),
 
   deptCount: {
     fontSize: '12px',
-    fontWeight: 500,
-    color: TEXT_SECONDARY,
+    fontWeight: 600,
+    color: BRAND,
     marginLeft: 'auto',
+    backgroundColor: `${BRAND}14`,
+    borderRadius: '10px',
+    padding: '1px 7px',
   } as React.CSSProperties,
 
   deptChevron: (open: boolean): React.CSSProperties => ({
     fontSize: '17px',
-    color: TEXT_SECONDARY,
+    color: open ? BRAND : TEXT_SECONDARY,
     transform: open ? 'rotate(90deg)' : 'none',
-    transition: 'transform 0.15s',
+    transition: 'transform 0.15s, color 0.15s',
     lineHeight: 1,
     marginLeft: '4px',
   }),
@@ -4202,7 +4597,7 @@ const listStyles = {
   } as React.CSSProperties,
 
   itemCheckBtn: {
-    padding: '12px 10px 12px 20px',
+    padding: '10px 10px 10px 20px',
     background: 'none',
     border: 'none',
     cursor: 'pointer',
@@ -4230,7 +4625,7 @@ const listStyles = {
 
   itemCenter: {
     flex: 1,
-    padding: '12px 0',
+    padding: '10px 0',
     cursor: 'pointer',
     display: 'flex',
     flexDirection: 'column' as const,
@@ -4252,33 +4647,28 @@ const listStyles = {
     color: TEXT_SECONDARY,
   } as React.CSSProperties,
 
-  itemEditBtn: {
-    padding: '8px 12px 8px 4px',
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    color: TEXT_SECONDARY,
-    flexShrink: 0,
-    WebkitTapHighlightColor: 'transparent',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '48px',
-    height: '48px',
-  } as React.CSSProperties,
 
   chatBar: {
     flexShrink: 0,
-    display: 'flex',
-    alignItems: 'flex-end',
-    gap: '8px',
-    padding: '10px 12px',
-    paddingBottom: 'max(10px, env(safe-area-inset-bottom))',
+    padding: '8px 8px 8px 4px',
+    paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
     backgroundColor: WHITE,
-    borderTop: `1px solid ${BORDER}`,
+    borderTop: `1.5px solid #D4CFC7`,
+    boxShadow: '0 -2px 12px rgba(0,0,0,0.06)',
   } as React.CSSProperties,
 
-  chatIconBtn: {
+  chatPill: {
+    flex: 1,
+    display: 'flex',
+    alignItems: 'flex-end',
+    backgroundColor: BG,
+    border: `1.5px solid #C5C0B8`,
+    borderRadius: '24px',
+    overflow: 'hidden',
+    minWidth: 0,
+  } as React.CSSProperties,
+
+  chatPillBtn: {
     flexShrink: 0,
     width: '40px',
     height: '40px',
@@ -4288,36 +4678,34 @@ const listStyles = {
     background: 'none',
     border: 'none',
     cursor: 'pointer',
-    borderRadius: '50%',
     WebkitTapHighlightColor: 'transparent',
   } as React.CSSProperties,
 
-  chatInput: {
+  chatPillInput: {
     flex: 1,
     padding: '10px 14px',
     fontSize: '16px',
     fontFamily: FONT,
     color: TEXT,
-    backgroundColor: BG,
-    border: `1.5px solid ${BORDER}`,
-    borderRadius: '20px',
+    backgroundColor: 'transparent',
+    border: 'none',
     outline: 'none',
     minWidth: 0,
   } as React.CSSProperties,
 
-  chatSendBtn: (active: boolean): React.CSSProperties => ({
+  chatPillSend: (active: boolean): React.CSSProperties => ({
     flexShrink: 0,
-    width: '36px',
-    height: '36px',
+    width: '40px',
+    height: '40px',
     borderRadius: '50%',
-    backgroundColor: active ? BRAND : BORDER,
-    color: active ? WHITE : TEXT_SECONDARY,
+    backgroundColor: 'transparent',
+    color: active ? BRAND : TEXT_SECONDARY,
     border: 'none',
     cursor: active ? 'pointer' : 'default',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    transition: 'background-color 0.15s',
+    transition: 'color 0.15s',
     WebkitTapHighlightColor: 'transparent',
   }),
 
@@ -4350,30 +4738,10 @@ const listStyles = {
     color: TEXT,
   } as React.CSSProperties,
 
-  fieldLabel: {
-    display: 'block',
-    fontFamily: FONT,
-    fontSize: '12px',
-    fontWeight: 600,
-    color: TEXT_SECONDARY,
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.5px',
-    marginBottom: '4px',
-  } as React.CSSProperties,
-
   sheetRow: {
     display: 'flex',
     alignItems: 'center',
     gap: '12px',
-  } as React.CSSProperties,
-
-  sheetLabel: {
-    fontFamily: FONT,
-    fontSize: '15px',
-    fontWeight: 500,
-    color: TEXT_SECONDARY,
-    flexShrink: 0,
-    width: '36px',
   } as React.CSSProperties,
 
   sheetTextInput: {
@@ -4387,25 +4755,6 @@ const listStyles = {
     borderRadius: '12px',
     outline: 'none',
     boxSizing: 'border-box' as const,
-  } as React.CSSProperties,
-
-  sheetSelect: {
-    width: '100%',
-    padding: '13px 16px',
-    fontSize: '16px',
-    fontFamily: FONT,
-    color: TEXT,
-    backgroundColor: BG,
-    border: `1.5px solid ${BORDER}`,
-    borderRadius: '12px',
-    outline: 'none',
-    boxSizing: 'border-box' as const,
-    appearance: 'none' as const,
-    WebkitAppearance: 'none' as const,
-    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236B6B6B' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")`,
-    backgroundRepeat: 'no-repeat',
-    backgroundPosition: 'right 16px center',
-    paddingRight: '40px',
   } as React.CSSProperties,
 
   floatingInput: {
@@ -4440,40 +4789,6 @@ const listStyles = {
     paddingRight: '40px',
   } as React.CSSProperties,
 
-  qtyControl: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0',
-    border: `1.5px solid ${BORDER}`,
-    borderRadius: '12px',
-    overflow: 'hidden',
-    backgroundColor: BG,
-  } as React.CSSProperties,
-
-  qtyBtn: {
-    width: '44px',
-    height: '44px',
-    border: 'none',
-    background: 'none',
-    fontSize: '20px',
-    fontWeight: 400,
-    color: BRAND,
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    WebkitTapHighlightColor: 'transparent',
-  } as React.CSSProperties,
-
-  qtyValue: {
-    fontFamily: FONT,
-    fontSize: '16px',
-    fontWeight: 600,
-    color: TEXT,
-    minWidth: '32px',
-    textAlign: 'center' as const,
-  } as React.CSSProperties,
-
   sheetButton: {
     width: '100%',
     padding: '15px',
@@ -4498,6 +4813,38 @@ const listStyles = {
     border: `1px solid ${ERROR_RED}40`,
     borderRadius: '12px',
     cursor: 'pointer',
+  } as React.CSSProperties,
+
+  // Shared card container (used for toggle rows, settings cards)
+  settingsCard: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '12px 16px',
+    backgroundColor: BG,
+    borderRadius: '12px',
+    cursor: 'pointer',
+    WebkitTapHighlightColor: 'transparent',
+  } as React.CSSProperties,
+
+  // Subtle text link (used for "wrong number?", "resend code", etc.)
+  subtleLink: {
+    fontFamily: FONT,
+    fontSize: '13px',
+    color: TEXT_SECONDARY,
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    padding: 0,
+    textDecoration: 'underline',
+    textDecorationColor: `${TEXT_SECONDARY}40`,
+    textUnderlineOffset: '2px',
+  } as React.CSSProperties,
+
+  // Divider line
+  divider: {
+    height: '1px',
+    backgroundColor: BORDER,
   } as React.CSSProperties,
 }
 
@@ -4557,6 +4904,27 @@ const globalCSS = `
   }
   .penny-pulse {
     animation: penny-pulse 1.2s ease-in-out infinite;
+  }
+
+  /* Slider thumb styling */
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #2D6A4F;
+    border: 2px solid white;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    cursor: pointer;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #2D6A4F;
+    border: 2px solid white;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    cursor: pointer;
   }
 
   @keyframes float-up {

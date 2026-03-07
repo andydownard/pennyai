@@ -1,0 +1,1291 @@
+package main
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+)
+
+func (s *Server) handleLogoProxy(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+
+	domain := r.URL.Query().Get("domain")
+	brand := r.URL.Query().Get("brand")
+
+	// If brand name provided, resolve to domain via brands table
+	if brand != "" && domain == "" {
+		var d string
+		if err := s.db.QueryRow("SELECT domain FROM brands WHERE LOWER(name) = LOWER(?)", brand).Scan(&d); err == nil {
+			domain = d
+		} else {
+			// Guess domain from brand name
+			domain = strings.ToLower(brand)
+			domain = strings.Map(func(r rune) rune {
+				if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+					return r
+				}
+				return -1
+			}, domain) + ".com"
+		}
+	}
+
+	if domain == "" {
+		http.Error(w, "Missing domain or brand parameter", http.StatusBadRequest)
+		return
+	}
+	// Sanitize: only allow alphanumeric, dots, hyphens
+	for _, c := range domain {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-') {
+			http.Error(w, "Invalid domain", http.StatusBadRequest)
+			return
+		}
+	}
+
+	cacheKey := strings.ToLower(domain)
+
+	// Layer 1: in-memory cache
+	if cached, ok := s.logoCache.Load(cacheKey); ok {
+		cl := cached.(*cachedLogo)
+		w.Header().Set("Content-Type", cl.contentType)
+		w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", logoCacheMaxAge))
+		w.Write(cl.data)
+		return
+	}
+
+	// Layer 2: SQLite BLOB
+	var logoData []byte
+	var contentType string
+	err := s.db.QueryRow(
+		"SELECT bl.logo_data, bl.content_type FROM brand_logos bl JOIN brands b ON b.id = bl.brand_id WHERE LOWER(b.domain) = LOWER(?)",
+		domain,
+	).Scan(&logoData, &contentType)
+	if err == nil && len(logoData) > 0 {
+		s.logoCache.Store(cacheKey, &cachedLogo{data: logoData, contentType: contentType})
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", logoCacheMaxAge))
+		w.Write(logoData)
+		return
+	}
+
+	// Layer 3: fetch from external APIs
+	var brandID int
+	var brandName string
+	s.db.QueryRow("SELECT id, name FROM brands WHERE LOWER(domain) = LOWER(?)", domain).Scan(&brandID, &brandName)
+
+	logoData, contentType = fetchBrandLogo(domain, s.config.LogoDevSecret, s.config.LogoDevToken)
+	if logoData != nil {
+		// Store in SQLite if brand exists (async)
+		if brandID > 0 {
+			go func(id int, data []byte, ct string) {
+				s.db.Exec(
+					"INSERT OR REPLACE INTO brand_logos (brand_id, logo_data, content_type, fetched_at, source) VALUES (?, ?, ?, CURRENT_TIMESTAMP, 'logodev')",
+					id, data, ct,
+				)
+			}(brandID, logoData, contentType)
+		}
+		s.logoCache.Store(cacheKey, &cachedLogo{data: logoData, contentType: contentType})
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", logoCacheMaxAge))
+		w.Write(logoData)
+		return
+	}
+
+	// Layer 4: SVG placeholder
+	name := brandName
+	if name == "" {
+		name = strings.TrimSuffix(domain, ".com")
+	}
+	s.servePlaceholderLogo(w, name)
+}
+
+// fetchBrandLogo fetches a brand logo from Logo.dev.
+//
+// Logo.dev issues two credentials:
+//   - Public token  (pk_...): validated by Referer header — only works in browsers
+//     where the referring page matches a registered domain. Server-side Go HTTP
+//     clients send no Referer, so Logo.dev rejects these requests with non-200.
+//   - Secret key    (sk_...): bypasses Referer validation, intended for server-side
+//     use. This is what we must use here.
+//
+// We accept both and prefer the secret key (sk_...) for the actual API call.
+// The public token is accepted as a fallback in case the secret is unset but the
+// token alone is configured (e.g. a plan that doesn't issue a secret key).
+func fetchBrandLogo(domain, secretKey, publicToken string) ([]byte, string) {
+	// Use public token (secret key may expire); fall back to secret key.
+	token := publicToken
+	if token == "" {
+		token = secretKey
+	}
+	if token == "" {
+		return nil, ""
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	reqURL := "https://img.logo.dev/" + url.QueryEscape(domain) + "?token=" + url.QueryEscape(token) + "&size=128&format=png"
+	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, ""
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		io.Copy(io.Discard, resp.Body) // drain for connection reuse
+		return nil, ""
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err == nil && len(data) > 200 {
+		ct := resp.Header.Get("Content-Type")
+		if ct == "" {
+			ct = "image/png"
+		}
+		return data, ct
+	}
+	return nil, ""
+}
+
+// servePlaceholderLogo returns an SVG with the brand's initials in a deterministic color.
+func (s *Server) servePlaceholderLogo(w http.ResponseWriter, name string) {
+	initials := logoInitials(name)
+	color := logoColor(name)
+	// Escape initials for safe SVG embedding
+	safeInitials := strings.NewReplacer("<", "&lt;", ">", "&gt;", "&", "&amp;", "\"", "&quot;").Replace(initials)
+	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="16" fill="%s"/>
+  <text x="64" y="64" dominant-baseline="central" text-anchor="middle"
+        font-family="system-ui,sans-serif" font-weight="600" font-size="48" fill="white">%s</text>
+</svg>`, color, safeInitials)
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", logoCacheMaxAge))
+	w.Write([]byte(svg))
+}
+
+func logoInitials(name string) string {
+	words := strings.Fields(name)
+	if len(words) == 0 {
+		return "?"
+	}
+	if len(words) == 1 {
+		r := []rune(words[0])
+		return strings.ToUpper(string(r[0:1]))
+	}
+	return strings.ToUpper(string([]rune(words[0])[0:1]) + string([]rune(words[1])[0:1]))
+}
+
+func logoColor(name string) string {
+	colors := []string{"#4F46E5", "#7C3AED", "#DB2777", "#DC2626", "#EA580C", "#CA8A04", "#16A34A", "#0891B2"}
+	h := 0
+	for _, c := range name {
+		h = h*31 + int(c)
+	}
+	if h < 0 {
+		h = -h
+	}
+	return colors[h%len(colors)]
+}
+
+// warmLogoCache pre-fetches logos for brands missing from the brand_logos table.
+// Runs in the background after server starts.
+func (s *Server) warmLogoCache() {
+	// First, load all existing logos into memory
+	rows, err := s.db.Query("SELECT b.domain, bl.logo_data, bl.content_type FROM brand_logos bl JOIN brands b ON b.id = bl.brand_id")
+	if err == nil {
+		count := 0
+		for rows.Next() {
+			var domain, ct string
+			var data []byte
+			if rows.Scan(&domain, &data, &ct) == nil {
+				s.logoCache.Store(strings.ToLower(domain), &cachedLogo{data: data, contentType: ct})
+				count++
+			}
+		}
+		rows.Close() // close explicitly before next query to avoid holding cursor
+		if count > 0 {
+			log.Printf("[logos] loaded %d logos from database", count)
+		}
+	}
+
+	// Collect missing logos first, then close the cursor before any HTTP I/O
+	type missingBrand struct {
+		id     int
+		name   string
+		domain string
+	}
+	var missing []missingBrand
+	rows2, err := s.db.Query(`
+		SELECT b.id, b.name, b.domain FROM brands b
+		LEFT JOIN brand_logos bl ON bl.brand_id = b.id
+		WHERE bl.brand_id IS NULL AND b.domain != ''
+	`)
+	if err != nil {
+		return
+	}
+	for rows2.Next() {
+		var mb missingBrand
+		if rows2.Scan(&mb.id, &mb.name, &mb.domain) == nil {
+			missing = append(missing, mb)
+		}
+	}
+	rows2.Close()
+
+	for _, mb := range missing {
+		data, ct := fetchBrandLogo(mb.domain, s.config.LogoDevSecret, s.config.LogoDevToken)
+		if data != nil {
+			s.db.Exec(
+				"INSERT OR REPLACE INTO brand_logos (brand_id, logo_data, content_type, fetched_at, source) VALUES (?, ?, ?, CURRENT_TIMESTAMP, 'logodev')",
+				mb.id, data, ct,
+			)
+			s.logoCache.Store(strings.ToLower(mb.domain), &cachedLogo{data: data, contentType: ct})
+			log.Printf("[logos] fetched logo for %s (%s)", mb.name, mb.domain)
+		}
+		time.Sleep(500 * time.Millisecond) // rate limit
+	}
+	log.Printf("[logos] warm-up complete")
+}
+
+
+func (s *Server) handleBrands(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+
+	rows, err := s.db.Query("SELECT name, domain FROM brands")
+	if err != nil {
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	result := make(map[string]string)
+	for rows.Next() {
+		var name, domain string
+		if err := rows.Scan(&name, &domain); err != nil {
+			continue
+		}
+		result[strings.ToLower(name)] = domain
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[brands] row iteration error: %v", err)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	json.NewEncoder(w).Encode(result)
+}
+
+
+func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
+	tail := strings.TrimPrefix(r.URL.Path, "/api/list")
+	tail = strings.Trim(tail, "/")
+
+	if tail == "parse" && r.Method == http.MethodPost {
+		s.handleParseAndAdd(w, r)
+		return
+	}
+
+	if tail == "" {
+		switch r.Method {
+		case http.MethodGet:
+			s.handleListGet(w, r)
+		case http.MethodPost:
+			s.handleListAdd(w, r)
+		default:
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
+		}
+		return
+	}
+
+	parts := strings.Split(tail, "/")
+	id, err := strconv.Atoi(parts[0])
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid ID"})
+		return
+	}
+
+	if len(parts) == 2 && parts[1] == "toggle" && r.Method == http.MethodPatch {
+		s.handleListToggle(w, r, id)
+		return
+	}
+
+	if len(parts) == 2 && parts[1] == "urgent" && r.Method == http.MethodPatch {
+		s.handleListUrgent(w, r, id)
+		return
+	}
+
+	if len(parts) == 2 && parts[1] == "claim" && r.Method == http.MethodPatch {
+		s.handleListClaim(w, r, id)
+		return
+	}
+
+	if len(parts) == 2 && parts[1] == "history" && r.Method == http.MethodGet {
+		s.handleItemHistory(w, r, id)
+		return
+	}
+
+	if len(parts) == 1 && r.Method == http.MethodPatch {
+		s.handleListEdit(w, r, id)
+		return
+	}
+
+	if len(parts) == 1 && r.Method == http.MethodDelete {
+		s.handleListDelete(w, r, id)
+		return
+	}
+
+	http.Error(w, "Not found", http.StatusNotFound)
+}
+
+// handleParseAndAdd handles POST /api/list/parse
+// Request:  { "text": "milk eggs sourdough chicken", "image": "data:image/jpeg;base64,..." }
+// Response: ParseResponse with items, added count, and updated count
+func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 10*1024*1024) // 10 MB limit
+
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	// Per-user rate limit: 30 parse requests per hour
+	{
+		now := time.Now()
+		val, _ := s.parseLimiter.LoadOrStore(session.UserID, &rateBucket{})
+		bucket := val.(*rateBucket)
+		bucket.mu.Lock()
+		recent := make([]time.Time, 0, len(bucket.times))
+		for _, t := range bucket.times {
+			if now.Sub(t) < time.Hour {
+				recent = append(recent, t)
+			}
+		}
+		if len(recent) >= 30 {
+			bucket.mu.Unlock()
+			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Too many requests — please wait a few minutes"})
+			return
+		}
+		recent = append(recent, now)
+		bucket.times = recent
+		bucket.mu.Unlock()
+	}
+
+	var req struct {
+		Text   string   `json:"text"`
+		Image  string   `json:"image"`
+		Images []string `json:"images"`
+	}
+	// Decode directly — don't use decodeJSON which would override our 10MB limit with 1MB
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		msg := "Invalid request body"
+		if err.Error() == "http: request body too large" {
+			msg = "Request too large"
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+		return
+	}
+	req.Text = strings.TrimSpace(req.Text)
+	req.Image = strings.TrimSpace(req.Image)
+	// Merge: support both single image and images array
+	images := req.Images
+	if len(images) == 0 && req.Image != "" {
+		images = []string{req.Image}
+	}
+	// Cap images to prevent memory exhaustion
+	if len(images) > 5 {
+		images = images[:5]
+	}
+	if req.Text == "" && len(images) == 0 {
+		log.Printf("[parse] empty text and images")
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Text or image is required"})
+		return
+	}
+	if s.config.AnthropicAPIKey == "" {
+		log.Printf("[parse] no API key configured")
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "AI parsing not configured"})
+		return
+	}
+
+	log.Printf("Parsing grocery text for user %d: len=%d (images: %d)", session.UserID, len(req.Text), len(images))
+
+	// Cache household IDs once for this request to avoid repeated queries
+	hhIDs, _ := getHouseholdUserIDs(s.db, session.UserID)
+
+	// For text-only requests, use the command parser which supports natural language operations
+	if len(images) == 0 && req.Text != "" {
+		// Get current list items so the LLM can reference them
+		whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID, hhIDs)
+		rows, err := s.db.Query(
+			"SELECT "+listItemColumns+" FROM "+listItemJoins+" WHERE li."+whereClause+" ORDER BY li.name",
+			whereArgs...,
+		)
+		var currentItems []ListItem
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				item, err := scanListItem(rows)
+				if err == nil {
+					currentItems = append(currentItems, item)
+				}
+			}
+		}
+
+		// Get user name for personalized messages
+		var userName string
+		s.db.QueryRow("SELECT COALESCE(name,'') FROM users WHERE id = ?", session.UserID).Scan(&userName)
+		firstName := strings.Split(strings.TrimSpace(userName), " ")[0]
+
+		cmd, err := s.parseCommand(s.config.AnthropicAPIKey, req.Text, currentItems, firstName)
+		if err != nil {
+			log.Printf("[parse] command error for user %d: %v", session.UserID, err)
+			dbError(w, err, "I couldn't understand that. Try again?")
+			return
+		}
+
+		resp := ParseResponse{
+			Action:  cmd.Action,
+			Message: cmd.Message,
+			Items:   []ListItem{},
+			Skipped: []SkippedItem{},
+		}
+
+		switch cmd.Action {
+		case "remove":
+			for _, p := range cmd.Items {
+				if p.Name == "" {
+					continue
+				}
+				// Find matching item on the list (case-insensitive)
+				for _, existing := range currentItems {
+					if strings.EqualFold(existing.Name, p.Name) || strings.EqualFold(existing.Brand+" "+existing.Name, p.Name) {
+						// ON DELETE CASCADE handles item_modifications cleanup
+						delArgs := append([]interface{}{existing.ID}, whereArgs...)
+						if _, err := s.db.Exec("DELETE FROM list_items WHERE id = ? AND "+whereClause, delArgs...); err != nil {
+							log.Printf("[parse] remove item error: %v", err)
+						}
+						resp.Removed = append(resp.Removed, existing)
+						break
+					}
+				}
+			}
+		case "check":
+			for _, p := range cmd.Items {
+				if p.Name == "" {
+					continue
+				}
+				for _, existing := range currentItems {
+					if strings.EqualFold(existing.Name, p.Name) && !existing.Checked {
+						if _, err := s.db.Exec("UPDATE list_items SET checked = 1 WHERE id = ?", existing.ID); err != nil {
+							log.Printf("[parse] check item error: %v", err)
+						}
+						existing.Checked = true
+						resp.Checked = append(resp.Checked, existing)
+						break
+					}
+				}
+			}
+		case "uncheck":
+			for _, p := range cmd.Items {
+				if p.Name == "" {
+					continue
+				}
+				for _, existing := range currentItems {
+					if strings.EqualFold(existing.Name, p.Name) && existing.Checked {
+						if _, err := s.db.Exec("UPDATE list_items SET checked = 0 WHERE id = ?", existing.ID); err != nil {
+							log.Printf("[parse] uncheck item error: %v", err)
+						}
+						existing.Checked = false
+						resp.Checked = append(resp.Checked, existing)
+						break
+					}
+				}
+			}
+		case "update":
+			for _, p := range cmd.Items {
+				if p.Name == "" {
+					continue
+				}
+				for _, existing := range currentItems {
+					if strings.EqualFold(existing.Name, p.Name) {
+						var setClauses []string
+						var setArgs []interface{}
+						if p.NewName != "" && !strings.EqualFold(p.NewName, existing.Name) {
+							setClauses = append(setClauses, "name = ?")
+							setArgs = append(setArgs, p.NewName)
+						}
+						if p.Quantity > 0 {
+							setClauses = append(setClauses, "quantity = ?")
+							setArgs = append(setArgs, p.Quantity)
+						}
+						if p.Size != "" {
+							setClauses = append(setClauses, "size = ?")
+							setArgs = append(setArgs, p.Size)
+						}
+						if p.Brand != "" {
+							setClauses = append(setClauses, "brand = ?")
+							setArgs = append(setArgs, p.Brand)
+						}
+						if p.Department != "" {
+							setClauses = append(setClauses, "department = ?")
+							setArgs = append(setArgs, p.Department)
+						}
+						if p.Notes != "" {
+							setClauses = append(setClauses, "notes = ?")
+							setArgs = append(setArgs, p.Notes)
+						}
+						if len(setClauses) > 0 {
+							query := "UPDATE list_items SET " + strings.Join(setClauses, ", ") + " WHERE id = ? AND " + whereClause
+							setArgs = append(setArgs, existing.ID)
+							setArgs = append(setArgs, whereArgs...)
+							if _, err := s.db.Exec(query, setArgs...); err != nil {
+								log.Printf("[parse] update item error: %v", err)
+							}
+							updated, err := getItemByID(s.db, existing.ID, session.UserID)
+							if err == nil {
+								resp.Updated = append(resp.Updated, updated)
+							}
+						}
+						break
+					}
+				}
+			}
+		case "save":
+			name := cmd.SaveName
+			if name == "" {
+				name = "Saved List"
+			}
+			itemsToSave, err := collectListItems(s.db, session.UserID)
+			if err == nil && len(itemsToSave) > 0 {
+				tx, err := s.db.Begin()
+				if err == nil {
+					result, err := tx.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, ?)", session.UserID, name)
+					if err == nil {
+						savedListID, _ := result.LastInsertId()
+						insertSavedListItems(tx, savedListID, itemsToSave)
+						tx.Commit()
+					} else {
+						tx.Rollback()
+					}
+				}
+			}
+		case "clear":
+			s.db.Exec(
+				"DELETE FROM list_items WHERE checked = 1 AND "+whereClause,
+				whereArgs...,
+			)
+		case "restore":
+			var stashJSON string
+			if err := s.db.QueryRow("SELECT COALESCE(last_cleared_items,'[]') FROM users WHERE id = ?", session.UserID).Scan(&stashJSON); err == nil && stashJSON != "[]" {
+				var stashed []ParsedItem
+				if json.Unmarshal([]byte(stashJSON), &stashed) == nil && len(stashed) > 0 {
+					added, _ := addParsedItems(s.db, session.UserID, stashed, "app")
+					resp.Items = added
+					resp.Added = len(added)
+					s.db.Exec("UPDATE users SET last_cleared_items = '[]' WHERE id = ?", session.UserID)
+					resp.Message = cmd.Message
+				} else {
+					resp.Message = "I don't have anything to restore right now."
+				}
+			} else {
+				resp.Message = "I don't have anything to restore right now."
+			}
+		case "share":
+			resp.Action = "share"
+			resp.Message = cmd.Message
+		case "load_saved_list":
+			resp.Action = "load_saved_list"
+			// Query user's saved lists (household-scoped)
+			slWhereClause, slWhereArgs := householdItemsWhereClause(s.db, session.UserID, hhIDs)
+			slRows, slErr := s.db.Query(
+				"SELECT sl.id, sl.name, COUNT(sli.id) FROM saved_lists sl LEFT JOIN saved_list_items sli ON sli.saved_list_id = sl.id WHERE sl."+slWhereClause+" GROUP BY sl.id ORDER BY sl.name",
+				slWhereArgs...,
+			)
+			if slErr == nil {
+				defer slRows.Close()
+				for slRows.Next() {
+					var sl SavedListSummary
+					if err := slRows.Scan(&sl.ID, &sl.Name, &sl.ItemCount); err == nil {
+						resp.SavedLists = append(resp.SavedLists, sl)
+					}
+				}
+			}
+			if len(resp.SavedLists) == 0 {
+				resp.Message = "You don't have any saved lists yet. Tell me to save your current list and give it a name!"
+			} else if cmd.SavedListName != "" {
+				// Try to match a specific list by name (case-insensitive)
+				targetName := strings.ToLower(strings.TrimSpace(cmd.SavedListName))
+				var matchedList *SavedListSummary
+				for i := range resp.SavedLists {
+					if strings.ToLower(resp.SavedLists[i].Name) == targetName {
+						matchedList = &resp.SavedLists[i]
+						break
+					}
+				}
+				if matchedList == nil {
+					// Fuzzy match — check if name contains the search term
+					for i := range resp.SavedLists {
+						if strings.Contains(strings.ToLower(resp.SavedLists[i].Name), targetName) {
+							matchedList = &resp.SavedLists[i]
+							break
+						}
+					}
+				}
+				if matchedList != nil {
+					// Auto-load the matched list using upsertListItem for dupe prevention
+					loadRows, loadErr := s.db.Query(
+						"SELECT name, brand, department, quantity, size, notes FROM saved_list_items WHERE saved_list_id = ?",
+						matchedList.ID,
+					)
+					if loadErr == nil {
+						var savedItems []itemData
+						for loadRows.Next() {
+							var si itemData
+							if err := loadRows.Scan(&si.Name, &si.Brand, &si.Department, &si.Quantity, &si.Size, &si.Notes); err == nil {
+								savedItems = append(savedItems, si)
+							}
+						}
+						loadRows.Close()
+						added := 0
+						for _, si := range savedItems {
+							_, _, err := upsertListItem(s.db, session.UserID, si.Name, si.Brand, si.Department, si.Size, si.Quantity, "app", "")
+							if err == nil {
+								added++
+							}
+						}
+						resp.Added = added
+						resp.Message = cmd.Message
+					}
+				} else {
+					resp.Message = fmt.Sprintf("I couldn't find a list called %q. Here are your saved lists — pick one!", cmd.SavedListName)
+				}
+			} else {
+				resp.Message = cmd.Message
+			}
+		case "delete_saved_list":
+			resp.Action = "delete_saved_list"
+			if cmd.SavedListName == "" {
+				resp.Message = "Which saved list would you like me to delete? Just tell me the name."
+			} else {
+				targetName := strings.ToLower(strings.TrimSpace(cmd.SavedListName))
+				slWhereClause, slWhereArgs := householdItemsWhereClause(s.db, session.UserID, hhIDs)
+				var matchedID int
+				var matchedName string
+				rows, err := s.db.Query(
+					"SELECT id, name FROM saved_lists WHERE "+slWhereClause,
+					slWhereArgs...,
+				)
+				if err == nil {
+					defer rows.Close()
+					for rows.Next() {
+						var id int
+						var name string
+						if err := rows.Scan(&id, &name); err == nil {
+							if strings.ToLower(name) == targetName || strings.Contains(strings.ToLower(name), targetName) {
+								matchedID = id
+								matchedName = name
+								break
+							}
+						}
+					}
+				}
+				if matchedID > 0 {
+					s.db.Exec("DELETE FROM saved_lists WHERE id = ?", matchedID)
+					resp.Message = fmt.Sprintf("Deleted your %q list!", matchedName)
+				} else {
+					resp.Message = fmt.Sprintf("I couldn't find a saved list called %q.", cmd.SavedListName)
+				}
+			}
+		case "update_preference":
+			for _, item := range cmd.Items {
+				if item.Brand != "" && item.Name != "" {
+					category := strings.ToLower(strings.TrimSpace(item.Name))
+					recordBrandChoice(s.db, session.UserID, category, item.Brand, "command")
+					// Force streak to 3 for explicit intent
+					s.db.Exec("UPDATE brand_preferences SET streak = 3 WHERE user_id = ? AND product_category = ?",
+						session.UserID, category)
+					// Also update existing unchecked items matching this category
+					updateArgs := append(append([]interface{}{item.Brand}, whereArgs...), "%"+category+"%")
+					s.db.Exec("UPDATE list_items SET brand = ? WHERE "+whereClause+" AND checked = 0 AND LOWER(name) LIKE ?",
+						updateArgs...)
+				}
+			}
+			resp.Message = cmd.Message
+		default:
+			// Default "add" action — use the existing addParsedItems flow
+			added, skippedItems := addParsedItems(s.db, session.UserID, cmd.Items, "app")
+			resp.Items = added
+			resp.Skipped = skippedItems
+			resp.Added = len(added)
+
+			// Resolve brand alternatives using preferences
+			var pennyBrandMode string
+			s.db.QueryRow("SELECT COALESCE(penny_brand_mode,'ask') FROM users WHERE id = ?", session.UserID).Scan(&pennyBrandMode)
+			disambiguations := resolveBrandAlternatives(s.db, session.UserID, pennyBrandMode, added, cmd.Items)
+			if len(disambiguations) > 0 {
+				resp.BrandDisambiguations = disambiguations
+			}
+		}
+
+		if resp.Items == nil {
+			resp.Items = []ListItem{}
+		}
+		if resp.Skipped == nil {
+			resp.Skipped = []SkippedItem{}
+		}
+		writeJSON(w, http.StatusCreated, resp)
+		return
+	}
+
+	// Image-based requests: use the existing item parser
+	parsed, err := s.cachedParseItems(s.config.AnthropicAPIKey, req.Text, images)
+	if err != nil {
+		log.Printf("[parse] error for user %d: %v", session.UserID, err)
+		dbError(w, err, "We couldn't understand that right now. Please try again.")
+		return
+	}
+
+	added, skippedItems := addParsedItems(s.db, session.UserID, parsed, "app")
+
+	// Resolve brand alternatives for image-based parsing too
+	var imgBrandMode string
+	s.db.QueryRow("SELECT COALESCE(penny_brand_mode,'ask') FROM users WHERE id = ?", session.UserID).Scan(&imgBrandMode)
+	imgDisambiguations := resolveBrandAlternatives(s.db, session.UserID, imgBrandMode, added, parsed)
+
+	resp := ParseResponse{
+		Items:   added,
+		Skipped: skippedItems,
+		Added:   len(added),
+	}
+	if len(imgDisambiguations) > 0 {
+		resp.BrandDisambiguations = imgDisambiguations
+	}
+	if resp.Items == nil {
+		resp.Items = []ListItem{}
+	}
+	if resp.Skipped == nil {
+		resp.Skipped = []SkippedItem{}
+	}
+
+	writeJSON(w, http.StatusCreated, resp)
+}
+
+// handleListGet handles GET /api/list
+func (s *Server) handleListGet(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID)
+	rows, err := s.db.Query(
+		"SELECT "+listItemColumns+" FROM "+listItemJoins+" WHERE li."+whereClause+" ORDER BY li.name",
+		whereArgs...,
+	)
+	if err != nil {
+		dbError(w, err, "We couldn't load your list. Please try again.")
+		return
+	}
+	defer rows.Close()
+
+	items := []ListItem{}
+	for rows.Next() {
+		item, err := scanListItem(rows)
+		if err != nil {
+			log.Printf("Error scanning row: %v", err)
+			continue
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[list] row iteration error: %v", err)
+	}
+
+	writeJSON(w, http.StatusOK, items)
+}
+
+// handleListAdd handles POST /api/list
+// Request: { "name": "Milk", "department": "Dairy & Eggs" }
+func (s *Server) handleListAdd(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Name       string `json:"name"`
+		Department string `json:"department"`
+		Quantity   int    `json:"quantity"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Name is required"})
+		return
+	}
+	if len(req.Name) > 200 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Item name is too long"})
+		return
+	}
+	if req.Department == "" {
+		req.Department = "Other"
+	}
+	if req.Quantity < 1 {
+		req.Quantity = 1
+	}
+
+	item, _, err := upsertListItem(s.db, session.UserID, req.Name, "", req.Department, "", req.Quantity, "app", "")
+	if err != nil {
+		dbError(w, err, "We couldn't save your item right now. Please try again.")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, item)
+}
+
+// handleListToggle handles PATCH /api/list/{id}/toggle
+func (s *Server) handleListToggle(w http.ResponseWriter, r *http.Request, id int) {
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID)
+	toggleArgs := append([]interface{}{id}, whereArgs...)
+	_, err := s.db.Exec(
+		"UPDATE list_items SET checked = NOT checked WHERE id = ? AND "+whereClause,
+		toggleArgs...,
+	)
+	if err != nil {
+		dbError(w, err, "We couldn't save your item right now. Please try again.")
+		return
+	}
+
+	item, err := getItemByID(s.db, id, session.UserID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		return
+	}
+
+	action := "checked"
+	if !item.Checked {
+		action = "unchecked"
+	}
+	recordModification(s.db, id, session.UserID, action, "", "app")
+
+	writeJSON(w, http.StatusOK, item)
+}
+
+// handleListUrgent handles PATCH /api/list/{id}/urgent
+func (s *Server) handleListUrgent(w http.ResponseWriter, r *http.Request, id int) {
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID)
+	urgentArgs := append([]interface{}{id}, whereArgs...)
+	_, err := s.db.Exec(
+		"UPDATE list_items SET urgent = NOT urgent WHERE id = ? AND "+whereClause,
+		urgentArgs...,
+	)
+	if err != nil {
+		dbError(w, err, "We couldn't save your item right now. Please try again.")
+		return
+	}
+
+	item, err := getItemByID(s.db, id, session.UserID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		return
+	}
+
+	action := "marked urgent"
+	if !item.Urgent {
+		action = "unmarked urgent"
+	}
+	recordModification(s.db, id, session.UserID, action, "", "app")
+
+	writeJSON(w, http.StatusOK, item)
+}
+
+// handleListClaim handles PATCH /api/list/{id}/claim
+func (s *Server) handleListClaim(w http.ResponseWriter, r *http.Request, id int) {
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	// Check item exists in household
+	item, err := getItemByID(s.db, id, session.UserID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		return
+	}
+
+	if item.ClaimedByID != nil && *item.ClaimedByID == session.UserID {
+		// Unclaim
+		_, err = s.db.Exec("UPDATE list_items SET claimed_by = NULL, claimed_at = NULL WHERE id = ?", id)
+		if err != nil {
+			dbError(w, err, "We couldn't save your item right now. Please try again.")
+			return
+		}
+		recordModification(s.db, id, session.UserID, "unclaimed", "", "app")
+	} else {
+		// Claim (or override)
+		_, err = s.db.Exec("UPDATE list_items SET claimed_by = ?, claimed_at = CURRENT_TIMESTAMP WHERE id = ?", session.UserID, id)
+		if err != nil {
+			dbError(w, err, "We couldn't save your item right now. Please try again.")
+			return
+		}
+		recordModification(s.db, id, session.UserID, "claimed", "", "app")
+	}
+
+	updated, err := getItemByID(s.db, id, session.UserID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// handleItemHistory handles GET /api/list/{id}/history
+func (s *Server) handleItemHistory(w http.ResponseWriter, r *http.Request, id int) {
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	// Verify item belongs to household
+	_, err := getItemByID(s.db, id, session.UserID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		return
+	}
+
+	rows, err := s.db.Query(
+		"SELECT m.action, m.detail, m.source, m.created_at, COALESCE(u.name, u.phone_number, '') FROM item_modifications m LEFT JOIN users u ON u.id = m.user_id WHERE m.item_id = ? ORDER BY m.created_at DESC",
+		id,
+	)
+	if err != nil {
+		dbError(w, err, "We couldn't load item history. Please try again.")
+		return
+	}
+	defer rows.Close()
+
+	type modification struct {
+		Action    string `json:"action"`
+		Detail    string `json:"detail"`
+		Source    string `json:"source"`
+		CreatedAt string `json:"created_at"`
+		UserName  string `json:"user_name"`
+	}
+	var mods []modification
+	for rows.Next() {
+		var m modification
+		var detail, source, userName sql.NullString
+		if err := rows.Scan(&m.Action, &detail, &source, &m.CreatedAt, &userName); err != nil {
+			continue
+		}
+		m.Detail = detail.String
+		m.Source = source.String
+		m.UserName = userName.String
+		mods = append(mods, m)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[history] row iteration error: %v", err)
+	}
+	if mods == nil {
+		mods = []modification{}
+	}
+
+	writeJSON(w, http.StatusOK, mods)
+}
+
+// handleListEdit handles PATCH /api/list/{id}
+// Request: { "name": "...", "brand": "...", "department": "...", "quantity": 1, "size": "..." } (all optional)
+func (s *Server) handleListEdit(w http.ResponseWriter, r *http.Request, id int) {
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Name       *string `json:"name"`
+		Brand      *string `json:"brand"`
+		Department *string `json:"department"`
+		Quantity   *int    `json:"quantity"`
+		Size       *string `json:"size"`
+		Notes      *string `json:"notes"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID)
+
+	// Build a single UPDATE with only the fields that were provided
+	var setClauses []string
+	var setArgs []interface{}
+
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		if name == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Name cannot be empty"})
+			return
+		}
+		setClauses = append(setClauses, "name = ?")
+		setArgs = append(setArgs, name)
+	}
+	if req.Brand != nil {
+		setClauses = append(setClauses, "brand = ?")
+		setArgs = append(setArgs, *req.Brand)
+	}
+	if req.Department != nil {
+		setClauses = append(setClauses, "department = ?")
+		setArgs = append(setArgs, *req.Department)
+	}
+	if req.Quantity != nil {
+		qty := *req.Quantity
+		if qty < 1 {
+			qty = 1
+		}
+		setClauses = append(setClauses, "quantity = ?")
+		setArgs = append(setArgs, qty)
+	}
+	if req.Size != nil {
+		setClauses = append(setClauses, "size = ?")
+		setArgs = append(setArgs, *req.Size)
+	}
+	if req.Notes != nil {
+		setClauses = append(setClauses, "notes = ?")
+		setArgs = append(setArgs, *req.Notes)
+	}
+
+	if len(setClauses) > 0 {
+		query := "UPDATE list_items SET " + strings.Join(setClauses, ", ") + " WHERE id = ? AND " + whereClause
+		args := append(setArgs, id)
+		args = append(args, whereArgs...)
+		if _, err := s.db.Exec(query, args...); err != nil {
+			dbError(w, err, "We couldn't save your item right now. Please try again.")
+			return
+		}
+		recordModification(s.db, id, session.UserID, "updated", strings.Join(setClauses, ", "), "app")
+	}
+
+	item, err := getItemByID(s.db, id, session.UserID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, item)
+}
+
+// handleListDelete handles DELETE /api/list/{id}
+func (s *Server) handleListDelete(w http.ResponseWriter, r *http.Request, id int) {
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID)
+	// ON DELETE CASCADE handles item_modifications cleanup
+	args := append([]interface{}{id}, whereArgs...)
+	result, err := s.db.Exec(
+		"DELETE FROM list_items WHERE id = ? AND "+whereClause,
+		args...,
+	)
+	if err != nil {
+		dbError(w, err, "We couldn't remove that item. Please try again.")
+		return
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// handleListClear handles POST /api/list/clear
+func (s *Server) handleListClear(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID)
+
+	// Stash checked items before deleting so Penny can restore them
+	rows, err := s.db.Query("SELECT name, brand, department, quantity, size, notes FROM list_items WHERE checked = 1 AND "+whereClause, whereArgs...)
+	if err == nil {
+		type stashedItem struct {
+			Name       string `json:"name"`
+			Brand      string `json:"brand"`
+			Department string `json:"department"`
+			Quantity   int    `json:"quantity"`
+			Size       string `json:"size"`
+			Notes      string `json:"notes"`
+		}
+		var stashed []stashedItem
+		for rows.Next() {
+			var si stashedItem
+			if rows.Scan(&si.Name, &si.Brand, &si.Department, &si.Quantity, &si.Size, &si.Notes) == nil {
+				stashed = append(stashed, si)
+			}
+		}
+		rows.Close()
+		if stashJSON, e := json.Marshal(stashed); e == nil {
+			s.db.Exec("UPDATE users SET last_cleared_items = ? WHERE id = ?", string(stashJSON), session.UserID)
+		}
+	}
+
+	_, err = s.db.Exec("DELETE FROM list_items WHERE checked = 1 AND "+whereClause, whereArgs...)
+	if err != nil {
+		dbError(w, err, "We couldn't clear your list. Please try again.")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// handleListRestore handles POST /api/list/restore — bulk re-insert items (used by undo)
+func (s *Server) handleListRestore(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	var items []struct {
+		Name       string `json:"name"`
+		Brand      string `json:"brand"`
+		Department string `json:"department"`
+		Quantity   int    `json:"quantity"`
+		Size       string `json:"size"`
+		Notes      string `json:"notes"`
+		Checked    bool   `json:"checked"`
+		Urgent     bool   `json:"urgent"`
+	}
+	if !decodeJSON(w, r, &items) {
+		return
+	}
+
+	// Cap restore size to prevent abuse
+	if len(items) > 500 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Too many items to restore."})
+		return
+	}
+
+	for _, item := range items {
+		if strings.TrimSpace(item.Name) == "" {
+			continue
+		}
+		qty := item.Quantity
+		if qty < 1 {
+			qty = 1
+		}
+		dept := item.Department
+		if dept == "" {
+			dept = "Other"
+		}
+		checked := 0
+		if item.Checked {
+			checked = 1
+		}
+		urgent := 0
+		if item.Urgent {
+			urgent = 1
+		}
+		_, err := s.db.Exec(
+			`INSERT INTO list_items (user_id, name, brand, department, quantity, size, notes, checked, urgent, source)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'app')`,
+			session.UserID, strings.TrimSpace(item.Name), strings.TrimSpace(item.Brand),
+			dept, qty, strings.TrimSpace(item.Size), strings.TrimSpace(item.Notes), checked, urgent,
+		)
+		if err != nil {
+			dbError(w, err, "We couldn't restore your list. Please try again.")
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// =============================================================================
+
+func (s *Server) handleBrandResolve(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		ItemID          int    `json:"item_id"`
+		Brand           string `json:"brand"`
+		ProductCategory string `json:"product_category"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	if req.ItemID == 0 || req.Brand == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "item_id and brand are required"})
+		return
+	}
+
+	// Update the item's brand — scoped to household ownership
+	whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID)
+	updateArgs := append([]interface{}{req.Brand, req.ItemID}, whereArgs...)
+	result, err := s.db.Exec("UPDATE list_items SET brand = ? WHERE id = ? AND "+whereClause, updateArgs...)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update item"})
+		return
+	}
+	if rows, _ := result.RowsAffected(); rows == 0 {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		return
+	}
+
+	// Record the brand choice for preference learning
+	category := req.ProductCategory
+	if category == "" {
+		var itemName string
+		s.db.QueryRow("SELECT name FROM list_items WHERE id = ?", req.ItemID).Scan(&itemName)
+		category = itemName
+	}
+	recordBrandChoice(s.db, session.UserID, category, req.Brand, "disambiguation")
+	recordModification(s.db, req.ItemID, session.UserID, "updated", "brand resolved to "+req.Brand, "app")
+
+	// Return the updated item
+	item, err := getItemByID(s.db, req.ItemID, session.UserID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load item"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, item)
+}
+
+// =============================================================================

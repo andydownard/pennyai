@@ -7,3 +7,5 @@ frontend/dist/
 cover.out
 coverage_detailed.out
 thriftly
+test-results/
+playwright-report/
