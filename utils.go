@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -72,6 +73,38 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v interface{}) bool {
 		return false
 	}
 	return true
+}
+
+// serveWithOGTags serves index.html with dynamic Open Graph meta tags injected
+// for referral (/r/:code) and invite (/join/:code) links. This gives rich
+// previews when links are shared in iMessage, WhatsApp, Slack, etc.
+func serveWithOGTags(w http.ResponseWriter, r *http.Request) {
+	data, err := os.ReadFile("static/index.html")
+	if err != nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	html := string(data)
+
+	var ogTitle, ogDescription string
+	if strings.HasPrefix(r.URL.Path, "/r/") {
+		ogTitle = "Join me on Thriftly!"
+		ogDescription = "I'm using Penny, an AI shopping assistant that helps me save on groceries. Join my household and we can share lists and save together."
+	} else {
+		ogTitle = "You're invited to a Thriftly household!"
+		ogDescription = "Someone wants to share their grocery list with you. Join their household on Thriftly and let Penny help you both save."
+	}
+
+	// Replace the default OG tags with dynamic ones
+	html = strings.Replace(html,
+		`<meta property="og:title" content="Thriftly — Your AI Shopping Assistant" />`,
+		`<meta property="og:title" content="`+ogTitle+`" />`, 1)
+	html = strings.Replace(html,
+		`<meta property="og:description" content="Penny helps your household save on groceries with smart suggestions and shared lists." />`,
+		`<meta property="og:description" content="`+ogDescription+`" />`, 1)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(html))
 }
 
 // requireSavedListAccess checks that listID exists and belongs to a member of

@@ -203,7 +203,7 @@ Get these from https://console.twilio.com (see README for full setup).
 
 	// Serve the React frontend. The custom handler supports SPA routing:
 	// known files are served directly, everything else gets index.html.
-	// /r/{code} referral links also serve the SPA (frontend reads the code).
+	// /r/{code} referral links and /join/:code inject dynamic OG tags for social previews.
 	fs := http.FileServer(http.Dir("static"))
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Return 404 JSON for unknown /api/ paths (don't fall through to SPA)
@@ -215,6 +215,11 @@ Get these from https://console.twilio.com (see README for full setup).
 		cleanPath := path.Clean(r.URL.Path)
 		if _, err := os.Stat("static" + cleanPath); err == nil && !strings.Contains(cleanPath, "..") {
 			fs.ServeHTTP(w, r)
+			return
+		}
+		// B2: Inject dynamic OG tags for referral and invite links
+		if strings.HasPrefix(r.URL.Path, "/r/") || strings.HasPrefix(r.URL.Path, "/join/") {
+			serveWithOGTags(w, r)
 			return
 		}
 		http.ServeFile(w, r, "static/index.html")

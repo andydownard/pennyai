@@ -1602,9 +1602,9 @@ function AppInner() {
         } else if (action === 'delete_saved_list') {
           // Deleted — just show Penny's message
         } else if (action === 'clear') {
-          // Ask for confirmation before clearing
+          // Ask for confirmation before clearing ALL items
           typePennyHome(pennyMsg || 'Clear your entire list?', [
-            { label: 'Yes, clear it', onClick: () => handleClearList() },
+            { label: 'Yes, clear it', onClick: () => handleClearList(true) },
             { label: 'Cancel', onClick: () => typePennyHome('No problem, your list is safe!') },
           ])
           return // typePennyHome already handles the message
@@ -1818,10 +1818,15 @@ function AppInner() {
     } finally { setEditLoading(false) }
   }
 
-  const handleClearList = async () => {
-    const result = await fetchAction('/api/list/clear', { method: 'POST' })
+  const handleClearList = async (all?: boolean) => {
+    const url = all ? '/api/list/clear?all=true' : '/api/list/clear'
+    const result = await fetchAction(url, { method: 'POST' })
     if (result.ok) {
-      setItems(prev => prev.filter(i => !i.checked)); setExpandedDepts(new Set()); setShowDoneToast(false); setShowFireworks(false); setPennyChimeIn(null)
+      if (all) {
+        setItems([]); setExpandedDepts(new Set()); setShowDoneToast(false); setShowFireworks(false); setPennyChimeIn(null)
+      } else {
+        setItems(prev => prev.filter(i => !i.checked)); setExpandedDepts(new Set()); setShowDoneToast(false); setShowFireworks(false); setPennyChimeIn(null)
+      }
       showToast('List cleared', 'success')
     } else if (result.status !== 401) { showToast('Couldn\'t clear your list — please try again', 'error') }
   }
@@ -2991,8 +2996,8 @@ const handleCodeChange = (index: number, value: string) => {
                   <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>
                 </svg>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>Notify me about deals</div>
-                  <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginTop: '1px' }}>Penny flags savings she thinks you'll love</div>
+                  <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>I want to text with Penny</div>
+                  <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginTop: '1px' }}>Penny texts you about deals and savings she finds</div>
                 </div>
                 <ToggleSwitch value={pennyDeals} onChange={toggleDeals} />
               </div>

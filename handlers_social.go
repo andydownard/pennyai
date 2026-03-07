@@ -224,6 +224,19 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// B7: Check if user is already in the target household (don't burn the invite)
+	var currentHouseholdID sql.NullInt64
+	s.db.QueryRow("SELECT household_id FROM users WHERE id = ?", session.UserID).Scan(&currentHouseholdID)
+	if currentHouseholdID.Valid && int(currentHouseholdID.Int64) == householdID {
+		writeJSON(w, http.StatusOK, map[string]string{"message": "You're already in this household."})
+		return
+	}
+
+	// B3: Warn if user is in a different household (they'll be moved)
+	// The frontend can show this warning; here we include it in response
+	// but still proceed since the user explicitly chose to join
+	leavingHousehold := currentHouseholdID.Valid && int(currentHouseholdID.Int64) != householdID
+
 	// Move user to the inviter's household — all in one transaction
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -275,7 +288,11 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[invite] awarded %d points to user %d for household invite", referralPointsPerInvite, createdBy)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+	resp := map[string]interface{}{"success": true}
+	if leavingHousehold {
+		resp["warning"] = "You left your previous household to join this one."
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // =============================================================================

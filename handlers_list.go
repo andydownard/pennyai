@@ -1155,7 +1155,13 @@ func (s *Server) handleListClear(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_, err = s.db.Exec("DELETE FROM list_items WHERE checked = 1 AND "+whereClause, whereArgs...)
+	// If ?all=true, clear entire list (used by Penny chat "clear list" command)
+	clearAll := r.URL.Query().Get("all") == "true"
+	if clearAll {
+		_, err = s.db.Exec("DELETE FROM list_items WHERE "+whereClause, whereArgs...)
+	} else {
+		_, err = s.db.Exec("DELETE FROM list_items WHERE checked = 1 AND "+whereClause, whereArgs...)
+	}
 	if err != nil {
 		dbError(w, err, "We couldn't clear your list. Please try again.")
 		return

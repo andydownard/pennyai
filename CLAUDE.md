@@ -270,14 +270,14 @@ Add any new bugs found to the "Bugs" section in ROADMAP.md with the same format 
 ## UI/UX Rules
 
 ### Penny Settings Page Layout (top to bottom)
-1. **Settings section** — "Learn from my choices" toggle, conditional slider (only visible when autotune OFF), "Notify me about deals" toggle (only visible if user has phone/SMS)
+1. **Settings section** — "Learn from my choices" toggle, conditional slider (only visible when autotune OFF), "I want to text with Penny" toggle (only visible if user has phone/SMS)
 2. **Divider line** — subtle 1px separator between settings and contact
 3. **Contact section** — Penny avatar + name, icon-only action buttons (text, email, add to contacts) on the right
 
 ### Conditional UI Behavior
 - When "Learn from my choices" is ON → the convenience/savings slider is hidden (Penny auto-tunes)
 - When "Learn from my choices" is OFF → the slider smoothly appears (CSS transition: max-height 0.3s + opacity 0.25s)
-- "Notify me about deals" toggle only appears if user has a phone number (opted in to messaging)
+- "I want to text with Penny" toggle only appears if user has a phone number (opted in to messaging)
 - Transitions must be smooth — no janky layout jumps. Use max-height + opacity transitions, never display:none toggling
 
 ### Auth Screens (Phone, Email Login, Email Register)
