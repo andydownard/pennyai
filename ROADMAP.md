@@ -1,6 +1,8 @@
 # Thriftly Product Roadmap
 
 > **GUARDRAIL: Never delete items from this roadmap without explicit approval from the founder.** Items that are completed or deprioritized should be moved to the appropriate section (Completed, Nice-to-Have, or Not In Scope) — never removed. Always prompt before modifying priority order.
+>
+> **See also:** `TECH_DESIGN_PENNY_SWAPS.md` — detailed technical design document for the Penny Swaps MVP with full database schemas, API contracts, pipeline architecture, fraud prevention checklist, and evidence retention policy. Based on 3 focus group panels (18 total participants).
 
 ## Product Team
 
@@ -13,6 +15,68 @@
 | **DevOps** | CI/CD, infrastructure, monitoring, deployments, incident response |
 | **BI / Reporting** | Analytics, metrics dashboards, funnel analysis, experiment design |
 | **CX (Voice of Customer)** | User feedback synthesis, support patterns, NPS analysis, feature requests |
+
+---
+
+## Focus Group Findings — Grocery Shoppers (Swap UX)
+
+> Panel of 6 shoppers conducted March 2026: Sarah (32, suburban mom, Kroger), Marcus (28, urban professional, Whole Foods), Linda (55, empty-nester, Walmart), James (41, dad, Costco/Target), Priya (36, health-conscious, Trader Joe's/Sprouts), Devon (24, recent grad, Aldi). Full report in TECH_DESIGN_PENNY_SWAPS.md.
+
+### Consensus Points (6/6 agreed)
+
+1. **3 declines = permanent suppression.** Non-negotiable. Repeating a declined suggestion destroys trust.
+2. **Price accuracy must be store-specific.** National average pricing = trust collapse.
+3. **Unit price normalization required.** Don't compare different-size packages with raw savings.
+4. **Swaps belong in planning mode, not execution mode.** No suggestions during active shopping.
+5. **The "Why?" button must have real data.** Marketing copy behind "Why?" is worse than no button at all.
+6. **Penny's tone must be consistent.** No detectable enthusiasm increase for sponsored items.
+
+### Key Insights
+
+| Insight | Source | Impact |
+|---|---|---|
+| Personalize "why" by user's value axis (price/ingredients/convenience) | Marcus, Priya | Different message template per user profile |
+| "Pre-trip swap preview" — consolidated decision point before shopping | James | New UX mode: Penny's Picks |
+| Allergen-blind suggestions = safety incident, not preference mismatch | Priya | Hard filter required at system level |
+| "Swap Everything" bulk mode for brand-agnostic shoppers | Devon | Power-user feature, Phase 2 |
+| Paid ad-free tier — willing to pay subscription for no sponsored suggestions | Priya | Revenue diversification signal |
+| Decline reason feedback ("tried before", "dietary") trains Penny | Devon | User feels they're teaching, not dismissing |
+| Receipt scanning adoption is bimodal: 50% enthusiastic, 30% prefer digital | Panel split | Build photo AND email receipt paths |
+
+### Receipt Scanning Likelihood (1-10)
+
+| Sarah | Marcus | Linda | James | Priya | Devon | **Average** |
+|---|---|---|---|---|---|---|
+| 6 | 3 | 8 | 4 | 5 | 9 | **5.8** |
+
+---
+
+## Focus Group Findings — Receipt Verification Specialists
+
+> Panel of 6 specialists conducted March 2026: Elena (shopper/expense tracker), Mike (VP Marketing CPG), Dr. Kim (CV researcher), Raj (fintech compliance), Sophie (QA engineer, tested Fetch/Ibotta), Anthony (fraud analyst). Full report in TECH_DESIGN_PENNY_SWAPS.md.
+
+### Key Technical Decisions
+
+| Decision | Recommendation | Rationale |
+|---|---|---|
+| OCR approach | Two-stage: Textract for extraction + Claude for entity resolution | Each tool's strength; Textract for structure, Claude for reasoning |
+| Receipt capture | In-app guided (primary) + camera roll (secondary) + email receipt (Phase 1) | Quality gating at capture filters 70-80% of bad inputs |
+| Item matching | Deterministic lookup DB (primary) + LLM fallback (secondary) | Auditable and fast; LLM for long-tail unmatched items |
+| Evidence retention | 7 years (2 active + 5 cold) | Fintech standard; covers audit, regulatory, legal dispute periods |
+| Chain of custody | SHA-256 hash at upload, append-only audit log | Proves image wasn't tampered with post-submission |
+| Brand image access | NEVER — Thriftly = trusted intermediary | PII protection + competitive moat |
+| Payout delay | 30 days | Covers typical return window; simple MVP defense against buy-return fraud |
+| Fraud detection MVP | pHash dedup + rate limiting + date check + math validation | Highest ROI controls with minimal engineering complexity |
+
+### Fraud Prevention Priority Stack
+
+1. **Perceptual hash deduplication** — blocks receipt reuse (same or cross-user)
+2. **Rate limiting** — 3 receipts/day, 10/week per user; $50/week value cap before manual review
+3. **Date consistency** — receipt date within promotion window, EXIF plausible
+4. **Math validation** — line items must sum to total
+5. **Error Level Analysis** — detect image manipulation (Phase 2)
+6. **Device fingerprint clustering** — multi-account detection (Phase 2)
+7. **Receipt authenticity classifier** — real thermal vs printed/generated fake (Phase 2)
 
 ---
 
@@ -79,6 +143,31 @@ Items explicitly called out as NOT required for a pilot: receipt verification, d
 
 **Takeaway:** The MVP is simpler than we thought. Swap CRUD + basic dashboard + Stripe billing = pilot-ready.
 
+### Additional Findings (March 2026 — 6-person Brand PM Deep Dive)
+
+> Panel: Rachel (Banza), Tom (Heinz), Anika (Chobani), Carlos (Magic Spoon), Megan (Sir Kensington's), Dave (Kroger Private Label). Full report in TECH_DESIGN_PENNY_SWAPS.md.
+
+**Billing consensus (6/6):**
+- Per-accepted-swap billing ONLY — per-offer/impression pricing is a dealbreaker across the board
+- Hard budget caps (daily + weekly + total) with IMMEDIATE pause and email alert within 5 minutes
+- Founding Brand rate ($1.00) must be contractually protected for 18 months in MSA (Rachel: "or early adopters feel burned")
+- Receipt-verified purchase premium: brands will pay $2.50 per verified vs $1.50 per accepted (Tom: "two-fifty for a verified purchase is a steal vs my $3-5 co-op CPA")
+- Enterprise invoicing (Net-30) required for accounts >$10K/month (Anika: "I cannot process pre-funded deposits through our AP system")
+
+**Reporting consensus:**
+- Row-level transaction logs and CSV export are non-negotiable (Carlos: "if I can't export it, I can't use it")
+- Published platform fraud rate builds trust; hiding it destroys trust (Rachel: "platforms that hide fraud metrics have fraud metrics worth hiding")
+- 30-day repeat/loyalty rate is the "killer metric" no other platform provides — multiple brands said this alone would trigger budget increases
+
+**Key strategic insight:**
+Dave (Kroger): "The platform you're describing is essentially a digitally-native trade promotion system. That's a $15 billion industry. If Thriftly can become the first AI-mediated trade promotion platform with closed-loop purchase verification, that's category creation, not just a startup product."
+
+**Evidence/audit requirements:**
+- Row-level transaction logs reconcilable to invoices (Carlos: "if there's a discrepancy, I need a dispute resolution process, not 'email support and wait three weeks'")
+- Dispute resolution SLA: 24h initial response, 5 business day resolution
+- Receipt images: brands NEVER see raw images — only extracted, anonymized verification results (Megan, Dave: PII + competitive intelligence risk)
+- Append-only audit logs (Anika: "immutable records or I can't trust the data")
+
 ---
 
 ## Phase 1 — Penny Swaps MVP + Sharing Fixes (Weeks 1-2)
@@ -93,26 +182,44 @@ Items explicitly called out as NOT required for a pilot: receipt verification, d
 **Description:**
 When a user's grocery list contains an item that matches an active brand deal, Penny suggests a swap conversationally. "Hey, I see you have Heinz ketchup — want to try Sir Kensington's? You'd save $1.50." The swap appears inline in the list as a dismissible card below the original item. User taps "Swap" or "No thanks." Penny remembers preferences — if you decline a brand 3 times, she stops suggesting it.
 
-**CX Insight:** Swaps must feel like a helpful friend's recommendation, not an ad. The moment it feels like sponsored content, trust in Penny collapses. Framing matters: "save money" not "try this brand."
+**CX Insight:** Swaps must feel like a helpful friend's recommendation, not an ad. The moment it feels like sponsored content, trust in Penny collapses. Framing matters: "save money" not "try this brand." Penny's enthusiasm level MUST be identical for sponsored and organic suggestions — shoppers detect promotional voice patterns instantly.
 
-**UX Notes:** Swap card appears directly below the matched item in the list. Shows: brand logo, product name, savings amount, "Swap" and "No thanks" buttons. Subtle "Suggested by Penny" label. Card disappears on dismiss with a gentle animation. No interstitials, no modals, no full-screen takeovers.
+**UX Notes (validated by 6-person shopper focus group March 2026):**
+- Swap card appears directly below the matched item in the list. No notifications, no modals, no full-screen takeovers (6/6 consensus on inline placement).
+- Shows: brand logo, product name, unit-normalized price comparison (per oz/per unit, NOT just raw savings), "Swap" and "No thanks" buttons, "Why?" button with REAL data (ingredient comparison, ratings — NOT marketing copy), "Brand Partner" disclosure label (always visible on paid swaps).
+- The "Why?" button is essential but MUST surface real data. An empty "Why?" backed by marketing copy is worse than no "Why?" button — it confirms "just an ad" and destroys trust (Sarah, Marcus, Priya all flagged this independently).
+- Card disappears on dismiss with a gentle animation.
+- "Pre-trip swap preview" mode: consolidated "Penny's Picks" review before shopping begins. Shoppers prefer making swap decisions in planning mode, not execution mode (James).
+- Optional "decline reason" when tapping "No thanks" — feeds back into Penny's learning ("tried it before", "dietary restriction", "brand loyal"). Users want to feel they're teaching, not just dismissing (Devon).
+
+**Shopper Anti-Patterns (will cause app deletion):**
+1. **Bait-and-switch pricing:** Savings figure must be accurate at user's actual store — national average pricing is unacceptable (Linda: deal-breaker)
+2. **Allergen-blind suggestions:** Swaps that conflict with recorded dietary restrictions are a SAFETY issue — must be hard-filtered at system level, not soft-warned (Priya: deal-breaker)
+3. **Mid-trip interruptions:** No swap suggestions after user starts shopping trip — execution mode is sacred (James, Sarah, Linda)
+4. **Missed savings shaming:** NEVER show declined swaps as "missed savings" — deliberate choices are not failures (Priya)
 
 **Architect Notes:**
-- New tables: `brand_deals` (brand_id, competitor_product, offer_product, discount_cents, budget_remaining_cents, status, created_at), `swap_events` (user_id, deal_id, action [offered/accepted/declined], created_at)
-- Matching logic in the parse response: after Penny processes a list addition, check `brand_deals` for any active deal where `competitor_product` fuzzy-matches the added item
+- New tables: `brand_deals`, `swap_events`, `swap_suppressions` (see TECH_DESIGN_PENNY_SWAPS.md for full schema)
+- Matching logic: after Penny processes a list addition, check `brand_deals` for active deals where `competitor_product` fuzzy-matches the added item. Personalize the "why" message based on user's value axis (price for budget shoppers, ingredients for health-conscious).
 - Penny's system prompt gets swap awareness: when a match exists, she weaves the suggestion into her response naturally
-- Frequency cap: max 2 swap suggestions per session, max 1 per item
-- Decline tracking: 3 declines for the same brand = suppress for 30 days
+- Frequency cap: default 2-3 per session (user-configurable), unlimited mode for power users
+- Decline tracking: **3 declines = permanent suppression** (6/6 shopper consensus, non-negotiable)
+- Allergen hard filter: swap suggestions MUST NOT conflict with user's dietary profile
+- Cooldown: min 42 days between repeat swaps for same user/brand (brand PM consensus on cooling period)
 
 **Staff Dev Notes:** Fuzzy matching is the hard part. Start with exact UPC/product name match from a curated list. Don't try to match "ketchup" to every ketchup brand — match "Heinz Ketchup 20oz" to the specific deal. Andy seeds the first 10 deals manually via admin dashboard.
 
 **Acceptance Criteria:**
 - Active deal matches trigger a swap suggestion in Penny's response
-- Swap card renders below the matched item with brand logo, product, savings
+- Swap card renders below the matched item with brand logo, product, unit price comparison, savings
 - "Swap" replaces the item on the list and logs `swap_events` with action=accepted
-- "No thanks" dismisses the card and logs action=declined
-- Max 2 swap suggestions per session
-- 3 declines for same brand suppresses it for 30 days
+- "No thanks" dismisses the card, logs action=declined, optionally captures decline reason
+- "Why?" button shows real data (ingredients, unit price, ratings) — never marketing copy
+- "Brand Partner" disclosure label visible on every paid swap card
+- Max 2-3 swap suggestions per session (configurable)
+- 3 declines for same deal = permanent suppression
+- Allergen/dietary conflicts are hard-filtered (never shown)
+- Budget decremented on acceptance; campaign pauses at cap (hard stop, not soft)
 - Admin can create/edit/deactivate deals via `/admin`
 
 ---
@@ -269,27 +376,61 @@ Upgrade Penny's swap suggestions from static cards to conversational engagement.
 **Status:** Planned
 
 **Description:**
-Users photograph their grocery receipt after shopping. Penny reads it (via Claude vision or a receipt OCR API), confirms which swapped items were actually purchased, and awards any applicable savings to the user's PennyWallet. For brands, this closes the attribution loop: "47 swaps offered, 31 accepted, 22 confirmed purchased via receipt."
+Users photograph their grocery receipt after shopping. Penny reads it via a two-stage pipeline (AWS Textract for OCR + Claude for entity resolution), confirms which swapped items were actually purchased, and awards applicable savings. For brands, this closes the attribution loop: "47 swaps offered, 31 accepted, 22 confirmed purchased via receipt." Brands pay a premium ($2.50 vs $1.50) for receipt-verified purchases.
 
-**CX Insight:** Receipt scanning must be frictionless. "Snap a pic of your receipt and I'll track your savings" — Penny handles it. No manual entry.
+**CX Insight (validated by 6-person shopper + 6-person specialist focus groups):**
+- Receipt scanning adoption is bimodal: ~50% enthusiastic (Linda 8/10, Devon 9/10), ~30% prefer digital alternatives (Marcus 3/10, James 4/10 — want email receipt / loyalty app integration). Build both paths.
+- Receipt scanning must be OPTIONAL for savings tracking but REQUIRED for premium verified payouts.
+- Blurry/partial receipt handling is a UX quality gate: if the first failure is punishing, the feature is abandoned. Accept partial reads gracefully.
+- Privacy is a real concern: grocery receipts reveal health conditions, religious practices, financial stress. Specific privacy policy required (not vague "we take your privacy seriously").
 
-**UX Notes:** Camera button in the chat input area. User takes photo, Penny processes it, shows a confirmation: "I found 3 items from your list including the Sir Kensington's swap. You saved $1.50!" Photo upload with loading state.
+**UX Notes:**
+- Primary: in-app guided capture with quality gating (contrast/focus threshold, like bank check deposit). Secondary: camera roll upload as fallback (flagged lower trust for fraud scoring).
+- Long receipts (Costco): multi-photo with server-side stitching for MVP; scroll capture Phase 2.
+- Digital receipts: email forwarding to penny@thrift.ly → parse HTML/JSON (Instacart, Walmart, Target email receipts are structured data with 100% fidelity — Phase 1 priority).
+- Loading state: "Penny is reading your receipt..." with typewriter personality (30-60s acceptable with good feedback).
+- Partial reads: "I found 3 of 5 items — want to confirm the rest?" NOT "Failed, retake photo."
+- User confirmation flow for low-confidence matches: "Is SKEN KETCH 20OZ the Sir Kensington's Ketchup?" → yes/no → feeds abbreviation database.
 
-**Architect Notes:**
+**Architect Notes (validated by 6-person specialist focus group):**
+- **Two-stage pipeline:** AWS Textract Expense Analysis for structured extraction (store, date, line items, totals, UPCs) → Claude for entity resolution and item matching. Textract purpose-built for receipts; Claude for reasoning about abbreviations.
 - Image upload endpoint: `POST /api/receipt` (multipart form data)
-- Receipt processing: send image to Claude with a structured extraction prompt. Extract: store name, date, line items (product name, quantity, price), total.
-- Match line items against the user's recent swap acceptances. Confirmed matches update `swap_events` with `verified=true` and `receipt_id`.
-- New table: `receipts` (id, user_id, image_url, store_name, purchase_date, total_cents, items_json, processed_at)
-- Store receipt images in S3 or Railway volumes. Retain for 90 days, then delete image but keep extracted data.
+- At upload: assign UUID, compute SHA-256 hash, store original unmodified image, perceptual hash for dedup, write to append-only audit log. ALL before processing.
+- Extraction fields: store_name, store_address, transaction_date, line_items [{raw_text, price, qty, upc_if_present}], subtotal, tax, total, payment_method_type.
+- Math validation: line items sum ≈ subtotal + tax ≈ total (failure → flag for review).
+- Item matching: (1) UPC lookup (highest confidence), (2) deterministic abbreviation DB with retailer-specific patterns, (3) Claude LLM for unmatched long-tail. Log resolution_method for auditability.
+- User confirmations feed back into `retailer_abbreviations` table — this is the flywheel that makes matching improve over time.
+- New tables: `receipts`, `receipt_line_items`, `receipt_hashes`, `swap_claims`, `claim_audit_log`, `retailer_abbreviations` (see TECH_DESIGN_PENNY_SWAPS.md for full schema)
+- Evidence retention: 2 years active, 5 years cold storage = 7 years total. SHA-256 chain of custody. Original image required.
+- **Thriftly = trusted intermediary:** Brands NEVER see receipt images. Only aggregated verification results. This is a competitive moat AND privacy protection.
 
-**Staff Dev Notes:** Claude vision is the simplest path — no third-party OCR vendor. Send the image with a prompt like "Extract all line items with product name and price from this grocery receipt. Return as JSON." Handle common receipt formats (Walmart, Kroger, Target, Costco).
+**Fraud Prevention (see TECH_DESIGN_PENNY_SWAPS.md for full checklist):**
+- Tier 1 (at upload): perceptual hash dedup, rate limiting (3/day, 10/week), date consistency, new account gate
+- Tier 2 (async): math validation, Error Level Analysis, price plausibility
+- Tier 3 (batch): device fingerprint clustering, cross-user dedup, buy-return defense (30-day payout hold)
+- Published fraud rate in brand dashboard — transparency builds trust
+
+**Staff Dev Notes:** Two-stage pipeline (Textract + Claude) is the specialist consensus. Claude Vision alone is excellent at reasoning but not optimized for structured receipt extraction. Textract's expense model outperforms on raw OCR; Claude's strength is "SKEN KETCH 20OZ" → "Sir Kensington's Ketchup" reasoning. Play to each tool's strengths.
+
+**Accuracy Targets:**
+- Store/date/total: >97%
+- Line items extracted: >90%
+- Item-to-product matching (lookup DB): >85%
+- Item-to-product matching (LLM fallback): >75%
+- End-to-end auto-verify rate: >70% (without user confirmation)
+- Fraud false positive rate: <2%
 
 **Acceptance Criteria:**
-- User can photograph a receipt from the chat interface
-- Penny extracts line items with >90% accuracy on major retailer receipts
-- Purchased swap items are marked as verified in `swap_events`
+- User can photograph a receipt from the chat interface (guided capture + camera roll)
+- Two-stage OCR pipeline extracts line items with >90% accuracy on major retailer receipts
+- Perceptual hash dedup prevents receipt reuse
+- Partial reads show what was found and offer user confirmation for low-confidence items
+- User confirmations feed back into abbreviation database
+- Purchased swap items marked as verified in `swap_events`
 - Brand dashboard shows verified purchase count alongside swap acceptance count
-- Receipt data is stored securely, images deleted after 90 days
+- Receipt images stored with SHA-256 hash, 7-year retention policy
+- 30-day payout hold on all verified claims (buy-return defense)
+- Fraud rate published in brand dashboard
 
 ---
 
@@ -590,6 +731,7 @@ Lead gen (M10, future):
 - **B7. Burning invite codes on no-op joins** — User already in a household can use a new invite from the same household creator. The code is consumed but no state changes. Fix: check if user is already in the target household before consuming the code. Files: `handlers_social.go` (`handleJoin`).
 - **B8. Non-numeric item ID returns plain text error** — `/api/list/abc` returns `"Invalid ID"` as `text/plain` instead of JSON. Fix: use `writeJSON()` in the ID parser. Files: `handlers_list.go`.
 - **B9. No PWA manifest** — No `manifest.json` or `manifest.webmanifest` exists. Needed for Add-to-Home-Screen on mobile. Fix: create manifest with app name, icons, theme color, start URL. Files: `frontend/public/manifest.json`, `frontend/index.html`.
+- **B10. Clearing list only compacts departments instead of empty state** — When user clears the list via Penny chat, checked items are removed but the page still shows department headers / remaining structure instead of transitioning to an empty state. Fix: after clear, the list should show Penny's empty-list greeting state with no items or department headers visible. Files: `frontend/src/App.tsx`.
 
 ---
 
@@ -612,6 +754,8 @@ Lead gen (M10, future):
 - **Enterprise Brand Portal** — Multi-user team accounts, SSO, invoicing (not credit card), geographic targeting, demographic targeting, API access. Required for P&G-tier brands. Target: after 50+ paying brands.
 - **Apple Sign-In** — Required for iOS App Store submission if app offers other social logins. Add when native iOS app ships.
 - **Call Penny (Voice)** — Let users call Penny's phone number and interact via voice. Requires Twilio Voice + speech-to-text + text-to-speech integration. Would enable hands-free list management while driving or cooking.
+- **Kroger API Integration** — Connect to Kroger's API for real-time pricing, product availability, and online ordering. Enables price-aware suggestions, store-specific stock checks, and "add to Kroger cart" from the list. Requires Kroger Developer Portal partnership.
+- **Walmart API Integration** — Connect to Walmart's Open API for pricing, availability, and cart integration. Similar benefits to Kroger: price comparisons, stock checks, and direct ordering. Would unlock price comparison across retailers when combined with Kroger.
 
 ---
 
