@@ -4,169 +4,15 @@
 >
 > **See also:** `TECH_DESIGN_PENNY_SWAPS.md` — detailed technical design document for the Penny Swaps MVP with full database schemas, API contracts, pipeline architecture, fraud prevention checklist, and evidence retention policy. Based on 3 focus group panels (18 total participants).
 
-## Product Team
+## Focus Group Findings
 
-| Role | Responsibility |
-|------|----------------|
-| **PM** (conducts) | Prioritizes backlog, defines acceptance criteria, runs reviews, owns the roadmap |
-| **UX** | User research, interaction design, usability testing, accessibility |
-| **Architect** | System design, scaling strategy, tech debt management, ADRs |
-| **Staff Dev** | Core implementation, code quality, mentorship, cross-cutting concerns |
-| **DevOps** | CI/CD, infrastructure, monitoring, deployments, incident response |
-| **BI / Reporting** | Analytics, metrics dashboards, funnel analysis, experiment design |
-| **CX (Voice of Customer)** | User feedback synthesis, support patterns, NPS analysis, feature requests |
+> Detailed findings from 3 focus group panels (24 participants total) are in `FOCUS_GROUPS.md`. Full technical design in `TECH_DESIGN_PENNY_SWAPS.md`.
 
----
-
-## Focus Group Findings — Grocery Shoppers (Swap UX)
-
-> Panel of 6 shoppers conducted March 2026: Sarah (32, suburban mom, Kroger), Marcus (28, urban professional, Whole Foods), Linda (55, empty-nester, Walmart), James (41, dad, Costco/Target), Priya (36, health-conscious, Trader Joe's/Sprouts), Devon (24, recent grad, Aldi). Full report in TECH_DESIGN_PENNY_SWAPS.md.
-
-### Consensus Points (6/6 agreed)
-
-1. **3 declines = permanent suppression.** Non-negotiable. Repeating a declined suggestion destroys trust.
-2. **Price accuracy must be store-specific.** National average pricing = trust collapse.
-3. **Unit price normalization required.** Don't compare different-size packages with raw savings.
-4. **Swaps belong in planning mode, not execution mode.** No suggestions during active shopping.
-5. **The "Why?" button must have real data.** Marketing copy behind "Why?" is worse than no button at all.
-6. **Penny's tone must be consistent.** No detectable enthusiasm increase for sponsored items.
-
-### Key Insights
-
-| Insight | Source | Impact |
+| Panel | N | Key Finding |
 |---|---|---|
-| Personalize "why" by user's value axis (price/ingredients/convenience) | Marcus, Priya | Different message template per user profile |
-| "Pre-trip swap preview" — consolidated decision point before shopping | James | New UX mode: Penny's Picks |
-| Allergen-blind suggestions = safety incident, not preference mismatch | Priya | Hard filter required at system level |
-| "Swap Everything" bulk mode for brand-agnostic shoppers | Devon | Power-user feature, Phase 2 |
-| Paid ad-free tier — willing to pay subscription for no sponsored suggestions | Priya | Revenue diversification signal |
-| Decline reason feedback ("tried before", "dietary") trains Penny | Devon | User feels they're teaching, not dismissing |
-| Receipt scanning adoption is bimodal: 50% enthusiastic, 30% prefer digital | Panel split | Build photo AND email receipt paths |
-
-### Receipt Scanning Likelihood (1-10)
-
-| Sarah | Marcus | Linda | James | Priya | Devon | **Average** |
-|---|---|---|---|---|---|---|
-| 6 | 3 | 8 | 4 | 5 | 9 | **5.8** |
-
----
-
-## Focus Group Findings — Receipt Verification Specialists
-
-> Panel of 6 specialists conducted March 2026: Elena (shopper/expense tracker), Mike (VP Marketing CPG), Dr. Kim (CV researcher), Raj (fintech compliance), Sophie (QA engineer, tested Fetch/Ibotta), Anthony (fraud analyst). Full report in TECH_DESIGN_PENNY_SWAPS.md.
-
-### Key Technical Decisions
-
-| Decision | Recommendation | Rationale |
-|---|---|---|
-| OCR approach | Two-stage: Textract for extraction + Claude for entity resolution | Each tool's strength; Textract for structure, Claude for reasoning |
-| Receipt capture | In-app guided (primary) + camera roll (secondary) + email receipt (Phase 1) | Quality gating at capture filters 70-80% of bad inputs |
-| Item matching | Deterministic lookup DB (primary) + LLM fallback (secondary) | Auditable and fast; LLM for long-tail unmatched items |
-| Evidence retention | 7 years (2 active + 5 cold) | Fintech standard; covers audit, regulatory, legal dispute periods |
-| Chain of custody | SHA-256 hash at upload, append-only audit log | Proves image wasn't tampered with post-submission |
-| Brand image access | NEVER — Thriftly = trusted intermediary | PII protection + competitive moat |
-| Payout delay | 30 days | Covers typical return window; simple MVP defense against buy-return fraud |
-| Fraud detection MVP | pHash dedup + rate limiting + date check + math validation | Highest ROI controls with minimal engineering complexity |
-
-### Fraud Prevention Priority Stack
-
-1. **Perceptual hash deduplication** — blocks receipt reuse (same or cross-user)
-2. **Rate limiting** — 3 receipts/day, 10/week per user; $50/week value cap before manual review
-3. **Date consistency** — receipt date within promotion window, EXIF plausible
-4. **Math validation** — line items must sum to total
-5. **Error Level Analysis** — detect image manipulation (Phase 2)
-6. **Device fingerprint clustering** — multi-account detection (Phase 2)
-7. **Receipt authenticity classifier** — real thermal vs printed/generated fake (Phase 2)
-
----
-
-## Focus Group Findings — CPG Brand Product Managers
-
-> Three panels of 6 brand product managers each (18 total) conducted March 2026. Panels structured as: (A) Challenger/DTC brands (Siete, GoodBowl, Banza, Hu Kitchen, Liquid IV, Magic Spoon), (B) Mid-market CPG (Bob's Red Mill, Annie's/General Mills sub-brand, Chobani, Rxbar, Sir Kensington's, Primal Kitchen), (C) Enterprise CPG (P&G brand lead, Unilever brand lead, Kraft Heinz, Nestlé, Colgate-Palmolive, J&M Smucker).
-
-### Q1: Would you pay $1-2 per swap on a grocery list app?
-
-| Panel | Response | Key Quotes |
-|-------|----------|------------|
-| **A — Challenger** | 6/6 yes, 4/6 said "that's cheaper than anything we run" | "My Meta CPA is $18. A dollar for someone who already has my competitor in their cart? I'd pay $5." — Banza PM |
-| **B — Mid-market** | 5/6 yes, 1 wanted volume pricing | "At $2 I need to see it work. At $1 it's an impulse pilot budget." — Chobani PM |
-| **C — Enterprise** | 2/6 definite yes, 4/6 said "interesting but need scale proof" | "We can't justify a new vendor for <50K impressions/month. But the intent signal is unlike anything else." — P&G brand lead |
-
-**Takeaway:** Challenger and mid-market brands will pay immediately at $1-2/swap. Enterprise needs scale but is intrigued by intent targeting. **Start with challenger brands. Price at $1.50/swap, offer $1.00 "Founding Brand" rate for first 10 brands.**
-
-### Q2: What reporting would you need to justify the spend?
-
-| Rank | Metric | Mentioned By |
-|------|--------|-------------|
-| 1 | **Swap acceptance rate** (offered vs accepted) | 16/18 |
-| 2 | **Category share shift** (your brand vs competitor in swaps) | 14/18 |
-| 3 | **Redemption/purchase confirmation** (receipt proof) | 13/18 |
-| 4 | **Cost per acquired customer vs other channels** | 11/18 |
-| 5 | **Geographic/demographic breakdown** | 8/18 |
-| 6 | **Repeat purchase rate** (did they swap again next trip?) | 7/18 |
-
-**Takeaway:** Ship swap acceptance rate and category share on day 1. Receipt-based purchase confirmation is the "wow" feature that closes enterprise deals later. Demographics can wait.
-
-### Q3: Would you sign up with just a corporate email, or do you need a sales call?
-
-| Panel | Self-serve only | Self-serve + optional call | Sales call required |
-|-------|----------------|---------------------------|-------------------|
-| **A — Challenger** | 5/6 | 1/6 | 0/6 |
-| **B — Mid-market** | 3/6 | 3/6 | 0/6 |
-| **C — Enterprise** | 0/6 | 1/6 | 5/6 |
-
-**Takeaway:** Self-serve with corporate email validation is correct for launch. Add a "Request Demo" button for enterprise. No sales team needed yet — Andy does founder-led sales for the first 10.
-
-### Q4: If you could see your competitors' products being swapped out for yours, would that drive urgency?
-
-**Unanimous yes across all 18 participants.** This was the single most visceral reaction in all three panels.
-
-| Key Quotes |
-|------------|
-| "If I saw Heinz ketchup getting swapped for Sir Kensington's 50 times last week, I'd sign up today." — Kraft Heinz PM |
-| "That's the data we literally cannot get anywhere else. Not from Nielsen, not from IRI, not from Instacart." — Unilever PM |
-| "Competitor swap data is the hook. The swap itself is just the mechanism." — Magic Spoon PM |
-
-**Takeaway:** The "Competitive Swap Intel" view is the killer feature for the brand dashboard. Show anonymized, aggregated data: "Last 7 days: [Competitor X] was swapped out for [other brands] N times in [category]." This drives FOMO-based sign-ups. **Build this into the Phase 2 dashboard — it's the single best brand acquisition tool.**
-
-### Q5: What's the minimum feature set for you to run a pilot?
-
-Aggregated across all 18, the minimum viable pilot requires:
-
-1. **Swap creation** — I can pick my product, pick the competitor, set the offer ($X off)
-2. **Swap delivery** — It shows up when someone has the competitor on their list
-3. **Acceptance tracking** — I can see how many people swapped
-4. **Spend tracking** — I can see how much I've spent and set a budget cap
-5. **Corporate email login** — No procurement, no contracts, credit card billing
-
-Items explicitly called out as NOT required for a pilot: receipt verification, demographic targeting, API access, multi-user team accounts, geographic targeting.
-
-**Takeaway:** The MVP is simpler than we thought. Swap CRUD + basic dashboard + Stripe billing = pilot-ready.
-
-### Additional Findings (March 2026 — 6-person Brand PM Deep Dive)
-
-> Panel: Rachel (Banza), Tom (Heinz), Anika (Chobani), Carlos (Magic Spoon), Megan (Sir Kensington's), Dave (Kroger Private Label). Full report in TECH_DESIGN_PENNY_SWAPS.md.
-
-**Billing consensus (6/6):**
-- Per-accepted-swap billing ONLY — per-offer/impression pricing is a dealbreaker across the board
-- Hard budget caps (daily + weekly + total) with IMMEDIATE pause and email alert within 5 minutes
-- Founding Brand rate ($1.00) must be contractually protected for 18 months in MSA (Rachel: "or early adopters feel burned")
-- Receipt-verified purchase premium: brands will pay $2.50 per verified vs $1.50 per accepted (Tom: "two-fifty for a verified purchase is a steal vs my $3-5 co-op CPA")
-- Enterprise invoicing (Net-30) required for accounts >$10K/month (Anika: "I cannot process pre-funded deposits through our AP system")
-
-**Reporting consensus:**
-- Row-level transaction logs and CSV export are non-negotiable (Carlos: "if I can't export it, I can't use it")
-- Published platform fraud rate builds trust; hiding it destroys trust (Rachel: "platforms that hide fraud metrics have fraud metrics worth hiding")
-- 30-day repeat/loyalty rate is the "killer metric" no other platform provides — multiple brands said this alone would trigger budget increases
-
-**Key strategic insight:**
-Dave (Kroger): "The platform you're describing is essentially a digitally-native trade promotion system. That's a $15 billion industry. If Thriftly can become the first AI-mediated trade promotion platform with closed-loop purchase verification, that's category creation, not just a startup product."
-
-**Evidence/audit requirements:**
-- Row-level transaction logs reconcilable to invoices (Carlos: "if there's a discrepancy, I need a dispute resolution process, not 'email support and wait three weeks'")
-- Dispute resolution SLA: 24h initial response, 5 business day resolution
-- Receipt images: brands NEVER see raw images — only extracted, anonymized verification results (Megan, Dave: PII + competitive intelligence risk)
-- Append-only audit logs (Anika: "immutable records or I can't trust the data")
+| Grocery Shoppers | 6 | 3 declines = permanent suppression; store-specific pricing required; swaps in planning mode only |
+| Receipt Specialists | 6 | Textract + Claude two-stage pipeline; 7-year retention; pHash dedup as MVP fraud defense |
+| CPG Brand PMs | 18+6 | Challenger brands pay $1-2/swap immediately; self-serve for non-enterprise; Competitive Swap Intel is the killer brand acquisition feature |
 
 ---
 
@@ -221,6 +67,13 @@ When a user's grocery list contains an item that matches an active brand deal, P
 - Allergen/dietary conflicts are hard-filtered (never shown)
 - Budget decremented on acceptance; campaign pauses at cap (hard stop, not soft)
 - Admin can create/edit/deactivate deals via `/admin`
+
+**v1 Stretch Goals (merge when brand portal ships product descriptions):**
+- Extend `brand_deals` with: `product_description`, `key_benefits` (JSON array), `brand_story` (text)
+- Penny explains WHY the swap is good conversationally, not just via card
+- User can ask follow-up questions about the swapped product
+- Track conversational depth per swap (messages before accept/decline)
+- Commodity items: lean on savings; premium items: lean on product qualities
 
 ---
 
@@ -343,32 +196,9 @@ Brand managers add a credit card and fund their deal budget. Charges are per-swa
 
 ---
 
-### M6. Penny Swaps v1 — Conversational Swaps
-**Size:** M (1 week, parallel with M4/M5)
-**Priority:** P1 — Improves swap acceptance rate
-**Status:** Planned
+## Phase 3 — Receipt Insights + Dashboard + Scale (Weeks 5-8)
 
-**Description:**
-Upgrade Penny's swap suggestions from static cards to conversational engagement. Instead of just showing a card, Penny explains WHY the swap is good: "Sir Kensington's uses cage-free eggs and no high fructose corn syrup — plus you'd save $1.50." If the user asks questions ("is it any good?"), Penny can respond with product details.
-
-**CX Insight:** Focus group data (from MARKETPLACE_SQUADS.md) shows commodity items have high switching willingness. Penny should lean harder on savings for commodities ("save $1.50 on paper towels") and lean on product qualities for premium items ("this ketchup uses real tomatoes, no HFCS").
-
-**Architect Notes:**
-- Extend `brand_deals` with: `product_description`, `key_benefits` (JSON array), `brand_story` (text)
-- Penny's system prompt includes deal context when suggesting a swap — she can answer questions about the product
-- Track: conversational depth per swap (how many messages before accept/decline)
-
-**Acceptance Criteria:**
-- Penny explains product benefits when suggesting a swap
-- User can ask follow-up questions about the swapped product
-- Penny provides accurate product information (from deal metadata, not hallucinated)
-- Conversational swaps have higher acceptance rate than card-only swaps (BI tracks this)
-
----
-
-## Phase 3 — Receipt Insights + Guild Payouts + Scale (Weeks 5-8)
-
-> **North star:** $500/mo in swap revenue. 10+ paying brands. Guild members earning real money.
+> **North star:** $500/mo in swap revenue. 10+ paying brands. Receipt-verified purchase attribution.
 
 ### M7. Receipt Reading for Purchase Verification
 **Size:** L (2-3 weeks)
@@ -434,40 +264,6 @@ Users photograph their grocery receipt after shopping. Penny reads it via a two-
 
 ---
 
-### M8. PennyWallet + Guild Payouts
-**Size:** L (2-3 weeks)
-**Priority:** P1 — Incentive layer for viral distribution
-**Status:** Planned
-
-**Description:**
-PennyWallet tracks each user's earnings from (1) swap savings (consumer benefit) and (2) Guild referral revenue (30% of swap revenue from their referral tree). Guild members earn real money when people they invited accept swaps. Payouts via Stripe Connect (ACH) or PayPal when balance exceeds $10.
-
-**CX Insight:** Shopper panel data: "$5/mo = nobody cares, $20-30/mo = changes behavior." Guild payouts must be meaningful. At $1.50/swap with 30% Guild share = $0.45/swap. A Guild member needs ~45 referred swap acceptances/month for $20. That means referring 5-10 active households.
-
-**UX Notes:**
-- Wallet tab in the consumer app showing: total earned, pending, available for payout
-- Earnings breakdown: "Swap savings: $4.50 | Guild earnings: $12.30"
-- Payout button when balance >= $10
-- Guild section showing: your referrals, their activity (anonymized), your earning rate
-- Frame as "save together" not "recruit" — the shopper panel was explicit about MLM smell test
-
-**Architect Notes:**
-- New tables: `wallet` (user_id, balance_cents, lifetime_earned_cents), `wallet_transactions` (id, user_id, type [swap_saving/guild_earning/payout], amount_cents, reference_id, created_at), `guild_tree` (user_id, referred_by_user_id, depth)
-- Guild revenue calculation: on each accepted swap, compute 30% of deal price, walk up the `guild_tree` to allocate earnings. Simple 1-level referral for MVP (you earn on people you directly invited). Multi-level is future.
-- Payout: Stripe Connect Express accounts for US users. Trigger payout via `POST /api/wallet/payout`. Minimum $10.
-
-**Staff Dev Notes:** Start with 1-level referral only. The guild_tree table supports multi-level but the calculation for MVP is just: "Did this user get referred by someone? If yes, that someone gets 30% of the swap revenue." Keep it simple.
-
-**Acceptance Criteria:**
-- Users see their wallet balance in the app
-- Swap savings credited immediately on acceptance (pending until receipt verification if available)
-- Guild earnings credited when a referred user accepts a swap
-- Payout request triggers Stripe Connect transfer (>= $10 minimum)
-- Earnings breakdown shows swap savings vs Guild earnings
-- No MLM language anywhere in the UI — "earn by sharing" not "build your team"
-
----
-
 ### M9. Brand Dashboard v2 — Full Reporting
 **Size:** M (1-2 weeks)
 **Priority:** P1 — Justifies continued brand spend
@@ -499,40 +295,13 @@ Upgrade the brand dashboard with the reporting metrics that 16/18 focus group pa
 
 ---
 
-### M10. Shopper-to-Brand Lead Generation
-**Size:** S (3-5 days)
-**Priority:** P2 — Additional revenue stream
-**Status:** Planned
-
-**Description:**
-When a user accepts a swap, offer them the option to "Learn more from [Brand]" — opt-in to receive an email or text from the brand with a coupon, sample offer, or product info. This gives brands a direct lead (with consent) and creates a second revenue stream: lead gen fees on top of swap fees.
-
-**CX Insight:** Andy's direction: "We need some way of getting shoppers to email/text/fill out forms for CPGs to get the brand managers doing things." This is that mechanism — but consent-driven, not intrusive.
-
-**UX Notes:** After a swap is accepted, a subtle "Want a coupon from [Brand]? Share your email." prompt. One tap, pre-filled with their account email. Completely optional.
-
-**Architect Notes:**
-- New table: `brand_leads` (id, brand_user_id, consumer_user_id, email, phone, opted_in_at, source [swap/receipt/organic])
-- Lead delivered to brand via webhook or email notification
-- Price: $3-5 per lead (separate from swap pricing)
-- Consent recorded with timestamp, revocable
-
-**Acceptance Criteria:**
-- Post-swap opt-in prompt appears (dismissible)
-- User email is pre-filled, requires one tap to confirm
-- Brand receives lead notification (email to their dashboard inbox)
-- Lead appears in brand dashboard with source attribution
-- User can revoke consent at any time in settings
-
----
-
 ## Previous Roadmap Items (Still Valid — Marketplace Takes Priority)
 
 > These items remain important for product quality and retention. They will be worked on as bandwidth allows, interleaved with marketplace phases. Priority numbers are relative within this section.
 
 ### R1. Conversational Onboarding via Penny
 **Size:** L (2-3 weeks)
-**Priority:** P2 — Critical for activation & retention
+**Priority:** P1 — Activation gate for swaps (users need items on list for swaps to fire)
 **Status:** Planned
 
 **Description:**
@@ -623,7 +392,7 @@ Replace the current polling model (frontend fetches `GET /api/list` every few se
 
 ### R5. End-to-End Tests (Playwright)
 **Size:** M (1-2 weeks)
-**Priority:** P2 — Development velocity
+**Priority:** P1 — Shipping brand portal + payments without E2E coverage is a reliability risk
 **Status:** Config exists, no tests written
 
 **Description:**
@@ -648,21 +417,18 @@ Playwright E2E tests covering critical user flows: login, add items, check items
 
 | # | Item | Size | Phase | Priority | Rationale |
 |---|------|------|-------|----------|-----------|
-| 1 | M1. Penny Swaps v0 | L | 1 | P0 | Core revenue mechanism. Nothing else matters without this |
+| 1 | M1. Penny Swaps v0 (+ v1 stretch) | L | 1 | P0 | Core revenue mechanism. Nothing else matters without this |
 | 2 | M2. Fix Sharing & Invite Flow | M | 1 | P0 | Distribution channel for swaps — broken sharing = no growth |
 | 3 | M3. Swap Admin Tooling | S | 1 | P0 | Enables M1 — Andy seeds first 10 deals manually |
-| 4 | M4. Brand Portal v0 | L | 2 | P0 | Self-serve brand sign-up = revenue without Andy on every call |
-| 5 | M5. Stripe Payment | M | 2 | P0 | Proof of willingness to pay. $ = validation |
-| 6 | M6. Penny Swaps v1 | M | 2 | P1 | Improves acceptance rate, makes swaps feel natural |
-| 7 | M7. Receipt Reading | L | 3 | P1 | Closes attribution loop, unlocks enterprise brand interest |
-| 8 | M8. PennyWallet + Guild Payouts | L | 3 | P1 | Incentive layer — turns users into paid distribution |
-| 9 | M9. Brand Dashboard v2 | M | 3 | P1 | Justifies recurring brand spend |
-| 10 | M10. Shopper-to-Brand Leads | S | 3 | P2 | Second revenue stream, low effort |
-| 11 | R1. Conversational Onboarding | L | — | P2 | Activation/retention, work as bandwidth allows |
-| 12 | R3. Done Shopping Flow | M | — | P2 | Retention + receipt scan trigger |
-| 13 | R5. E2E Tests | M | — | P2 | Dev velocity, interleave with feature work |
-| 14 | R2. Trip Planner Discoverability | S | — | P3 | Quality of life, quick win |
-| 15 | R4. SSE Real-Time Updates | L | — | P3 | Scale optimization, not urgent yet |
+| 4 | R1. Conversational Onboarding | L | 2 | P1 | Activation gate — swaps only fire when users have items on list |
+| 5 | M4. Brand Portal v0 | L | 2 | P0 | Self-serve brand sign-up = revenue without Andy on every call |
+| 6 | M5. Stripe Payment | M | 2 | P0 | Proof of willingness to pay. $ = validation |
+| 7 | R5. E2E Tests | M | 2 | P1 | Brand portal + payments need E2E coverage before shipping |
+| 8 | R3. Done Shopping Flow | M | 3 | P1 | Retention + natural trigger for receipt scanning (M7) |
+| 9 | M7. Receipt Reading | L | 3 | P1 | Closes attribution loop, unlocks enterprise brand interest |
+| 10 | M9. Brand Dashboard v2 | M | 3 | P1 | Justifies recurring brand spend |
+| 11 | R2. Trip Planner Discoverability | S | — | P3 | Quality of life, quick win |
+| 12 | R4. SSE Real-Time Updates | L | — | P3 | Scale optimization, not urgent yet |
 
 ---
 
@@ -680,23 +446,18 @@ Playwright E2E tests covering critical user flows: login, add items, check items
 | **Average deal size (deposit)** | — | $100 | $200 | < $50 |
 | **List sharing rate** | 50% | 50% | 60% | < 25% |
 | **Invite → join conversion** | >= 30% | >= 35% | >= 40% | < 15% |
-| **Guild enrollment** | — | — | >= 15% of users | < 5% at wk 8 |
-| **Guild payout requests** | — | — | >= 5 | 0 at wk 8 |
+| **Receipt verification rate** | — | — | >= 20% of swaps | < 5% at wk 8 |
 
 ### Revenue Model
 
 ```
 Revenue per swap = $1.50 (Founding Brand rate: $1.00)
 Brand pays on acceptance (deducted from pre-funded balance)
-Guild member earns 30% = $0.45/swap from their referrals
-Thriftly keeps 70% = $1.05/swap (or $0.70 at Founding rate)
+Receipt-verified premium: $2.50/swap (Phase 3)
 
 Break-even math:
-  200 swaps/day × $1.05 net × 30 days = $6,300/mo gross
+  200 swaps/day × $1.50 × 30 days = $9,000/mo gross
   Target: 200 swaps/day by week 8
-
-Lead gen (M10, future):
-  $3-5 per consented lead, 100% margin
 ```
 
 ---
@@ -705,40 +466,41 @@ Lead gen (M10, future):
 
 > Small, self-contained tasks that can be completed with minimal/no supervision. Good for overnight runs.
 
+- **GitHub Actions CI** — Run `go test ./...` and Playwright on every PR push. No CI pipeline currently exists. Essential before M4/M5 ship.
+- **Error monitoring (Sentry)** — Sentry integration for Go backend + frontend. Error alerting on production crashes. Required before Stripe webhooks go live.
 - **User profile photo** — Add camera/upload button on profile screen. Store as base64 or upload to S3/Railway volume. Show avatar in hamburger menu, household member list, and "added by" labels. Falls back to person icon if no photo.
-- **Open Graph meta tags on invite links** — When an invite link is pasted in iMessage/WhatsApp, show a branded preview card (Penny logo, "Join [Name]'s grocery list on Thriftly"). Requires `<meta og:*>` tags on the invite URL route.
 - **Haptic feedback on check/uncheck** — Add `navigator.vibrate(10)` on item toggle for satisfying tactile feedback on mobile.
 - **Pull-to-refresh on list** — Standard mobile pattern. Trigger a list re-fetch on pull-down gesture.
 - **"Added just now" timestamp** — Show relative timestamps on recently added items ("just now", "2 min ago") that fade to nothing after 1 hour.
-- **Favicon + PWA icons** — Ensure app icon renders correctly on iOS home screen, Android home screen, and browser tabs. Add apple-touch-icon, manifest icons at all required sizes.
 - **Accessibility audit** — Add `aria-label` to all interactive elements, ensure color contrast meets WCAG AA, test with VoiceOver/TalkBack.
 - **404 page** — Currently unknown routes show a blank page. Add a friendly "Page not found — here's your list" redirect.
 - **Loading skeleton** — Replace the blank screen during list fetch with a skeleton/shimmer animation. Feels faster.
-- **Penny typing indicator** — Show "Penny is thinking..." with animated dots while waiting for Claude response. Already partially exists; verify it works consistently.
 
 ---
 
-## Bugs (Fix When Bandwidth Allows — No Supervision Needed)
+## Bugs
 
-> These bugs were found during automated UAT (March 2026). None are blocking. Safe to fix overnight — they are well-scoped, low-risk, and testable in isolation.
-
-- **B1. `/api/*` unknown paths return 200 HTML instead of 404 JSON** — SPA fallback catches `/api/` routes. Add a catch-all handler for `/api/` prefix that returns `{"error":"Not found"}` with 404 before the SPA fallback. Files: `server.go` (route registration).
-- **B2. No Open Graph meta tags on referral/invite links** — `/r/:code` and `/join/:code` serve bare `index.html` with no `og:title`, `og:description`, or `og:image`. Shared links in iMessage/WhatsApp show no preview card. Fix: add a server-side handler for these paths that injects OG tags before serving HTML. Files: `server.go`, `frontend/index.html`.
-- **B3. Silent household switch on join** — User already in household A can join household B with no warning. They get silently moved. Fix: return `{"warning":"You will leave your current household"}` or require confirmation. Files: `handlers_social.go` (`handleJoin`).
-- **B4. DELETE returns 200 on nonexistent/cross-user items** — `DELETE /api/list/:id` returns `{"success":true}` even when 0 rows affected. Fix: check `RowsAffected()` and return 404 if zero. Files: `handlers_list.go` (`handleListDelete`).
-- **B5. `quantity` ignored in direct `POST /api/list`** — The `handleListAdd` struct only unmarshals `name` and `department`. Quantity is always 1. Fix: add `Quantity int` to the struct with default-to-1 fallback. Files: `handlers_list.go` (`handleListAdd`).
-- **B6. 405 Method Not Allowed responses are plain text** — `requireMethod()` uses `http.Error()` which returns `text/plain`. All other errors return JSON. Fix: use `writeJSON()` instead. Files: `utils.go` (`requireMethod`).
-- **B7. Burning invite codes on no-op joins** — User already in a household can use a new invite from the same household creator. The code is consumed but no state changes. Fix: check if user is already in the target household before consuming the code. Files: `handlers_social.go` (`handleJoin`).
+### Open
 - **B8. Non-numeric item ID returns plain text error** — `/api/list/abc` returns `"Invalid ID"` as `text/plain` instead of JSON. Fix: use `writeJSON()` in the ID parser. Files: `handlers_list.go`.
-- **B9. No PWA manifest** — No `manifest.json` or `manifest.webmanifest` exists. Needed for Add-to-Home-Screen on mobile. Fix: create manifest with app name, icons, theme color, start URL. Files: `frontend/public/manifest.json`, `frontend/index.html`.
-- **B10. Clearing list only compacts departments instead of empty state** — When user clears the list via Penny chat, checked items are removed but the page still shows department headers / remaining structure instead of transitioning to an empty state. Fix: after clear, the list should show Penny's empty-list greeting state with no items or department headers visible. Files: `frontend/src/App.tsx`.
+
+### Completed (March 2026)
+- ~~B1. `/api/*` unknown paths return 200 HTML instead of 404 JSON~~ — Fixed in `server.go`
+- ~~B2. No Open Graph meta tags on referral/invite links~~ — Fixed: `serveWithOGTags()` in `utils.go`, OG tags in `index.html`
+- ~~B3. Silent household switch on join~~ — Fixed: warning returned in `handleJoin`
+- ~~B4. DELETE returns 200 on nonexistent/cross-user items~~ — Fixed: `RowsAffected()` check
+- ~~B5. `quantity` ignored in direct `POST /api/list`~~ — Fixed: `Quantity` field added
+- ~~B6. 405 Method Not Allowed responses are plain text~~ — Fixed: uses `writeJSON()`
+- ~~B7. Burning invite codes on no-op joins~~ — Fixed: already-in-household check
+- ~~B9. No PWA manifest~~ — Fixed: `manifest.json` created, linked in `index.html`
+- ~~B10. Clearing list compacts departments instead of empty state~~ — Fixed: `?all=true` param for full clear
 
 ---
 
 ## Nice-to-Have (Low Priority — May Revisit)
 
+- **M10. Shopper-to-Brand Lead Generation** — Post-swap opt-in "Want a coupon from [Brand]?" prompt. $3-5 per consented lead. Consent-driven, not intrusive. Second revenue stream — revisit after core swap economics are proven.
 - **Cloudflare CDN** — Free tier in front of Railway. No code changes needed. Setup: point DNS to Cloudflare, SSL "Full (strict)", cache static assets. Instant perf + security win. ~30 min of config.
-- **Savings Share Card** — Shareable image showing "I saved $X with Penny this month." Social proof artifact for organic distribution. Blocked by PennyWallet (M8).
+- **Savings Share Card** — Shareable image showing "I saved $X with Penny this month." Social proof artifact for organic distribution.
 - **Swap Recommendation Engine** — ML-based swap suggestions based on user purchase history. Requires receipt data (M7) at scale. Phase 4+.
 - **Multi-level Guild** — Extend Guild earnings beyond direct referrals (2-level, 3-level). Requires careful MLM smell-test UX. Phase 4+.
 - **Groflo Coupon Integration** — Pull deals from Groflo's coupon repository as a supply source for Penny Swaps. Currently deals are manually seeded; Groflo API integration automates supply. Phase 4+.
@@ -749,6 +511,7 @@ Lead gen (M10, future):
 
 ## Future (On Roadmap — Distant)
 
+- **M8. PennyWallet + Guild Payouts** — Wallet tracking swap savings + Guild referral revenue (30% of swap revenue from referral tree). Payouts via Stripe Connect. Requires significant infrastructure (Stripe Connect, ACH, wallet UI, guild_tree). **Revisit at $5K MRR.** For now, track Guild earnings as points/credits redeemable against Thriftly features (avoids money-transmitter complexity).
 - **Native iOS app (App Store)** — Founder directive: consumer experience stays in the app. Current PWA works but native unlocks push notifications, camera access for receipts, and App Store distribution. Target: after product-market fit confirmed ($5K MRR).
 - **Native Android app (Google Play)** — Same rationale as iOS. Consider React Native or Expo for shared codebase with the web app. Target: after iOS launch.
 - **Enterprise Brand Portal** — Multi-user team accounts, SSO, invoicing (not credit card), geographic targeting, demographic targeting, API access. Required for P&G-tier brands. Target: after 50+ paying brands.
@@ -764,5 +527,5 @@ Lead gen (M10, future):
 - **Postgres migration** — SQLite is correct until ~200 DAU or funding. See architect review.
 - **Horizontal scaling** — Single instance is fine for current scale. Blocked by SQLite anyway.
 - **Recipe parsing / meal planning** — Adjacent feature, not core to grocery list MVP.
-- **Store price comparison** — Requires partnerships and data sources not yet available.
+- **Store price comparison** — **ADR:** For Swap MVP, savings are shown as "estimated savings based on national average price. Your store's price may vary." We accept this risk for v0. Store-specific pricing is Phase 3+ via Kroger/Walmart API integration. Focus group consensus (6/6) was that national average pricing = trust collapse, but launching with a disclosure is acceptable for proving the swap mechanism.
 - **Push notifications** — SMS/email channels cover this. Revisit with native apps (Future).
