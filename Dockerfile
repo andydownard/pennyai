@@ -7,12 +7,12 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Build Go binary
-FROM golang:1.23-alpine3.20 AS backend
+FROM golang:1.24-alpine AS backend
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
-COPY main.go ./
-RUN CGO_ENABLED=0 go build -o thriftly main.go
+COPY *.go ./
+RUN CGO_ENABLED=0 go build -o thriftly .
 
 # Stage 3: Final image
 FROM alpine:3.20
