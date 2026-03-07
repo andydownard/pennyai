@@ -333,6 +333,20 @@ func initDB(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("creating password_resets table: %w", err)
 	}
 
+	// Ensure penny/brand columns exist BEFORE the table recreation migration
+	// (the recreation copies these columns, so they must be present first).
+	for _, stmt := range []string{
+		"ALTER TABLE users ADD COLUMN penny_brand_mode TEXT NOT NULL DEFAULT 'ask'",
+		"ALTER TABLE users ADD COLUMN deal_accept_count INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE users ADD COLUMN deal_shown_count INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE users ADD COLUMN penny_slider INTEGER NOT NULL DEFAULT 35",
+		"ALTER TABLE users ADD COLUMN penny_autotune INTEGER NOT NULL DEFAULT 1",
+		"ALTER TABLE users ADD COLUMN penny_deals INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE users ADD COLUMN last_cleared_items TEXT NOT NULL DEFAULT '[]'",
+	} {
+		db.Exec(stmt) // errors ignored — column may already exist
+	}
+
 	// Migrate users.phone_number from NOT NULL to nullable.
 	// SQLite can't ALTER COLUMN, so we recreate the table if needed.
 	var usersSQL string
