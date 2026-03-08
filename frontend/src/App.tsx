@@ -24,6 +24,7 @@ import { ReviewSheet } from './components/ReviewSheet'
 import { EarningsScreen } from './components/EarningsScreen'
 import { ReceiptScreen } from './components/ReceiptScreen'
 import { BottomTabBar, type TabScreen } from './components/BottomTabBar'
+import { ScreenTransition } from './components/ScreenTransition'
 import { type ItemModification } from './types'
 import {
   BRAND, BG, TEXT, TEXT_SECONDARY, BORDER, ERROR_RED, ERROR_RED_BG, ERROR_RED_DARK, ERROR_RED_LIGHT,
@@ -3471,6 +3472,7 @@ const handleCodeChange = (index: number, value: string) => {
     }
     const pennyPhoneFormatted = settingsPennyPhone ? formatPhone(settingsPennyPhone.replace('+1', '')) : ''
     return (
+      <ScreenTransition screen={screen}>
       <div style={listStyles.page}>
         <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
         {renderPageHeader('Penny', 'penny')}
@@ -3589,6 +3591,7 @@ const handleCodeChange = (index: number, value: string) => {
         {renderPennyToast()}
         {renderBottomTabs()}
       </div>
+      </ScreenTransition>
     )
   }
 
@@ -3643,6 +3646,7 @@ const handleCodeChange = (index: number, value: string) => {
     }
 
     return (
+      <ScreenTransition screen={screen}>
       <div style={listStyles.page}>
         <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
         {renderPageHeader('Profile', 'profile')}
@@ -3938,6 +3942,7 @@ const handleCodeChange = (index: number, value: string) => {
 
         {renderBottomTabs()}
       </div>
+      </ScreenTransition>
     )
   }
 
@@ -3980,6 +3985,7 @@ const handleCodeChange = (index: number, value: string) => {
     }
 
     return (
+      <ScreenTransition screen={screen}>
       <div style={listStyles.page}>
         {renderPageHeader('Help', 'help')}
         <div style={listStyles.listArea}>
@@ -4105,6 +4111,7 @@ const handleCodeChange = (index: number, value: string) => {
         </div>
         {renderBottomTabs()}
       </div>
+      </ScreenTransition>
     )
   }
 
@@ -4120,6 +4127,7 @@ const handleCodeChange = (index: number, value: string) => {
     }
 
     return (
+      <ScreenTransition screen={screen}>
       <div style={listStyles.page}>
         <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
         {renderPageHeader('Share & Earn', 'settings-share')}
@@ -4256,6 +4264,7 @@ const handleCodeChange = (index: number, value: string) => {
         {renderPennyToast()}
         {renderBottomTabs()}
       </div>
+      </ScreenTransition>
     )
   }
 
@@ -4267,6 +4276,7 @@ const handleCodeChange = (index: number, value: string) => {
   if (screen === 'admin') {
     const dayOptions = [7, 30, 90]
     return (
+      <ScreenTransition screen={screen}>
       <div style={listStyles.page}>
         {renderPageHeader('Dashboard', 'admin')}
         <div style={{ ...listStyles.listArea, padding: '20px' }}>
@@ -4645,6 +4655,7 @@ const handleCodeChange = (index: number, value: string) => {
         {renderPennyToast()}
         {renderBottomTabs()}
       </div>
+      </ScreenTransition>
     )
   }
 
@@ -4654,6 +4665,7 @@ const handleCodeChange = (index: number, value: string) => {
 
   if (screen === 'earnings') {
     return (
+      <ScreenTransition screen={screen}>
       <div style={listStyles.page}>
         {renderPageHeader('Swaps', 'earnings')}
         <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -4665,6 +4677,7 @@ const handleCodeChange = (index: number, value: string) => {
         </div>
         {renderBottomTabs()}
       </div>
+      </ScreenTransition>
     )
   }
 
@@ -4674,6 +4687,7 @@ const handleCodeChange = (index: number, value: string) => {
 
   if (screen === 'receipts') {
     return (
+      <ScreenTransition screen={screen}>
       <div style={listStyles.page}>
         {renderPageHeader('Receipts', 'receipts')}
         <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -4687,6 +4701,7 @@ const handleCodeChange = (index: number, value: string) => {
         </div>
         {renderBottomTabs()}
       </div>
+      </ScreenTransition>
     )
   }
 
@@ -4715,6 +4730,7 @@ const handleCodeChange = (index: number, value: string) => {
   if (extraDepts.length > 0) activeDepts.push(...extraDepts)
 
   return (
+    <ScreenTransition screen={screen}>
     <div style={listStyles.page}>
       <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
       {/* Fixed header — compact */}
@@ -5411,6 +5427,7 @@ const handleCodeChange = (index: number, value: string) => {
         </ActionSheet>
       )}
     </div>
+    </ScreenTransition>
   )
 }
 
