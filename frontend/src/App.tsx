@@ -3535,8 +3535,6 @@ const handleCodeChange = (index: number, value: string) => {
 
   if (screen === 'profile') {
     const initials = [settingsFirstName, settingsLastName].map(n => (n || '')[0]?.toUpperCase() || '').filter(Boolean).join('')
-    const displayName = [settingsFirstName, settingsLastName].filter(Boolean).join(' ')
-    const userPhoneFormatted = settingsUserPhone ? formatPhone(settingsUserPhone.replace('+1', '')) : ''
 
     const avatarUrl = currentUserId ? `/api/avatar/${currentUserId}?v=${avatarVersion}` : null
 
@@ -3636,12 +3634,7 @@ const handleCodeChange = (index: number, value: string) => {
                   </div>
                 )}
               </div>
-              {displayName && <div style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 600, color: TEXT }}>{displayName}</div>}
-              {userPhoneFormatted && <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY }}>{userPhoneFormatted}</div>}
             </div>
-
-            {/* ── Divider ── */}
-            <div style={listStyles.divider} />
 
             {/* ── Profile fields ── */}
             <div style={{ display: 'flex', gap: '12px' }}>
