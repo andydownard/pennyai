@@ -69,18 +69,34 @@ export function DoneSummaryModal({
           <div style={{ marginBottom: '16px' }} />
         )}
 
-        {/* Clear checked items — auto-saves checked items as a saved list */}
+        {/* Clear checked items — auto-merges checked items into master list */}
         <button
           onClick={async () => {
-            // Auto-save checked items before clearing
+            // Auto-merge checked items into "My Groceries" master list
             if (data.checkedCount > 0) {
-              const listName = `Trip ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-              const res = await fetchAPI('/api/saved-lists', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: listName, items: items.filter(i => i.checked).map(i => ({ name: i.name, brand: i.brand, department: i.department, quantity: i.quantity, size: i.size, notes: i.notes })) }),
-              })
-              if (res) typePennyHome(`Auto-saved as "${listName}" — ask me to load it anytime!`)
+              const checkedItems = items.filter(i => i.checked).map(i => ({
+                name: i.name, brand: i.brand, department: i.department,
+                quantity: i.quantity, size: i.size, notes: i.notes,
+              }))
+              // Find or create master list
+              const lists = await fetchAPI('/api/saved-lists') as Array<{ id: number; name: string }> | null
+              const master = lists?.find(l => l.name === 'My Groceries')
+              if (master) {
+                // Merge into existing master list (skips duplicates)
+                await fetchAPI(`/api/saved-lists/${master.id}/merge`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ items: checkedItems }),
+                })
+              } else {
+                // Create master list with these items
+                await fetchAPI('/api/saved-lists', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ name: 'My Groceries', items: checkedItems }),
+                })
+              }
+              typePennyHome('Updated your master grocery list — ask me to load it anytime!')
             }
             await handleCancelTrip()
             if (data.checkedCount > 0) {

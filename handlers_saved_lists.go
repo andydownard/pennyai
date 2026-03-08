@@ -46,6 +46,11 @@ func (s *Server) handleSavedLists(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(parts) == 2 && parts[1] == "merge" && r.Method == http.MethodPost {
+		s.handleSavedListMerge(w, r, id)
+		return
+	}
+
 	if len(parts) == 1 && r.Method == http.MethodPut {
 		s.handleSavedListUpdate(w, r, id)
 		return
@@ -101,7 +106,8 @@ func (s *Server) handleSavedListsGet(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSavedListsCreate handles POST /api/saved-lists
-// Saves the current unchecked list items as a new saved list.
+// Saves items as a new saved list. If "items" is provided in the body,
+// uses those; otherwise saves the current active list items.
 func (s *Server) handleSavedListsCreate(w http.ResponseWriter, r *http.Request) {
 	session, ok := s.requireSession(w, r)
 	if !ok {
@@ -109,7 +115,15 @@ func (s *Server) handleSavedListsCreate(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req struct {
-		Name string `json:"name"`
+		Name  string `json:"name"`
+		Items []struct {
+			Name       string `json:"name"`
+			Brand      string `json:"brand"`
+			Department string `json:"department"`
+			Quantity   int    `json:"quantity"`
+			Size       string `json:"size"`
+			Notes      string `json:"notes"`
+		} `json:"items"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -120,10 +134,30 @@ func (s *Server) handleSavedListsCreate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	itemsToSave, err := collectListItems(s.db, session.UserID)
-	if err != nil {
-		dbError(w, err, "Failed to read list")
-		return
+	var itemsToSave []itemData
+	if len(req.Items) > 0 {
+		// Use provided items
+		for _, item := range req.Items {
+			if item.Name == "" {
+				continue
+			}
+			qty := item.Quantity
+			if qty < 1 {
+				qty = 1
+			}
+			itemsToSave = append(itemsToSave, itemData{
+				Name: item.Name, Brand: item.Brand, Department: item.Department,
+				Quantity: qty, Size: item.Size, Notes: item.Notes,
+			})
+		}
+	} else {
+		// Fall back to active list
+		var err error
+		itemsToSave, err = collectListItems(s.db, session.UserID)
+		if err != nil {
+			dbError(w, err, "Failed to read list")
+			return
+		}
 	}
 
 	if len(itemsToSave) == 0 {
@@ -304,4 +338,76 @@ func (s *Server) handleSavedListLoad(w http.ResponseWriter, r *http.Request, id 
 	})
 }
 
-// =============================================================================
+// handleSavedListMerge handles POST /api/saved-lists/{id}/merge
+// Adds new items to an existing saved list, skipping items that already exist (by name).
+func (s *Server) handleSavedListMerge(w http.ResponseWriter, r *http.Request, id int) {
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireSavedListAccess(w, session.UserID, id) {
+		return
+	}
+
+	var req struct {
+		Items []struct {
+			Name       string `json:"name"`
+			Brand      string `json:"brand"`
+			Department string `json:"department"`
+			Quantity   int    `json:"quantity"`
+			Size       string `json:"size"`
+			Notes      string `json:"notes"`
+		} `json:"items"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	// Get existing item names in this saved list for dedup
+	existing := make(map[string]bool)
+	rows, err := s.db.Query(
+		"SELECT LOWER(name) FROM saved_list_items WHERE saved_list_id = ?", id,
+	)
+	if err == nil {
+		for rows.Next() {
+			var name string
+			rows.Scan(&name)
+			existing[name] = true
+		}
+		rows.Close()
+	}
+
+	added := 0
+	for _, item := range req.Items {
+		if item.Name == "" {
+			continue
+		}
+		// Skip duplicates (case-insensitive)
+		if existing[strings.ToLower(item.Name)] {
+			continue
+		}
+		qty := item.Quantity
+		if qty < 1 {
+			qty = 1
+		}
+		_, err := s.db.Exec(
+			"INSERT INTO saved_list_items (saved_list_id, name, brand, department, quantity, size, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			id, item.Name, item.Brand, item.Department, qty, item.Size, item.Notes,
+		)
+		if err != nil {
+			log.Printf("[saved-lists] merge insert error: %v", err)
+			continue
+		}
+		existing[strings.ToLower(item.Name)] = true
+		added++
+	}
+
+	// Update the saved list's updated_at
+	s.db.Exec("UPDATE saved_lists SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", id)
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"added":   added,
+	})
+}

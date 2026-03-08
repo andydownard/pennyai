@@ -12353,6 +12353,81 @@ func TestSavedLists_EdgeCase_DoubleDelete(t *testing.T) {
 	}
 }
 
+func TestSavedListMerge_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Create a saved list with one item
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists",
+		map[string]interface{}{"name": "My Groceries", "items": []map[string]interface{}{
+			{"name": "Milk", "brand": "Organic Valley", "department": "Dairy & Eggs"},
+		}}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: got %d, want 201", rr.Code)
+	}
+	id := int(parseJSON(rr)["id"].(float64))
+
+	// Merge in new items (one dup, one new)
+	rr = doRequest(server.handleSavedLists, "POST", fmt.Sprintf("/api/saved-lists/%d/merge", id),
+		map[string]interface{}{"items": []map[string]interface{}{
+			{"name": "Milk", "brand": "Organic Valley", "department": "Dairy & Eggs"},
+			{"name": "Eggs", "brand": "", "department": "Dairy & Eggs"},
+		}}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("merge: got %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	result := parseJSON(rr)
+	if result["added"].(float64) != 1 {
+		t.Errorf("expected 1 item added (dup skipped), got %v", result["added"])
+	}
+
+	// Verify total items
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM saved_list_items WHERE saved_list_id = ?", id).Scan(&count)
+	if count != 2 {
+		t.Errorf("expected 2 total items, got %d", count)
+	}
+}
+
+func TestSavedListMerge_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists/1/merge",
+		map[string]interface{}{"items": []map[string]interface{}{}}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestSavedListMerge_CrossUserBlocked(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie1, _ := loginUser(t, server, "5551234567")
+	cookie2, _ := loginUser(t, server, "5559999999")
+
+	// User 1 creates a list
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists",
+		map[string]interface{}{"name": "Private", "items": []map[string]interface{}{
+			{"name": "Butter", "department": "Dairy & Eggs"},
+		}}, []*http.Cookie{cookie1})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: got %d, want 201: %s", rr.Code, rr.Body.String())
+	}
+	result := parseJSON(rr)
+	idVal, ok := result["id"].(float64)
+	if !ok {
+		t.Fatalf("expected id in response, got %v", result)
+	}
+	id := int(idVal)
+
+	// User 2 tries to merge into it
+	rr = doRequest(server.handleSavedLists, "POST", fmt.Sprintf("/api/saved-lists/%d/merge", id),
+		map[string]interface{}{"items": []map[string]interface{}{
+			{"name": "Cheese", "department": "Dairy & Eggs"},
+		}}, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for cross-user merge, got %d", rr.Code)
+	}
+}
+
 // =============================================================================
 // TRIPS EDGE CASES
 // =============================================================================
