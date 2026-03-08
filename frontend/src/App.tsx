@@ -2464,8 +2464,27 @@ function AppInner() {
   // =========================================================================
 
 const handleCodeChange = (index: number, value: string) => {
-    const digit = value.replace(/\D/g, '').slice(-1)
+    const digits = value.replace(/\D/g, '')
 
+    // iOS autofill may put the full code into one input — distribute across all boxes
+    if (digits.length > 1) {
+      const newCode = [...code]
+      for (let i = 0; i < digits.length && i < 6; i++) {
+        newCode[i] = digits[i]
+      }
+      setCode(newCode)
+      setError('')
+      const nextEmpty = newCode.findIndex(d => !d)
+      if (nextEmpty >= 0) {
+        codeInputRefs.current[nextEmpty]?.focus()
+      } else {
+        codeInputRefs.current[5]?.focus()
+        verifyCode(newCode.join(''))
+      }
+      return
+    }
+
+    const digit = digits.slice(-1)
     const newCode = [...code]
     newCode[index] = digit
     setCode(newCode)
@@ -2475,7 +2494,7 @@ const handleCodeChange = (index: number, value: string) => {
       codeInputRefs.current[index + 1]?.focus()
     }
 
-    // Auto-submit when all 6 digits are filled (one check, not two)
+    // Auto-submit when all 6 digits are filled
     if (digit && newCode.join('').length === 6) {
       verifyCode(newCode.join(''))
     }
@@ -3039,7 +3058,7 @@ const handleCodeChange = (index: number, value: string) => {
       <ScreenTransition style={transitionStyle}>
       <div style={listStyles.page}>
         {renderPageHeader('Swaps', 'earnings')}
-        <div style={{ flex: 1, overflowY: 'auto' }}>
+        <div style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'none', WebkitOverflowScrolling: 'touch' }}>
           {/* Thriftly Wrapped CTA */}
           <div
             onClick={() => setShowWrapped(true)}
@@ -3079,7 +3098,7 @@ const handleCodeChange = (index: number, value: string) => {
       <ScreenTransition style={transitionStyle}>
       <div style={listStyles.page}>
         {renderPageHeader('Receipts', 'receipts')}
-        <div style={{ flex: 1, overflowY: 'auto' }}>
+        <div style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'none', WebkitOverflowScrolling: 'touch' }}>
           <ReceiptScreen
             fetchAPI={fetchAPI}
             onSnapReceipt={() => {
@@ -3899,6 +3918,8 @@ const listStyles = {
   listArea: {
     flex: 1,
     overflowY: 'auto' as const,
+    overscrollBehavior: 'none',
+    WebkitOverflowScrolling: 'touch',
     position: 'relative' as const,
   } as React.CSSProperties,
 
@@ -4121,9 +4142,13 @@ const globalCSS = `
 
   html, body, #root {
     height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
   }
 
   body {
+    position: fixed;
+    width: 100%;
     background-color: var(--bg);
     color: var(--text);
     -webkit-font-smoothing: antialiased;

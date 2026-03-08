@@ -186,6 +186,8 @@ export const pageStyles = {
   listArea: {
     flex: 1,
     overflowY: 'auto' as const,
+    overscrollBehavior: 'none',
+    WebkitOverflowScrolling: 'touch',
     position: 'relative' as const,
   } as React.CSSProperties,
 

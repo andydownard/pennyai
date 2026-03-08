@@ -74,6 +74,29 @@ Thriftly is an AI-powered grocery shopping list app with a personality-driven as
 - Greeting on empty list
 - Nudge after 5min idle
 
+#### First 5 Minutes Onboarding (Gate 1 Requirements)
+
+**Core Principle:** New user must feel "this just works" in under 5 minutes without asking clarifying questions.
+
+- **Assume reasonable defaults** — When new user texts an item, Penny infers quantity (milk → 1 gallon) and selects a popular brand instead of asking clarifying questions
+
+- **Brand defaults with explicit signal** — Penny says "I picked [brand] — tap to change" in a card below the item. Makes the assumption visible and easy to override. Addresses user concerns about autonomy while building trust.
+
+- **Brand defaults from global popularity (privacy-respecting)** — Use aggregate app-wide brand preferences (not personal household tracking) for defaults. Label clearly: "I picked [brand] based on popular choices in our app." Do NOT use household-level tracking data or personal history to infer brand defaults for new users.
+
+- **Brand defaults respect dietary attributes** — If user has previously selected organic/allergen-free/vegan/dairy-free items in sufficient quantity (≥3 items of same attribute), prioritize matching those attributes in brand defaults over pure popularity. Example: User is 85% nut-free → milk suggestion defaults to nut-free brands first.
+
+- **Brand correction is 1-tap with confirmation** — When user taps to change brand:
+  1. Show quick brand selector (ActionSheet) with top 5 alternatives
+  2. Each brand shows logo + name + dietary attributes (if applicable, e.g., "(organic)", "(nut-free)")
+  3. On selection, close sheet and update item immediately
+  4. Show confirmation toast ("✓ Changed to Organic Valley") auto-dismiss after 3 seconds
+  5. No secondary confirmation modal (keep it fast)
+
+- **Household invite after 3rd item with soft language** — After user adds their 3rd item, show a dismissible prompt with soft language: "Want to invite your family to this list?" (not "Add household members now"). Timing is after 3 items (feels earned, not pushy). Dismissal state must persist in localStorage so prompt does NOT re-trigger in same session or future sessions.
+
+- **Popular brand fallback** — If Claude cannot infer brand, use global popularity data from app-wide brand choices or generic brand option (e.g., "Best Value", "Kroger brand"). No personal tracking of similar households for fallback.
+
 ### Shopping List
 - Add, edit, delete, toggle (check/uncheck) items
 - Mark items as urgent
@@ -304,6 +327,72 @@ Add any new bugs found to the "Bugs" section in ROADMAP.md with the same format 
 - `resolveOrCreateUser()` auto-merge logic for multi-auth
 - WAL mode for SQLite
 - Environment variable graceful degradation (e.g., Google OAuth disabled if `GOOGLE_CLIENT_ID` empty)
+
+## Product Shipping Gates
+
+All features must pass three gates before shipping. This framework ensures new-user magic, narrative alignment, and compound growth.
+
+### Gate 1: First-5-Minutes Magic
+**Standard:** New user with zero household history must feel "this just works" in under 5 minutes. No feature ships unless it passes this gate.
+
+**Definition of "just works":**
+- New user adds first item within 90 seconds
+- Item appears in list with brand defaulted (no clarifying questions)
+- Brand is correctable with 1 tap
+- After 3rd item, household invite prompt appears (feels earned, not pushy)
+
+**Failure mode:** If the feature requires user questions, decision trees, or clarification loops, it fails Gate 1. Redesign to assume reasonable defaults instead.
+
+### Gate 2: 11-Star Moment
+**Standard:** Every feature must ladder up to ONE narrative: "You never ask 'Did you get milk?' again."
+
+This is the family coordination + relief story. Features are accepted if they:
+- Enable household members to trust that someone has the item covered
+- Reduce uncertainty or redundant communication
+- Make Penny the household's shared memory
+
+**Examples that pass Gate 2:**
+- Household sharing (family stays in sync)
+- Item claiming (no duplicate buys)
+- Penny reminders (anticipate needs before asking)
+
+**Examples that fail Gate 2:**
+- Trip planner (pure convenience, not coordination)
+- Dark mode (feature, not narrative)
+- Savings badges (motivational, not coordination)
+
+### Gate 3: Data Flywheel
+**Standard:** Feature must make Penny smarter over time. If it doesn't contribute data that compounds, deprioritize.
+
+**Examples that pass Gate 3:**
+- Brand corrections (Penny learns user's preferences)
+- Item frequency (Penny predicts needed items)
+- Household patterns (Penny sees taco night = cilantro + lime)
+
+**Examples that fail Gate 3:**
+- Dark mode (zero data)
+- Trip planner without trip history (no compounding)
+- One-time settings (stale after first use)
+
+---
+
+## Brand & Messaging Source of Truth
+
+All brand elements, messaging, design tokens, and value propositions are defined in the canonical source:
+
+**`../pitch deck/penny-brand-source.json`**
+
+This file is the single source of truth for:
+- Company/product names (Thriftly × Penny AI)
+- Tagline ("The AI shopping list for families")
+- One-liner ("Text Penny. She handles the rest.")
+- Design system (colors #35644F green, #F7F6F3 background, Inter/Avenir fonts)
+- Value propositions (natural language input, AI organization, family sync)
+- 11-Star Moment ("You never ask 'Did you get milk?' again")
+
+When updating any brand messaging, edit `penny-brand-source.json` first and sync to all products (Thrift.ly website, app, pitch deck).
+
+---
 
 ## UI/UX Rules
 
