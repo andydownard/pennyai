@@ -640,6 +640,16 @@ func (s *Server) buildLearningContext(userID int) string {
 		}
 	}
 
+	// Pending repurchase nudges — items due for restock
+	nudges := s.getRepurchaseNudges(userID)
+	if len(nudges) > 0 {
+		var nudgeItems []string
+		for _, n := range nudges {
+			nudgeItems = append(nudgeItems, fmt.Sprintf("%s (%d days overdue)", n.ItemName, n.DaysOverdue))
+		}
+		parts = append(parts, "- Items due for restock: "+strings.Join(nudgeItems, ", ")+" — gently remind the user if relevant")
+	}
+
 	if len(parts) == 0 {
 		return ""
 	}

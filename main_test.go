@@ -16625,6 +16625,27 @@ func TestRepurchaseNudges_Unauthorized(t *testing.T) {
 	}
 }
 
+func TestRepurchaseNudges_InLearningContext(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	server.db.Exec("INSERT INTO users (id, phone_number, penny_autotune) VALUES (100, '+15551234567', 1)")
+
+	// Set up a due repurchase nudge
+	server.db.Exec(`INSERT INTO penny_learnings (scope, scope_id, key, value, confidence, updated_at)
+		VALUES ('user', 100, 'repurchase_cycle:Milk', '7', 0.8, datetime('now'))`)
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, checked) VALUES (1, 100, 'Milk', 1)")
+	server.db.Exec(`INSERT INTO item_modifications (item_id, user_id, action, created_at)
+		VALUES (1, 100, 'added', datetime('now', '-10 days'))`)
+
+	ctx := server.buildLearningContext(100)
+	if !strings.Contains(ctx, "Items due for restock") {
+		t.Errorf("Expected 'Items due for restock' in learning context, got: %s", ctx)
+	}
+	if !strings.Contains(ctx, "Milk") {
+		t.Errorf("Expected 'Milk' in nudge context, got: %s", ctx)
+	}
+}
+
 // =============================================================================
 // OPTIMIZE THIS DEAL TESTS (L3 Brand Learning)
 // =============================================================================
