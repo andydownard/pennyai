@@ -495,13 +495,20 @@ function AppInner() {
     "Welcome! I'm Penny. Type, paste, or snap a photo of what you need.",
   ]
 
-  const RETURNING_GREETINGS = [
-    "What are we shopping for today?",
-    "Ready when you are — just tell me what you need!",
-    "What can I help you find at the store?",
-    "Back for more? Let's build your list!",
-    "Hey! What's on the menu this week?",
-  ]
+  const RETURNING_GREETINGS = (() => {
+    const day = new Date().getDay()
+    const base = [
+      "What are we shopping for today?",
+      "Ready when you are — just tell me what you need!",
+      "What can I help you find at the store?",
+      "Back for more? Let's build your list!",
+    ]
+    // Weekend-specific greetings
+    if (day === 0 || day === 6) base.push("Weekend shopping? Let's make it quick!")
+    // Weekday-specific
+    if (day >= 1 && day <= 5) base.push("Hey! What's on the menu this week?")
+    return base
+  })()
 
   const IDLE_MESSAGES = [
     "Still here if you need anything!",
@@ -1403,8 +1410,11 @@ function AppInner() {
         // First visit, no name yet — introduce Penny
         typePennyHome(pickRandom(FIRST_VISIT_GREETINGS))
       } else if (settingsFirstName) {
-        // We know their name — personal greeting
-        typePennyHome(`Hey ${settingsFirstName}! What do we need from the store?`)
+        // We know their name — time-aware personal greeting
+        const hour = new Date().getHours()
+        const timeGreeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Hey' : 'Good evening'
+        const timeSuffix = hour >= 20 ? ' Late-night shopping?' : ''
+        typePennyHome(`${timeGreeting}, ${settingsFirstName}! What do we need from the store?${timeSuffix}`)
       } else {
         typePennyHome(pickRandom(RETURNING_GREETINGS))
       }
