@@ -195,27 +195,35 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
                 }}
               />
 
-              {/* Urgency + Submit row */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px' }}>
-                <select
-                  value={urgency}
-                  onChange={e => setUrgency(e.target.value)}
-                  style={{
-                    fontFamily: FONT,
-                    fontSize: '13px',
-                    color: 'var(--text-secondary)',
-                    backgroundColor: 'var(--bg)',
-                    border: '1.5px solid var(--border)',
-                    borderRadius: '10px',
-                    padding: '10px 12px',
-                    outline: 'none',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <option value="normal">Normal</option>
-                  <option value="high">Important</option>
-                  <option value="critical">Urgent</option>
-                </select>
+              {/* Urgency chips — tappable so keyboard stays up on iOS */}
+              <div style={{ display: 'flex', gap: '6px', marginTop: '12px', marginBottom: '12px' }}>
+                {([
+                  { key: 'low', label: 'Low' },
+                  { key: 'normal', label: 'Normal' },
+                  { key: 'critical', label: 'Urgent' },
+                ] as const).map(u => (
+                  <button
+                    key={u.key}
+                    onClick={() => setUrgency(u.key)}
+                    style={{
+                      padding: '7px 14px',
+                      borderRadius: '16px',
+                      fontFamily: FONT,
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      border: urgency === u.key ? '1.5px solid var(--brand)' : '1.5px solid var(--border)',
+                      backgroundColor: urgency === u.key ? 'color-mix(in srgb, var(--brand) 10%, transparent)' : 'transparent',
+                      color: urgency === u.key ? 'var(--brand)' : 'var(--text-secondary)',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {u.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <button
                   onClick={handleSubmit}
                   disabled={!canSend}

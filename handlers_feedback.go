@@ -24,7 +24,7 @@ var (
 // githubHTTPClient has a 10-second timeout to avoid goroutine leaks if GitHub hangs.
 var githubHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
-// isFeedbackUser returns true for all authenticated users.
+// isFeedbackUser returns true if the user's phone is in the approved FeedbackPhones list.
 func (s *Server) isFeedbackUser(session Session) bool {
 	if session.UserID == 0 {
 		return false
