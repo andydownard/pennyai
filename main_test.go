@@ -20644,3 +20644,161 @@ func TestSettingsUpdate_SetsNameSourceManual(t *testing.T) {
 		t.Errorf("expected name_source=manual after settings update, got %s", src)
 	}
 }
+
+// =============================================================================
+// CROSS-USER SECURITY TESTS
+// =============================================================================
+
+func TestCrossUser_CannotToggleOtherUsersItem(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userA := loginUser(t, server, "+15550001000")
+	cookieB, _ := loginUser(t, server, "+15550002000")
+
+	server.db.Exec("INSERT INTO list_items (user_id, name, quantity, checked) VALUES (?, 'Secret Item', 1, 0)", userA)
+	var itemID int
+	server.db.QueryRow("SELECT id FROM list_items WHERE user_id = ? AND name = 'Secret Item'", userA).Scan(&itemID)
+
+	// User B tries to toggle it via handleList (router)
+	rr := doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d/toggle", itemID), nil, []*http.Cookie{cookieB})
+
+	var checked bool
+	server.db.QueryRow("SELECT checked FROM list_items WHERE id = ?", itemID).Scan(&checked)
+	if checked {
+		t.Errorf("user B was able to toggle user A's item — cross-user access violation (status %d)", rr.Code)
+	}
+}
+
+func TestCrossUser_CannotDeleteOtherUsersItem(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userA := loginUser(t, server, "+15550003000")
+	cookieB, _ := loginUser(t, server, "+15550004000")
+
+	server.db.Exec("INSERT INTO list_items (user_id, name, quantity) VALUES (?, 'Private Eggs', 1)", userA)
+	var itemID int
+	server.db.QueryRow("SELECT id FROM list_items WHERE user_id = ? AND name = 'Private Eggs'", userA).Scan(&itemID)
+
+	rr := doRequest(server.handleList, "DELETE", fmt.Sprintf("/api/list/%d", itemID), nil, []*http.Cookie{cookieB})
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM list_items WHERE id = ?", itemID).Scan(&count)
+	if count != 1 {
+		t.Errorf("user B was able to delete user A's item — cross-user access violation (status %d)", rr.Code)
+	}
+}
+
+func TestCrossUser_CannotEditOtherUsersItem(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userA := loginUser(t, server, "+15550005000")
+	cookieB, _ := loginUser(t, server, "+15550006000")
+
+	server.db.Exec("INSERT INTO list_items (user_id, name, quantity) VALUES (?, 'Original Name', 1)", userA)
+	var itemID int
+	server.db.QueryRow("SELECT id FROM list_items WHERE user_id = ? AND name = 'Original Name'", userA).Scan(&itemID)
+
+	rr := doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d", itemID),
+		map[string]string{"name": "Hacked Name"}, []*http.Cookie{cookieB})
+
+	var name string
+	server.db.QueryRow("SELECT name FROM list_items WHERE id = ?", itemID).Scan(&name)
+	if name != "Original Name" {
+		t.Errorf("user B was able to edit user A's item to '%s' — cross-user access violation (status %d)", name, rr.Code)
+	}
+}
+
+func TestCrossUser_CannotClaimOtherUsersItem(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userA := loginUser(t, server, "+15550007000")
+	cookieB, _ := loginUser(t, server, "+15550008000")
+
+	server.db.Exec("INSERT INTO list_items (user_id, name, quantity) VALUES (?, 'My Milk', 1)", userA)
+	var itemID int
+	server.db.QueryRow("SELECT id FROM list_items WHERE user_id = ? AND name = 'My Milk'", userA).Scan(&itemID)
+
+	rr := doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d/claim", itemID), nil, []*http.Cookie{cookieB})
+
+	var claimedBy sql.NullInt64
+	server.db.QueryRow("SELECT claimed_by FROM list_items WHERE id = ?", itemID).Scan(&claimedBy)
+	if claimedBy.Valid {
+		t.Errorf("user B was able to claim user A's item — cross-user access violation (claimed_by=%d, status %d)", claimedBy.Int64, rr.Code)
+	}
+}
+
+func TestCrossUser_CannotMarkOtherUsersItemUrgent(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userA := loginUser(t, server, "+15550009000")
+	cookieB, _ := loginUser(t, server, "+15550010000")
+
+	server.db.Exec("INSERT INTO list_items (user_id, name, quantity, urgent) VALUES (?, 'Calm Item', 1, 0)", userA)
+	var itemID int
+	server.db.QueryRow("SELECT id FROM list_items WHERE user_id = ? AND name = 'Calm Item'", userA).Scan(&itemID)
+
+	rr := doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d/urgent", itemID), nil, []*http.Cookie{cookieB})
+
+	var urgent bool
+	server.db.QueryRow("SELECT urgent FROM list_items WHERE id = ?", itemID).Scan(&urgent)
+	if urgent {
+		t.Errorf("user B was able to mark user A's item urgent — cross-user access violation (status %d)", rr.Code)
+	}
+}
+
+func TestCrossUser_HouseholdMembersCanSeeSharedItems(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookieA, userA := loginUser(t, server, "+15550011000")
+	cookieB, userB := loginUser(t, server, "+15550012000")
+
+	// Put both users in the same household
+	server.db.Exec("UPDATE users SET household_id = (SELECT household_id FROM users WHERE id = ?) WHERE id = ?", userA, userB)
+	server.db.Exec("INSERT OR IGNORE INTO household_members (household_id, user_id) VALUES ((SELECT household_id FROM users WHERE id = ?), ?)", userA, userB)
+
+	// User A adds an item
+	rr := doRequest(server.handleList, "POST", "/api/list",
+		map[string]string{"name": "Shared Milk"}, []*http.Cookie{cookieA})
+	if rr.Code != http.StatusOK && rr.Code != http.StatusCreated {
+		t.Fatalf("user A add failed: %d %s", rr.Code, rr.Body.String())
+	}
+
+	// User B should be able to see it
+	rr = doRequest(server.handleList, "GET", "/api/list", nil, []*http.Cookie{cookieB})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("user B list fetch failed: %d", rr.Code)
+	}
+
+	var listItems []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &listItems)
+	found := false
+	for _, item := range listItems {
+		if item["name"] == "Shared Milk" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("household member B could not see item added by member A")
+	}
+}
+
+func TestCrossUser_HouseholdMemberCanToggleSharedItem(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userA := loginUser(t, server, "+15550013000")
+	cookieB, userB := loginUser(t, server, "+15550014000")
+
+	// Same household
+	server.db.Exec("UPDATE users SET household_id = (SELECT household_id FROM users WHERE id = ?) WHERE id = ?", userA, userB)
+	server.db.Exec("INSERT OR IGNORE INTO household_members (household_id, user_id) VALUES ((SELECT household_id FROM users WHERE id = ?), ?)", userA, userB)
+
+	server.db.Exec("INSERT INTO list_items (user_id, name, quantity, checked) VALUES (?, 'HH Bread', 1, 0)", userA)
+	var itemID int
+	server.db.QueryRow("SELECT id FROM list_items WHERE user_id = ? AND name = 'HH Bread'", userA).Scan(&itemID)
+
+	// User B should be able to toggle it (they're in the same household)
+	rr := doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d/toggle", itemID), nil, []*http.Cookie{cookieB})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("household member could not toggle shared item: %d %s", rr.Code, rr.Body.String())
+	}
+
+	var checked bool
+	server.db.QueryRow("SELECT checked FROM list_items WHERE id = ?", itemID).Scan(&checked)
+	if !checked {
+		t.Error("household member's toggle did not take effect on shared item")
+	}
+}
