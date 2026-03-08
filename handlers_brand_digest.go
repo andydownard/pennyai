@@ -175,7 +175,7 @@ func buildBrandDigestHTML(d brandDigestData) string {
 
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:'Avenir','Avenir Next',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
 <table width="100%%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;margin-top:24px;margin-bottom:24px;">
 <tr><td style="background:#35644F;padding:24px 28px;text-align:center;">
   <div style="color:#fff;font-size:24px;font-weight:700;">thriftly</div>

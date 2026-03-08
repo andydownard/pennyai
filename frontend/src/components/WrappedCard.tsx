@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { track } from '../analytics'
-
-const FONT = "'Avenir', 'Avenir Next', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+import { FONT } from '../styles'
 // Uses CSS custom properties for dark mode reactivity
 
 interface WrappedData {

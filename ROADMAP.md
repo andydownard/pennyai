@@ -4,6 +4,54 @@
 >
 > **See also:** `TECH_DESIGN_PENNY_SWAPS.md` — detailed technical design document for the Penny Swaps MVP with full database schemas, API contracts, pipeline architecture, fraud prevention checklist, and evidence retention policy. Based on 3 focus group panels (18 total participants).
 
+---
+
+## CEO Panel Priority Reset (2026-03-09)
+
+Strategic direction from founder + CEO panel focused on three gates: First-5-Minutes Magic, 11-Star Moment ("You never ask 'Did you get milk?' again"), and Data Flywheel compounding.
+
+### P0 — Block Release Until Done (Next 2 Weeks)
+
+1. **First-5-Minutes Onboarding Rewrite** — New users must feel "this just works" in <5 minutes with zero clarifying questions. Brand defaults + 1-tap correction + household invite after 3rd item.
+   - [ ] Brand default logic (global popularity + dietary attributes)
+   - [ ] 1-tap brand correction UI with confirmation
+   - [ ] Household invite prompt after item #3 (not time-based)
+   - [ ] A/B test: old flow (ask questions) vs new flow (assume defaults)
+   - **Owner:** Product + AI
+   - **Timeline:** 2 weeks
+   - **Blocks:** All other features
+
+2. **11-Star Moment Narrative Lock** — "You never ask 'Did you get milk?' again." Every feature roadmap decision must ladder to household coordination + relief, not convenience or feature accumulation.
+   - [ ] Brief entire team on narrative
+   - [ ] Update pitch deck + website hero
+   - [ ] Roadmap review: remove/defer features that don't pass Gate 2
+   - **Owner:** CEO + Marketing
+   - **Timeline:** 1 week
+
+### P1 — Ship After Core Gates Validated (Next 30 Days)
+
+3. **Data Flywheel Documentation** — Chart the compounding story: Month 0-3 (basic history) → Month 3-6 (brand memory) → Month 6-9 (household patterns) → Month 9-12 (cross-household trends). Document KPIs per stage.
+   - [ ] Write 12-month data compounding narrative
+   - [ ] Define retention/activation targets per stage
+   - [ ] Update CLAUDE.md with data flywheel rules
+   - **Owner:** Product + Data
+   - **Timeline:** 1 week
+
+4. **Design Drift Fixes** — Brand consistency audit + fixes.
+   - [x] Replace #2E7D32 with #35644F throughout app (consumer app already correct; #2E7D32 is only in brand portal by design)
+   - [x] Remove Roboto font; confirm Avenir/Avenir Next only (removed from MilestoneCard, WrappedCard, brand digest email)
+   - [ ] QA on iOS + Android
+   - **Owner:** Design + Frontend
+   - **Timeline:** 3 days
+
+### P2 — Hold Until P0/P1 Validated (Do Not Start)
+
+5. **Feature Pause: Trip Planner** — Deprioritize until data flywheel and household coordination narratives are proven. Trip planner is convenience-driven, not coordination-driven. Move to "Nice-to-Have" unless repositioned around household trip coordination.
+
+6. **Feature Pause: Feedback Widget** — Operations stability concerns. Hold for 1+ week until SMS/email delivery is 99.9% reliable.
+
+---
+
 ## Focus Group Findings
 
 > Detailed findings from 3 focus group panels (24 participants total) are in `FOCUS_GROUPS.md`. Full technical design in `TECH_DESIGN_PENNY_SWAPS.md`.

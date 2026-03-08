@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { track } from '../analytics'
-
-const FONT = "'Avenir', 'Avenir Next', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+import { FONT } from '../styles'
 // Uses CSS custom properties for dark mode reactivity
 
 interface MilestoneData {
@@ -117,6 +116,6 @@ const cardStyle: React.CSSProperties = {
 
 const closeBtnStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg)', color: 'var(--text-secondary)', border: 'none', borderRadius: '12px',
-  fontFamily: "'Avenir', 'Avenir Next', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  fontFamily: FONT,
   fontSize: '15px', fontWeight: 500, padding: '14px 20px', cursor: 'pointer',
 }
