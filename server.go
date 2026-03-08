@@ -350,6 +350,9 @@ Get these from https://console.twilio.com (see README for full setup).
 			}
 			cleanPath := path.Clean(r.URL.Path)
 			if _, err := os.Stat("static-brand" + cleanPath); err == nil && !strings.Contains(cleanPath, "..") {
+				if strings.HasPrefix(cleanPath, "/assets/") {
+					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+				}
 				brandFS.ServeHTTP(w, r)
 				return
 			}
