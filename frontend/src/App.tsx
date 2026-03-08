@@ -3305,8 +3305,17 @@ const handleCodeChange = (index: number, value: string) => {
           </div>
         ) : items.length === 0 && !chatLoading ? (
           <div style={listStyles.emptyState}>
-            <p style={listStyles.emptyText}>Your list is empty.</p>
-            <p style={listStyles.emptySubtext}>Tell Penny what you need.</p>
+            <PennyAvatar size={56} />
+            <p style={{ ...listStyles.emptyText, marginTop: '12px' }}>What do you need from the store?</p>
+            <p style={listStyles.emptySubtext}>Type, paste a list, or snap a photo</p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '16px', justifyContent: 'center', maxWidth: '320px' }}>
+              {['milk eggs bread', 'weekly groceries', 'dinner for 4 tonight'].map(example => (
+                <button key={example} onClick={() => { setChatText(example); chatInputRef.current?.focus() }} style={{
+                  fontFamily: FONT, fontSize: '13px', color: 'var(--text-secondary)', backgroundColor: 'var(--bg)',
+                  border: '1px solid var(--border)', borderRadius: '16px', padding: '6px 14px', cursor: 'pointer',
+                }}>{example}</button>
+              ))}
+            </div>
           </div>
         ) : (
           activeDepts.map((dept, deptIdx) => {

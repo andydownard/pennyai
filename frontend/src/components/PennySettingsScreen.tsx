@@ -33,12 +33,13 @@ export function PennySettingsScreen({
   const saveSlider = (val: number) => {
     onSliderChange(val)
     if (sliderSaveTimeout.current) clearTimeout(sliderSaveTimeout.current)
-    sliderSaveTimeout.current = setTimeout(() => {
-      fetchAPI('/api/settings', {
+    sliderSaveTimeout.current = setTimeout(async () => {
+      const result = await fetchAPI('/api/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ penny_slider: val }),
       })
+      if (!result) console.warn('[settings] slider save failed')
     }, 400)
   }
 
