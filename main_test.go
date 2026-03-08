@@ -9596,6 +9596,46 @@ func TestEmailForgot_UnknownEmail_ReturnsOK(t *testing.T) {
 	}
 }
 
+func TestEmailForgot_RateLimit(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// 5 requests should succeed
+	for i := 0; i < 5; i++ {
+		rr := doRequest(server.handleEmailForgot, "POST", "/auth/email/forgot",
+			map[string]string{"email": "test@example.com"}, nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("Request %d: got %d, want 200", i+1, rr.Code)
+		}
+	}
+
+	// 6th request should be rate limited
+	rr := doRequest(server.handleEmailForgot, "POST", "/auth/email/forgot",
+		map[string]string{"email": "test@example.com"}, nil)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("6th request: got %d, want 429", rr.Code)
+	}
+}
+
+func TestMagicLink_RateLimit(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// 5 requests should succeed
+	for i := 0; i < 5; i++ {
+		rr := doRequest(server.handleMagicLink, "POST", "/auth/email/magic-link",
+			map[string]string{"email": "test@example.com"}, nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("Request %d: got %d, want 200", i+1, rr.Code)
+		}
+	}
+
+	// 6th request should be rate limited
+	rr := doRequest(server.handleMagicLink, "POST", "/auth/email/magic-link",
+		map[string]string{"email": "test@example.com"}, nil)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("6th request: got %d, want 429", rr.Code)
+	}
+}
+
 func TestEmailReset_WrongMethod(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 	rr := doRequest(server.handleEmailReset, "GET", "/auth/email/reset", nil, nil)
@@ -9730,12 +9770,26 @@ func TestGetClientIP_RemoteAddr(t *testing.T) {
 }
 
 func TestGetClientIP_XForwardedFor(t *testing.T) {
+	// When RAILWAY_ENVIRONMENT_NAME is set, X-Forwarded-For should be trusted
+	t.Setenv("RAILWAY_ENVIRONMENT_NAME", "production")
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Forwarded-For", "10.0.0.1, 172.16.0.1")
 	req.RemoteAddr = "192.168.1.1:54321"
 	got := getClientIP(req)
 	if got != "10.0.0.1" {
-		t.Errorf("getClientIP X-Forwarded-For: got %q, want %q", got, "10.0.0.1")
+		t.Errorf("getClientIP X-Forwarded-For (behind proxy): got %q, want %q", got, "10.0.0.1")
+	}
+}
+
+func TestGetClientIP_IgnoresXFFWithoutProxy(t *testing.T) {
+	// When RAILWAY_ENVIRONMENT_NAME is NOT set, X-Forwarded-For should be ignored
+	t.Setenv("RAILWAY_ENVIRONMENT_NAME", "")
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-Forwarded-For", "10.0.0.1, 172.16.0.1")
+	req.RemoteAddr = "192.168.1.1:54321"
+	got := getClientIP(req)
+	if got != "192.168.1.1" {
+		t.Errorf("getClientIP X-Forwarded-For (no proxy): got %q, want %q — XFF should be ignored", got, "192.168.1.1")
 	}
 }
 
@@ -10782,6 +10836,39 @@ func TestAdminDeals_RequiresAdmin(t *testing.T) {
 	rr := doRequest(server.handleAdminDeals, "GET", "/api/admin/deals", nil, cookies)
 	if rr.Code != 403 {
 		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+
+func TestAdminDeals_RejectsNegativeValues(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '3104861833')")
+	token, _ := server.sessions.CreateSession(1, "3104861833", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Negative discount should be rejected
+	rr := doRequest(server.handleAdminDeals, "POST", "/api/admin/deals",
+		map[string]interface{}{
+			"competitor_product": "Brand A Milk",
+			"offer_brand":       "Brand B",
+			"offer_product":     "Brand B Milk",
+			"discount_cents":    -100,
+		}, cookies)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("negative discount: got %d, want 400", rr.Code)
+	}
+
+	// Negative budget should be rejected
+	rr = doRequest(server.handleAdminDeals, "POST", "/api/admin/deals",
+		map[string]interface{}{
+			"competitor_product": "Brand A Milk",
+			"offer_brand":       "Brand B",
+			"offer_product":     "Brand B Milk",
+			"daily_budget_cents": -500,
+		}, cookies)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("negative budget: got %d, want 400", rr.Code)
 	}
 }
 

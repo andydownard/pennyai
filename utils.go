@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"html"
 	"log"
 	"net/http"
 	"os"
@@ -22,16 +23,27 @@ func setSessionCookie(w http.ResponseWriter, cfg Config, token string) {
 	})
 }
 
-// getClientIP extracts the client IP from the request, handling X-Forwarded-For.
+// getClientIP extracts the client IP from the request.
+// Only trusts X-Forwarded-For when running behind a reverse proxy (Railway),
+// detected by the presence of RAILWAY_ENVIRONMENT_NAME. This prevents attackers
+// from spoofing their IP to bypass rate limiting.
 func getClientIP(r *http.Request) string {
-	clientIP := r.Header.Get("X-Forwarded-For")
-	if clientIP == "" {
-		clientIP = r.RemoteAddr
+	// Only trust X-Forwarded-For when behind Railway's proxy
+	if os.Getenv("RAILWAY_ENVIRONMENT_NAME") != "" {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			// Use the first (leftmost) IP — the client IP added by Railway's proxy
+			clientIP := strings.TrimSpace(strings.Split(xff, ",")[0])
+			if clientIP != "" {
+				return clientIP
+			}
+		}
 	}
+	// Fallback: use RemoteAddr directly (strip port)
+	clientIP := r.RemoteAddr
 	if idx := strings.LastIndex(clientIP, ":"); idx > 0 && !strings.Contains(clientIP[idx:], "]") {
 		clientIP = clientIP[:idx]
 	}
-	return strings.TrimSpace(strings.Split(clientIP, ",")[0])
+	return strings.TrimSpace(clientIP)
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
@@ -169,7 +181,7 @@ func serveWithOGTags(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
-	html := string(data)
+	page := string(data)
 
 	var ogTitle, ogDescription string
 	if strings.HasPrefix(r.URL.Path, "/r/") {
@@ -180,16 +192,16 @@ func serveWithOGTags(w http.ResponseWriter, r *http.Request) {
 		ogDescription = "Someone wants to share their grocery list with you. Join their household on Thriftly and let Penny help you both save."
 	}
 
-	// Replace the default OG tags with dynamic ones
-	html = strings.Replace(html,
+	// Replace the default OG tags with dynamic ones (HTML-escaped to prevent injection)
+	page = strings.Replace(page,
 		`<meta property="og:title" content="Thriftly — Your AI Shopping Assistant" />`,
-		`<meta property="og:title" content="`+ogTitle+`" />`, 1)
-	html = strings.Replace(html,
+		`<meta property="og:title" content="`+html.EscapeString(ogTitle)+`" />`, 1)
+	page = strings.Replace(page,
 		`<meta property="og:description" content="Penny helps your household save on groceries with smart suggestions and shared lists." />`,
-		`<meta property="og:description" content="`+ogDescription+`" />`, 1)
+		`<meta property="og:description" content="`+html.EscapeString(ogDescription)+`" />`, 1)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(html))
+	w.Write([]byte(page))
 }
 
 // requireSavedListAccess checks that listID exists and belongs to a member of

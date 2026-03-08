@@ -366,10 +366,13 @@
 
     var header = document.createElement('div');
     header.className = 'thriftly-fb-header';
-    header.innerHTML = '<h2 style="flex:1">Instructions for Product Team</h2>';
+    var successTitle = document.createElement('h2');
+    successTitle.style.flex = '1';
+    successTitle.textContent = 'Instructions for Product Team';
+    header.appendChild(successTitle);
     var closeBtn = document.createElement('button');
     closeBtn.className = 'thriftly-fb-close';
-    closeBtn.innerHTML = '&times;';
+    closeBtn.textContent = '\u00D7';
     closeBtn.onclick = closeModal;
     header.appendChild(closeBtn);
 
@@ -412,10 +415,13 @@
 
     var header = document.createElement('div');
     header.className = 'thriftly-fb-header';
-    header.innerHTML = '<h2 style="flex:1">My Submissions</h2>';
+    var histTitle = document.createElement('h2');
+    histTitle.style.flex = '1';
+    histTitle.textContent = 'My Submissions';
+    header.appendChild(histTitle);
     var closeBtn = document.createElement('button');
     closeBtn.className = 'thriftly-fb-close';
-    closeBtn.innerHTML = '&times;';
+    closeBtn.textContent = '\u00D7';
     closeBtn.onclick = closeModal;
     header.appendChild(closeBtn);
 
@@ -479,21 +485,39 @@
           el.appendChild(bodyText);
           el.appendChild(meta);
 
-          var trail = document.createElement('div');
-          trail.className = 'thriftly-fb-history-outcome';
-          var actions = [];
+          var trailParts = [];
           if (item.github_issue_url) {
-            actions.push('<a class="thriftly-fb-gh-link" href="' + item.github_issue_url + '" target="_blank" rel="noopener">GitHub issue created</a>');
+            trailParts.push({ type: 'link', url: item.github_issue_url, text: 'GitHub issue created' });
           }
           if (item.updated_at) {
             var updatedDate = new Date(item.updated_at + 'Z');
-            actions.push('Last updated ' + updatedDate.toLocaleDateString());
+            trailParts.push({ type: 'text', text: 'Last updated ' + updatedDate.toLocaleDateString() });
           }
           if (item.status !== 'new') {
-            actions.push('Status: ' + (statusLabels[item.status] || item.status));
+            trailParts.push({ type: 'text', text: 'Status: ' + (statusLabels[item.status] || item.status) });
           }
-          if (actions.length > 0) {
-            trail.innerHTML = '<strong>Trail:</strong> ' + actions.join(' &middot; ');
+          if (trailParts.length > 0) {
+            var trail = document.createElement('div');
+            trail.className = 'thriftly-fb-history-outcome';
+            var trailLabel = document.createElement('strong');
+            trailLabel.textContent = 'Trail:';
+            trail.appendChild(trailLabel);
+            trail.appendChild(document.createTextNode(' '));
+            trailParts.forEach(function (part, idx) {
+              if (idx > 0) trail.appendChild(document.createTextNode(' \u00B7 '));
+              if (part.type === 'link') {
+                var a = document.createElement('a');
+                a.className = 'thriftly-fb-gh-link';
+                a.href = part.url;
+                a.target = '_blank';
+                a.rel = 'noopener';
+                a.textContent = part.text;
+                if (a.protocol !== 'https:' && a.protocol !== 'http:') a.removeAttribute('href');
+                trail.appendChild(a);
+              } else {
+                trail.appendChild(document.createTextNode(part.text));
+              }
+            });
             el.appendChild(trail);
           }
 
@@ -506,7 +530,10 @@
           if (outcomeText) {
             var outcome = document.createElement('div');
             outcome.className = 'thriftly-fb-history-outcome';
-            outcome.innerHTML = '<strong>Product team:</strong> ' + outcomeText;
+            var outcomeLabel = document.createElement('strong');
+            outcomeLabel.textContent = 'Product team:';
+            outcome.appendChild(outcomeLabel);
+            outcome.appendChild(document.createTextNode(' ' + outcomeText));
             el.appendChild(outcome);
           }
 

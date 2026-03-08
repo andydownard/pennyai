@@ -325,6 +325,13 @@ func (s *Server) handleEmailForgot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Rate limit: max 5 password reset requests per IP per 15 minutes
+	clientIP := getClientIP(r)
+	if checkRateLimit(&s.passwordResetIPLimiter, "forgot:"+clientIP, 15*time.Minute, 5) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Too many requests. Please try again later."})
+		return
+	}
+
 	var req struct {
 		Email string `json:"email"`
 	}
@@ -376,7 +383,7 @@ func (s *Server) handleEmailForgot(w http.ResponseWriter, r *http.Request) {
 	if s.config.SendGridAPIKey != "" {
 		go s.sendPasswordResetEmail(req.Email, resetToken)
 	} else {
-		log.Printf("[email-auth] SENDGRID_API_KEY not set, reset token for %s: %s", req.Email, resetToken)
+		log.Printf("[email-auth] SENDGRID_API_KEY not set, skipping password reset email for %s", req.Email)
 	}
 
 	writeJSON(w, http.StatusOK, successResp)
@@ -386,6 +393,13 @@ func (s *Server) handleEmailForgot(w http.ResponseWriter, r *http.Request) {
 // Sends a passwordless login link to the user's email.
 func (s *Server) handleMagicLink(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+
+	// Rate limit: max 5 magic link requests per IP per 15 minutes
+	clientIP := getClientIP(r)
+	if checkRateLimit(&s.passwordResetIPLimiter, "magic:"+clientIP, 15*time.Minute, 5) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Too many requests. Please try again later."})
 		return
 	}
 
@@ -440,7 +454,7 @@ func (s *Server) handleMagicLink(w http.ResponseWriter, r *http.Request) {
 	if s.config.SendGridAPIKey != "" {
 		go s.sendMagicLinkEmail(req.Email, magicToken)
 	} else {
-		log.Printf("[email-auth] SENDGRID_API_KEY not set, magic link token for %s: %s", req.Email, magicToken)
+		log.Printf("[email-auth] SENDGRID_API_KEY not set, skipping magic link email for %s", req.Email)
 	}
 
 	writeJSON(w, http.StatusOK, successResp)

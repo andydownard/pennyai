@@ -178,6 +178,8 @@ type Server struct {
 	parseLimiter sync.Map
 	// Per-IP email login rate limiter: IP -> []time.Time (sliding window, 10 req/10min)
 	emailLoginIPLimiter sync.Map
+	// Per-IP password reset/magic link rate limiter: IP -> []time.Time (sliding window, 5 req/15min)
+	passwordResetIPLimiter sync.Map
 	// Per-user earnings upload rate limiter: userID -> *rateBucket (5 uploads/hour)
 	earningsUploadLimiter sync.Map
 

@@ -363,6 +363,10 @@ func (s *Server) handleAdminDeals(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "competitor_product, offer_brand, and offer_product are required"})
 			return
 		}
+		if deal.DiscountCents < 0 || deal.TotalBudgetCents < 0 || deal.OfferPriceCents < 0 || deal.CompetitorPriceCents < 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Price and budget values must not be negative"})
+			return
+		}
 		if deal.Status == "" {
 			deal.Status = "active"
 		}
