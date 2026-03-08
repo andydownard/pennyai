@@ -1383,6 +1383,40 @@ function AppInner() {
     if (items.length > 0) hasGreetedEmpty.current = false
   }, [items.length])
 
+  // Repurchase nudge — when list is empty and user returns, suggest items due for restock
+  const nudgeShownRef = useRef(false)
+  useEffect(() => {
+    if (screen !== 'home' || items.length > 0 || nudgeShownRef.current || loginCount <= 1) return
+    nudgeShownRef.current = true
+    const timer = setTimeout(async () => {
+      try {
+        const data = await fetchAPI('/api/penny/nudges')
+        const nudges = (data as { nudges?: Array<{ item_name: string; days_overdue: number }> })?.nudges
+        if (nudges && nudges.length > 0) {
+          const top = nudges.slice(0, 3)
+          const names = top.map(n => n.item_name).join(', ')
+          typePennyHome(`Running low on ${names}?`, top.map(n => ({
+            label: `+ ${n.item_name}`,
+            onClick: () => {
+              fetch('/api/list/parse', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: n.item_name }),
+              }).then(r => r.ok ? r.json() : null).then(d => {
+                if (d?.items?.length > 0) {
+                  setItems(prev => sortItems([...prev, ...d.items]))
+                  showToast(`Added ${n.item_name}`)
+                }
+              }).catch(() => {})
+            },
+          })))
+        }
+      } catch { /* nudges are optional */ }
+    }, 2000)
+    return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, items.length])
+
   // Idle nudge — if nothing happens for 2 minutes, Penny says something
   useEffect(() => {
     if (screen !== 'home') return
