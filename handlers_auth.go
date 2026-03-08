@@ -825,10 +825,11 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]interface{}{
-		"logged_in":    true,
-		"user_id":      session.UserID,
-		"auth_method":  session.AuthMethod,
-		"is_admin":     s.config.AdminPhone != "" && session.PhoneNumber != "" && session.PhoneNumber == s.config.AdminPhone,
+		"logged_in":            true,
+		"user_id":              session.UserID,
+		"auth_method":          session.AuthMethod,
+		"is_admin":             s.config.AdminPhone != "" && session.PhoneNumber != "" && session.PhoneNumber == s.config.AdminPhone,
+		"can_submit_feedback":  s.isFeedbackUser(session),
 	}
 	if session.PhoneNumber != "" {
 		resp["phone_number"] = session.PhoneNumber

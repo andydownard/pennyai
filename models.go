@@ -30,6 +30,25 @@ type Config struct {
 	SendGridAPIKey      string
 	BlueCartAPIKey      string
 	ReportingDBPath     string
+	FeedbackPhones      []string // phone numbers allowed to submit feedback
+	GitHubPAT           string   // personal access token for creating issues
+	GitHubRepo          string   // "owner/repo" format
+}
+
+// FeedbackRequest represents a founder feedback item destined for the roadmap.
+type FeedbackRequest struct {
+	ID             int    `json:"id"`
+	UserID         int    `json:"user_id"`
+	Body           string `json:"body"`
+	Type           string `json:"type"`
+	Urgency        string `json:"urgency"`
+	Status         string `json:"status"`
+	AdminNotes     string `json:"admin_notes,omitempty"`
+	GitHubIssueURL string `json:"github_issue_url,omitempty"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at,omitempty"`
+	UserName       string `json:"user_name,omitempty"`
+	UserPhone      string `json:"user_phone,omitempty"`
 }
 
 // =============================================================================

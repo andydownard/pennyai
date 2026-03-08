@@ -1364,6 +1364,27 @@ func initDB(path string) (*sql.DB, error) {
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_category_alerts_type ON category_alerts(alert_type)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_category_alerts_category ON category_alerts(category_id)")
 
+	// --- Feedback system ---
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS feedback_requests (
+			id               INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id          INTEGER NOT NULL REFERENCES users(id),
+			body             TEXT NOT NULL,
+			type             TEXT NOT NULL DEFAULT 'feature',
+			urgency          TEXT NOT NULL DEFAULT 'normal',
+			status           TEXT NOT NULL DEFAULT 'new',
+			admin_notes      TEXT NOT NULL DEFAULT '',
+			github_issue_url TEXT NOT NULL DEFAULT '',
+			created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at       DATETIME
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating feedback_requests table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_feedback_requests_status ON feedback_requests(status)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_feedback_requests_user_id ON feedback_requests(user_id)")
+
 	return db, nil
 }
 

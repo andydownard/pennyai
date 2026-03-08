@@ -77,6 +77,17 @@ func loadConfig() Config {
 		}
 	}
 
+	// Parse FEEDBACK_PHONES: comma-separated phone numbers (digits only, no +1 prefix)
+	var feedbackPhones []string
+	if fp := os.Getenv("FEEDBACK_PHONES"); fp != "" {
+		for _, p := range strings.Split(fp, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				feedbackPhones = append(feedbackPhones, p)
+			}
+		}
+	}
+
 	return Config{
 		TwilioAccountSID:    os.Getenv("TWILIO_ACCOUNT_SID"),
 		TwilioAuthToken:     os.Getenv("TWILIO_AUTH_TOKEN"),
@@ -97,6 +108,9 @@ func loadConfig() Config {
 		SendGridAPIKey:      os.Getenv("SENDGRID_API_KEY"),
 		BlueCartAPIKey:      os.Getenv("BLUECART_API_KEY"),
 		ReportingDBPath:     os.Getenv("REPORTING_DB_PATH"),
+		FeedbackPhones:      feedbackPhones,
+		GitHubPAT:           os.Getenv("GH_PAT"),
+		GitHubRepo:          os.Getenv("GH_REPO"),
 	}
 }
 
@@ -262,6 +276,9 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/stores/", server.handleStoreSubroute)
 	http.HandleFunc("/api/price-compare", server.handlePriceComparison)
 	http.HandleFunc("/api/admin/regional-swaps", server.handleRegionalSwapPerformance)
+	http.HandleFunc("/api/feedback", server.handleFeedbackRoutes)
+	http.HandleFunc("/api/admin/feedback", server.handleAdminFeedback)
+	http.HandleFunc("/api/admin/feedback/", server.handleAdminFeedbackByID)
 
 	// --- A/B Testing ---
 	http.HandleFunc("GET /api/ab/variant", handleGetVariant(server))

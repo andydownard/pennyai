@@ -19013,3 +19013,420 @@ func TestConversationDepthColumn_Exists(t *testing.T) {
 		t.Errorf("expected conversation_depth 3, got %d", depth)
 	}
 }
+
+// =============================================================================
+// FEEDBACK TESTS
+// =============================================================================
+
+func TestFeedback_SubmitSuccess(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
+		map[string]string{"body": "Please add dark mode", "type": "feature", "urgency": "normal"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	result := parseJSON(rr)
+	if result["success"] != true {
+		t.Errorf("expected success=true, got %v", result["success"])
+	}
+	if result["id"] == nil || result["id"].(float64) < 1 {
+		t.Errorf("expected valid id, got %v", result["id"])
+	}
+}
+
+func TestFeedback_SubmitEmptyBody(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
+		map[string]string{"body": "", "type": "bug"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty body, got %d", rr.Code)
+	}
+}
+
+func TestFeedback_SubmitWhitespaceBody(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
+		map[string]string{"body": "   \n\t  ", "type": "bug"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for whitespace-only body, got %d", rr.Code)
+	}
+}
+
+func TestFeedback_SubmitTooLong(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	longBody := strings.Repeat("a", 10001)
+	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
+		map[string]string{"body": longBody, "type": "bug"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for body >10000 chars, got %d", rr.Code)
+	}
+}
+
+func TestFeedback_SubmitNoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
+		map[string]string{"body": "test"}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without session, got %d", rr.Code)
+	}
+}
+
+func TestFeedback_DefaultTypeAndUrgency(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Submit with no type or urgency
+	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
+		map[string]string{"body": "some feedback"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", rr.Code)
+	}
+
+	var typ, urg string
+	server.db.QueryRow("SELECT type, urgency FROM feedback_requests WHERE user_id = ?", userID).Scan(&typ, &urg)
+	if typ != "feature" {
+		t.Errorf("expected default type 'feature', got %q", typ)
+	}
+	if urg != "normal" {
+		t.Errorf("expected default urgency 'normal', got %q", urg)
+	}
+}
+
+func TestFeedback_InvalidTypeDefaultsToFeature(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
+		map[string]string{"body": "test", "type": "invalid_type"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", rr.Code)
+	}
+
+	var typ string
+	server.db.QueryRow("SELECT type FROM feedback_requests WHERE user_id = ?", userID).Scan(&typ)
+	if typ != "feature" {
+		t.Errorf("expected default type 'feature', got %q", typ)
+	}
+}
+
+func TestFeedback_RateLimit(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Pre-insert 10 feedback requests in the last hour
+	for i := 0; i < 10; i++ {
+		server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, ?, 'bug', 'normal')",
+			userID, fmt.Sprintf("feedback %d", i))
+	}
+
+	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
+		map[string]string{"body": "one more"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("expected 429 after 10 submissions, got %d", rr.Code)
+	}
+}
+
+func TestFeedback_ListOwnSubmissions(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Create some feedback
+	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'fix login', 'bug', 'high')", userID)
+	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'add dark mode', 'feature', 'normal')", userID)
+
+	// Another user's feedback (should not appear)
+	user2, _ := upsertUser(server.db, "5559999999")
+	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'other user feedback', 'bug', 'low')", user2.ID)
+
+	rr := doRequest(server.handleFeedbackRoutes, "GET", "/api/feedback", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var items []FeedbackRequest
+	json.Unmarshal(rr.Body.Bytes(), &items)
+	if len(items) != 2 {
+		t.Errorf("expected 2 own items, got %d", len(items))
+	}
+	// Should be in reverse order (newest first)
+	if len(items) >= 2 && items[0].Body != "add dark mode" {
+		t.Errorf("expected newest first, got %q", items[0].Body)
+	}
+}
+
+func TestFeedback_ListNoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleFeedbackRoutes, "GET", "/api/feedback", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestFeedback_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleFeedbackRoutes, "DELETE", "/api/feedback", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestAdminFeedback_Unauthorized(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleAdminFeedback, "GET", "/api/admin/feedback", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestAdminFeedback_ForbiddenForNonAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleAdminFeedback, "GET", "/api/admin/feedback", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+
+func TestAdminFeedback_ListAll(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create admin user (uses AdminPhone from config: 3104861833)
+	adminUser, _ := upsertUser(server.db, "3104861833")
+	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
+	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
+
+	// Create regular user's feedback
+	user, _ := upsertUser(server.db, "5551234567")
+	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'bug report', 'bug', 'high')", user.ID)
+	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'feature idea', 'feature', 'normal')", user.ID)
+
+	rr := doRequest(server.handleAdminFeedback, "GET", "/api/admin/feedback", nil, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var items []FeedbackRequest
+	json.Unmarshal(rr.Body.Bytes(), &items)
+	if len(items) != 2 {
+		t.Errorf("expected 2 items, got %d", len(items))
+	}
+}
+
+func TestAdminFeedback_FilterByStatus(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	adminUser, _ := upsertUser(server.db, "3104861833")
+	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
+	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
+
+	user, _ := upsertUser(server.db, "5551234567")
+	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency, status) VALUES (?, 'new one', 'bug', 'normal', 'new')", user.ID)
+	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency, status) VALUES (?, 'reviewed one', 'feature', 'normal', 'reviewed')", user.ID)
+
+	rr := doRequest(server.handleAdminFeedback, "GET", "/api/admin/feedback?status=reviewed", nil, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var items []FeedbackRequest
+	json.Unmarshal(rr.Body.Bytes(), &items)
+	if len(items) != 1 {
+		t.Errorf("expected 1 reviewed item, got %d", len(items))
+	}
+	if len(items) > 0 && items[0].Status != "reviewed" {
+		t.Errorf("expected status 'reviewed', got %q", items[0].Status)
+	}
+}
+
+func TestAdminFeedback_FilterByType(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	adminUser, _ := upsertUser(server.db, "3104861833")
+	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
+	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
+
+	user, _ := upsertUser(server.db, "5551234567")
+	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'a bug', 'bug', 'normal')", user.ID)
+	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'an idea', 'feature', 'normal')", user.ID)
+
+	rr := doRequest(server.handleAdminFeedback, "GET", "/api/admin/feedback?type=bug", nil, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var items []FeedbackRequest
+	json.Unmarshal(rr.Body.Bytes(), &items)
+	if len(items) != 1 {
+		t.Errorf("expected 1 bug item, got %d", len(items))
+	}
+}
+
+func TestAdminFeedbackTriage_UpdateStatus(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	adminUser, _ := upsertUser(server.db, "3104861833")
+	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
+	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
+
+	user, _ := upsertUser(server.db, "5551234567")
+	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'please fix', 'bug', 'high')", user.ID)
+
+	status := "roadmapped"
+	notes := "Added to Q2 sprint"
+	rr := doRequest(server.handleAdminFeedbackByID, "PUT", "/api/admin/feedback/1",
+		map[string]interface{}{"status": &status, "admin_notes": &notes}, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var dbStatus, dbNotes string
+	server.db.QueryRow("SELECT status, admin_notes FROM feedback_requests WHERE id = 1").Scan(&dbStatus, &dbNotes)
+	if dbStatus != "roadmapped" {
+		t.Errorf("expected status 'roadmapped', got %q", dbStatus)
+	}
+	if dbNotes != "Added to Q2 sprint" {
+		t.Errorf("expected admin_notes 'Added to Q2 sprint', got %q", dbNotes)
+	}
+}
+
+func TestAdminFeedbackTriage_InvalidStatus(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	adminUser, _ := upsertUser(server.db, "3104861833")
+	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
+	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
+
+	user, _ := upsertUser(server.db, "5551234567")
+	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'test', 'bug', 'normal')", user.ID)
+
+	badStatus := "invalid_status"
+	rr := doRequest(server.handleAdminFeedbackByID, "PUT", "/api/admin/feedback/1",
+		map[string]interface{}{"status": &badStatus}, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid status, got %d", rr.Code)
+	}
+}
+
+func TestAdminFeedbackTriage_NotFound(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	adminUser, _ := upsertUser(server.db, "3104861833")
+	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
+	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
+
+	status := "reviewed"
+	rr := doRequest(server.handleAdminFeedbackByID, "PUT", "/api/admin/feedback/999",
+		map[string]interface{}{"status": &status}, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for nonexistent feedback, got %d", rr.Code)
+	}
+}
+
+func TestAdminFeedbackTriage_NoFields(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	adminUser, _ := upsertUser(server.db, "3104861833")
+	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
+	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
+
+	user, _ := upsertUser(server.db, "5551234567")
+	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'test', 'bug', 'normal')", user.ID)
+
+	rr := doRequest(server.handleAdminFeedbackByID, "PUT", "/api/admin/feedback/1",
+		map[string]interface{}{}, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for no fields, got %d", rr.Code)
+	}
+}
+
+func TestAdminFeedbackTriage_Unauthorized(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	status := "reviewed"
+	rr := doRequest(server.handleAdminFeedbackByID, "PUT", "/api/admin/feedback/1",
+		map[string]interface{}{"status": &status}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestTruncateRunes(t *testing.T) {
+	// Short string — no truncation
+	if got := truncateRunes("hello", 10); got != "hello" {
+		t.Errorf("expected 'hello', got %q", got)
+	}
+	// Exact length — no truncation
+	if got := truncateRunes("hello", 5); got != "hello" {
+		t.Errorf("expected 'hello', got %q", got)
+	}
+	// Over limit — truncated with ...
+	if got := truncateRunes("hello world", 5); got != "hello..." {
+		t.Errorf("expected 'hello...', got %q", got)
+	}
+	// Unicode — counts runes not bytes
+	if got := truncateRunes("héllo wörld", 5); got != "héllo..." {
+		t.Errorf("expected 'héllo...', got %q", got)
+	}
+}
+
+func TestFeedback_SpecialCharacters(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
+		map[string]string{"body": "I love <script>alert('xss')</script> & 'quotes' \"double\" `backtick`", "type": "bug"},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for special chars, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestFeedback_SQLInjection(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
+		map[string]string{"body": "'; DROP TABLE feedback_requests; --", "type": "bug"},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201 (SQL injection safely stored), got %d", rr.Code)
+	}
+
+	// Verify table still exists
+	var count int
+	err := server.db.QueryRow("SELECT COUNT(*) FROM feedback_requests").Scan(&count)
+	if err != nil {
+		t.Fatalf("feedback_requests table was dropped! %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 row, got %d", count)
+	}
+}
+
+func TestIsFeedbackUser(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Valid user
+	if !server.isFeedbackUser(Session{UserID: 1}) {
+		t.Error("expected true for user with ID > 0")
+	}
+	// No user
+	if server.isFeedbackUser(Session{UserID: 0}) {
+		t.Error("expected false for user with ID 0")
+	}
+}
