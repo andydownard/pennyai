@@ -552,6 +552,17 @@ function AppInner() {
           .catch(() => showChimeIn(pickRandom(CHIME_IN_MESSAGES), 5000))
       }
     }
+    // Auto-expand departments that were done but now have unchecked items (user unchecked something)
+    if (checked < prevCheckedRef.current && prevCheckedRef.current > 0) {
+      const reopened = [...prevDeptDoneRef.current].filter(d => !nowDone.has(d))
+      if (reopened.length > 0) {
+        setExpandedDepts(prev => {
+          const next = new Set(prev)
+          reopened.forEach(d => next.add(d))
+          return next
+        })
+      }
+    }
     // Reset done state if items are no longer all checked (e.g., new items added)
     if (showDoneToast && !(items.length > 0 && items.every(i => i.checked))) {
       setShowDoneToast(false)
@@ -3348,6 +3359,7 @@ const handleCodeChange = (index: number, value: string) => {
   // =========================================================================
 
   const handleDeptClick = (dept: string) => {
+    haptic.tap()
     setExpandedDepts(prev => {
       const next = new Set(prev)
       if (next.has(dept)) {
@@ -3503,12 +3515,16 @@ const handleCodeChange = (index: number, value: string) => {
         </div>
       )}
 
-      {/* Scrollable list — tap to dismiss keyboard */}
+      {/* Scrollable list — tap or scroll to dismiss keyboard */}
       <div ref={listAreaRef} style={{
         ...listStyles.listArea,
         ...(pullDistance > 0 ? { transform: `translateY(${pullDistance}px)`, transition: isPulling.current ? 'none' : 'transform 0.2s ease' } : {}),
       }} onClick={e => {
         if (e.target === e.currentTarget || !(e.target as HTMLElement).closest('button, a, input, textarea')) {
+          chatInputRef.current?.blur()
+        }
+      }} onScroll={() => {
+        if (document.activeElement === chatInputRef.current) {
           chatInputRef.current?.blur()
         }
       }}>
@@ -3678,22 +3694,30 @@ const handleCodeChange = (index: number, value: string) => {
       )}
 
       {/* "You're done!" overlay */}
-      {showDoneOverlay && (
-        <div
-          style={{
-            position: 'fixed', inset: 0, zIndex: 9998,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            backgroundColor: 'rgba(0,0,0,0.3)',
-            animation: 'done-overlay 3s ease forwards',
-            pointerEvents: 'none',
-          }}
-          onAnimationEnd={() => setShowDoneOverlay(false)}
-        >
-          <span style={{ fontSize: '36px', fontWeight: 700, color: '#fff', fontFamily: FONT, textShadow: '0 2px 12px rgba(0,0,0,0.3)' }}>
-            You're done! 🎉
-          </span>
-        </div>
-      )}
+      {showDoneOverlay && (() => {
+        const tripSavings = items.reduce((s, i) => s + (i.swap_savings_cents || 0), 0)
+        return (
+          <div
+            style={{
+              position: 'fixed', inset: 0, zIndex: 9998,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px',
+              backgroundColor: 'rgba(0,0,0,0.3)',
+              animation: 'done-overlay 3s ease forwards',
+              pointerEvents: 'none',
+            }}
+            onAnimationEnd={() => setShowDoneOverlay(false)}
+          >
+            <span style={{ fontSize: '36px', fontWeight: 700, color: '#fff', fontFamily: FONT, textShadow: '0 2px 12px rgba(0,0,0,0.3)' }}>
+              You're done! 🎉
+            </span>
+            {tripSavings > 0 && (
+              <span style={{ fontSize: '18px', fontWeight: 600, color: '#fff', fontFamily: FONT, textShadow: '0 2px 8px rgba(0,0,0,0.3)', opacity: 0.9 }}>
+                Saved ${(tripSavings / 100).toFixed(2)} with swaps
+              </span>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Floating "+N ItemName" drift animations */}
       {floatingLabels.map((label, i) => (
