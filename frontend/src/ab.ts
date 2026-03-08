@@ -60,9 +60,8 @@ export function trackEvent(testName: string, event: string, value: number = 1): 
  *     return <OldSwapCard />;
  *   }
  */
-export function useABTest(_testName: string): string {
-  // Use a simple state pattern that works with React 18+
-  // Import useState/useEffect at the call site if using as a hook
-  // For now, provide the async function — components can call it in useEffect
-  return ''; // Placeholder — see getVariant() for async version
+// Synchronous variant getter — returns cached value or '' if not yet loaded.
+// Call getVariant() first to populate the cache, then use this for render-time checks.
+export function getCachedVariant(testName: string): string {
+  return variantCache[testName] ?? '';
 }

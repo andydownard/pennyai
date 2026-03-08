@@ -53,7 +53,16 @@ func initABTables(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_ab_events_test ON ab_events(test_name, event);
 		CREATE INDEX IF NOT EXISTS idx_ab_events_user ON ab_events(test_name, user_id);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Seed the onboarding A/B test if it doesn't exist
+	db.Exec(`INSERT OR IGNORE INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct)
+		VALUES ('onboarding_v2', 'New onboarding: brand defaults + item-based household invite',
+		'["control","brand_defaults"]', 'items_added_day1', 50, 14, 50)`)
+
+	return nil
 }
 
 // ABTest represents an active A/B test

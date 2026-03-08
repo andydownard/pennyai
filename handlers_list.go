@@ -1376,7 +1376,10 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 			// Resolve brand alternatives using preferences
 			var pennyBrandMode string
 			s.db.QueryRow("SELECT COALESCE(penny_brand_mode,'ask') FROM users WHERE id = ?", session.UserID).Scan(&pennyBrandMode)
-			disambiguations := resolveBrandAlternatives(s.db, session.UserID, pennyBrandMode, added, cmd.Items)
+			// A/B test: brand_defaults variant gets global popularity defaults
+			abVariant, _ := getVariant(s.db, "onboarding_v2", session.UserID)
+			useDefaults := abVariant == "brand_defaults"
+			disambiguations := resolveBrandAlternatives(s.db, session.UserID, pennyBrandMode, added, cmd.Items, useDefaults)
 			if len(disambiguations) > 0 {
 				resp.BrandDisambiguations = disambiguations
 			}
@@ -1415,7 +1418,8 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 	// Resolve brand alternatives for image-based parsing too
 	var imgBrandMode string
 	s.db.QueryRow("SELECT COALESCE(penny_brand_mode,'ask') FROM users WHERE id = ?", session.UserID).Scan(&imgBrandMode)
-	imgDisambiguations := resolveBrandAlternatives(s.db, session.UserID, imgBrandMode, added, parsed)
+	imgABVariant, _ := getVariant(s.db, "onboarding_v2", session.UserID)
+	imgDisambiguations := resolveBrandAlternatives(s.db, session.UserID, imgBrandMode, added, parsed, imgABVariant == "brand_defaults")
 
 	resp := ParseResponse{
 		Items:   added,

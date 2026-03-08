@@ -2232,7 +2232,9 @@ func recordBrandChoice(db *sql.DB, userID int, category, brand, source string) {
 
 // resolveBrandAlternatives applies brand preferences to parsed items with alternatives.
 // Returns disambiguations the user still needs to resolve.
-func resolveBrandAlternatives(db *sql.DB, userID int, pennyBrandMode string, items []ListItem, parsedItems []ParsedItem) []BrandDisambiguation {
+// When useGlobalDefaults is true, new users with no preference get the most popular brand auto-assigned.
+func resolveBrandAlternatives(db *sql.DB, userID int, pennyBrandMode string, items []ListItem, parsedItems []ParsedItem, useGlobalDefaults ...bool) []BrandDisambiguation {
+	globalDefaults := len(useGlobalDefaults) > 0 && useGlobalDefaults[0]
 	var disambiguations []BrandDisambiguation
 
 	// Build a lookup from parsed item name to added item (handles skipped items)
@@ -2288,8 +2290,8 @@ func resolveBrandAlternatives(db *sql.DB, userID int, pennyBrandMode string, ite
 			continue
 		}
 
-		// Check global brand popularity as fallback for new users
-		if !hasPref {
+		// Check global brand popularity as fallback for new users (A/B gated)
+		if !hasPref && globalDefaults {
 			if globalBrand, ok := getGlobalBrandDefault(db, category); ok {
 				// Auto-assign the popular brand and send as auto_assigned so
 				// the frontend can show 1-tap correction instead of full prompt

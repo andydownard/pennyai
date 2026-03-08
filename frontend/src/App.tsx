@@ -17,6 +17,7 @@ import { ItemRow, type ListItem } from './components/ItemRow'
 import { PennyBar } from './components/PennyBar'
 import { NPSSurveyModal } from './components/NPSSurveyModal'
 import { track, identify } from './analytics'
+import { trackEvent } from './ab'
 import { TripPlannerSheet, type ShoppingTrip } from './components/TripPlannerSheet'
 import { ItemEditSheet } from './components/ItemEditSheet'
 import { ReviewSheet } from './components/ReviewSheet'
@@ -444,7 +445,7 @@ function AppInner() {
 
   // --- Brand disambiguation state ---
   const [pennyDisambig, setPennyDisambig] = useState<{
-    item_id: number; product_category: string; current_brand: string; alternatives: string[];
+    item_id: number; product_category: string; current_brand: string; alternatives: string[]; auto_assigned?: boolean;
   }[]>([])
   const [pennyDisambigIndex, setPennyDisambigIndex] = useState(0)
   const [pennySlider, setPennySlider] = useState(35)
@@ -1679,6 +1680,11 @@ function AppInner() {
     if (result.ok) {
       setItems(prev => prev.map(i => i.id === d.item_id ? { ...i, brand } : i))
       setLastAdded(prev => prev.map(i => i.id === d.item_id ? { ...i, brand } : i))
+      // Track A/B event for onboarding test
+      if (d.auto_assigned) {
+        const event = brand === d.current_brand ? 'brand_default_confirmed' : 'brand_default_corrected'
+        trackEvent('onboarding_v2', event)
+      }
       advanceDisambig()
     } else if (result.status !== 401) {
       showToast('Couldn\'t save brand preference — try again', 'error')
@@ -1899,6 +1905,7 @@ function AppInner() {
           setLastSkipped(skippedItems)
           if (addedItems.length > 0) {
             track('items_added', { count: addedItems.length })
+            trackEvent('onboarding_v2', 'items_added_day1', addedItems.length)
             const now = Date.now()
             setFloatingLabels(addedItems.slice(0, 5).map((item, i) => ({
               text: `+${item.quantity || 1} ${item.name}`,
@@ -1944,7 +1951,7 @@ function AppInner() {
         setTimeout(() => chatInputRef.current?.focus(), 150)
 
         // Handle brand disambiguations
-        const disambiguations = (data.brand_disambiguations || []) as { item_id: number; product_category: string; current_brand: string; alternatives: string[] }[]
+        const disambiguations = (data.brand_disambiguations || []) as { item_id: number; product_category: string; current_brand: string; alternatives: string[]; auto_assigned?: boolean }[]
         if (disambiguations.length > 0) {
           setPennyDisambig(disambiguations)
           setPennyDisambigIndex(0)
@@ -3599,7 +3606,7 @@ const handleCodeChange = (index: number, value: string) => {
         buttons={homePennyBtns}
         toastError={toast?.type === 'error'}
         keyboardOpen={keyboardOpen}
-        disambig={pennyDisambig.map(d => ({ product_category: d.product_category, current_brand: d.current_brand, alternatives: d.alternatives }))}
+        disambig={pennyDisambig.map(d => ({ product_category: d.product_category, current_brand: d.current_brand, alternatives: d.alternatives, auto_assigned: d.auto_assigned }))}
         disambigIndex={pennyDisambigIndex}
         onBrandPick={handleBrandPick}
         onSkipDisambig={advanceDisambig}

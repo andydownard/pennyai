@@ -13,10 +13,11 @@ Strategic direction from founder + CEO panel focused on three gates: First-5-Min
 ### P0 — Block Release Until Done (Next 2 Weeks)
 
 1. **First-5-Minutes Onboarding Rewrite** — New users must feel "this just works" in <5 minutes with zero clarifying questions. Brand defaults + 1-tap correction + household invite after 3rd item.
-   - [ ] Brand default logic (global popularity + dietary attributes)
-   - [ ] 1-tap brand correction UI with confirmation
-   - [ ] Household invite prompt after item #3 (not time-based)
-   - [ ] A/B test: old flow (ask questions) vs new flow (assume defaults)
+   - [x] Brand default logic (global popularity) — `getGlobalBrandDefault()` in db.go, auto-assigns when ≥2 picks & ≥40% share
+   - [x] 1-tap brand correction UI with confirmation — PennyBar shows "I picked [Brand]" + OK/Change for auto-assigned
+   - [x] Household invite prompt after item #3 (not time-based) — changed from loginCount===2 to items≥3
+   - [x] A/B test: `onboarding_v2` test seeded, control vs brand_defaults, tracks items_added_day1 + brand confirmations/corrections
+   - [ ] Dietary attribute matching in brand defaults (Phase 2)
    - **Owner:** Product + AI
    - **Timeline:** 2 weeks
    - **Blocks:** All other features
