@@ -211,6 +211,8 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/referral/redeem", server.handleReferralRedeem)
 	http.HandleFunc("/api/referral/claim", server.handleReferralClaim)
 	http.HandleFunc("/api/rebates", server.handleRebates)
+	http.HandleFunc("/api/earnings", server.handleEarnings)
+	http.HandleFunc("/api/earnings/", server.handleEarnings)
 	http.HandleFunc("/api/nps/check", server.handleNPSCheck)
 	http.HandleFunc("/api/nps", server.handleNPS)
 	http.HandleFunc("/api/penny/quote", server.handlePennyQuote)
@@ -320,6 +322,7 @@ Get these from https://console.twilio.com (see README for full setup).
 			pruneTimeLimiter(&server.otpIPLimiter, 10*time.Minute)
 			pruneTimeLimiter(&server.emailLoginIPLimiter, 10*time.Minute)
 			pruneBucketLimiter(&server.parseLimiter, time.Hour)
+			pruneBucketLimiter(&server.earningsUploadLimiter, time.Hour)
 		}
 	}()
 

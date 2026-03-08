@@ -967,6 +967,9 @@ func initDB(path string) (*sql.DB, error) {
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_swap_claims_user ON swap_claims(user_id)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_retailer_abbreviations_abbr ON retailer_abbreviations(abbreviation)")
 
+	// Earnings: attachment support on swap_rebates
+	db.Exec("ALTER TABLE swap_rebates ADD COLUMN attachment_path TEXT NOT NULL DEFAULT ''")
+
 	return db, nil
 }
 

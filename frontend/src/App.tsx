@@ -22,6 +22,7 @@ import { track, identify } from './analytics'
 import { TripPlannerSheet, type ShoppingTrip } from './components/TripPlannerSheet'
 import { ItemEditSheet } from './components/ItemEditSheet'
 import { ReviewSheet } from './components/ReviewSheet'
+import { EarningsScreen } from './components/EarningsScreen'
 import { type ItemModification } from './types'
 import {
   BRAND, BG, TEXT, TEXT_SECONDARY, BORDER, ERROR_RED, ERROR_RED_BG, ERROR_RED_DARK, ERROR_RED_LIGHT,
@@ -33,7 +34,7 @@ import {
 // =============================================================================
 
 // The screens the app can show
-type Screen = 'phone' | 'code' | 'home' | 'penny' | 'profile' | 'settings-share' | 'admin' | 'email-login' | 'email-register' | 'forgot-password' | 'reset-password' | 'shared-list' | 'help'
+type Screen = 'phone' | 'code' | 'home' | 'penny' | 'profile' | 'settings-share' | 'admin' | 'email-login' | 'email-register' | 'forgot-password' | 'reset-password' | 'shared-list' | 'help' | 'earnings'
 
 // Declare gtag for TypeScript
 declare function gtag(...args: unknown[]): void
@@ -56,6 +57,7 @@ const SCREEN_PATHS: Record<Screen, string> = {
   'reset-password': '/reset-password',
   'shared-list': '/shared',
   help: '/help',
+  earnings: '/earnings',
 }
 
 const PATH_TO_SCREEN: Record<string, Screen> = {
@@ -74,6 +76,7 @@ const PATH_TO_SCREEN: Record<string, Screen> = {
   '/login/forgot': 'forgot-password',
   '/reset-password': 'reset-password',
   '/help': 'help',
+  '/earnings': 'earnings',
 }
 
 const AUTH_SCREENS: Screen[] = ['phone', 'code', 'email-login', 'email-register', 'forgot-password', 'reset-password']
@@ -543,6 +546,7 @@ function AppInner() {
     amount_cents: number; status: string; created_at: string;
   }[]>([])
   const [rebateSummary, setRebateSummary] = useState<{ total_cents: number; pending_cents: number; paid_cents: number }>({ total_cents: 0, pending_cents: 0, paid_cents: 0 })
+  const [earningsTotalCents, setEarningsTotalCents] = useState(0)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
 
   // --- Penny chime-in state ---
@@ -1304,7 +1308,10 @@ function AppInner() {
           if (data.penny_slider != null) setPennySlider(data.penny_slider as number)
           if (data.penny_autotune != null) setPennyAutotune(data.penny_autotune as boolean)
           if (data.penny_deals != null) setPennyDeals(data.penny_deals as boolean)
-          if (data.swap_credits_cents != null) setSwapCreditsCents(data.swap_credits_cents as number)
+          if (data.swap_credits_cents != null) {
+            setSwapCreditsCents(data.swap_credits_cents as number)
+            setEarningsTotalCents(data.swap_credits_cents as number)
+          }
           if (data.list_name != null) setListName(data.list_name as string)
           // Hydrate onboarding flags from server (server is source of truth)
           if (data.onboarding_flags && typeof data.onboarding_flags === 'string') {
@@ -1627,7 +1634,10 @@ function AppInner() {
           })
         }
         setSwapsByItemId(prev => { const next = { ...prev }; delete next[itemId]; return next })
-        if (data.swap_credits_cents != null) setSwapCreditsCents(data.swap_credits_cents)
+        if (data.swap_credits_cents != null) {
+          setSwapCreditsCents(data.swap_credits_cents)
+          setEarningsTotalCents(data.swap_credits_cents)
+        }
         showToast(data.message || 'Swapped!')
       } else {
         const err = await res.json().catch(() => null)
@@ -3330,10 +3340,22 @@ const handleCodeChange = (index: number, value: string) => {
   const renderPageHeader = (pageName: string, active: Screen) => (
     <div style={{ flexShrink: 0, backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}` }}>
       <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', position: 'relative' }}>
-        <span
-          style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: '17px', fontWeight: 700 }}
-          onClick={() => setScreen('home')}
-        >thriftly</span>
+        {earningsTotalCents > 0 ? (
+          <span
+            style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1 }}
+            onClick={() => setScreen('earnings')}
+          >
+            <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: BRAND }}>
+              ${(earningsTotalCents / 100).toFixed(2)}
+            </span>
+            <span style={{ fontFamily: FONT, fontSize: '10px', color: TEXT_SECONDARY, marginTop: '1px' }}>earned</span>
+          </span>
+        ) : (
+          <span
+            style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: '17px', fontWeight: 700 }}
+            onClick={() => setScreen('home')}
+          >thriftly</span>
+        )}
         <span style={{
           position: 'absolute',
           left: '50%',
@@ -4425,6 +4447,24 @@ const handleCodeChange = (index: number, value: string) => {
   }
 
   // =========================================================================
+  // EARNINGS SCREEN
+  // =========================================================================
+
+  if (screen === 'earnings') {
+    return (
+      <div style={listStyles.page}>
+        {renderPageHeader('Earnings', 'earnings')}
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          <EarningsScreen
+            onBack={() => setScreen('home')}
+            fetchAPI={fetchAPI}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  // =========================================================================
   // HOME SCREEN — Shopping list
   // =========================================================================
 
@@ -4454,10 +4494,22 @@ const handleCodeChange = (index: number, value: string) => {
       {/* Fixed header — compact */}
       <div style={{ flexShrink: 0, backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}` }}>
         <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', position: 'relative' }}>
-          <span
-            style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: '17px', fontWeight: 700 }}
-            onClick={() => setScreen('home')}
-          >thriftly</span>
+          {earningsTotalCents > 0 ? (
+            <span
+              style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1 }}
+              onClick={() => setScreen('earnings')}
+            >
+              <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: BRAND }}>
+                ${(earningsTotalCents / 100).toFixed(2)}
+              </span>
+              <span style={{ fontFamily: FONT, fontSize: '10px', color: TEXT_SECONDARY, marginTop: '1px' }}>earned</span>
+            </span>
+          ) : (
+            <span
+              style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: '17px', fontWeight: 700 }}
+              onClick={() => setScreen('home')}
+            >thriftly</span>
+          )}
           {editingListName ? (
             <input
               autoFocus

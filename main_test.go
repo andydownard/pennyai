@@ -13564,3 +13564,337 @@ func TestSettingsPhoneUpdate_ClearPhone(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// EARNINGS ENDPOINT TESTS
+// =============================================================================
+
+// setupEarningsTestData creates a user with brand_deals, swap_events, and swap_rebates
+// for earnings tests. Returns (cookie, userID, dealID, rebateID).
+func setupEarningsTestData(t *testing.T, server *Server) (*http.Cookie, int, int, int) {
+	t.Helper()
+	cookie, userID := loginUser(t, server, "5559991234")
+
+	// Create a brand deal
+	server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status)
+		VALUES ('Heinz Ketchup', 'Hunts', 'Tomato Ketchup', 150, 5000, 'active')`)
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE competitor_product = 'Heinz Ketchup'").Scan(&dealID)
+
+	// Create a list item
+	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, 'ketchup', 'Condiments')", userID)
+	var itemID int
+	server.db.QueryRow("SELECT id FROM list_items WHERE user_id = ?", userID).Scan(&itemID)
+
+	// Create a swap event
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, ?, 'accept')", userID, dealID, itemID)
+	var swapEventID int
+	server.db.QueryRow("SELECT id FROM swap_events WHERE user_id = ?", userID).Scan(&swapEventID)
+
+	// Create a swap rebate
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, ?, ?, 150, 'pending')", userID, swapEventID, dealID)
+	var rebateID int
+	server.db.QueryRow("SELECT id FROM swap_rebates WHERE user_id = ?", userID).Scan(&rebateID)
+
+	return cookie, userID, dealID, rebateID
+}
+
+func TestEarningsGet_Empty(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559991111")
+
+	rr := doRequest(server.handleEarnings, "GET", "/api/earnings", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	txns := body["transactions"].([]interface{})
+	if len(txns) != 0 {
+		t.Errorf("expected 0 transactions, got %d", len(txns))
+	}
+	if body["total_cents"].(float64) != 0 {
+		t.Errorf("expected total_cents=0, got %v", body["total_cents"])
+	}
+	if body["display_amount"] != "$0.00" {
+		t.Errorf("expected display_amount=$0.00, got %v", body["display_amount"])
+	}
+}
+
+func TestEarningsGet_WithData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _, _, _ := setupEarningsTestData(t, server)
+
+	rr := doRequest(server.handleEarnings, "GET", "/api/earnings", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	txns := body["transactions"].([]interface{})
+	if len(txns) != 1 {
+		t.Fatalf("expected 1 transaction, got %d", len(txns))
+	}
+	tx := txns[0].(map[string]interface{})
+	if tx["offer_brand"] != "Hunts" {
+		t.Errorf("offer_brand: got %v, want Hunts", tx["offer_brand"])
+	}
+	if tx["amount_cents"].(float64) != 150 {
+		t.Errorf("amount_cents: got %v, want 150", tx["amount_cents"])
+	}
+	if body["total_cents"].(float64) != 150 {
+		t.Errorf("total_cents: got %v, want 150", body["total_cents"])
+	}
+	if body["pending_cents"].(float64) != 150 {
+		t.Errorf("pending_cents: got %v, want 150", body["pending_cents"])
+	}
+	if body["display_amount"] != "$1.50" {
+		t.Errorf("display_amount: got %v, want $1.50", body["display_amount"])
+	}
+}
+
+func TestEarningsGet_FilterByDays(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID, _, _ := setupEarningsTestData(t, server)
+
+	// Insert an old rebate (100 days ago)
+	server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status)
+		VALUES ('Pepsi', 'Coca-Cola', 'Classic Coke', 200, 5000, 'active')`)
+	var dealID2 int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE competitor_product = 'Pepsi'").Scan(&dealID2)
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, created_at) VALUES (?, ?, NULL, 'accept', datetime('now', '-100 days'))", userID, dealID2)
+	var seID2 int
+	server.db.QueryRow("SELECT id FROM swap_events WHERE deal_id = ?", dealID2).Scan(&seID2)
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status, created_at) VALUES (?, ?, ?, 200, 'paid', datetime('now', '-100 days'))", userID, seID2, dealID2)
+
+	// All: should see 2
+	rr := doRequest(server.handleEarnings, "GET", "/api/earnings", nil, []*http.Cookie{cookie})
+	body := parseJSON(rr)
+	txns := body["transactions"].([]interface{})
+	if len(txns) != 2 {
+		t.Errorf("all: expected 2 transactions, got %d", len(txns))
+	}
+
+	// 7 days: should see 1
+	req := httptest.NewRequest("GET", "/api/earnings?days=7", nil)
+	req.AddCookie(cookie)
+	rr2 := httptest.NewRecorder()
+	server.handleEarnings(rr2, req)
+	body2 := parseJSON(rr2)
+	txns2 := body2["transactions"].([]interface{})
+	if len(txns2) != 1 {
+		t.Errorf("7d filter: expected 1 transaction, got %d", len(txns2))
+	}
+}
+
+func TestEarningsGet_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleEarnings, "GET", "/api/earnings", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestEarningsGet_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559991112")
+
+	rr := doRequest(server.handleEarnings, "POST", "/api/earnings", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestEarningsUpload_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _, _, rebateID := setupEarningsTestData(t, server)
+
+	// Build multipart request with explicit Content-Type
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", `form-data; name="file"; filename="receipt.jpg"`)
+	h.Set("Content-Type", "image/jpeg")
+	part, _ := w.CreatePart(h)
+	part.Write([]byte("fake-jpeg-data"))
+	w.Close()
+
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/earnings/%d/upload", rebateID), body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	result := parseJSON(rr)
+	if result["success"] != true {
+		t.Errorf("expected success=true, got %v", result["success"])
+	}
+
+	// Verify attachment_path was saved
+	var path string
+	server.db.QueryRow("SELECT attachment_path FROM swap_rebates WHERE id = ?", rebateID).Scan(&path)
+	if path == "" {
+		t.Error("attachment_path should not be empty after upload")
+	}
+
+	// Cleanup uploaded file
+	os.Remove(path)
+	os.Remove("data/earnings-attachments")
+	os.Remove("data")
+}
+
+func TestEarningsUpload_WrongUser(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, _, _, rebateID := setupEarningsTestData(t, server)
+
+	// Login as a different user
+	otherCookie, _ := loginUser(t, server, "5559992222")
+
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	part, _ := w.CreateFormFile("file", "receipt.jpg")
+	part.Write([]byte("fake-jpeg-data"))
+	w.Close()
+
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/earnings/%d/upload", rebateID), body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.AddCookie(otherCookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestEarningsUpload_NoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	part, _ := w.CreateFormFile("file", "receipt.jpg")
+	part.Write([]byte("fake-jpeg-data"))
+	w.Close()
+
+	req := httptest.NewRequest("POST", "/api/earnings/1/upload", body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestEarningsUpload_InvalidID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559991113")
+
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	part, _ := w.CreateFormFile("file", "receipt.jpg")
+	part.Write([]byte("fake-jpeg-data"))
+	w.Close()
+
+	req := httptest.NewRequest("POST", "/api/earnings/abc/upload", body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestEarningsUpload_NotFound(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559991114")
+
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	part, _ := w.CreateFormFile("file", "receipt.jpg")
+	part.Write([]byte("fake-jpeg-data"))
+	w.Close()
+
+	req := httptest.NewRequest("POST", "/api/earnings/99999/upload", body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestEarningsUpload_InvalidType(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _, _, rebateID := setupEarningsTestData(t, server)
+
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", `form-data; name="file"; filename="malware.exe"`)
+	h.Set("Content-Type", "application/x-executable")
+	part, _ := w.CreatePart(h)
+	part.Write([]byte("bad-data"))
+	w.Close()
+
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/earnings/%d/upload", rebateID), body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestEarningsUpload_NoFile(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _, _, rebateID := setupEarningsTestData(t, server)
+
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	w.Close()
+
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/earnings/%d/upload", rebateID), body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestEarningsGet_TransactionDetail(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _, _, _ := setupEarningsTestData(t, server)
+
+	rr := doRequest(server.handleEarnings, "GET", "/api/earnings", nil, []*http.Cookie{cookie})
+	body := parseJSON(rr)
+	txns := body["transactions"].([]interface{})
+	tx := txns[0].(map[string]interface{})
+
+	// Verify all expected fields are present
+	expectedFields := []string{"id", "offer_brand", "offer_product", "competitor_product",
+		"original_item_name", "amount_cents", "status", "created_at", "attachment_path"}
+	for _, field := range expectedFields {
+		if _, ok := tx[field]; !ok {
+			t.Errorf("missing field: %s", field)
+		}
+	}
+
+	if tx["competitor_product"] != "Heinz Ketchup" {
+		t.Errorf("competitor_product: got %v, want 'Heinz Ketchup'", tx["competitor_product"])
+	}
+	if tx["original_item_name"] != "ketchup" {
+		t.Errorf("original_item_name: got %v, want 'ketchup'", tx["original_item_name"])
+	}
+}
+

@@ -148,6 +148,8 @@ type Server struct {
 	parseLimiter sync.Map
 	// Per-IP email login rate limiter: IP -> []time.Time (sliding window, 10 req/10min)
 	emailLoginIPLimiter sync.Map
+	// Per-user earnings upload rate limiter: userID -> *rateBucket (5 uploads/hour)
+	earningsUploadLimiter sync.Map
 }
 
 // BrandDeal represents an active swap deal from the brand_deals table.
@@ -214,6 +216,28 @@ type ProfilePhoto struct {
 	PhotoData   []byte `json:"-"`
 	ContentType string `json:"content_type"`
 	UpdatedAt   string `json:"updated_at"`
+}
+
+// EarningTransaction represents a single swap rebate for the earnings screen.
+type EarningTransaction struct {
+	ID                int    `json:"id"`
+	OfferBrand        string `json:"offer_brand"`
+	OfferProduct      string `json:"offer_product"`
+	CompetitorProduct string `json:"competitor_product"`
+	OriginalItemName  string `json:"original_item_name"`
+	AmountCents       int    `json:"amount_cents"`
+	Status            string `json:"status"`
+	CreatedAt         string `json:"created_at"`
+	AttachmentPath    string `json:"attachment_path"`
+}
+
+// EarningsResponse is the JSON response for GET /api/earnings.
+type EarningsResponse struct {
+	Transactions  []EarningTransaction `json:"transactions"`
+	TotalCents    int                  `json:"total_cents"`
+	PendingCents  int                  `json:"pending_cents"`
+	PaidCents     int                  `json:"paid_cents"`
+	DisplayAmount string               `json:"display_amount"`
 }
 
 // itemData is an internal helper for collecting items to save to a saved list.
