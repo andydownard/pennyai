@@ -689,17 +689,17 @@ Break-even math:
 - [x] Active member tracking
 - [x] **Household dietary union** — merged allergens across all members, GET /api/household/dietary
 - [x] **Duplicate purchase prevention** — alert when 2 members add same item within 4 hours
-- [ ] **Repurchase nudge** — "Your household usually buys paper towels every 3 weeks"
-- [ ] **Shopping role detection** — primary shopper, list builder, etc.
+- [x] **Repurchase nudge** — GET /api/penny/nudges returns items due for restock based on cycle detection
+- [x] **Shopping role detection** — classifies household members as primary_shopper/list_builder/occasional
 
 ### L3: Brand Learning
 
 - [x] Brand accept rate tracking
 - [x] Brand performance classification (strong/average/weak)
 - [x] **Deal performance daily** — daily aggregation of impressions/accepts/declines per deal
-- [ ] **Segment analysis** — which user segments respond best to which deals
-- [ ] **Category-level insights** — avg acceptance rate, best discount, top decline reason per category
-- [ ] **"Optimize This Deal" recommendations** — AI suggestions for improving deal performance
+- [x] **Segment analysis** — processSegmentAnalysis() + GET /api/admin/segment-analysis
+- [x] **Category-level insights** — GET /api/admin/category-insights with top decline reasons per category
+- [x] **"Optimize This Deal" recommendations** — GET /brand/optimize/{id} rule-based actionable recommendations
 - [ ] **Brand portal deep dive UI** — daily chart, segment breakdown, decline reasons
 
 ### L4: Location Learning (Phase 3 — Requires Receipt Scale)
@@ -715,7 +715,7 @@ Break-even math:
 - [x] **Daily business metrics snapshot** — DAU/WAU/MAU, swap funnel, revenue, brand health
 - [x] **Cohort retention analysis** — weekly cohorts, GET /api/admin/cohort-analysis
 - [x] **Churn prediction signals** — days_inactive, decline_streak, swap_fatigue, list_abandonment
-- [ ] **Marketplace health index** — supply/demand balance, revenue concentration
+- [x] **Marketplace health index** — daily supply/demand/balance/concentration scoring, GET /api/admin/marketplace-health
 - [ ] **Enhanced admin dashboard** — time-series charts, cohort table, churn risk list
 
 ### Privacy & Safety Requirements
