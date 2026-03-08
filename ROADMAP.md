@@ -652,15 +652,14 @@ Break-even math:
 - ~~**Signed up with phone?** → Penny prompts to add email~~ — `ob_link_email` flag, session 2+, one-time dismissible, navigates to Profile
 - ~~All prompts are one-time, dismissible, non-blocking~~ — Uses onboarding flags (localStorage + server sync) same as other nudges
 
-### Account Merging — Simple & Safe (P1)
-**Current state:** `resolveOrCreateUser()` auto-merges accounts by matching email. This handles the common case (sign up with email, later sign in with Google using same email).
+### Account Merging — Simple & Safe (P1) — DONE
+**Current state:** `resolveOrCreateUser()` auto-merges accounts by matching email with full data conflict resolution.
 
-**Needs improvement:**
-- When a merge happens, clearly tell the user: "Welcome back! I linked your Google account to your existing Thriftly account." Don't silently merge — users should feel informed, not confused.
-- **Household dedup on merge:** If both the old and new account are in the same household, automatically drop the duplicate membership. Keep the one with more history. No orphaned household members.
-- **Conflict resolution:** If both accounts have list items, merge the lists (union, not replace). If both have different profile photos, keep the most recently set one. If both have different display names, prefer the one the user manually set over the auto-populated one.
-- **Merge audit trail:** Log merges in `item_modifications` or a new `account_merges` table so we can debug issues. Include: which accounts merged, which auth methods linked, what data was preserved vs dropped.
-- **Why:** Multi-auth merging is where trust breaks down if done wrong. Users who lose data or get confused by duplicate households will churn. Do the hard work to make it invisible.
+**Completed:**
+- ~~When a merge happens, clearly tell the user~~ — Penny shows "Welcome back! I linked your [method] account to your existing Thriftly account."
+- ~~**Household dedup on merge**~~ — `mergeHouseholds()` removes duplicate/orphaned household memberships automatically.
+- ~~**Conflict resolution**~~ — `mergeUserData()` handles list items (union with quantity merge), profile photos (keep newest), display names (prefer manually set via `name_source` column), saved lists, brand preferences, swap events/rebates.
+- ~~**Merge audit trail**~~ — `account_merges` table logs every merge with JSON `data_actions` detailing what was preserved/dropped. 12 tests cover all scenarios.
 
 ---
 
