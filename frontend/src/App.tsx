@@ -336,6 +336,7 @@ function AppInner() {
   // --- Photo state ---
   const [pendingImages, setPendingImages] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const receiptInputRef = useRef<HTMLInputElement>(null)
   const chatInputRef = useRef<HTMLTextAreaElement>(null)
 
   // Menu state is now internal to NavigationMenu component
@@ -1892,7 +1893,7 @@ function AppInner() {
               label: 'Snap receipt',
               onClick: () => {
                 setPendingReceiptMode(true)
-                fileInputRef.current?.click()
+                receiptInputRef.current?.click()
               },
             },
             { label: 'Skip', onClick: () => typePennyHome('All good! Happy shopping!') },
@@ -4813,6 +4814,16 @@ const handleCodeChange = (index: number, value: string) => {
         onChange={handlePhotoSelect}
         style={{ display: 'none' }}
         aria-label="Upload photos"
+      />
+      {/* Separate hidden input for receipt capture — rear camera */}
+      <input
+        ref={receiptInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handlePhotoSelect}
+        style={{ display: 'none' }}
+        aria-label="Capture receipt"
       />
 
       {/* Penny text + disambiguation + chat input */}
