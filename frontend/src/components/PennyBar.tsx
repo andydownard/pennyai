@@ -86,10 +86,14 @@ export function PennyBar({
   const textColor = toastError ? 'var(--error, #DC2626)' : 'var(--text)'
   const canSend = (!!chatText.trim() || pendingImages.length > 0) && !chatLoading
 
+  // Hide Penny text when keyboard is open and no disambiguation active
+  const hidePennyText = keyboardOpen && !hasDisambig && !pennyTyping
+
   return (
     <>
       {/* Penny text + brand disambiguation */}
       <div style={{ flexShrink: 0, backgroundColor: bgColor, borderTop: '1px solid var(--border)', overflow: 'hidden' }}>
+        {!hidePennyText && (
         <div style={{ padding: keyboardOpen ? '4px 12px' : '8px 14px', transition: 'padding 200ms ease' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <PennyAvatar size={keyboardOpen ? 24 : 28} />
@@ -121,6 +125,7 @@ export function PennyBar({
             </div>
           )}
         </div>
+        )}
         {hasDisambig && (() => {
           const d = disambig[disambigIndex]
           const isAuto = d.auto_assigned && !showAltsForAuto

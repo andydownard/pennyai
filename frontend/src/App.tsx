@@ -113,7 +113,7 @@ const AUTH_SCREENS: Screen[] = ['phone', 'code', 'email-login', 'email-register'
 function DeptIcon({ dept }: { dept: string }) {
   const icon = DEPT_ICONS[dept]
   if (!icon) return null
-  return <span style={{ fontSize: '22px', lineHeight: 1, flexShrink: 0 }}>{icon}</span>
+  return <span style={{ fontSize: '16px', lineHeight: 1, flexShrink: 0 }}>{icon}</span>
 }
 
 
@@ -3513,8 +3513,8 @@ const handleCodeChange = (index: number, value: string) => {
                   aria-expanded={isOpen}
                   aria-label={`${dept}, ${deptChecked} of ${deptTotal} items checked`}
                 >
-                  <span style={{ width: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, paddingLeft: '8px', boxSizing: 'border-box' }} aria-hidden="true">
-                    {deptDone ? <span style={{ color: 'var(--brand)', fontSize: '15px' }}>✓</span> : <DeptIcon dept={dept} />}
+                  <span style={{ width: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, paddingLeft: '6px', boxSizing: 'border-box' }} aria-hidden="true">
+                    {deptDone ? <span style={{ color: 'var(--brand)', fontSize: '13px' }}>✓</span> : <DeptIcon dept={dept} />}
                   </span>
                   <span style={deptDone ? { textDecoration: 'line-through', opacity: 0.5 } : undefined}>{dept}</span>
                   <span style={listStyles.deptCount} aria-hidden="true">{deptChecked}/{deptTotal}</span>
@@ -3994,9 +3994,9 @@ const listStyles = {
     display: 'flex',
     alignItems: 'center',
     width: '100%',
-    padding: '6px 14px 6px 0',
-    marginTop: isFirst ? 0 : '2px',
-    background: open ? 'color-mix(in srgb, var(--brand) 9%, transparent)' : '#F4F2EE',
+    padding: '4px 12px 4px 0',
+    marginTop: isFirst ? 0 : '1px',
+    background: open ? 'color-mix(in srgb, var(--brand) 9%, transparent)' : 'var(--bg)',
     border: 'none',
     borderTop: isFirst ? 'none' : '1px solid var(--border)',
     borderBottom: '1px solid var(--border)',
@@ -4005,21 +4005,21 @@ const listStyles = {
     textAlign: 'left' as const,
     gap: '0px',
     fontFamily: FONT,
-    fontSize: '12px',
+    fontSize: '11px',
     fontWeight: 700,
-    color: open ? 'var(--brand)' : '#4A4A4A',
+    color: open ? 'var(--brand)' : 'var(--text-secondary)',
     textTransform: 'uppercase' as const,
-    letterSpacing: '0.8px',
+    letterSpacing: '0.6px',
   }),
 
   deptCount: {
-    fontSize: '12px',
+    fontSize: '10px',
     fontWeight: 600,
     color: 'var(--brand)',
     marginLeft: 'auto',
     backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)',
-    borderRadius: '10px',
-    padding: '1px 7px',
+    borderRadius: '8px',
+    padding: '1px 6px',
   } as React.CSSProperties,
 
   deptChevron: (open: boolean): React.CSSProperties => ({
@@ -4201,6 +4201,7 @@ const globalCSS = `
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
+    touch-action: manipulation;
   }
 
   /* Allow text selection in inputs and textareas + fix iOS styling */
