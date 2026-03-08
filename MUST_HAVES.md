@@ -33,3 +33,10 @@ When in camera mode, maybe be able to stay there to add multiple items (submit o
 ---
 _Device: Screen: home | Viewport: 394x699 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1 | Dark: dark | Items: 0_
 _Submitted: 2026-03-08 21:01 UTC_
+
+## [CRITICAL] 2026-03-08 21:42 UTC
+Snap your receipt should not be displayed when there’s no swaps to claim. Need empty state. Keep keyboard up when I select urgency here. Make sure photo capture works for receipt
+
+---
+_Device: Screen: home | Viewport: 394x374 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1 | Dark: dark | Items: 4_
+_Submitted: 2026-03-08 21:42 UTC_
