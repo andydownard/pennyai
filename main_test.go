@@ -12722,7 +12722,7 @@ func createTestDeal(t *testing.T, server *Server, cookie *http.Cookie) int {
 		"competitor_product":   "Competitor Cola 12pk",
 		"offer_brand":          "TestBrand",
 		"offer_product":        "TestBrand Cola 12pk",
-		"discount_cents":       75,
+		"discount_cents":       150,
 		"daily_budget_cents":   10000,
 		"offer_price_cents":    499,
 		"competitor_price_cents": 599,
@@ -13165,7 +13165,7 @@ func TestBrandPortal_CategoryIntel(t *testing.T) {
 		"competitor_product": "Generic Cola 12pk",
 		"offer_brand":        "BrandCola",
 		"offer_product":      "BrandCola Premium 12pk",
-		"discount_cents":     50,
+		"discount_cents":     150,
 		"daily_budget_cents": 5000,
 	}, []*http.Cookie{cookie})
 
@@ -17354,6 +17354,184 @@ func TestUserSwapPredictions_TableExists(t *testing.T) {
 	err = db.QueryRow("SELECT COUNT(*) FROM user_swap_predictions").Scan(&count)
 	if err != nil {
 		t.Errorf("user_swap_predictions table doesn't exist: %v", err)
+	}
+}
+
+// --- Category-Tiered Pricing Tests ---
+
+func TestCategoryPricingTiers_TableSeeded(t *testing.T) {
+	db, err := initDB(":memory:")
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM category_pricing_tiers").Scan(&count)
+	if count < 10 {
+		t.Errorf("expected at least 10 seeded pricing tiers, got %d", count)
+	}
+
+	// Verify premium tier
+	var minCents int
+	var tier string
+	db.QueryRow("SELECT min_price_cents, tier_label FROM category_pricing_tiers WHERE parent_category = 'Dairy'").Scan(&minCents, &tier)
+	if minCents != 250 {
+		t.Errorf("Dairy min_price_cents: expected 250, got %d", minCents)
+	}
+	if tier != "premium" {
+		t.Errorf("Dairy tier: expected 'premium', got %q", tier)
+	}
+
+	// Verify economy tier
+	db.QueryRow("SELECT min_price_cents, tier_label FROM category_pricing_tiers WHERE parent_category = 'Cleaning'").Scan(&minCents, &tier)
+	if minCents != 100 {
+		t.Errorf("Cleaning min_price_cents: expected 100, got %d", minCents)
+	}
+	if tier != "economy" {
+		t.Errorf("Cleaning tier: expected 'economy', got %q", tier)
+	}
+}
+
+func TestGetCategoryPricingTier_ReturnsCorrectTier(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Get milk's category ID (Dairy → premium)
+	var milkCatID int
+	server.db.QueryRow("SELECT id FROM categories WHERE name = 'Milk'").Scan(&milkCatID)
+	if milkCatID == 0 {
+		t.Fatal("Milk category not found")
+	}
+
+	minCents, sugCents, tier := getCategoryPricingTier(server.db, milkCatID)
+	if minCents != 250 {
+		t.Errorf("Milk min_price: expected 250, got %d", minCents)
+	}
+	if sugCents != 300 {
+		t.Errorf("Milk suggested: expected 300, got %d", sugCents)
+	}
+	if tier != "premium" {
+		t.Errorf("Milk tier: expected 'premium', got %q", tier)
+	}
+}
+
+func TestGetCategoryPricingTier_UnknownCategory(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Unknown category falls back to economy
+	minCents, _, tier := getCategoryPricingTier(server.db, 99999)
+	if minCents != 100 {
+		t.Errorf("unknown category min: expected 100, got %d", minCents)
+	}
+	if tier != "economy" {
+		t.Errorf("unknown category tier: expected 'economy', got %q", tier)
+	}
+}
+
+func TestBrandDealCreation_EnforcesMinPricing(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "pricing@brand.com", "password1234", "PricingCo")
+
+	// Create deal with Milk product (Dairy → premium, min 250 cents)
+	// Attempt with too-low discount
+	rr := doRequest(server.handleBrandDeals, "POST", "/brand/deals", map[string]interface{}{
+		"competitor_product": "Store Brand Milk 1gal",
+		"offer_brand":        "PremiumDairy",
+		"offer_product":      "PremiumDairy Milk 1gal",
+		"discount_cents":     100,
+		"daily_budget_cents": 10000,
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for below-minimum discount, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	if body["tier"] != "premium" {
+		t.Errorf("expected tier 'premium' in error, got %v", body["tier"])
+	}
+
+	// Now create with sufficient discount
+	rr = doRequest(server.handleBrandDeals, "POST", "/brand/deals", map[string]interface{}{
+		"competitor_product": "Store Brand Milk 1gal",
+		"offer_brand":        "PremiumDairy",
+		"offer_product":      "PremiumDairy Milk 1gal",
+		"discount_cents":     300,
+		"daily_budget_cents": 10000,
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201 with sufficient discount, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify category_id was auto-assigned
+	body = parseJSON(rr)
+	dealID := int(body["id"].(float64))
+	var catID int
+	server.db.QueryRow("SELECT category_id FROM brand_deals WHERE id = ?", dealID).Scan(&catID)
+	if catID == 0 {
+		t.Errorf("expected auto-categorization to assign category_id, got 0")
+	}
+}
+
+func TestBrandDealCreation_EconomyTierAcceptsLowDiscount(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "econ@brand.com", "password1234", "EconCo")
+
+	// Uncategorized product → economy tier, min 100 cents
+	rr := doRequest(server.handleBrandDeals, "POST", "/brand/deals", map[string]interface{}{
+		"competitor_product": "Generic Widget",
+		"offer_brand":        "WidgetBrand",
+		"offer_product":      "WidgetBrand Premium",
+		"discount_cents":     100,
+		"daily_budget_cents": 5000,
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Errorf("economy tier with 100 cents: expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Below economy minimum
+	rr = doRequest(server.handleBrandDeals, "POST", "/brand/deals", map[string]interface{}{
+		"competitor_product": "Generic Widget 2",
+		"offer_brand":        "WidgetBrand",
+		"offer_product":      "WidgetBrand Deluxe",
+		"discount_cents":     50,
+		"daily_budget_cents": 5000,
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("below economy minimum: expected 400, got %d", rr.Code)
+	}
+}
+
+func TestPricingTiers_Endpoint(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "tiers@brand.com", "password1234", "TiersCo")
+
+	rr := doRequest(server.handlePricingTiers, "GET", "/brand/pricing-tiers", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var tiers []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &tiers)
+	if len(tiers) < 10 {
+		t.Errorf("expected at least 10 pricing tiers, got %d", len(tiers))
+	}
+
+	// Verify sorted by min_price_cents DESC
+	if len(tiers) >= 2 {
+		first := int(tiers[0]["min_price_cents"].(float64))
+		last := int(tiers[len(tiers)-1]["min_price_cents"].(float64))
+		if first < last {
+			t.Errorf("expected descending order: first=%d, last=%d", first, last)
+		}
+	}
+}
+
+func TestPricingTiers_RequiresBrandAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// No auth
+	rr := doRequest(server.handlePricingTiers, "GET", "/brand/pricing-tiers", nil, nil)
+	if rr.Code == http.StatusOK {
+		t.Errorf("expected non-200 without auth, got %d", rr.Code)
 	}
 }
 

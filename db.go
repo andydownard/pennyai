@@ -1226,6 +1226,22 @@ func initDB(path string) (*sql.DB, error) {
 	// Link brand_deals to categories (0 = uncategorized)
 	db.Exec("ALTER TABLE brand_deals ADD COLUMN category_id INTEGER NOT NULL DEFAULT 0")
 
+	// --- Category pricing tiers ---
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS category_pricing_tiers (
+			parent_category    TEXT PRIMARY KEY,
+			min_price_cents    INTEGER NOT NULL DEFAULT 100,
+			suggested_cents    INTEGER NOT NULL DEFAULT 150,
+			tier_label         TEXT NOT NULL DEFAULT 'standard'
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating category_pricing_tiers table: %w", err)
+	}
+	if err := seedPricingTiers(db); err != nil {
+		log.Printf("WARNING: failed to seed pricing tiers: %v", err)
+	}
+
 	// --- User swap predictions ---
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS user_swap_predictions (
@@ -1421,6 +1437,86 @@ func categorizeProduct(db *sql.DB, productName string) int {
 		return id
 	}
 	return 0
+}
+
+// seedPricingTiers populates default pricing tiers based on category acceptance
+// rates. Higher-value categories (Dairy, Beverages) cost more per swap.
+// Idempotent — only inserts when table is empty.
+func seedPricingTiers(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM category_pricing_tiers").Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	type tier struct {
+		parent    string
+		minCents  int
+		sugCents  int
+		label     string
+	}
+	tiers := []tier{
+		// Premium: high-frequency, high-acceptance categories
+		{"Dairy", 250, 300, "premium"},
+		{"Beverages", 250, 300, "premium"},
+		{"Snacks", 200, 250, "premium"},
+		// Standard: moderate acceptance
+		{"Produce", 150, 200, "standard"},
+		{"Pantry", 150, 200, "standard"},
+		{"Meat", 150, 200, "standard"},
+		{"Frozen", 150, 200, "standard"},
+		{"Cereal", 150, 200, "standard"},
+		// Economy: lower acceptance, price-sensitive categories
+		{"Condiments", 100, 150, "economy"},
+		{"Baking", 100, 150, "economy"},
+		{"Cleaning", 100, 150, "economy"},
+		{"Personal Care", 100, 150, "economy"},
+		{"Baby", 100, 150, "economy"},
+		{"Pet", 100, 150, "economy"},
+		{"Paper Goods", 100, 150, "economy"},
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, t := range tiers {
+		if _, err := tx.Exec(
+			"INSERT INTO category_pricing_tiers (parent_category, min_price_cents, suggested_cents, tier_label) VALUES (?, ?, ?, ?)",
+			t.parent, t.minCents, t.sugCents, t.label,
+		); err != nil {
+			return fmt.Errorf("seeding tier %q: %w", t.parent, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	log.Printf("[pricing] seeded %d category pricing tiers", len(tiers))
+	return nil
+}
+
+// getCategoryPricingTier returns the min price and tier label for a given category.
+// Falls back to economy tier ($1.00) if no specific tier is found.
+func getCategoryPricingTier(db *sql.DB, categoryID int) (minCents int, suggestedCents int, tierLabel string) {
+	if categoryID == 0 {
+		return 100, 150, "economy"
+	}
+	var parent string
+	if err := db.QueryRow("SELECT parent_category FROM categories WHERE id = ?", categoryID).Scan(&parent); err != nil {
+		return 100, 150, "economy"
+	}
+	if err := db.QueryRow(
+		"SELECT min_price_cents, suggested_cents, tier_label FROM category_pricing_tiers WHERE parent_category = ?",
+		parent,
+	).Scan(&minCents, &suggestedCents, &tierLabel); err != nil {
+		return 100, 150, "economy"
+	}
+	return
 }
 
 // seedDeals populates the brand_deals table with test swap deals if empty.

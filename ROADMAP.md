@@ -736,14 +736,14 @@ Break-even math:
 ### Tier 1: Quick Wins (immediate revenue impact)
 
 - [x] **Swap interaction enrichment** — `time_to_action_ms`, `why_tapped` on swap_events
-- [ ] **Category taxonomy** — normalize 50-100 grocery categories, add `category_id` to brand_deals
+- [x] **Category taxonomy** — 92 grocery categories across 14 parent groups, auto-categorization, `GET /api/categories`
 - [ ] **Category-tiered swap pricing** — $1.00 (low acceptance) / $1.50 (medium) / $2.50 (high acceptance)
-- [ ] **Household savings visibility** — "Saved $X via Penny" on swapped items in shared list
+- [x] **Household savings visibility** — `swap_savings_cents` on list_items, green badge in frontend
 
 ### Tier 2: Medium-term bets (significant revenue within 90 days)
 
 - [ ] **Competitive Swap Intel panel** — live in brand portal (basic free, premium paid)
-- [ ] **User preference predictor** — simple per-user acceptance rate by category lookup table
+- [x] **User preference predictor** — per-user acceptance rate by category+brand, confidence-weighted blending, auto-suppression of low-probability swaps
 - [ ] **Organic swap propagation tracking** — detect when household members adopt swapped brands unprompted
 - [ ] **Store data schema** — `stores` table, parse store info from receipts
 

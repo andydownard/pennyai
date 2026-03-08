@@ -427,6 +427,24 @@ func (s *Server) createBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 		req.QuantityOffered = 1
 	}
 
+	// Auto-categorize the deal based on product name
+	categoryID := categorizeProduct(s.db, req.OfferProduct)
+	if categoryID == 0 {
+		categoryID = categorizeProduct(s.db, req.CompetitorProduct)
+	}
+
+	// Enforce category-tiered minimum pricing
+	minCents, _, tierLabel := getCategoryPricingTier(s.db, categoryID)
+	if req.DiscountCents < minCents {
+		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+			"error":            fmt.Sprintf("Minimum discount for %s tier categories is $%.2f", tierLabel, float64(minCents)/100),
+			"min_discount_cents": minCents,
+			"tier":             tierLabel,
+			"category_id":     categoryID,
+		})
+		return
+	}
+
 	result, err := s.db.Exec(`
 		INSERT INTO brand_deals (
 			competitor_product, offer_brand, offer_product, discount_cents,
@@ -434,14 +452,16 @@ func (s *Server) createBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 			offer_price_cents, competitor_price_cents,
 			offer_size, competitor_size, offer_unit_price, competitor_unit_price,
 			unit_label, why_bullets, allergen_notes,
-			deal_type, quantity_offered, trial_product_name, trial_size, campaign_tag
-		) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			deal_type, quantity_offered, trial_product_name, trial_size, campaign_tag,
+			category_id
+		) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		req.CompetitorProduct, req.OfferBrand, req.OfferProduct, req.DiscountCents,
 		req.TotalBudgetCents, bs.BrandUserID,
 		req.OfferPriceCents, req.CompetitorPriceCents,
 		req.OfferSize, req.CompetitorSize, req.OfferUnitPrice, req.CompetitorUnitPrice,
 		req.UnitLabel, req.WhyBullets, req.AllergenNotes,
 		req.DealType, req.QuantityOffered, req.TrialProductName, req.TrialSize, req.CampaignTag,
+		categoryID,
 	)
 	if err != nil {
 		dbError(w, err, "Failed to create deal")
@@ -1242,4 +1262,43 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// handlePricingTiers returns category pricing tiers so brands know the minimum
+// discount required per category. GET /brand/pricing-tiers — brand session required.
+func (s *Server) handlePricingTiers(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	if _, ok := s.requireBrandSession(w, r); !ok {
+		return
+	}
+
+	rows, err := s.db.Query(`
+		SELECT parent_category, min_price_cents, suggested_cents, tier_label
+		FROM category_pricing_tiers
+		ORDER BY min_price_cents DESC, parent_category
+	`)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load pricing tiers"})
+		return
+	}
+
+	type pricingTier struct {
+		ParentCategory string `json:"parent_category"`
+		MinPriceCents  int    `json:"min_price_cents"`
+		SuggestedCents int    `json:"suggested_cents"`
+		TierLabel      string `json:"tier_label"`
+	}
+	var tiers []pricingTier
+	for rows.Next() {
+		var t pricingTier
+		if err := rows.Scan(&t.ParentCategory, &t.MinPriceCents, &t.SuggestedCents, &t.TierLabel); err != nil {
+			continue
+		}
+		tiers = append(tiers, t)
+	}
+	rows.Close()
+
+	writeJSON(w, http.StatusOK, tiers)
 }

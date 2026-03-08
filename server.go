@@ -275,6 +275,7 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/brand/category-intel/", server.handleCategoryIntel)
 	http.HandleFunc("/brand/deal-performance/", server.handleBrandDealPerformance)
 	http.HandleFunc("/brand/optimize/", server.handleOptimizeDeal)
+	http.HandleFunc("/brand/pricing-tiers", server.handlePricingTiers)
 	http.HandleFunc("/brand/transactions", server.handleBrandTransactions)
 	http.HandleFunc("/brand/deposit", server.handleBrandDeposit)
 	http.HandleFunc("/brand/export", server.handleBrandExport)
