@@ -2554,6 +2554,22 @@ const handleCodeChange = (index: number, value: string) => {
     }
   }
 
+  // iOS autofill fallback: native `input` event listener on the first code box.
+  // iOS may set .value directly (bypassing React onChange), so we detect multi-digit
+  // values via a native listener and distribute across all boxes.
+  useEffect(() => {
+    const el = codeInputRefs.current[0]
+    if (!el) return
+    const handler = () => {
+      const digits = (el.value || '').replace(/\D/g, '')
+      if (digits.length > 1) {
+        handleCodeChange(0, digits)
+      }
+    }
+    el.addEventListener('input', handler)
+    return () => el.removeEventListener('input', handler)
+  })
+
   // Handle paste in code inputs: fill all boxes from clipboard
   const handleCodePaste = (e: React.ClipboardEvent) => {
     e.preventDefault()

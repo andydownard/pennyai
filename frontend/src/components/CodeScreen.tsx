@@ -46,7 +46,6 @@ export function CodeScreen({
               inputMode="numeric"
               pattern="[0-9]*"
               autoComplete={i === 0 ? 'one-time-code' : 'off'}
-              maxLength={1}
               value={digit}
               aria-label={`Verification code digit ${i + 1} of 6`}
               onChange={e => onCodeChange(i, e.target.value)}
