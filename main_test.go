@@ -20802,3 +20802,408 @@ func TestCrossUser_HouseholdMemberCanToggleSharedItem(t *testing.T) {
 		t.Error("household member's toggle did not take effect on shared item")
 	}
 }
+
+// =============================================================================
+// Receipt: Swap Purchase Verification
+// =============================================================================
+
+func TestVerifySwapPurchases_VerifiesMatchingItems(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "+15550030001")
+
+	// Create a brand deal
+	dealRes, _ := server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, status)
+		VALUES ('Heinz Ketchup', 'Sir Kensingtons', 'Organic Ketchup', 150, 10000, 'active')`)
+	dealID, _ := dealRes.LastInsertId()
+
+	// Create an accepted swap event
+	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, 1, 'accepted')`, userID, dealID)
+
+	// Create a receipt with a matching line item
+	receiptRes, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status) VALUES (?, 'verify_hash1', 'processed')`, userID)
+	receiptID, _ := receiptRes.LastInsertId()
+
+	server.db.Exec(`INSERT INTO receipt_line_items (receipt_id, raw_text, price_cents, quantity, matched_name, confidence)
+		VALUES (?, 'ORG KETCHUP', 499, 1, 'Organic Ketchup', 'high')`, receiptID)
+
+	// Verify swap purchases
+	verified := server.verifySwapPurchases(userID, int(receiptID))
+	if verified != 1 {
+		t.Fatalf("expected 1 verified swap, got %d", verified)
+	}
+
+	// Check swap_claims was created
+	var claimStatus string
+	var payoutHeld string
+	err := server.db.QueryRow("SELECT status, payout_held_until FROM swap_claims WHERE receipt_id = ?", receiptID).Scan(&claimStatus, &payoutHeld)
+	if err != nil {
+		t.Fatalf("swap_claims row not found: %v", err)
+	}
+	if claimStatus != "verified" {
+		t.Errorf("claim status: got %s, want verified", claimStatus)
+	}
+	if payoutHeld == "" {
+		t.Error("payout_held_until should be set (30-day hold)")
+	}
+
+	// Check receipts.swaps_verified was updated
+	var swapsVerified int
+	server.db.QueryRow("SELECT swaps_verified FROM receipts WHERE id = ?", receiptID).Scan(&swapsVerified)
+	if swapsVerified != 1 {
+		t.Errorf("receipts.swaps_verified: got %d, want 1", swapsVerified)
+	}
+}
+
+func TestVerifySwapPurchases_NoMatchReturnsZero(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "+15550030002")
+
+	// Create a brand deal
+	dealRes, _ := server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, status)
+		VALUES ('Heinz Ketchup', 'Sir Kensingtons', 'Organic Ketchup', 150, 10000, 'active')`)
+	dealID, _ := dealRes.LastInsertId()
+
+	// Create an accepted swap event
+	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, 1, 'accepted')`, userID, dealID)
+
+	// Create receipt with NON-matching line items
+	receiptRes, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status) VALUES (?, 'verify_hash2', 'processed')`, userID)
+	receiptID, _ := receiptRes.LastInsertId()
+
+	server.db.Exec(`INSERT INTO receipt_line_items (receipt_id, raw_text, price_cents, quantity, matched_name, confidence)
+		VALUES (?, 'WHOLE MILK', 399, 1, 'Whole Milk', 'high')`, receiptID)
+
+	verified := server.verifySwapPurchases(userID, int(receiptID))
+	if verified != 0 {
+		t.Errorf("expected 0 verified swaps for non-matching items, got %d", verified)
+	}
+}
+
+func TestVerifySwapPurchases_AlreadyVerifiedSkipped(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "+15550030003")
+
+	dealRes, _ := server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, status)
+		VALUES ('Store Ketchup', 'Premium Brand', 'Premium Ketchup', 100, 5000, 'active')`)
+	dealID, _ := dealRes.LastInsertId()
+
+	swapRes, _ := server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, 1, 'accepted')`, userID, dealID)
+	swapEventID, _ := swapRes.LastInsertId()
+
+	// Create a prior receipt so FK is satisfied
+	priorReceiptRes, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status) VALUES (?, 'prior_hash', 'processed')`, userID)
+	priorReceiptID, _ := priorReceiptRes.LastInsertId()
+
+	// Pre-create a verified claim (simulating already verified)
+	_, err := server.db.Exec(`INSERT INTO swap_claims (receipt_id, swap_event_id, deal_id, user_id, status, verified_at, payout_held_until)
+		VALUES (?, ?, ?, ?, 'verified', CURRENT_TIMESTAMP, datetime('now', '+30 days'))`, priorReceiptID, swapEventID, dealID, userID)
+	if err != nil {
+		t.Fatalf("failed to insert prior claim: %v", err)
+	}
+
+	// New receipt with matching item — should NOT re-verify
+	receiptRes, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status) VALUES (?, 'verify_hash3', 'processed')`, userID)
+	receiptID, _ := receiptRes.LastInsertId()
+
+	server.db.Exec(`INSERT INTO receipt_line_items (receipt_id, raw_text, price_cents, quantity, matched_name, confidence)
+		VALUES (?, 'PREMIUM KETCHUP', 549, 1, 'Premium Ketchup', 'high')`, receiptID)
+
+	verified := server.verifySwapPurchases(userID, int(receiptID))
+	if verified != 0 {
+		t.Errorf("expected 0 (already verified swap skipped), got %d", verified)
+	}
+}
+
+func TestVerifySwapPurchases_MatchesByBrandName(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "+15550030004")
+
+	dealRes, _ := server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, status)
+		VALUES ('Old Spice', 'Dr Bronners', 'Castile Soap', 200, 10000, 'active')`)
+	dealID, _ := dealRes.LastInsertId()
+
+	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, 1, 'accepted')`, userID, dealID)
+
+	receiptRes, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status) VALUES (?, 'verify_hash4', 'processed')`, userID)
+	receiptID, _ := receiptRes.LastInsertId()
+
+	// Match by brand name "Dr Bronners" in the matched_name
+	server.db.Exec(`INSERT INTO receipt_line_items (receipt_id, raw_text, price_cents, quantity, matched_name, confidence)
+		VALUES (?, 'DR BRONNERS SOAP', 899, 1, 'Dr Bronners Peppermint Soap', 'high')`, receiptID)
+
+	verified := server.verifySwapPurchases(userID, int(receiptID))
+	if verified != 1 {
+		t.Errorf("expected 1 (brand name match), got %d", verified)
+	}
+}
+
+// =============================================================================
+// Receipt: Swap Claims Endpoint with Data
+// =============================================================================
+
+func TestGetSwapClaims_WithData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "+15550030005")
+
+	dealRes, _ := server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, status)
+		VALUES ('Generic Cereal', 'Cheerios', 'Honey Nut Cheerios', 100, 10000, 'active')`)
+	dealID, _ := dealRes.LastInsertId()
+
+	// Create referenced rows so JOIN succeeds
+	receiptRes, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status) VALUES (?, 'claims_hash', 'processed')`, userID)
+	receiptID, _ := receiptRes.LastInsertId()
+	swapRes, _ := server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, 1, 'accepted')`, userID, dealID)
+	swapEventID, _ := swapRes.LastInsertId()
+
+	server.db.Exec(`INSERT INTO swap_claims (receipt_id, swap_event_id, deal_id, user_id, status, verified_at, payout_held_until)
+		VALUES (?, ?, ?, ?, 'verified', CURRENT_TIMESTAMP, datetime('now', '+30 days'))`, receiptID, swapEventID, dealID, userID)
+
+	rr := doRequest(server.handleReceiptRouting, "GET", "/api/receipts/claims", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET claims status: got %d, want 200", rr.Code)
+	}
+
+	var claims []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &claims)
+	if len(claims) != 1 {
+		t.Fatalf("expected 1 claim, got %d", len(claims))
+	}
+	if claims[0]["status"] != "verified" {
+		t.Errorf("claim status: got %v, want verified", claims[0]["status"])
+	}
+	if claims[0]["offer_brand"] != "Cheerios" {
+		t.Errorf("claim offer_brand: got %v, want Cheerios", claims[0]["offer_brand"])
+	}
+	if claims[0]["discount_cents"].(float64) != 100 {
+		t.Errorf("claim discount_cents: got %v, want 100", claims[0]["discount_cents"])
+	}
+}
+
+func TestGetSwapClaims_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleReceiptRouting, "GET", "/api/receipts/claims", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("GET claims without auth: got %d, want 401", rr.Code)
+	}
+}
+
+func TestGetSwapClaims_CrossUserIsolation(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userA := loginUser(t, server, "+15550030006")
+	cookieB, _ := loginUser(t, server, "+15550030007")
+
+	dealRes, _ := server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, status)
+		VALUES ('Brand X', 'Brand Y', 'Product Y', 200, 10000, 'active')`)
+	dealID, _ := dealRes.LastInsertId()
+
+	// Claim belongs to user A
+	server.db.Exec(`INSERT INTO swap_claims (receipt_id, swap_event_id, deal_id, user_id, status, verified_at, payout_held_until)
+		VALUES (1, 1, ?, ?, 'verified', CURRENT_TIMESTAMP, datetime('now', '+30 days'))`, dealID, userA)
+
+	// User B should see 0 claims
+	rr := doRequest(server.handleReceiptRouting, "GET", "/api/receipts/claims", nil, []*http.Cookie{cookieB})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET claims status: got %d, want 200", rr.Code)
+	}
+	var claims []interface{}
+	json.Unmarshal(rr.Body.Bytes(), &claims)
+	if len(claims) != 0 {
+		t.Errorf("user B should see 0 claims from user A, got %d", len(claims))
+	}
+}
+
+// =============================================================================
+// Receipt: Confirm cross-user blocked
+// =============================================================================
+
+func TestReceiptConfirm_CrossUserBlocked(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userA := loginUser(t, server, "+15550030008")
+	cookieB, _ := loginUser(t, server, "+15550030009")
+
+	// Receipt belongs to user A
+	receiptRes, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status) VALUES (?, 'cross_hash', 'processed')`, userA)
+	receiptID, _ := receiptRes.LastInsertId()
+
+	server.db.Exec(`INSERT INTO receipt_line_items (receipt_id, raw_text, price_cents, quantity, matched_name, confidence)
+		VALUES (?, 'SOME ITEM', 199, 1, 'Some Item', 'low')`, receiptID)
+
+	body := map[string]interface{}{
+		"confirmations": []map[string]interface{}{
+			{"line_item_id": 1, "confirmed": true, "matched_name": "Some Item"},
+		},
+	}
+
+	// User B tries to confirm user A's receipt
+	rr := doRequest(server.handleReceiptRouting, "POST",
+		fmt.Sprintf("/api/receipts/%d/confirm", receiptID), body, []*http.Cookie{cookieB})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("cross-user confirm should return 404, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// Receipt: Confirm updates items_matched count
+// =============================================================================
+
+func TestReceiptConfirm_UpdatesMatchedCount(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "+15550030010")
+
+	receiptRes, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status, items_matched) VALUES (?, 'count_hash', 'processed', 0)`, userID)
+	receiptID, _ := receiptRes.LastInsertId()
+
+	// Two low-confidence items
+	li1Res, _ := server.db.Exec(`INSERT INTO receipt_line_items (receipt_id, raw_text, price_cents, quantity, matched_name, confidence)
+		VALUES (?, 'ITEM1', 199, 1, 'Item One', 'low')`, receiptID)
+	li1ID, _ := li1Res.LastInsertId()
+
+	li2Res, _ := server.db.Exec(`INSERT INTO receipt_line_items (receipt_id, raw_text, price_cents, quantity, matched_name, confidence)
+		VALUES (?, 'ITEM2', 299, 1, 'Item Two', 'low')`, receiptID)
+	li2ID, _ := li2Res.LastInsertId()
+
+	// Confirm one, reject the other
+	body := map[string]interface{}{
+		"confirmations": []map[string]interface{}{
+			{"line_item_id": li1ID, "confirmed": true, "matched_name": "Item One"},
+			{"line_item_id": li2ID, "confirmed": false},
+		},
+	}
+	rr := doRequest(server.handleReceiptRouting, "POST",
+		fmt.Sprintf("/api/receipts/%d/confirm", receiptID), body, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("confirm status: got %d, want 200", rr.Code)
+	}
+
+	result := parseJSON(rr)
+	if result["confirmed"].(float64) != 1 {
+		t.Errorf("confirmed: got %v, want 1", result["confirmed"])
+	}
+	if result["total_matched"].(float64) != 1 {
+		t.Errorf("total_matched: got %v, want 1", result["total_matched"])
+	}
+
+	// Verify receipt items_matched was updated
+	var matched int
+	server.db.QueryRow("SELECT items_matched FROM receipts WHERE id = ?", receiptID).Scan(&matched)
+	if matched != 1 {
+		t.Errorf("receipts.items_matched: got %d, want 1", matched)
+	}
+}
+
+// =============================================================================
+// Receipt: Confirm triggers swap verification
+// =============================================================================
+
+func TestReceiptConfirm_TriggersSwapVerification(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "+15550030011")
+
+	// Deal + accepted swap
+	dealRes, _ := server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, status)
+		VALUES ('Generic Mayo', 'Hellmanns', 'Light Mayo', 100, 10000, 'active')`)
+	dealID, _ := dealRes.LastInsertId()
+
+	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, 1, 'accepted')`, userID, dealID)
+
+	// Receipt with a line item matching the swapped product
+	receiptRes, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status) VALUES (?, 'verify_confirm_hash', 'processed')`, userID)
+	receiptID, _ := receiptRes.LastInsertId()
+
+	liRes, _ := server.db.Exec(`INSERT INTO receipt_line_items (receipt_id, raw_text, price_cents, quantity, matched_name, confidence)
+		VALUES (?, 'HELLMANNS LT MAYO', 549, 1, 'Light Mayo', 'low')`, receiptID)
+	liID, _ := liRes.LastInsertId()
+
+	// Confirm the line item — this should trigger swap verification
+	body := map[string]interface{}{
+		"confirmations": []map[string]interface{}{
+			{"line_item_id": liID, "confirmed": true, "matched_name": "Light Mayo"},
+		},
+	}
+	rr := doRequest(server.handleReceiptRouting, "POST",
+		fmt.Sprintf("/api/receipts/%d/confirm", receiptID), body, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("confirm status: got %d, want 200", rr.Code)
+	}
+
+	result := parseJSON(rr)
+	if sv, ok := result["swaps_verified"].(float64); !ok || int(sv) != 1 {
+		t.Errorf("swaps_verified: got %v, want 1", result["swaps_verified"])
+	}
+
+	// Verify claim was created in DB
+	var claimCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM swap_claims WHERE user_id = ? AND deal_id = ?", userID, dealID).Scan(&claimCount)
+	if claimCount != 1 {
+		t.Errorf("expected 1 swap_claim, got %d", claimCount)
+	}
+}
+
+// =============================================================================
+// Receipt: Rate Limiting
+// =============================================================================
+
+func TestReceiptRateLimit_DailyLimit(t *testing.T) {
+	// checkReceiptRateLimit uses global sync.Maps, so we test the function directly
+	// Reset the limiters for this test
+	receiptDayLimiter = sync.Map{}
+	receiptWeekLimiter = sync.Map{}
+
+	userID := 99999 // Use a high ID to avoid collisions
+
+	// First 3 should pass
+	for i := 0; i < 3; i++ {
+		if checkReceiptRateLimit(userID) {
+			t.Fatalf("rate limit triggered prematurely on attempt %d", i+1)
+		}
+	}
+
+	// 4th should be rate-limited
+	if !checkReceiptRateLimit(userID) {
+		t.Error("expected rate limit after 3 receipts/day, but was not limited")
+	}
+}
+
+func TestReceiptRateLimit_DifferentUsersIndependent(t *testing.T) {
+	receiptDayLimiter = sync.Map{}
+	receiptWeekLimiter = sync.Map{}
+
+	// User A uses 3 (max daily)
+	for i := 0; i < 3; i++ {
+		checkReceiptRateLimit(88881)
+	}
+
+	// User B should still be allowed
+	if checkReceiptRateLimit(88882) {
+		t.Error("user B was rate-limited by user A's usage")
+	}
+}
+
+// =============================================================================
+// Receipt: Method not allowed checks
+// =============================================================================
+
+func TestReceiptItems_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "+15550030012")
+
+	receiptRes, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status) VALUES (?, 'method_hash', 'processed')`, userID)
+	receiptID, _ := receiptRes.LastInsertId()
+
+	rr := doRequest(server.handleReceiptRouting, "POST",
+		fmt.Sprintf("/api/receipts/%d/items", receiptID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST to /items should return 405, got %d", rr.Code)
+	}
+}
+
+func TestSwapClaims_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "+15550030013")
+
+	rr := doRequest(server.handleReceiptRouting, "POST", "/api/receipts/claims", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST to /claims should return 405, got %d", rr.Code)
+	}
+}
