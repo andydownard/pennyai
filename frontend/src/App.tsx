@@ -4649,7 +4649,7 @@ const handleCodeChange = (index: number, value: string) => {
           }}
         >
           <span style={{ fontFamily: FONT, fontSize: '14px', color: BRAND, fontWeight: 600 }}>
-            You've saved ${(swapCreditsCents / 100).toFixed(2)} with Penny
+            You've earned ${(swapCreditsCents / 100).toFixed(2)} — brands pay, you benefit
           </span>
           <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>View details ›</span>
         </div>
@@ -5155,7 +5155,7 @@ const handleCodeChange = (index: number, value: string) => {
               fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, textAlign: 'center' as const,
               padding: '16px 0 8px', lineHeight: '1.4',
             }}>
-              Savings from Penny Swaps. Payouts are sent monthly via Venmo — no action needed on your end.
+              Brands pay to reach you — we share the revenue. No other grocery app pays you like this. Payouts sent monthly via Venmo.
             </div>
           </div>
         </ActionSheet>

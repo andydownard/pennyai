@@ -180,11 +180,17 @@ export function EarningsScreen({ fetchAPI }: EarningsScreenProps) {
       {isEmpty ? (
         <div style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center',
-          padding: '40px 20px', gap: '12px',
+          padding: '40px 20px', gap: '16px',
         }}>
           <PennyAvatar size={48} />
-          <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', lineHeight: '1.5' }}>
-            No earnings yet — accept a swap to start earning!
+          <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, textAlign: 'center' }}>
+            We pay you. No one else does.
+          </div>
+          <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
+            Brands pay to reach you. We share that revenue with you — real money, every time you try something new.
+          </div>
+          <div style={{ fontFamily: FONT, fontSize: '13px', color: BRAND, textAlign: 'center', fontWeight: 500 }}>
+            Accept a swap to start earning.
           </div>
         </div>
       ) : (
@@ -258,9 +264,9 @@ export function EarningsScreen({ fetchAPI }: EarningsScreenProps) {
       {!isEmpty && (
         <div style={{
           fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, textAlign: 'center',
-          padding: '16px 0 8px', lineHeight: '1.4',
+          padding: '16px 0 8px', lineHeight: '1.5',
         }}>
-          Savings from Penny Swaps. Payouts are sent monthly via Venmo.
+          Brands pay to reach you — we share the revenue. No other grocery app does this. Payouts sent monthly via Venmo.
         </div>
       )}
     </div>
