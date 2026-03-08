@@ -3488,6 +3488,7 @@ const handleCodeChange = (index: number, value: string) => {
             setPendingReceiptMode(true)
             receiptInputRef.current?.click()
           }}
+          hasSwapsToClaim={earningsTotalCents > 0}
         />
       )}
 

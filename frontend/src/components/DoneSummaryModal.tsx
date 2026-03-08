@@ -19,11 +19,13 @@ interface DoneSummaryModalProps {
   onClose: () => void
   onFinish: (isFirstTrip: boolean) => void
   onSnapReceipt: () => void
+  hasSwapsToClaim?: boolean
 }
 
 export function DoneSummaryModal({
   data, isFirstTrip, items, fetchAPI, typePennyHome, showToast,
   handleCancelTrip, handleClearList, onClose, onFinish, onSnapReceipt,
+  hasSwapsToClaim,
 }: DoneSummaryModalProps) {
   const tripDuration = (() => {
     if (!data.tripStartedAt) return null
@@ -120,8 +122,8 @@ export function DoneSummaryModal({
           Keep shopping
         </button>
 
-        {/* Receipt scan button */}
-        <button
+        {/* Receipt scan button — only show when user has accepted swaps to verify */}
+        {hasSwapsToClaim && <button
           onClick={onSnapReceipt}
           style={{
             width: '100%', marginTop: '16px', padding: '12px', borderRadius: '10px',
@@ -135,7 +137,7 @@ export function DoneSummaryModal({
             <circle cx="12" cy="13" r="4"/>
           </svg>
           Snap your receipt
-        </button>
+        </button>}
       </div>
     </div>
   )
