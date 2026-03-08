@@ -360,6 +360,10 @@ Get these from https://console.twilio.com (see README for full setup).
 		// Consumer app: serve from static/
 		cleanPath := path.Clean(r.URL.Path)
 		if _, err := os.Stat("static" + cleanPath); err == nil && !strings.Contains(cleanPath, "..") {
+			// Hashed assets (Vite fingerprinted filenames) can be cached aggressively
+			if strings.HasPrefix(cleanPath, "/assets/") {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			}
 			consumerFS.ServeHTTP(w, r)
 			return
 		}
