@@ -1549,12 +1549,23 @@ function AppInner() {
           if (res.ok) {
             const data = await res.json()
             const addedItems: ListItem[] = data.items || []
+            const skippedItems = data.skipped || []
             const pennyMsg: string = data.message || ''
 
             if (addedItems.length > 0) {
               setItems(prev => sortItems([...prev, ...addedItems]))
+              // Auto-expand departments for new items
+              const newDepts = new Set(addedItems.map((i: ListItem) => i.department))
+              setExpandedDepts(prev => {
+                const next = new Set(prev)
+                newDepts.forEach(d => next.add(d))
+                return next
+              })
               const names = addedItems.map(i => i.name).join(', ')
-              setCameraConfirmation(`+ ${names}`)
+              const skippedNote = skippedItems.length > 0 ? ` (${skippedItems.length} already on list)` : ''
+              setCameraConfirmation(`+ ${names}${skippedNote}`)
+            } else if (skippedItems.length > 0) {
+              setCameraConfirmation(`Already on your list`)
             } else if (pennyMsg) {
               setCameraConfirmation(pennyMsg)
             } else {
