@@ -990,6 +990,70 @@ func initDB(path string) (*sql.DB, error) {
 	db.Exec("ALTER TABLE brand_users ADD COLUMN digest_opt_out INTEGER NOT NULL DEFAULT 0")
 	db.Exec("ALTER TABLE brand_users ADD COLUMN last_digest_at TEXT DEFAULT NULL")
 
+	// ==========================================================================
+	// LEARNING LOOP INFRASTRUCTURE (Sprint 11)
+	// ==========================================================================
+
+	// user_signals: captures discrete behavioral events for learning
+	// Each row is a signal that teaches Penny about user preferences/behavior
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS user_signals (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id    INTEGER NOT NULL REFERENCES users(id),
+			signal     TEXT NOT NULL,
+			category   TEXT NOT NULL DEFAULT '',
+			value      TEXT NOT NULL DEFAULT '',
+			context    TEXT NOT NULL DEFAULT '{}',
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating user_signals table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_user_signals_user ON user_signals(user_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_user_signals_signal ON user_signals(signal)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_user_signals_created ON user_signals(created_at)")
+
+	// penny_learnings: aggregated insights Penny has derived from signals
+	// These are the "knowledge" Penny has accumulated per user/household/brand
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS penny_learnings (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			scope      TEXT NOT NULL,
+			scope_id   INTEGER NOT NULL,
+			key        TEXT NOT NULL,
+			value      TEXT NOT NULL DEFAULT '',
+			confidence REAL NOT NULL DEFAULT 0.5,
+			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+			UNIQUE(scope, scope_id, key)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating penny_learnings table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_penny_learnings_scope ON penny_learnings(scope, scope_id)")
+
+	// store_prices: crowdsourced price data from receipts (location-level learning)
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS store_prices (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			store_name  TEXT NOT NULL,
+			store_zip   TEXT NOT NULL DEFAULT '',
+			product     TEXT NOT NULL,
+			brand       TEXT NOT NULL DEFAULT '',
+			price_cents INTEGER NOT NULL,
+			source      TEXT NOT NULL DEFAULT 'receipt',
+			receipt_id  INTEGER DEFAULT NULL,
+			observed_at TEXT NOT NULL DEFAULT (datetime('now')),
+			UNIQUE(store_name, store_zip, product, brand, observed_at)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating store_prices table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_store_prices_store ON store_prices(store_name, store_zip)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_store_prices_product ON store_prices(product)")
+
 	return db, nil
 }
 

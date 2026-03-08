@@ -15019,3 +15019,146 @@ func TestBrandUnsubscribe_RequiresLogin(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// LEARNING INFRASTRUCTURE TESTS
+// =============================================================================
+
+func TestPennyInsights_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handlePennyInsights, "GET", "/api/penny/insights", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestPennyInsights_EmptyUser(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
+	token, _ := server.sessions.CreateSession(100, "+15551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(server.handlePennyInsights, "GET", "/api/penny/insights", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	body := parseJSON(rr)
+	if _, ok := body["user_learnings"].(map[string]interface{}); !ok {
+		t.Error("Response missing user_learnings object")
+	}
+	if _, ok := body["patterns"].(map[string]interface{}); !ok {
+		t.Error("Response missing patterns object")
+	}
+	if _, ok := body["swap_behavior"].(map[string]interface{}); !ok {
+		t.Error("Response missing swap_behavior object")
+	}
+}
+
+func TestRecordSignal(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
+
+	server.recordSignal(100, "item_added", "Dairy", "Organic Valley", map[string]interface{}{"name": "Whole Milk"})
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM user_signals WHERE user_id = 100").Scan(&count)
+	if count != 1 {
+		t.Errorf("Expected 1 signal, got %d", count)
+	}
+
+	var signal, category, value string
+	server.db.QueryRow("SELECT signal, category, value FROM user_signals WHERE user_id = 100").Scan(&signal, &category, &value)
+	if signal != "item_added" {
+		t.Errorf("signal: got %q, want 'item_added'", signal)
+	}
+	if category != "Dairy" {
+		t.Errorf("category: got %q, want 'Dairy'", category)
+	}
+}
+
+func TestUpdateLearning(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// First insert
+	server.updateLearning("user", 1, "shopping_frequency", "weekly", 0.7)
+
+	var value string
+	var conf float64
+	server.db.QueryRow("SELECT value, confidence FROM penny_learnings WHERE scope = 'user' AND scope_id = 1 AND key = 'shopping_frequency'").Scan(&value, &conf)
+	if value != "weekly" || conf != 0.7 {
+		t.Errorf("Got value=%q conf=%v, want weekly/0.7", value, conf)
+	}
+
+	// Upsert
+	server.updateLearning("user", 1, "shopping_frequency", "daily", 0.9)
+	server.db.QueryRow("SELECT value, confidence FROM penny_learnings WHERE scope = 'user' AND scope_id = 1 AND key = 'shopping_frequency'").Scan(&value, &conf)
+	if value != "daily" || conf != 0.9 {
+		t.Errorf("After upsert: got value=%q conf=%v, want daily/0.9", value, conf)
+	}
+}
+
+func TestProcessLearnings(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create user with some activity
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status)
+		VALUES (900, 'heinz', 'Hunts', 'Ketchup', 200, 10000, 'active')`)
+
+	// Add swap events
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (100, 900, 'offered')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (100, 900, 'offered')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (100, 900, 'offered')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (100, 900, 'accepted')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (100, 900, 'accepted')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (100, 900, 'declined')")
+
+	// Add a list item so foreign key is satisfied, then add modifications
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, checked) VALUES (1, 100, 'Milk', 0)")
+	for i := 0; i < 15; i++ {
+		server.db.Exec(fmt.Sprintf("INSERT INTO item_modifications (item_id, user_id, action, source, created_at) VALUES (1, 100, 'added', 'app', datetime('now', '-%d days'))", i))
+	}
+
+	// Run learning loop
+	server.processLearnings()
+
+	// Verify user-level learnings were created
+	var freq string
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 100 AND key = 'shopping_frequency'").Scan(&freq)
+	if freq == "" {
+		t.Error("Expected shopping_frequency learning to be set")
+	}
+
+	// Verify brand-level learning
+	var brandPerf string
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'brand' AND key = 'performance:hunts'").Scan(&brandPerf)
+	if brandPerf == "" {
+		t.Error("Expected brand performance learning to be set")
+	}
+}
+
+func TestPennyInsights_WithLearnings(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
+	token, _ := server.sessions.CreateSession(100, "+15551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	// Pre-populate a learning
+	server.updateLearning("user", 100, "shopping_frequency", "daily", 0.8)
+
+	rr := doRequest(server.handlePennyInsights, "GET", "/api/penny/insights", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	body := parseJSON(rr)
+	learnings := body["user_learnings"].(map[string]interface{})
+	freqEntry, ok := learnings["shopping_frequency"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected shopping_frequency in user_learnings")
+	}
+	if freqEntry["value"] != "daily" {
+		t.Errorf("shopping_frequency value: got %v, want 'daily'", freqEntry["value"])
+	}
+}
+

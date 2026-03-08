@@ -243,6 +243,7 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/wrapped", server.handleWrapped)
 	http.HandleFunc("/api/milestones/check", server.handleMilestoneCheck)
 	http.HandleFunc("/api/milestones/ack", server.handleMilestoneAck)
+	http.HandleFunc("/api/penny/insights", server.handlePennyInsights)
 
 	// --- A/B Testing ---
 	http.HandleFunc("GET /api/ab/variant", handleGetVariant(server))
@@ -372,6 +373,9 @@ Get these from https://console.twilio.com (see README for full setup).
 
 	// Weekly brand email digest (checks hourly, sends every 7 days per brand)
 	go server.runBrandDigestLoop()
+
+	// Learning loop: derives insights from raw signals every 6 hours
+	go server.runLearningLoop()
 
 	log.Printf("thriftly is running on http://localhost:%s", cfg.Port)
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, handler))

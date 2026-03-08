@@ -766,6 +766,11 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 			var newBalance int
 			s.db.QueryRow("SELECT swap_credits_cents FROM users WHERE id = ?", session.UserID).Scan(&newBalance)
 
+			// Record learning signal
+			go s.recordSignal(session.UserID, "swap_accepted", offerBrand, fmt.Sprintf("%d", discountCents), map[string]interface{}{
+				"deal_id": req.SwapDealID, "deal_type": dealType, "discount_cents": discountCents,
+			})
+
 			resp.Action = "swap_accepted"
 			resp.SwapCreditsCents = newBalance
 			switch dealType {
@@ -788,6 +793,10 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 			s.db.Exec(`INSERT INTO swap_suppressions (user_id, deal_id, decline_count) VALUES (?, ?, 1)
 				ON CONFLICT(user_id, deal_id) DO UPDATE SET decline_count = decline_count + 1`,
 				session.UserID, req.SwapDealID)
+
+			go s.recordSignal(session.UserID, "swap_declined", "", "", map[string]interface{}{
+				"deal_id": req.SwapDealID,
+			})
 
 			resp.Action = "swap_declined"
 			resp.Message = "No problem, keeping your original choice."
@@ -1286,6 +1295,17 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	if resp.Skipped == nil {
 		resp.Skipped = []SkippedItem{}
+	}
+
+	// Record learning signals for added items (async — never block the response)
+	if len(added) > 0 {
+		go func(uid int, items []ListItem) {
+			for _, item := range items {
+				s.recordSignal(uid, "item_added", item.Department, item.Brand, map[string]interface{}{
+					"name": item.Name, "source": item.Source,
+				})
+			}
+		}(session.UserID, added)
 	}
 
 	writeJSON(w, http.StatusCreated, resp)
