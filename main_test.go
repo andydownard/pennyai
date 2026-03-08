@@ -9618,6 +9618,45 @@ func TestResolveOrCreateUser_LoginCountIncremented(t *testing.T) {
 	}
 }
 
+func TestResolveOrCreateUser_MergedFlag(t *testing.T) {
+	db, err := initDB(":memory:")
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	// Create user via email
+	u1, err := resolveOrCreateUser(db, "email", "merge@example.com", "merge@example.com", "MergeTest")
+	if err != nil {
+		t.Fatalf("email user: %v", err)
+	}
+	if u1.Merged {
+		t.Error("New user should not be marked as merged")
+	}
+	db.Exec("UPDATE users SET email = 'merge@example.com' WHERE id = ?", u1.ID)
+
+	// Sign in via Google with same email — should merge and set Merged flag
+	u2, err := resolveOrCreateUser(db, "google", "google-merge-sub", "merge@example.com", "MergeTest")
+	if err != nil {
+		t.Fatalf("google merge: %v", err)
+	}
+	if u1.ID != u2.ID {
+		t.Errorf("Expected same user, got %d vs %d", u1.ID, u2.ID)
+	}
+	if !u2.Merged {
+		t.Error("Expected Merged=true on first merge login")
+	}
+
+	// Login again with Google — should NOT be marked as merged (auth method already exists)
+	u3, err := resolveOrCreateUser(db, "google", "google-merge-sub", "merge@example.com", "MergeTest")
+	if err != nil {
+		t.Fatalf("second google login: %v", err)
+	}
+	if u3.Merged {
+		t.Error("Expected Merged=false on subsequent logins (auth method already exists)")
+	}
+}
+
 // =============================================================================
 // EMAIL REGISTER HANDLER TESTS
 // =============================================================================

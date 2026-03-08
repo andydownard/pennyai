@@ -103,10 +103,15 @@ func (s *Server) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 	setSessionCookie(w, s.config, token)
 	log.Printf("[google-auth] user %d logged in via Google (%s)", user.ID, tokenInfo.Email)
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	authResp := map[string]interface{}{
 		"success": true,
 		"user_id": user.ID,
-	})
+	}
+	if user.Merged {
+		authResp["account_merged"] = true
+		authResp["merge_message"] = "Welcome back! I linked your Google account to your existing Thriftly account."
+	}
+	writeJSON(w, http.StatusOK, authResp)
 }
 
 // maybeStoreGooglePhoto fetches and stores a Google profile photo if the user
@@ -243,10 +248,15 @@ func (s *Server) handleEmailRegister(w http.ResponseWriter, r *http.Request) {
 	setSessionCookie(w, s.config, token)
 	log.Printf("[email-auth] user %d registered via email (%s)", user.ID, req.Email)
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	resp := map[string]interface{}{
 		"success": true,
 		"user_id": user.ID,
-	})
+	}
+	if user.Merged {
+		resp["account_merged"] = true
+		resp["merge_message"] = "Welcome back! I linked your email to your existing Thriftly account."
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleEmailLogin handles POST /auth/email/login

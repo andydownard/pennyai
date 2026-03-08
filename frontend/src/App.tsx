@@ -854,6 +854,9 @@ function AppInner() {
           })
           const data = await res.json()
           if (res.ok && data.success) {
+            if (data.account_merged && data.merge_message) {
+              sessionStorage.setItem('thriftly_merge_msg', data.merge_message)
+            }
             setScreen('home', true)
           } else {
             setError(data.error || 'Google sign-in failed')
@@ -1052,6 +1055,12 @@ function AppInner() {
     if (screen !== 'home') return
     reloadList().catch(e => console.warn('[load] list failed:', e))
     loadTrips().catch(e => console.warn('[load] trips failed:', e))
+    // Show account merge message if auth just linked accounts
+    const mergeMsg = sessionStorage.getItem('thriftly_merge_msg')
+    if (mergeMsg) {
+      sessionStorage.removeItem('thriftly_merge_msg')
+      setTimeout(() => typePennyHome(mergeMsg), 500)
+    }
     // Only check NPS once per session — never re-prompt after dismiss or submit
     if (!npsCheckedRef.current && !sessionStorage.getItem('nps_dismissed')) {
       npsCheckedRef.current = true
@@ -2284,6 +2293,9 @@ function AppInner() {
       const data = await res.json()
       if (res.ok && data.success) {
         setPasswordInput(''); setConfirmPassword('')
+        if (data.account_merged && data.merge_message) {
+          sessionStorage.setItem('thriftly_merge_msg', data.merge_message)
+        }
         setScreen('home', true)
       } else {
         setError(data.error || 'Registration failed')

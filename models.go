@@ -63,6 +63,7 @@ type User struct {
 	Email       string
 	HouseholdID int
 	CreatedAt   string
+	Merged      bool // transient: true when resolveOrCreateUser linked a new auth method to existing account
 }
 
 // Session represents an authenticated user session.

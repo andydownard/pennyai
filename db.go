@@ -2572,13 +2572,16 @@ func resolveOrCreateUser(db *sql.DB, provider, providerID, email, name string) (
 		).Scan(&existingID)
 		if err == nil {
 			// Found existing user with same email — link this auth method
-			_, err = tx.Exec(
+			result, err := tx.Exec(
 				"INSERT OR IGNORE INTO auth_methods (user_id, provider, provider_id) VALUES (?, ?, ?)",
 				existingID, provider, providerID,
 			)
 			if err != nil {
 				return User{}, fmt.Errorf("linking auth method: %w", err)
 			}
+			// Check if a new auth method was actually linked (not a duplicate)
+			rowsInserted, _ := result.RowsAffected()
+			merged := rowsInserted > 0
 
 			// Update name if empty
 			if name != "" {
@@ -2598,12 +2601,16 @@ func resolveOrCreateUser(db *sql.DB, provider, providerID, email, name string) (
 			user.PhoneNumber = uPhone.String
 			user.Name = uName.String
 			user.Email = uEmail.String
+			user.Merged = merged
 			if householdID.Valid {
 				user.HouseholdID = int(householdID.Int64)
 			}
 			tx.Exec("UPDATE users SET last_active = CURRENT_TIMESTAMP, login_count = login_count + 1 WHERE id = ?", user.ID)
 			if err := tx.Commit(); err != nil {
 				return User{}, fmt.Errorf("committing: %w", err)
+			}
+			if merged {
+				log.Printf("[auth] account merged: user %d linked %s auth to existing account (%s)", user.ID, provider, email)
 			}
 			return user, nil
 		}
