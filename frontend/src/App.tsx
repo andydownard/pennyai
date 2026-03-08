@@ -268,6 +268,7 @@ function AppInner() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)    // checking existing session on load
+  const [isOffline, setIsOffline] = useState(!navigator.onLine)
 
   // Shared list deep link state
   const [sharedCode, setSharedCode] = useState<string | null>(null)
@@ -1117,6 +1118,29 @@ function AppInner() {
         .then(data => { if (data && !Array.isArray(data) && data.show_nps) setShowNPS(true) })
         .catch(e => console.warn('[load] nps check failed:', e))
     }
+  }, [screen])
+
+  // Track online/offline status and auto-refresh when coming back online
+  useEffect(() => {
+    const goOnline = () => {
+      setIsOffline(false)
+      if (screen === 'home') reloadList().catch(() => {})
+    }
+    const goOffline = () => setIsOffline(true)
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', goOffline)
+    return () => { window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline) }
+  }, [screen])
+
+  // Refresh list when user returns to the app (handles household changes while away)
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && screen === 'home') {
+        reloadList().catch(() => {})
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
   }, [screen])
 
   // Preload adjacent screen chunks after home loads (improves tab switching)
@@ -3500,6 +3524,17 @@ const handleCodeChange = (index: number, value: string) => {
           )
         })()}
       </div>
+
+      {/* Offline indicator */}
+      {isOffline && (
+        <div style={{
+          flexShrink: 0, padding: '6px 16px', backgroundColor: 'var(--warning-bg, #FEF3C7)',
+          textAlign: 'center', fontFamily: FONT, fontSize: '12px', color: 'var(--warning, #92400E)',
+          fontWeight: 500,
+        }}>
+          You're offline — changes will sync when you're back
+        </div>
+      )}
 
       {/* Trip banner */}
       {activeTrips.length > 0 && (
