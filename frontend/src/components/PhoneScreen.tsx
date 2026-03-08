@@ -70,7 +70,7 @@ export function PhoneScreen({
             style={{ accentColor: 'var(--brand)', width: '16px', height: '16px', flexShrink: 0, marginTop: '1px' }}
           />
           <span style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5, whiteSpace: 'nowrap' }}>
-            I agree to receive a one-time login code via text
+            I want to SMS with Penny
           </span>
         </label>
 
