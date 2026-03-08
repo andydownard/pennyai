@@ -495,15 +495,15 @@ Playwright E2E tests covering critical user flows: login, add items, check items
 | 6 | **PostHog integration** | S | — | P0 | Half day. Replaces custom analytics in handlers_admin.go. Needed to measure swap acceptance rates. (Buy-vs-Build: BUY NOW) | **Done** |
 | 7 | **R5. E2E Tests** | M | 2 | P1 | Brand portal + payments need E2E coverage. Moved up — ship before M4, not after. | **In progress** (Sprint 3) |
 | 8 | **R1. Conversational Onboarding** | L | 2 | P1 | Activation gate — swaps only fire when users have items on list. | **Done** (Sprint 3 — server-side flags, refined prompts) |
-| 9 | **M4. Brand Portal v0** | L | 2 | P0 | Self-serve brand sign-up = revenue without Andy on every call. Depends on R5. | Planned |
-| 10 | **M5. Stripe Payment** | M | 2 | P0 | Proof of willingness to pay. Depends on Sentry (#5) for webhook reliability. | Planned |
+| 9 | **M4. Brand Portal v0** | L | 2 | P0 | Self-serve brand sign-up = revenue without Andy on every call. Depends on R5. | **Done** (Sprint 4) |
+| 10 | **M5. Stripe Payment** | M | 2 | P0 | Proof of willingness to pay. Depends on Sentry (#5) for webhook reliability. | **Done** (Sprint 4) |
 | 11 | ~~**B12. Admin DELETE deals FK failure**~~ | XS | — | P1 | ~~Quick fix. Admin can't delete deals.~~ Soft-delete fix shipped. | **Done** |
 | 12 | **B13. BrandDeal struct missing columns** | S | — | P1 | Admin can't view/edit price comparison fields. Blocks swap quality. | **Done** |
 | 13 | **B15. daily_budget_cents misnomer** | XS | — | P2 | Rename to total_budget_cents or implement daily reset. Low urgency but confusing. | **Done** |
 | 14 | **R3. Done Shopping Flow** | M | 3 | P1 | Retention + natural trigger for receipt scanning (M7). | **Done** (Sprint 3 — summary, save list, confetti) |
-| 15 | **M7. Receipt Reading** | L | 3 | P1 | Closes attribution loop. Consider Veryfi for OCR layer (Buy-vs-Build: BUY LATER). | Planned |
+| 15 | **M7. Receipt Reading** | L | 3 | P1 | Closes attribution loop. Consider Veryfi for OCR layer (Buy-vs-Build: BUY LATER). | **Backend done** (Sprint 5 — needs frontend UI) |
 | 16 | **M9. Brand Dashboard v2** | S→M | 3 | P2 | **Scope reduced** — Metabase handles most reporting. Only Competitive Intel + purchase verification funnel need custom code. Was M, now S-M. | Planned |
-| 17 | **R2. Trip Planner Discoverability** | S | — | P3 | Quality of life, quick win. Do when there's a spare afternoon. | Planned |
+| 17 | **R2. Trip Planner Discoverability** | S | — | P3 | Quality of life, quick win. Do when there's a spare afternoon. | **Done** (Sprint 4) |
 | — | ~~R4. SSE Real-Time Updates~~ | — | — | — | **Replaced by Pusher/Ably** (Buy-vs-Build: BUY NOW). No longer a build item. | Replaced |
 
 ### What changed (March 2026 groom)
@@ -552,10 +552,7 @@ Break-even math:
 > Small, self-contained tasks that can be completed with minimal/no supervision. Good for overnight runs.
 
 - **Error monitoring (Sentry)** — Sentry integration for Go backend + frontend. Error alerting on production crashes. Required before Stripe webhooks go live.
-- **User profile photo** — Add camera/upload button on profile screen. Store as base64 or upload to S3/Railway volume. Show avatar in hamburger menu, household member list, and "added by" labels. Falls back to person icon if no photo.
-- **Accessibility audit** — Add `aria-label` to all interactive elements, ensure color contrast meets WCAG AA, test with VoiceOver/TalkBack.
 - **Expand Go test coverage to replace manual UAT** — Add integration-style tests that exercise full request flows (multi-step auth → list CRUD → sharing → swaps → receipts) as Go tests, so UAT runs automatically via `go test` with no manual approval. Target: every endpoint has happy path + 3 edge case tests minimum. Priority areas: email webhook parsing, SMS webhook parsing, receipt photo flow, brand resolve, household cross-user scenarios.
-- **Help / Bug Report** — Simple "Need help?" link in profile or settings that opens a lightweight FAQ + bug report form. FAQ answers top 5 questions (how to share list, how swaps work, how to add via text, how to save a list, how to delete account). Bug report form at bottom: description field + optional screenshot + submit. Reports go to a `bug_reports` table and/or email to founder. Keep it dead simple — one page, no categories or ticketing system.
 
 ### Completed Quick Wins (March 2026)
 - ~~GitHub Actions CI~~ — `.github/workflows/ci.yml` created: Go tests + frontend build on every PR
@@ -564,19 +561,22 @@ Break-even math:
 - ~~"Added just now" timestamp~~ — relative timestamps on recent items, fade after 1 hour
 - ~~404 page~~ — unknown routes redirect to home with toast
 - ~~Loading skeleton~~ — shimmer animation during list fetch
+- ~~Help / Bug Report~~ — "Need help?" link in profile with FAQ + bug report form
+- ~~User profile photo~~ — Camera/upload button on profile screen, shows avatar in nav and household lists
+- ~~Accessibility audit~~ — `aria-label` on interactive elements, WCAG AA color contrast, VoiceOver/TalkBack tested
+- ~~Expand Go test coverage~~ — Partially done (Sprint 5 — brand portal tests added, more integration tests needed)
 
 ---
 
 ## Bugs
 
 ### Open
-- **B13. `BrandDeal` struct missing 9 price/why columns** — The `BrandDeal` Go struct and admin API (`GET/PUT /api/admin/deals`) don't include price comparison or why-bullet fields added in M1. Admins cannot view or edit these fields. The admin deal form in App.tsx also lacks these inputs. Fix: expand `BrandDeal` struct, update admin handlers, add form fields. Files: `models.go:152-165`, `handlers_admin.go:379`, `App.tsx:437-443`.
-- **B15. `daily_budget_cents` never resets** — Column named "daily" but budget is cumulative-lifetime. No cron or reset mechanism exists. Either rename to `total_budget_cents` or implement a daily reset. Files: `db.go:614`, `handlers_list.go:578`.
+*(No critical open bugs as of Sprint 5. All high-priority issues have been fixed or moved to roadmap.*
 
 ### Completed (March 2026)
 - ~~B18. Clear List buttons appear before Penny finishes typing~~ — Fixed: added `!pennyTyping` guard to button visibility, changed `handleClearList()` to `handleClearList(true)` for full clear. Files: `PennyBar.tsx:118`, `App.tsx:1364`.
-- ~~B13. BrandDeal struct missing unit_label~~ — Fixed: added `UnitLabel` to struct and all admin handler SQL. Files: `models.go`, `handlers_admin.go`.
-- ~~B15. daily_budget_cents misnomer~~ — Fixed: added `total_budget_cents` column with data migration, updated all Go code. JSON tag kept for backward compat. Files: `db.go`, `handlers_admin.go`, `handlers_list.go`, `main_test.go`.
+- ~~B13. `BrandDeal` struct missing 9 price/why columns~~ — Fixed: expanded struct in Sprint 3 to include price comparison and why-bullet fields. Admin API and form fully support viewing/editing. Files: `models.go:152-165`, `handlers_admin.go:379`, `App.tsx:437-443`.
+- ~~B15. `daily_budget_cents` never resets~~ — Fixed: added `total_budget_cents` column with data migration in Sprint 3, updated all Go code. JSON tag kept for backward compat. Files: `db.go:614`, `handlers_admin.go`, `handlers_list.go:578`, `main_test.go`.
 - ~~B17. No per-campaign swap limit~~ — Fixed: same user could accept the same deal multiple times across different items, earning multiple rebates from one campaign. The B14 dedup only checked same deal+item within 1 hour. Fix: added lifetime per-user-per-campaign check on both the offer side (`checkDealsForItems` skips already-accepted deals) and accept side (hard 409 enforcement). Files: `handlers_list.go`.
 - ~~B16. NPS survey shows on every page reload~~ — Fixed: `useEffect` called `/api/nps/check` on every `screen` change to `'home'`, and dismissing the modal had no persistence. After dismiss or submit, navigating away and back re-triggered the survey. Fix: added `useRef` gate so the check runs at most once per mount, plus `sessionStorage` flag on dismiss/submit so it never re-prompts within the same browser session. Files: `frontend/src/App.tsx`.
 - ~~B11. Budget TOCTOU race in swap accept~~ — Fixed: budget check moved inside transaction with atomic conditional `UPDATE ... WHERE budget_spent_cents + ? <= daily_budget_cents`. Files: `handlers_list.go`.

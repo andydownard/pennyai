@@ -603,16 +603,37 @@ func (s *Server) handleBrandDashboard(w http.ResponseWriter, r *http.Request) {
 		daily = append(daily, *v)
 	}
 
+	// Purchase verification funnel (M9)
+	var verifiedPurchases int
+	s.db.QueryRow(`SELECT COUNT(*) FROM swap_claims sc
+		JOIN swap_events se ON sc.swap_event_id = se.id
+		JOIN brand_deals bd ON se.deal_id = bd.id
+		WHERE bd.brand_user_id = ? AND sc.status = 'verified'`, bs.BrandUserID).Scan(&verifiedPurchases)
+
+	var pendingClaims int
+	s.db.QueryRow(`SELECT COUNT(*) FROM swap_claims sc
+		JOIN swap_events se ON sc.swap_event_id = se.id
+		JOIN brand_deals bd ON se.deal_id = bd.id
+		WHERE bd.brand_user_id = ? AND sc.status = 'pending'`, bs.BrandUserID).Scan(&pendingClaims)
+
+	purchaseRate := 0
+	if totalAccepted > 0 {
+		purchaseRate = (verifiedPurchases * 100) / totalAccepted
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"total_deals":      totalDeals,
-		"active_deals":     activeDeals,
-		"total_swaps":      totalSwaps,
-		"total_accepted":   totalAccepted,
-		"total_declined":   totalDeclined,
-		"accept_rate":      acceptRate,
-		"total_spent_cents": totalSpentCents,
-		"balance_cents":    balanceCents,
-		"daily":            daily,
+		"total_deals":         totalDeals,
+		"active_deals":        activeDeals,
+		"total_swaps":         totalSwaps,
+		"total_accepted":      totalAccepted,
+		"total_declined":      totalDeclined,
+		"accept_rate":         acceptRate,
+		"total_spent_cents":   totalSpentCents,
+		"balance_cents":       balanceCents,
+		"daily":               daily,
+		"verified_purchases":  verifiedPurchases,
+		"pending_claims":      pendingClaims,
+		"purchase_rate":       purchaseRate,
 	})
 }
 
@@ -729,6 +750,89 @@ func (s *Server) handleBrandTransactions(w http.ResponseWriter, r *http.Request)
 	}
 
 	writeJSON(w, http.StatusOK, txns)
+}
+
+// =============================================================================
+// CSV EXPORT (M9)
+// =============================================================================
+
+func (s *Server) handleBrandExport(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	bs, ok := s.requireBrandSession(w, r)
+	if !ok {
+		return
+	}
+
+	exportType := r.URL.Query().Get("type")
+	if exportType == "" {
+		exportType = "swaps"
+	}
+
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s_export_%s.csv", exportType, time.Now().Format("2006-01-02")))
+
+	switch exportType {
+	case "swaps":
+		w.Write([]byte("date,deal_id,competitor_product,offer_product,action,user_id\n"))
+		rows, err := s.db.Query(`
+			SELECT COALESCE(se.created_at,''), se.deal_id, COALESCE(bd.competitor_product,''),
+				   COALESCE(bd.offer_product,''), se.action, se.user_id
+			FROM swap_events se
+			JOIN brand_deals bd ON se.deal_id = bd.id
+			WHERE bd.brand_user_id = ?
+			ORDER BY se.created_at DESC`, bs.BrandUserID)
+		if err != nil {
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var date, comp, offer, action string
+			var dealID, userID int
+			rows.Scan(&date, &dealID, &comp, &offer, &action, &userID)
+			fmt.Fprintf(w, "%s,%d,%q,%q,%s,%d\n", date, dealID, comp, offer, action, userID)
+		}
+
+	case "transactions":
+		w.Write([]byte("date,type,amount_cents,description,stripe_id\n"))
+		rows, err := s.db.Query(`
+			SELECT COALESCE(created_at,''), type, amount_cents, COALESCE(description,''), COALESCE(stripe_id,'')
+			FROM brand_transactions WHERE brand_user_id = ?
+			ORDER BY created_at DESC`, bs.BrandUserID)
+		if err != nil {
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var date, txType, desc, stripeID string
+			var amount int
+			rows.Scan(&date, &txType, &amount, &desc, &stripeID)
+			fmt.Fprintf(w, "%s,%s,%d,%q,%s\n", date, txType, amount, desc, stripeID)
+		}
+
+	case "deals":
+		w.Write([]byte("id,competitor_product,offer_brand,offer_product,discount_cents,budget_cents,spent_cents,status,deal_type,created_at\n"))
+		rows, err := s.db.Query(`
+			SELECT id, COALESCE(competitor_product,''), COALESCE(offer_brand,''), COALESCE(offer_product,''),
+				   discount_cents, total_budget_cents, budget_spent_cents, status,
+				   COALESCE(deal_type,'sku_swap'), COALESCE(created_at,'')
+			FROM brand_deals WHERE brand_user_id = ? AND status != 'deleted'
+			ORDER BY created_at DESC`, bs.BrandUserID)
+		if err != nil {
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var comp, brand, offer, status, dealType, created string
+			var id, discount, budget, spent int
+			rows.Scan(&id, &comp, &brand, &offer, &discount, &budget, &spent, &status, &dealType, &created)
+			fmt.Fprintf(w, "%d,%q,%q,%q,%d,%d,%d,%s,%s,%s\n", id, comp, brand, offer, discount, budget, spent, status, dealType, created)
+		}
+
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid export type. Use: swaps, transactions, deals"})
+	}
 }
 
 // =============================================================================
