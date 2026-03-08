@@ -45,7 +45,7 @@ export function ReviewSheet({
               gap: '10px',
             }}>
               <BrandLogo brand={item.brand} size={52} />
-              <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => onOpenDetail(item)}>
+              <div role="button" tabIndex={0} style={{ flex: 1, cursor: 'pointer' }} onClick={() => onOpenDetail(item)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenDetail(item) } }} aria-label={`Edit ${item.brand ? item.brand + ' ' : ''}${item.name}`}>
                 <span style={{ fontFamily: FONT, fontSize: '16px', color: 'var(--text)' }}>
                   {item.brand ? `${item.brand} ` : ''}{item.name}
                 </span>
@@ -109,7 +109,7 @@ export function ReviewSheet({
                 gap: '10px',
               }}>
                 <BrandLogo brand={skipped.parsed.brand} size={52} />
-                <div style={{ flex: 1, cursor: existing ? 'pointer' : undefined }} onClick={() => existing && onOpenDetail(existing)}>
+                <div role={existing ? 'button' : undefined} tabIndex={existing ? 0 : undefined} style={{ flex: 1, cursor: existing ? 'pointer' : undefined }} onClick={() => existing && onOpenDetail(existing)} onKeyDown={e => { if (existing && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpenDetail(existing) } }} aria-label={existing ? `Edit ${existing.brand ? existing.brand + ' ' : ''}${existing.name}` : undefined}>
                   <span style={{ fontFamily: FONT, fontSize: '16px', color: 'var(--text)' }}>
                     {skipped.parsed.brand ? `${skipped.parsed.brand} ` : ''}{skipped.parsed.name}
                   </span>

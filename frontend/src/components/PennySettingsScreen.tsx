@@ -79,7 +79,7 @@ export function PennySettingsScreen({
 
           {/* Deals toggle — only show if user has messaging (phone) */}
           {pennyPhone && (
-            <div onClick={onDealsToggle} style={pageStyles.settingsCard}>
+            <div role="button" tabIndex={0} onClick={onDealsToggle} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDealsToggle() } }} aria-label="Toggle SMS with Penny" style={pageStyles.settingsCard}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>
               </svg>
@@ -92,7 +92,7 @@ export function PennySettingsScreen({
           )}
 
           {/* Learn from my choices toggle */}
-          <div onClick={onAutotuneToggle} style={pageStyles.settingsCard}>
+          <div role="button" tabIndex={0} onClick={onAutotuneToggle} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAutotuneToggle() } }} aria-label="Toggle learn from my choices" style={pageStyles.settingsCard}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><path d="M9 21h6"/><path d="M10 17v-2.5"/><path d="M14 17v-2.5"/>
             </svg>
