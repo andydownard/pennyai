@@ -429,6 +429,12 @@ function AppInner() {
   const [swapsByItemId, setSwapsByItemId] = useState<Record<number, SwapOffer>>({})
   const [pendingReceiptMode, setPendingReceiptMode] = useState(false)
 
+  // --- Help / FAQ state ---
+  const [openFaq, setOpenFaq] = useState<number | null>(null)
+  const [bugDescription, setBugDescription] = useState('')
+  const [bugSubmitting, setBugSubmitting] = useState(false)
+  const [bugSubmitted, setBugSubmitted] = useState(false)
+
   // --- Admin state ---
   const [isAdmin, setIsAdmin] = useState(false)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
@@ -2483,10 +2489,12 @@ const handleCodeChange = (index: number, value: string) => {
   const settingsFirstNameRef = useRef(settingsFirstName)
   const settingsLastNameRef = useRef(settingsLastName)
   const settingsEmailRef = useRef(settingsEmail)
+  const settingsPhoneRef = useRef(settingsUserPhone)
   const settingsAddressRef = useRef(settingsAddress)
   settingsFirstNameRef.current = settingsFirstName
   settingsLastNameRef.current = settingsLastName
   settingsEmailRef.current = settingsEmail
+  settingsPhoneRef.current = settingsUserPhone
   settingsAddressRef.current = settingsAddress
   const settingsSaving = useRef(false)
   const settingsQueued = useRef(false)
@@ -2497,7 +2505,7 @@ const handleCodeChange = (index: number, value: string) => {
       await fetchAPI('/api/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: [settingsFirstNameRef.current.trim(), settingsLastNameRef.current.trim()].filter(Boolean).join(' '), email: settingsEmailRef.current.trim(), address: settingsAddressRef.current.trim() }),
+        body: JSON.stringify({ name: [settingsFirstNameRef.current.trim(), settingsLastNameRef.current.trim()].filter(Boolean).join(' '), email: settingsEmailRef.current.trim(), phone: settingsPhoneRef.current.trim() || undefined, address: settingsAddressRef.current.trim() }),
       })
     } catch { /* silent */ }
     settingsSaving.current = false
@@ -3616,6 +3624,24 @@ const handleCodeChange = (index: number, value: string) => {
                 Once set, forward any recipe or list to penny@list.thrift.ly and Penny will add it for you.
               </p>
             </div>
+            <div>
+              <FloatingLabelField label="Cell phone">
+                <input
+                  type="tel"
+                  value={settingsUserPhone ? formatPhone(settingsUserPhone.replace('+1', '')) : ''}
+                  onChange={e => {
+                    const digits = e.target.value.replace(/\D/g, '').slice(0, 10)
+                    setSettingsUserPhone(digits ? `+1${digits}` : '')
+                  }}
+                  onBlur={handleSettingsAutoSave}
+                  placeholder="(555) 123-4567"
+                  style={listStyles.floatingInput}
+                />
+              </FloatingLabelField>
+              <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px', paddingLeft: '4px' }}>
+                Text Penny your grocery list anytime.
+              </p>
+            </div>
             <div style={{ position: 'relative' }}>
               <FloatingLabelField label="Address">
                 <input
@@ -3688,11 +3714,6 @@ const handleCodeChange = (index: number, value: string) => {
       { q: 'How do I save a list for later?', a: 'Just ask Penny! Say something like "save this as my weekly groceries" in the Penny chat. You can load saved lists later by asking Penny "what lists do I have?"' },
       { q: 'How do I delete my account?', a: 'Email us at support@thrift.ly and we\'ll take care of it within 48 hours. We\'ll delete all your data permanently.' },
     ]
-
-    const [openFaq, setOpenFaq] = useState<number | null>(null)
-    const [bugDescription, setBugDescription] = useState('')
-    const [bugSubmitting, setBugSubmitting] = useState(false)
-    const [bugSubmitted, setBugSubmitted] = useState(false)
 
     const handleBugSubmit = async () => {
       if (!bugDescription.trim() || bugSubmitting) return

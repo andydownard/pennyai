@@ -348,6 +348,7 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name            *string `json:"name"`
 		Email           *string `json:"email"`
+		Phone           *string `json:"phone"`
 		Address         *string `json:"address"`
 		PennyBrandMode  *string `json:"penny_brand_mode"`
 		PennySlider     *int    `json:"penny_slider"`
@@ -397,6 +398,24 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Email != nil {
 		addSetClause(&setClauses, &args, "email", email)
+	}
+	if req.Phone != nil {
+		phone := strings.TrimSpace(*req.Phone)
+		if phone != "" {
+			// Normalize: ensure +1 prefix, digits only
+			phone = strings.ReplaceAll(phone, "-", "")
+			phone = strings.ReplaceAll(phone, "(", "")
+			phone = strings.ReplaceAll(phone, ")", "")
+			phone = strings.ReplaceAll(phone, " ", "")
+			if !strings.HasPrefix(phone, "+1") {
+				phone = "+1" + phone
+			}
+			if len(phone) != 12 { // +1XXXXXXXXXX
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid phone number"})
+				return
+			}
+		}
+		addSetClause(&setClauses, &args, "phone_number", phone)
 	}
 	if req.Address != nil {
 		addSetClause(&setClauses, &args, "address", strings.TrimSpace(*req.Address))
