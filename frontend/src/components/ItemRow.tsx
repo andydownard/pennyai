@@ -66,8 +66,8 @@ const styles = {
     width: '20px',
     height: '20px',
     borderRadius: '50%',
-    border: `2px solid ${checked ? '#C5C0B8' : 'var(--text-secondary)'}`,
-    backgroundColor: checked ? '#C5C0B8' : 'transparent',
+    border: `2px solid ${checked ? 'var(--brand)' : 'var(--text-secondary)'}`,
+    backgroundColor: checked ? 'var(--brand)' : 'transparent',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -75,7 +75,7 @@ const styles = {
     fontSize: '12px',
     fontWeight: 700,
     color: '#fff',
-    transition: 'all 0.15s',
+    transition: 'all 0.2s ease',
   }),
 
   center: {
@@ -120,7 +120,7 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onS
       }}>
         <button onClick={() => onToggle(item.id)} style={styles.checkBtn} aria-label={`${item.checked ? 'Uncheck' : 'Check off'} ${item.brand && !item.name.toLowerCase().includes(item.brand.toLowerCase()) ? item.brand + ' ' : ''}${item.name}`}>
           <span style={styles.check(item.checked)} aria-hidden="true">
-            {item.checked && '✓'}
+            {item.checked && <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
           </span>
         </button>
         <div style={{ marginRight: '8px' }}>

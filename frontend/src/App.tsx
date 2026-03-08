@@ -526,12 +526,22 @@ function AppInner() {
     if (checked > prevCheckedRef.current && prevCheckedRef.current >= 0 && items.length > 0) {
       const newlyDone = [...nowDone].filter(d => !prevDeptDoneRef.current.has(d))
       if (newlyDone.length > 0) {
+        haptic.success()
         setTimeout(() => {
           setExpandedDepts(prev => {
             const next = new Set(prev)
             newlyDone.forEach(d => next.delete(d))
             return next
           })
+          // Auto-scroll to next unchecked department after collapse
+          if (!allChecked) {
+            setTimeout(() => {
+              const nextDept = DEPARTMENTS.find(d => !nowDone.has(d) && items.some(i => i.department === d))
+              if (nextDept && deptRefs.current[nextDept]) {
+                deptRefs.current[nextDept]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+              }
+            }, 100)
+          }
         }, 600)
         // Skip dept chime-in when entire list is done — the done celebration handles it
         if (!allChecked) showChimeIn(pickRandom(DEPT_DONE_MESSAGES).replace('{dept}', newlyDone[0]), 3750)
