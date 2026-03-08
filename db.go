@@ -89,6 +89,7 @@ func initDB(path string) (*sql.DB, error) {
 		"ALTER TABLE list_items ADD COLUMN claimed_by INTEGER DEFAULT NULL",
 		"ALTER TABLE list_items ADD COLUMN claimed_at DATETIME DEFAULT NULL",
 		"ALTER TABLE list_items ADD COLUMN notes TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE list_items ADD COLUMN swap_savings_cents INTEGER NOT NULL DEFAULT 0",
 	} {
 		db.Exec(stmt) // "duplicate column name" error is expected and harmless
 	}
@@ -1206,7 +1207,194 @@ func initDB(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("creating marketplace_health table: %w", err)
 	}
 
+	// --- Category taxonomy ---
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS categories (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			name            TEXT NOT NULL UNIQUE,
+			parent_category TEXT NOT NULL DEFAULT ''
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating categories table: %w", err)
+	}
+
+	if err := seedCategories(db); err != nil {
+		log.Printf("WARNING: failed to seed categories: %v", err)
+	}
+
+	// Link brand_deals to categories (0 = uncategorized)
+	db.Exec("ALTER TABLE brand_deals ADD COLUMN category_id INTEGER NOT NULL DEFAULT 0")
+
 	return db, nil
+}
+
+// seedCategories populates the categories table with common grocery
+// subcategories organized under parent groups. Idempotent — only inserts
+// when the table is empty.
+func seedCategories(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM categories").Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	type cat struct {
+		name, parent string
+	}
+	categories := []cat{
+		// Dairy
+		{"Milk", "Dairy"},
+		{"Cheese", "Dairy"},
+		{"Yogurt", "Dairy"},
+		{"Butter", "Dairy"},
+		{"Cream", "Dairy"},
+		{"Eggs", "Dairy"},
+		{"Sour Cream", "Dairy"},
+		{"Cottage Cheese", "Dairy"},
+		// Produce
+		{"Fresh Fruit", "Produce"},
+		{"Fresh Vegetables", "Produce"},
+		{"Salad Greens", "Produce"},
+		{"Herbs", "Produce"},
+		{"Organic Produce", "Produce"},
+		// Pantry
+		{"Pasta", "Pantry"},
+		{"Rice", "Pantry"},
+		{"Canned Vegetables", "Pantry"},
+		{"Canned Soup", "Pantry"},
+		{"Pasta Sauce", "Pantry"},
+		{"Cooking Oil", "Pantry"},
+		{"Flour", "Pantry"},
+		{"Sugar", "Pantry"},
+		{"Cereal", "Pantry"},
+		{"Oatmeal", "Pantry"},
+		{"Beans", "Pantry"},
+		// Beverages
+		{"Water", "Beverages"},
+		{"Soda", "Beverages"},
+		{"Juice", "Beverages"},
+		{"Coffee", "Beverages"},
+		{"Tea", "Beverages"},
+		{"Sports Drinks", "Beverages"},
+		{"Energy Drinks", "Beverages"},
+		{"Sparkling Water", "Beverages"},
+		{"Kombucha", "Beverages"},
+		// Frozen
+		{"Frozen Meals", "Frozen"},
+		{"Frozen Vegetables", "Frozen"},
+		{"Frozen Fruit", "Frozen"},
+		{"Ice Cream", "Frozen"},
+		{"Frozen Pizza", "Frozen"},
+		{"Frozen Breakfast", "Frozen"},
+		// Meat
+		{"Chicken", "Meat"},
+		{"Beef", "Meat"},
+		{"Pork", "Meat"},
+		{"Deli Meat", "Meat"},
+		{"Sausage", "Meat"},
+		{"Seafood", "Meat"},
+		{"Plant-Based Meat", "Meat"},
+		// Snacks
+		{"Chips", "Snacks"},
+		{"Crackers", "Snacks"},
+		{"Cookies", "Snacks"},
+		{"Nuts", "Snacks"},
+		{"Granola Bars", "Snacks"},
+		{"Popcorn", "Snacks"},
+		{"Dried Fruit", "Snacks"},
+		{"Candy", "Snacks"},
+		// Condiments
+		{"Ketchup", "Condiments"},
+		{"Mustard", "Condiments"},
+		{"Mayonnaise", "Condiments"},
+		{"Hot Sauce", "Condiments"},
+		{"Salad Dressing", "Condiments"},
+		{"Soy Sauce", "Condiments"},
+		{"Salsa", "Condiments"},
+		// Baking
+		{"Baking Mix", "Baking"},
+		{"Chocolate Chips", "Baking"},
+		{"Vanilla Extract", "Baking"},
+		{"Baking Powder", "Baking"},
+		{"Frosting", "Baking"},
+		// Cleaning
+		{"Laundry Detergent", "Cleaning"},
+		{"Dish Soap", "Cleaning"},
+		{"All-Purpose Cleaner", "Cleaning"},
+		{"Disinfectant", "Cleaning"},
+		{"Trash Bags", "Cleaning"},
+		{"Paper Towels", "Cleaning"},
+		// Personal Care
+		{"Shampoo", "Personal Care"},
+		{"Body Wash", "Personal Care"},
+		{"Toothpaste", "Personal Care"},
+		{"Deodorant", "Personal Care"},
+		{"Lotion", "Personal Care"},
+		{"Soap", "Personal Care"},
+		// Baby
+		{"Diapers", "Baby"},
+		{"Baby Food", "Baby"},
+		{"Baby Formula", "Baby"},
+		{"Baby Wipes", "Baby"},
+		// Pet
+		{"Dog Food", "Pet"},
+		{"Cat Food", "Pet"},
+		{"Pet Treats", "Pet"},
+		{"Cat Litter", "Pet"},
+		// Paper Goods
+		{"Toilet Paper", "Paper Goods"},
+		{"Napkins", "Paper Goods"},
+		{"Tissues", "Paper Goods"},
+		{"Aluminum Foil", "Paper Goods"},
+		{"Plastic Wrap", "Paper Goods"},
+		{"Storage Bags", "Paper Goods"},
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare("INSERT INTO categories (name, parent_category) VALUES (?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, c := range categories {
+		if _, err := stmt.Exec(c.name, c.parent); err != nil {
+			return fmt.Errorf("seeding category %q: %w", c.name, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	log.Printf("[categories] seeded %d categories", len(categories))
+	return nil
+}
+
+// categorizeProduct attempts to match a product name to a category using
+// case-insensitive substring matching against category names. Returns the
+// category ID, or 0 if no match is found.
+func categorizeProduct(db *sql.DB, productName string) int {
+	if productName == "" {
+		return 0
+	}
+	var id int
+	// Try exact-ish match first: category name appears in product name
+	err := db.QueryRow(
+		"SELECT id FROM categories WHERE LOWER(?) LIKE '%' || LOWER(name) || '%' ORDER BY LENGTH(name) DESC LIMIT 1",
+		productName,
+	).Scan(&id)
+	if err == nil {
+		return id
+	}
+	return 0
 }
 
 // seedDeals populates the brand_deals table with test swap deals if empty.
@@ -2124,7 +2312,7 @@ func scanListItem(scanner interface{ Scan(dest ...interface{}) error }) (ListIte
 	var addedByName, addedByPhone sql.NullString
 	var claimedByID sql.NullInt64
 	var claimedByName sql.NullString
-	err := scanner.Scan(&item.ID, &item.Name, &item.Brand, &item.Department, &item.Quantity, &item.Size, &item.Notes, &item.Source, &checked, &urgent, &item.CreatedAt, &addedByName, &addedByPhone, &claimedByID, &claimedByName)
+	err := scanner.Scan(&item.ID, &item.Name, &item.Brand, &item.Department, &item.Quantity, &item.Size, &item.Notes, &item.Source, &checked, &urgent, &item.CreatedAt, &addedByName, &addedByPhone, &claimedByID, &claimedByName, &item.SwapSavingsCents)
 	if err != nil {
 		return ListItem{}, err
 	}

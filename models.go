@@ -69,8 +69,9 @@ type ListItem struct {
 	CreatedAt     string `json:"created_at"`
 	AddedByName   string `json:"added_by_name"`
 	AddedByPhone  string `json:"added_by_phone"`
-	ClaimedByID   *int   `json:"claimed_by_id"`
-	ClaimedByName string `json:"claimed_by_name"`
+	ClaimedByID      *int   `json:"claimed_by_id"`
+	ClaimedByName    string `json:"claimed_by_name"`
+	SwapSavingsCents int    `json:"swap_savings_cents"`
 }
 
 // SkippedItem represents a parsed item that was not added because it already

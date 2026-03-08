@@ -21,6 +21,7 @@ export type ListItem = {
   added_by_phone: string
   claimed_by_id: number | null
   claimed_by_name: string
+  swap_savings_cents: number
 }
 
 interface ItemRowProps {
@@ -143,8 +144,15 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onS
             </span>
           )}
         </div>
-        {(item.urgent || item.claimed_by_id) && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end', flexShrink: 0 }}>
+        {(item.urgent || item.claimed_by_id || item.swap_savings_cents > 0) && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end', flexShrink: 0, paddingRight: '12px' }}>
+            {item.swap_savings_cents > 0 && (
+              <span style={{
+                backgroundColor: SUCCESS_GREEN_BG, color: SUCCESS_GREEN, border: `1px solid ${SUCCESS_GREEN_LIGHT}`,
+                fontSize: '12px', fontWeight: 600, borderRadius: '10px', padding: '2px 8px',
+                whiteSpace: 'nowrap',
+              }}>Saved ${(item.swap_savings_cents / 100).toFixed(2)}</span>
+            )}
             {item.urgent && (
               <span style={{
                 backgroundColor: ERROR_RED_BG, color: ERROR_RED, border: `1px solid ${ERROR_RED}40`,

@@ -282,6 +282,7 @@ Get these from https://console.twilio.com (see README for full setup).
 
 	http.HandleFunc("/api/avatar", server.handleAvatar)
 	http.HandleFunc("/api/avatar/", server.handleAvatar)
+	http.HandleFunc("/api/categories", server.handleCategories)
 	http.HandleFunc("/api/brands", server.handleBrands)
 	http.HandleFunc("/api/logo", server.handleLogoProxy)
 	http.HandleFunc("/api/trips", server.handleTrips)

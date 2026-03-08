@@ -723,13 +723,14 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 					}
 				case "trial":
 					// Trial: keep original item unchanged, add trial product as new item
-					_, err = tx.Exec(
-						"INSERT INTO list_items (user_id, name, brand, size, quantity, department, source) VALUES (?, ?, ?, ?, 1, 'Other', 'swap')",
-						session.UserID, trialProductName, offerBrand, trialSize,
+					trialResult, trialErr := tx.Exec(
+						"INSERT INTO list_items (user_id, name, brand, size, quantity, department, source, swap_savings_cents) VALUES (?, ?, ?, ?, 1, 'Other', 'swap', ?)",
+						session.UserID, trialProductName, offerBrand, trialSize, discountCents,
 					)
-					if err != nil {
-						log.Printf("[swaps] trial accept insert error: %v", err)
+					if trialErr != nil {
+						log.Printf("[swaps] trial accept insert error: %v", trialErr)
 					}
+					_ = trialResult
 				default:
 					// sku_swap / seasonal: replace item on list
 					updateArgs := append([]interface{}{offerProduct, offerBrand, req.SwapItemID}, whereArgs...)
@@ -739,6 +740,17 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 					)
 					if err != nil {
 						log.Printf("[swaps] accept update error: %v", err)
+					}
+				}
+
+				// Record savings on the swapped list item so household members see "Saved $X via Penny"
+				if dealType != "trial" {
+					savingsArgs := append([]interface{}{discountCents, req.SwapItemID}, whereArgs...)
+					if _, err := tx.Exec(
+						"UPDATE list_items SET swap_savings_cents = ? WHERE id = ? AND "+whereClause,
+						savingsArgs...,
+					); err != nil {
+						log.Printf("[swaps] failed to set swap_savings_cents on item %d: %v", req.SwapItemID, err)
 					}
 				}
 			}
