@@ -704,11 +704,11 @@ Break-even math:
 
 ### L4: Location Learning (Phase 3 — Requires Receipt Scale)
 
-- [ ] Store directory from receipt data
-- [ ] Per-store product pricing (moving averages)
-- [ ] Store-aware swap card pricing ("At YOUR Kroger: $3.48")
-- [ ] Regional swap performance aggregation
-- [ ] Price comparison across user's stores
+- [x] Store directory from receipt data ✅ `stores` table + `upsertStore()` + `GET /api/stores` with search/chain filter
+- [x] Per-store product pricing (moving averages) ✅ `GET /api/stores/{id}/price-averages` with product/brand filters, AVG/MIN/MAX/count
+- [x] Store-aware swap card pricing ("At YOUR Kroger: $3.48") ✅ `getStorePrice()` + `getUserActiveStoreID()` enrich swap cards with real store prices and store name
+- [x] Regional swap performance aggregation ✅ `GET /api/admin/regional-swaps` — offered/accepted/declined by state, admin-only
+- [x] Price comparison across user's stores ✅ `GET /api/price-compare?product=&brand=` — compare prices across all stores, sorted cheapest first
 
 ### L5: Business Learning
 
@@ -737,7 +737,7 @@ Break-even math:
 
 - [x] **Swap interaction enrichment** — `time_to_action_ms`, `why_tapped` on swap_events
 - [x] **Category taxonomy** — 92 grocery categories across 14 parent groups, auto-categorization, `GET /api/categories`
-- [ ] **Category-tiered swap pricing** — $1.00 (low acceptance) / $1.50 (medium) / $2.50 (high acceptance)
+- [x] **Category-tiered swap pricing** — $1.00 (economy) / $1.50 (standard) / $2.50 (premium) per parent category, enforced in deal creation with `getCategoryPricingTier()`, `GET /brand/pricing-tiers`
 - [x] **Household savings visibility** — `swap_savings_cents` on list_items, green badge in frontend
 
 ### Tier 2: Medium-term bets (significant revenue within 90 days)

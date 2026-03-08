@@ -223,6 +223,8 @@ type PendingSwap struct {
 	TrialSize        string `json:"trial_size,omitempty"`
 	CampaignTag      string `json:"campaign_tag,omitempty"`
 	EndsAt           string `json:"ends_at,omitempty"`
+	// Store-aware pricing
+	StoreName string `json:"store_name,omitempty"`
 }
 
 // ProfilePhoto represents a user's avatar image stored as a BLOB.

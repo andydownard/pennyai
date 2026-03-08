@@ -510,6 +510,20 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 				}
 			}
 
+			// Store-aware pricing: override with actual store prices if available
+			storeName := ""
+			userStoreID := s.getUserActiveStoreID(userID)
+			if userStoreID > 0 {
+				if storePrice, found := s.getStorePrice(userStoreID, deal.OfferProduct, deal.OfferBrand); found {
+					offerPriceCents = storePrice
+				}
+				if storePrice, found := s.getStorePrice(userStoreID, deal.CompetitorProduct, ""); found {
+					competitorPriceCents = storePrice
+				}
+				// Get store name for display
+				s.db.QueryRow("SELECT name FROM stores WHERE id = ?", userStoreID).Scan(&storeName)
+			}
+
 			// Calculate savings percent when both prices are available
 			savingsPercent := 0
 			if competitorPriceCents > 0 && offerPriceCents > 0 {
@@ -537,6 +551,7 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 				TrialSize:          deal.TrialSize,
 				CampaignTag:        deal.CampaignTag,
 				EndsAt:             deal.EndsAt,
+				StoreName:          storeName,
 			}
 		}
 	}

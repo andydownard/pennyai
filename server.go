@@ -259,7 +259,9 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/preferences/reset", server.handlePreferenceReset)
 	http.HandleFunc("/api/household/dietary", server.handleHouseholdDietary)
 	http.HandleFunc("/api/stores", server.handleStores)
-	http.HandleFunc("/api/stores/", server.handleStorePrices)
+	http.HandleFunc("/api/stores/", server.handleStoreSubroute)
+	http.HandleFunc("/api/price-compare", server.handlePriceComparison)
+	http.HandleFunc("/api/admin/regional-swaps", server.handleRegionalSwapPerformance)
 
 	// --- A/B Testing ---
 	http.HandleFunc("GET /api/ab/variant", handleGetVariant(server))

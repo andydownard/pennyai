@@ -18574,3 +18574,256 @@ func TestAuction_PredictionWeightedBidding(t *testing.T) {
 		t.Errorf("expected PopularBrand to win prediction-weighted auction, got %s", resp.PendingSwap.OfferBrand)
 	}
 }
+
+// ── L4 Location Learning Tests ────────────────────────────────────────
+
+func TestStorePriceAverages_Basic(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Create a store and some price observations
+	storeID, err := server.upsertStore("Kroger #123", "Kroger", "123 Main St", "Columbus", "OH", "43215", "", nil, nil)
+	if err != nil {
+		t.Fatalf("upsertStore: %v", err)
+	}
+
+	server.recordStorePrice(storeID, "Jif Peanut Butter", "Jif", 348, 0, "receipt")
+	// Insert second price with different timestamp to avoid UNIQUE constraint
+	server.db.Exec(`INSERT INTO store_prices (store_id, product_name, brand, price_cents, category_id, source, observed_at)
+		VALUES (?, 'Jif Peanut Butter', 'Jif', 399, 0, 'receipt', datetime('now', '+1 hour'))`, storeID)
+	server.recordStorePrice(storeID, "Skippy Peanut Butter", "Skippy", 473, 0, "receipt")
+
+	rr := doRequest(server.handleStorePriceAverages, "GET",
+		fmt.Sprintf("/api/stores/%d/price-averages", storeID), nil, cookies)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var results []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&results)
+	if len(results) < 2 {
+		t.Fatalf("expected at least 2 products, got %d", len(results))
+	}
+
+	// Verify Jif has 2 observations with averaged price
+	for _, r := range results {
+		if r["product_name"] == "Jif Peanut Butter" {
+			obs := int(r["observations"].(float64))
+			if obs != 2 {
+				t.Errorf("Jif: expected 2 observations, got %d", obs)
+			}
+			avgCents := int(r["avg_price_cents"].(float64))
+			// (348+399)/2 = 373.5 → 373 or 374
+			if avgCents < 370 || avgCents > 380 {
+				t.Errorf("Jif avg: expected ~373, got %d", avgCents)
+			}
+		}
+	}
+}
+
+func TestStorePriceAverages_FilterByProduct(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	storeID, _ := server.upsertStore("Target #456", "Target", "456 Oak Ave", "Austin", "TX", "78701", "", nil, nil)
+	server.recordStorePrice(storeID, "Heinz Ketchup", "Heinz", 349, 0, "receipt")
+	server.recordStorePrice(storeID, "French's Mustard", "French's", 199, 0, "receipt")
+
+	rr := doRequest(server.handleStorePriceAverages, "GET",
+		fmt.Sprintf("/api/stores/%d/price-averages?product=ketchup", storeID), nil, cookies)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var results []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&results)
+	if len(results) != 1 {
+		t.Errorf("expected 1 result for ketchup filter, got %d", len(results))
+	}
+}
+
+func TestPriceComparison_AcrossStores(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Create 2 stores with different prices for same product
+	store1, _ := server.upsertStore("Kroger #1", "Kroger", "100 First St", "Columbus", "OH", "43215", "", nil, nil)
+	store2, _ := server.upsertStore("Walmart #2", "Walmart", "200 Second St", "Columbus", "OH", "43215", "", nil, nil)
+
+	server.recordStorePrice(store1, "Milk 1 Gallon", "Great Value", 349, 0, "receipt")
+	server.recordStorePrice(store2, "Milk 1 Gallon", "Great Value", 299, 0, "receipt")
+
+	rr := doRequest(server.handlePriceComparison, "GET",
+		"/api/price-compare?product=milk&brand=great+value", nil, cookies)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var result map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&result)
+	stores := result["stores"].([]interface{})
+	if len(stores) < 2 {
+		t.Fatalf("expected at least 2 stores in comparison, got %d", len(stores))
+	}
+
+	// First store should be cheapest (sorted by price ASC)
+	first := stores[0].(map[string]interface{})
+	if int(first["avg_price_cents"].(float64)) != 299 {
+		t.Errorf("expected cheapest store at 299 cents, got %v", first["avg_price_cents"])
+	}
+}
+
+func TestPriceComparison_RequiresProduct(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	rr := doRequest(server.handlePriceComparison, "GET", "/api/price-compare", nil, cookies)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 without product param, got %d", rr.Code)
+	}
+}
+
+func TestRegionalSwapPerformance_AdminOnly(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	rr := doRequest(server.handleRegionalSwapPerformance, "GET", "/api/admin/regional-swaps", nil, cookies)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+
+func TestRegionalSwapPerformance_ReturnsData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	admin, _ := upsertUser(server.db, "3104861833")
+	adminToken, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
+	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
+
+	// Create store with state
+	storeID, _ := server.upsertStore("Kroger Columbus", "Kroger", "100 Main St", "Columbus", "OH", "43215", "", nil, nil)
+
+	// Create user with trip linked to store
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (2, '5559876543')")
+	server.db.Exec("INSERT INTO households (id) VALUES (1)")
+	server.db.Exec("INSERT INTO shopping_trips (user_id, household_id, trip_date, store_id) VALUES (2, 1, '2026-03-08', ?)", storeID)
+
+	// Create swap events for that user
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (2, 1, 'offered')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (2, 1, 'accepted')")
+
+	rr := doRequest(server.handleRegionalSwapPerformance, "GET", "/api/admin/regional-swaps",
+		nil, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var results []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&results)
+	if len(results) == 0 {
+		t.Fatal("expected at least 1 regional result")
+	}
+}
+
+func TestStoreAwarePricing_EnrichesSwapCard(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Create a store
+	storeID, _ := server.upsertStore("Kroger #42", "Kroger", "42 Elm St", "Columbus", "OH", "43215", "", nil, nil)
+
+	// Link user to store via a shopping trip (requires household_id and trip_date)
+	server.db.Exec("INSERT INTO households (id) VALUES (1)")
+	server.db.Exec("UPDATE users SET household_id = 1 WHERE id = 1")
+	server.db.Exec("INSERT INTO shopping_trips (user_id, household_id, trip_date, store_id) VALUES (1, 1, '2026-03-08', ?)", storeID)
+
+	// Record store-specific prices — use Jif brand to match the deal's offer
+	server.recordStorePrice(storeID, "Creamy Peanut Butter", "Jif", 298, 0, "receipt")
+
+	// Delete seeded deals and create one with known prices
+	server.db.Exec("DELETE FROM brand_deals")
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product,
+		discount_cents, total_budget_cents, status, offer_price_cents, competitor_price_cents)
+		VALUES (100, 'skippy', 'Jif', 'Creamy Peanut Butter', 125, 10000, 'active', 348, 473)`)
+
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
+			Message: "Added!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "skippy peanut butter"}, cookies)
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.PendingSwap == nil {
+		t.Fatal("expected a pending swap")
+	}
+
+	// Store-aware price should override the deal's default offer price
+	if resp.PendingSwap.OfferPriceCents != 298 {
+		t.Errorf("expected store-aware offer price 298, got %d", resp.PendingSwap.OfferPriceCents)
+	}
+
+	// Store name should be set
+	if resp.PendingSwap.StoreName != "Kroger #42" {
+		t.Errorf("expected store_name 'Kroger #42', got %q", resp.PendingSwap.StoreName)
+	}
+}
+
+func TestGetStorePrice_NotFound(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// No store prices recorded — should return not found
+	_, found := server.getStorePrice(1, "NonexistentProduct", "NoBrand")
+	if found {
+		t.Error("expected not found for nonexistent product")
+	}
+
+	// Zero store ID should return not found
+	_, found = server.getStorePrice(0, "Milk", "")
+	if found {
+		t.Error("expected not found for store ID 0")
+	}
+}
+
+func TestGetUserActiveStoreID_NoTrips(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+
+	storeID := server.getUserActiveStoreID(1)
+	if storeID != 0 {
+		t.Errorf("expected 0 for user with no trips, got %d", storeID)
+	}
+}
+
+func TestStoreSubroute_InvalidPath(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	rr := doRequest(server.handleStoreSubroute, "GET", "/api/stores/1/invalid", nil, cookies)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for invalid subroute, got %d", rr.Code)
+	}
+}
