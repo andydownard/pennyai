@@ -1507,6 +1507,14 @@ function AppInner() {
         if (data.swap_credits_cents != null) {
           setEarningsTotalCents(data.swap_credits_cents)
         }
+        // First-swap celebration — confetti + special toast
+        const firstSwapKey = 'thriftly_first_swap'
+        if (!localStorage.getItem(firstSwapKey)) {
+          localStorage.setItem(firstSwapKey, '1')
+          setShowFireworks(true)
+          showToast('Your first swap! Nice save!')
+          track('first_swap_celebration', { deal_id: dealId, offer_brand: offerBrand })
+        }
         // Post-swap share prompt — show after successful swap
         if (discountCents > 0) {
           setPostSwapShare({ brand: offerBrand, savings: discountCents })
