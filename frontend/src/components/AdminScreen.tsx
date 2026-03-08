@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { ScreenTransition } from './ScreenTransition'
+import { BrandDealDeepDive } from './BrandDealDeepDive'
 import {
   BRAND, TEXT, TEXT_SECONDARY, BORDER, ERROR_RED, ERROR_RED_BG, WHITE, FONT,
   pageStyles,
@@ -69,6 +70,7 @@ export function AdminScreen({
   const [showDealForm, setShowDealForm] = useState(false)
   const [dealForm, setDealForm] = useState(EMPTY_FORM)
   const [editingDealId, setEditingDealId] = useState<number | null>(null)
+  const [deepDiveDealId, setDeepDiveDealId] = useState<number | null>(null)
 
   useEffect(() => {
     fetchAPI(`/api/admin/dashboard?days=${adminDays}`)
@@ -311,6 +313,10 @@ export function AdminScreen({
                 </div>
                 <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
                   <button
+                    onClick={() => setDeepDiveDealId(deal.id)}
+                    style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: `1px solid ${BRAND}`, backgroundColor: WHITE, cursor: 'pointer', fontFamily: FONT, color: BRAND, fontWeight: 600 }}
+                  >Deep Dive</button>
+                  <button
                     onClick={async () => {
                       const newStatus = deal.status === 'active' ? 'paused' : 'active'
                       await fetch('/api/admin/deals', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...deal, status: newStatus }) })
@@ -422,6 +428,9 @@ export function AdminScreen({
       </div>
       {renderToast()}
       {renderBottomTabs()}
+      {deepDiveDealId !== null && (
+        <BrandDealDeepDive dealId={deepDiveDealId} onClose={() => setDeepDiveDealId(null)} />
+      )}
     </div>
     </ScreenTransition>
   )
