@@ -3586,7 +3586,6 @@ const handleCodeChange = (index: number, value: string) => {
       <PennyBar
         pennyText={homePennyText}
         pennyTyping={homePennyTyping}
-        pennyStatus={!!pennyStatus}
         buttons={homePennyBtns}
         toastError={toast?.type === 'error'}
         keyboardOpen={keyboardOpen}

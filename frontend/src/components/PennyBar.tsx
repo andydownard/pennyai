@@ -13,7 +13,6 @@ interface PennyBarProps {
   // Penny text display
   pennyText: string
   pennyTyping: boolean
-  pennyStatus: boolean
   buttons: Array<{ label: string; onClick: () => void }>
   // Toast state (affects background color)
   toastError: boolean
@@ -73,7 +72,7 @@ const chatSendStyle = (active: boolean): React.CSSProperties => ({
 })
 
 export function PennyBar({
-  pennyText, pennyTyping, pennyStatus, buttons, toastError,
+  pennyText, pennyTyping, buttons, toastError,
   keyboardOpen, disambig, disambigIndex, onBrandPick, onSkipDisambig,
   pendingImages, onRemoveImage,
   chatText, onChatTextChange, chatLoading, onSend, onPaste, onAddPhoto,
@@ -90,12 +89,7 @@ export function PennyBar({
       <div style={{ flexShrink: 0, backgroundColor: bgColor, borderTop: '1px solid var(--border)', overflow: 'hidden' }}>
         <div style={{ padding: keyboardOpen ? '6px 12px' : '12px 16px', transition: 'padding 200ms ease' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: keyboardOpen ? '8px' : '10px' }}>
-            <div style={{ position: 'relative', flexShrink: 0 }}>
-              <PennyAvatar size={keyboardOpen ? 28 : 36} />
-              {!hasDisambig && pennyStatus && (
-                <span className="penny-pulse" style={{ position: 'absolute', bottom: '-1px', right: '-1px', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--brand)', border: '1.5px solid var(--penny-bg, #F5F3EF)' }} />
-              )}
-            </div>
+            <PennyAvatar size={keyboardOpen ? 28 : 36} />
             <span style={{
               flex: 1, fontFamily: FONT, fontSize: keyboardOpen ? '13px' : '14px',
               color: textColor, fontWeight: 500,
