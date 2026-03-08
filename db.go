@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -2139,11 +2140,22 @@ func recordModification(ex dbExecer, itemID, userID int, action, detail, source 
 // across all users. Used as a smart default when a new user has no preference.
 // Returns ("", false) if no data or no clear winner (top brand needs ≥2 picks
 // and ≥40% of total to be a meaningful default).
-func getGlobalBrandDefault(db *sql.DB, category string) (string, bool) {
+// If userDiets are provided, tries dietary-matched users first before falling
+// back to general popularity.
+func getGlobalBrandDefault(db *sql.DB, category string, userDiets ...[]string) (string, bool) {
 	category = strings.ToLower(strings.TrimSpace(category))
 	if category == "" {
 		return "", false
 	}
+
+	// Try dietary-matched defaults first if user has dietary preferences
+	if len(userDiets) > 0 && len(userDiets[0]) > 0 {
+		if brand, ok := getDietaryBrandDefault(db, category, userDiets[0]); ok {
+			return brand, true
+		}
+		// Fall through to general popularity
+	}
+
 	rows, err := db.Query(`
 		SELECT brand, COUNT(*) as cnt
 		FROM brand_choices
@@ -2177,6 +2189,81 @@ func getGlobalBrandDefault(db *sql.DB, category string) (string, bool) {
 		return "", false
 	}
 	// Require ≥40% share (top must be meaningfully dominant)
+	total := topCount + secondCount
+	if total > 0 && float64(topCount)/float64(total) < 0.4 {
+		return "", false
+	}
+	return topBrand, true
+}
+
+// getUserDiets returns the user's dietary preferences from user_dietary_profiles.
+// Returns nil if no profile exists.
+func getUserDiets(db *sql.DB, userID int) []string {
+	var dietsJSON string
+	err := db.QueryRow("SELECT COALESCE(diets, '[]') FROM user_dietary_profiles WHERE user_id = ?", userID).Scan(&dietsJSON)
+	if err != nil {
+		return nil
+	}
+	var diets []string
+	if err := json.Unmarshal([]byte(dietsJSON), &diets); err != nil || len(diets) == 0 {
+		return nil
+	}
+	return diets
+}
+
+// getDietaryBrandDefault returns the most popular brand for a category
+// among users who share at least one dietary preference with the requesting user.
+// Same thresholds as getGlobalBrandDefault (≥2 picks, ≥40% share).
+func getDietaryBrandDefault(db *sql.DB, category string, diets []string) (string, bool) {
+	if len(diets) == 0 {
+		return "", false
+	}
+	// Build LIKE conditions for each diet in the user's profile
+	// This matches users whose diets JSON array contains any of the same values
+	args := make([]interface{}, 0, len(diets)+1)
+	args = append(args, category)
+	likes := make([]string, len(diets))
+	for i, diet := range diets {
+		likes[i] = "dp.diets LIKE ?"
+		args = append(args, "%"+strings.ToLower(diet)+"%")
+	}
+
+	query := fmt.Sprintf(`
+		SELECT bc.brand, COUNT(*) as cnt
+		FROM brand_choices bc
+		JOIN user_dietary_profiles dp ON dp.user_id = bc.user_id
+		WHERE bc.product_category = ? AND bc.brand != ''
+		AND (%s)
+		GROUP BY bc.brand
+		ORDER BY cnt DESC
+		LIMIT 2`, strings.Join(likes, " OR "))
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return "", false
+	}
+	defer rows.Close()
+
+	var topBrand string
+	var topCount, secondCount int
+	i := 0
+	for rows.Next() {
+		var brand string
+		var cnt int
+		if err := rows.Scan(&brand, &cnt); err != nil {
+			continue
+		}
+		if i == 0 {
+			topBrand = brand
+			topCount = cnt
+		} else {
+			secondCount = cnt
+		}
+		i++
+	}
+	if topBrand == "" || topCount < 2 {
+		return "", false
+	}
 	total := topCount + secondCount
 	if total > 0 && float64(topCount)/float64(total) < 0.4 {
 		return "", false
@@ -2292,7 +2379,8 @@ func resolveBrandAlternatives(db *sql.DB, userID int, pennyBrandMode string, ite
 
 		// Check global brand popularity as fallback for new users (A/B gated)
 		if !hasPref && globalDefaults {
-			if globalBrand, ok := getGlobalBrandDefault(db, category); ok {
+			userDiets := getUserDiets(db, userID)
+			if globalBrand, ok := getGlobalBrandDefault(db, category, userDiets); ok {
 				// Auto-assign the popular brand and send as auto_assigned so
 				// the frontend can show 1-tap correction instead of full prompt
 				db.Exec("UPDATE list_items SET brand = ? WHERE id = ?", globalBrand, item.ID)

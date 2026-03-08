@@ -17,7 +17,7 @@ Strategic direction from founder + CEO panel focused on three gates: First-5-Min
    - [x] 1-tap brand correction UI with confirmation — PennyBar shows "I picked [Brand]" + OK/Change for auto-assigned
    - [x] Household invite prompt after item #3 (not time-based) — changed from loginCount===2 to items≥3
    - [x] A/B test: `onboarding_v2` test seeded, control vs brand_defaults, tracks items_added_day1 + brand confirmations/corrections
-   - [ ] Dietary attribute matching in brand defaults (Phase 2)
+   - [x] Dietary attribute matching in brand defaults (Phase 2) — `getDietaryBrandDefault()` queries brand_choices from users with matching dietary profiles, falls back to global popularity
    - **Owner:** Product + AI
    - **Timeline:** 2 weeks
    - **Blocks:** All other features

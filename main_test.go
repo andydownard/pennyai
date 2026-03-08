@@ -8120,6 +8120,113 @@ func TestGlobalBrandDefault_EmptyCategory(t *testing.T) {
 	}
 }
 
+func TestDietaryBrandDefault_PrefersDietaryMatch(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// Create 5 "vegan" users who all pick Oatly for milk
+	for i := 0; i < 5; i++ {
+		_, uid := loginUser(t, server, fmt.Sprintf("555700%04d", i))
+		server.db.Exec(`INSERT OR REPLACE INTO user_dietary_profiles (user_id, allergens, diets) VALUES (?, '[]', '["vegan"]')`, uid)
+		server.db.Exec("INSERT INTO brand_choices (user_id, product_category, brand) VALUES (?, 'milk', 'Oatly')", uid)
+	}
+	// Create 10 general users who all pick Horizon for milk (more popular overall)
+	for i := 0; i < 10; i++ {
+		_, uid := loginUser(t, server, fmt.Sprintf("555710%04d", i))
+		server.db.Exec("INSERT INTO brand_choices (user_id, product_category, brand) VALUES (?, 'milk', 'Horizon')", uid)
+	}
+
+	// Without dietary prefs → should return Horizon (more popular globally)
+	brand, ok := getGlobalBrandDefault(server.db, "milk")
+	if !ok {
+		t.Fatal("Expected a default brand")
+	}
+	if brand != "Horizon" {
+		t.Errorf("Expected Horizon (global popular), got %q", brand)
+	}
+
+	// With vegan dietary prefs → should return Oatly (popular among vegans)
+	brand, ok = getGlobalBrandDefault(server.db, "milk", []string{"vegan"})
+	if !ok {
+		t.Fatal("Expected a dietary-matched default brand")
+	}
+	if brand != "Oatly" {
+		t.Errorf("Expected Oatly (vegan popular), got %q", brand)
+	}
+}
+
+func TestDietaryBrandDefault_FallsBackToGlobal(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// Create 5 users with no dietary profile who all pick Heinz for ketchup
+	for i := 0; i < 5; i++ {
+		_, uid := loginUser(t, server, fmt.Sprintf("555720%04d", i))
+		server.db.Exec("INSERT INTO brand_choices (user_id, product_category, brand) VALUES (?, 'ketchup', 'Heinz')", uid)
+	}
+
+	// Request with vegan diet but no vegan users have picked ketchup → fall back to global
+	brand, ok := getGlobalBrandDefault(server.db, "ketchup", []string{"vegan"})
+	if !ok {
+		t.Fatal("Expected fallback to global default")
+	}
+	if brand != "Heinz" {
+		t.Errorf("Expected Heinz (global fallback), got %q", brand)
+	}
+}
+
+func TestDietaryBrandDefault_NoDiets(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	for i := 0; i < 3; i++ {
+		_, uid := loginUser(t, server, fmt.Sprintf("555730%04d", i))
+		server.db.Exec("INSERT INTO brand_choices (user_id, product_category, brand) VALUES (?, 'bread', 'Dave''s')", uid)
+	}
+	// Empty diets → should use global default directly
+	brand, ok := getGlobalBrandDefault(server.db, "bread", []string{})
+	if !ok {
+		t.Fatal("Expected global default with empty diets")
+	}
+	if brand != "Dave's" {
+		t.Errorf("Expected Dave's, got %q", brand)
+	}
+}
+
+func TestDietaryBrandDefault_MultipleDiets(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// Create users with organic diet who prefer Organic Valley
+	for i := 0; i < 4; i++ {
+		_, uid := loginUser(t, server, fmt.Sprintf("555740%04d", i))
+		server.db.Exec(`INSERT OR REPLACE INTO user_dietary_profiles (user_id, allergens, diets) VALUES (?, '[]', '["organic"]')`, uid)
+		server.db.Exec("INSERT INTO brand_choices (user_id, product_category, brand) VALUES (?, 'eggs', 'Vital Farms')", uid)
+	}
+	// User with ["organic", "keto"] → should still match organic users
+	brand, ok := getGlobalBrandDefault(server.db, "eggs", []string{"organic", "keto"})
+	if !ok {
+		t.Fatal("Expected dietary-matched default")
+	}
+	if brand != "Vital Farms" {
+		t.Errorf("Expected Vital Farms, got %q", brand)
+	}
+}
+
+func TestGetUserDiets_NilWhenNoProfile(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, uid := loginUser(t, server, "5557500001")
+	diets := getUserDiets(server.db, uid)
+	if diets != nil {
+		t.Errorf("Expected nil for user with no dietary profile, got %v", diets)
+	}
+}
+
+func TestGetUserDiets_ReturnsProfile(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, uid := loginUser(t, server, "5557600001")
+	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (?, '["peanuts"]', '["vegan","gluten-free"]')`, uid)
+	diets := getUserDiets(server.db, uid)
+	if len(diets) != 2 {
+		t.Fatalf("Expected 2 diets, got %d: %v", len(diets), diets)
+	}
+	if diets[0] != "vegan" || diets[1] != "gluten-free" {
+		t.Errorf("Expected [vegan gluten-free], got %v", diets)
+	}
+}
+
 // =============================================================================
 // LIST URGENT ENDPOINT TESTS
 // =============================================================================
