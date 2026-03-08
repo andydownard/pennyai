@@ -6,15 +6,9 @@ interface FeedbackWidgetProps {
 }
 
 const TYPES = [
-  { key: 'bug', label: 'Bug', icon: '🐛' },
-  { key: 'feature', label: 'Idea', icon: '💡' },
-  { key: 'other', label: 'Other', icon: '💬' },
-]
-
-const URGENCIES = [
-  { key: 'normal', label: 'Normal' },
-  { key: 'high', label: 'Important' },
-  { key: 'critical', label: 'Urgent' },
+  { key: 'bug', label: 'Bug' },
+  { key: 'feature', label: 'Idea' },
+  { key: 'other', label: 'Other' },
 ]
 
 export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
@@ -26,14 +20,12 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
   const [sent, setSent] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // Auto-focus textarea when sheet opens
   useEffect(() => {
     if (open && textareaRef.current) {
       setTimeout(() => textareaRef.current?.focus(), 200)
     }
   }, [open])
 
-  // Reset after successful send
   useEffect(() => {
     if (sent) {
       const t = setTimeout(() => { setSent(false); setOpen(false) }, 1800)
@@ -58,51 +50,33 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
 
   return (
     <>
-      {/* FAB — small branded pill, bottom-right above the tab bar + PennyBar area */}
+      {/* FAB — small brand-colored circle, top-right corner */}
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          aria-label="Send beta feedback"
+          aria-label="Send feedback"
           style={{
             position: 'fixed',
-            bottom: '200px',
+            top: '72px',
             right: '16px',
             zIndex: 50,
+            width: '36px',
+            height: '36px',
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
+            justifyContent: 'center',
             backgroundColor: 'var(--brand)',
             color: '#fff',
             border: 'none',
-            borderRadius: '20px',
-            padding: '10px 14px',
-            fontFamily: FONT,
-            fontSize: '13px',
-            fontWeight: 600,
+            borderRadius: '50%',
             cursor: 'pointer',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
-            transition: 'transform 0.15s, box-shadow 0.15s',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            opacity: 0.8,
           }}
         >
-          {/* Lightbulb icon */}
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 18h6"/>
-            <path d="M10 22h4"/>
-            <path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
           </svg>
-          <span style={{
-            position: 'absolute',
-            top: '-6px',
-            right: '-4px',
-            backgroundColor: '#E8B931',
-            color: '#1a1a1a',
-            fontSize: '9px',
-            fontWeight: 800,
-            letterSpacing: '0.5px',
-            padding: '1px 5px',
-            borderRadius: '6px',
-            lineHeight: '14px',
-          }}>BETA</span>
         </button>
       )}
 
@@ -115,7 +89,6 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
             inset: 0,
             zIndex: 9998,
             backgroundColor: 'rgba(0,0,0,0.4)',
-            transition: 'opacity 0.2s',
           }}
         />
       )}
@@ -149,9 +122,8 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
           </div>
 
           {sent ? (
-            /* Success state */
             <div style={{ textAlign: 'center', padding: '24px 0' }}>
-              <div style={{ fontSize: '32px', marginBottom: '12px' }}>&#10003;</div>
+              <div style={{ fontSize: '32px', marginBottom: '12px', color: 'var(--brand)' }}>&#10003;</div>
               <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: 'var(--text)' }}>
                 Got it!
               </div>
@@ -161,25 +133,12 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
             </div>
           ) : (
             <>
-              {/* Header */}
               <div style={{ marginBottom: '16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                  <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: 'var(--text)' }}>
-                    Help shape Penny
-                  </span>
-                  <span style={{
-                    backgroundColor: '#E8B931',
-                    color: '#1a1a1a',
-                    fontSize: '9px',
-                    fontWeight: 800,
-                    letterSpacing: '0.5px',
-                    padding: '2px 6px',
-                    borderRadius: '6px',
-                    lineHeight: '14px',
-                  }}>BETA</span>
+                <div style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
+                  Help shape Penny
                 </div>
                 <p style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
-                  You're one of Penny's first users. Your feedback goes directly to our product team.
+                  Your feedback goes directly to our product team.
                 </p>
               </div>
 
@@ -190,10 +149,7 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
                     key={t.key}
                     onClick={() => setType(t.key)}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      padding: '7px 12px',
+                      padding: '7px 14px',
                       borderRadius: '16px',
                       fontFamily: FONT,
                       fontSize: '13px',
@@ -205,24 +161,22 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
                       transition: 'all 0.15s',
                     }}
                   >
-                    <span style={{ fontSize: '14px' }}>{t.icon}</span>
                     {t.label}
                   </button>
                 ))}
               </div>
 
-              {/* Textarea */}
               <textarea
                 ref={textareaRef}
                 value={body}
                 onChange={e => setBody(e.target.value)}
                 placeholder={
-                  type === 'bug' ? "What went wrong? Steps to reproduce help a lot..."
-                    : type === 'feature' ? "What would make Penny better for you?"
+                  type === 'bug' ? "What went wrong?"
+                    : type === 'feature' ? "What would make Penny better?"
                     : "What's on your mind?"
                 }
                 maxLength={10000}
-                rows={4}
+                rows={3}
                 style={{
                   width: '100%',
                   padding: '12px 14px',
@@ -233,58 +187,53 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
                   border: '1.5px solid var(--border)',
                   borderRadius: '14px',
                   outline: 'none',
-                  resize: 'vertical',
-                  minHeight: '100px',
-                  maxHeight: '200px',
+                  resize: 'none',
+                  minHeight: '80px',
                   boxSizing: 'border-box',
                 }}
               />
 
-              {/* Urgency row */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px', marginBottom: '16px' }}>
-                <span style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>Priority:</span>
-                {URGENCIES.map(u => (
-                  <button
-                    key={u.key}
-                    onClick={() => setUrgency(u.key)}
-                    style={{
-                      padding: '4px 10px',
-                      borderRadius: '12px',
-                      fontFamily: FONT,
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      border: urgency === u.key ? '1.5px solid var(--brand)' : '1.5px solid var(--border)',
-                      backgroundColor: urgency === u.key ? 'color-mix(in srgb, var(--brand) 10%, transparent)' : 'transparent',
-                      color: urgency === u.key ? 'var(--brand)' : 'var(--text-secondary)',
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    {u.label}
-                  </button>
-                ))}
+              {/* Urgency + Submit row */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px' }}>
+                <select
+                  value={urgency}
+                  onChange={e => setUrgency(e.target.value)}
+                  style={{
+                    fontFamily: FONT,
+                    fontSize: '13px',
+                    color: 'var(--text-secondary)',
+                    backgroundColor: 'var(--bg)',
+                    border: '1.5px solid var(--border)',
+                    borderRadius: '10px',
+                    padding: '10px 12px',
+                    outline: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value="normal">Normal</option>
+                  <option value="high">Important</option>
+                  <option value="critical">Urgent</option>
+                </select>
+                <button
+                  onClick={handleSubmit}
+                  disabled={!canSend}
+                  style={{
+                    flex: 1,
+                    padding: '12px 0',
+                    backgroundColor: canSend ? 'var(--brand)' : 'var(--border)',
+                    color: canSend ? '#fff' : 'var(--text-secondary)',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontFamily: FONT,
+                    fontSize: '15px',
+                    fontWeight: 600,
+                    cursor: canSend ? 'pointer' : 'default',
+                    transition: 'background-color 0.15s, color 0.15s',
+                  }}
+                >
+                  {sending ? 'Sending...' : 'Send'}
+                </button>
               </div>
-
-              {/* Submit */}
-              <button
-                onClick={handleSubmit}
-                disabled={!canSend}
-                style={{
-                  width: '100%',
-                  padding: '14px 0',
-                  backgroundColor: canSend ? 'var(--brand)' : 'var(--border)',
-                  color: canSend ? '#fff' : 'var(--text-secondary)',
-                  border: 'none',
-                  borderRadius: '12px',
-                  fontFamily: FONT,
-                  fontSize: '15px',
-                  fontWeight: 600,
-                  cursor: canSend ? 'pointer' : 'default',
-                  transition: 'background-color 0.15s, color 0.15s',
-                }}
-              >
-                {sending ? 'Sending...' : 'Send feedback'}
-              </button>
             </>
           )}
         </div>
