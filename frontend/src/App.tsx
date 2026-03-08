@@ -327,6 +327,11 @@ function AppInner() {
   const receiptInputRef = useRef<HTMLInputElement>(null)
   const chatInputRef = useRef<HTMLTextAreaElement>(null)
 
+  // --- Continuous camera mode ---
+  const cameraModeRef = useRef(false)
+  const cameraPhotoTakenRef = useRef(false) // set true when photo selected, prevents cancel detection
+  const [cameraConfirmation, setCameraConfirmation] = useState<string | null>(null)
+
   // Menu state is now internal to NavigationMenu component
 
   // --- Done toast state ---
@@ -1466,9 +1471,87 @@ function AppInner() {
     reader.readAsDataURL(file)
   }
 
+  // Continuous camera: resize, send to parse API, show confirmation, re-open camera
+  const submitCameraPhoto = (file: Blob) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result as string
+      const img = new Image()
+      img.onload = async () => {
+        try {
+          const MAX = 1024
+          let w = img.width, h = img.height
+          if (w > MAX || h > MAX) {
+            if (w > h) { h = Math.round(h * MAX / w); w = MAX }
+            else { w = Math.round(w * MAX / h); h = MAX }
+          }
+          const canvas = document.createElement('canvas')
+          canvas.width = w; canvas.height = h
+          const ctx = canvas.getContext('2d')
+          if (!ctx) return
+          ctx.drawImage(img, 0, 0, w, h)
+          const resized = canvas.toDataURL('image/jpeg', 0.8)
+
+          // Show processing state
+          setCameraConfirmation('Reading...')
+
+          // Send directly to parse API
+          const res = await fetch('/api/list/parse', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: '', images: [resized] }),
+          })
+          if (res.status === 401) { cameraModeRef.current = false; handleSessionExpired(); return }
+          if (res.ok) {
+            const data = await res.json()
+            const addedItems: ListItem[] = data.items || []
+            const pennyMsg: string = data.message || ''
+
+            if (addedItems.length > 0) {
+              setItems(prev => sortItems([...prev, ...addedItems]))
+              const names = addedItems.map(i => i.name).join(', ')
+              setCameraConfirmation(`+ ${names}`)
+            } else if (pennyMsg) {
+              setCameraConfirmation(pennyMsg)
+            } else {
+              setCameraConfirmation("Couldn't read that — try again")
+            }
+          } else {
+            setCameraConfirmation("Couldn't read that — try again")
+          }
+
+          // Clear confirmation and re-open camera after delay
+          setTimeout(() => {
+            setCameraConfirmation(null)
+            if (cameraModeRef.current && cameraInputRef.current) {
+              cameraPhotoTakenRef.current = false
+              cameraInputRef.current.click()
+              // Detect cancel on re-open
+              const detectCancel = () => {
+                setTimeout(() => {
+                  if (cameraModeRef.current && !cameraPhotoTakenRef.current) {
+                    cameraModeRef.current = false
+                  }
+                  window.removeEventListener('focus', detectCancel)
+                }, 500)
+              }
+              window.addEventListener('focus', detectCancel)
+            }
+          }, 1800)
+        } catch {
+          setCameraConfirmation(null)
+          cameraModeRef.current = false
+        }
+      }
+      img.src = dataUrl
+    }
+    reader.readAsDataURL(file)
+  }
+
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files) return
+    const isCamera = e.target === cameraInputRef.current
 
     // Receipt mode: send photo directly as receipt
     if (pendingReceiptMode && files.length > 0) {
@@ -1479,6 +1562,14 @@ function AppInner() {
         handleReceiptSubmit([dataUrl])
       }
       reader.readAsDataURL(file)
+      e.target.value = ''
+      return
+    }
+
+    // Continuous camera mode: auto-submit and re-open
+    if (isCamera && cameraModeRef.current && files.length > 0) {
+      cameraPhotoTakenRef.current = true
+      submitCameraPhoto(files[0])
       e.target.value = ''
       return
     }
@@ -3545,6 +3636,26 @@ const handleCodeChange = (index: number, value: string) => {
       ))}
 
 
+      {/* Camera mode confirmation overlay */}
+      {cameraConfirmation && (
+        <div style={{
+          position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+          zIndex: 10000, backgroundColor: 'rgba(0,0,0,0.8)', color: '#fff',
+          padding: '16px 24px', borderRadius: '16px', maxWidth: '280px', textAlign: 'center',
+          fontFamily: FONT, fontSize: '16px', fontWeight: 600,
+          animation: 'fade-in 200ms ease',
+          pointerEvents: 'none',
+        }}>
+          {cameraConfirmation === 'Reading...' ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '14px' }}>...</span> Reading photo
+            </div>
+          ) : (
+            <div>{cameraConfirmation}</div>
+          )}
+        </div>
+      )}
+
       {/* Hidden file input for photo library */}
       <input
         ref={fileInputRef}
@@ -3605,7 +3716,21 @@ const handleCodeChange = (index: number, value: string) => {
         onSend={handleSendChat}
         onPaste={handlePaste}
         onAddPhoto={() => fileInputRef.current?.click()}
-        onOpenCamera={() => cameraInputRef.current?.click()}
+        onOpenCamera={() => {
+          cameraModeRef.current = true
+          cameraPhotoTakenRef.current = false
+          cameraInputRef.current?.click()
+          // Detect when user cancels the camera picker (window regains focus without a file change)
+          const detectCancel = () => {
+            setTimeout(() => {
+              if (cameraModeRef.current && !cameraPhotoTakenRef.current) {
+                cameraModeRef.current = false
+              }
+              window.removeEventListener('focus', detectCancel)
+            }, 500)
+          }
+          window.addEventListener('focus', detectCancel)
+        }}
         chatInputRef={chatInputRef}
       />
 
@@ -4125,6 +4250,11 @@ const globalCSS = `
   @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
+  }
+
+  @keyframes fade-in {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   }
 
   /* Penny loading pulse */
