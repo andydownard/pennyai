@@ -1302,3 +1302,233 @@ func (s *Server) handlePricingTiers(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, tiers)
 }
+
+// =============================================================================
+// COMPETITIVE SWAP INTEL
+// =============================================================================
+
+func (s *Server) handleCompetitiveIntel(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	bs, ok := s.requireBrandSession(w, r)
+	if !ok {
+		return
+	}
+
+	// Step 1: Collect all active deals for this brand (collect-then-write for SQLite)
+	type dealRow struct {
+		DealID       int
+		OfferProduct string
+		CategoryID   int
+	}
+	rows, err := s.db.Query(`
+		SELECT id, offer_product, category_id
+		FROM brand_deals
+		WHERE brand_user_id = ? AND status != 'deleted'
+		ORDER BY id`, bs.BrandUserID)
+	if err != nil {
+		dbError(w, err, "Failed to query brand deals")
+		return
+	}
+	var deals []dealRow
+	for rows.Next() {
+		var d dealRow
+		rows.Scan(&d.DealID, &d.OfferProduct, &d.CategoryID)
+		deals = append(deals, d)
+	}
+	rows.Close()
+
+	if len(deals) == 0 {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"deals":            []interface{}{},
+			"category_summary": map[string]interface{}{},
+		})
+		return
+	}
+
+	// Step 2: For each deal, get swap event counts (offered/accepted)
+	type dealIntel struct {
+		DealID             int     `json:"deal_id"`
+		OfferProduct       string  `json:"offer_product"`
+		CategoryName       string  `json:"category_name"`
+		ParentCategory     string  `json:"parent_category"`
+		YourAcceptanceRate float64 `json:"your_acceptance_rate"`
+		CategoryAvgRate    float64 `json:"category_avg_rate"`
+		CompetingDeals     int     `json:"competing_deals"`
+		CategoryRank       int     `json:"category_rank"`
+		TotalOffered       int     `json:"total_offered"`
+		TotalAccepted      int     `json:"total_accepted"`
+	}
+
+	// Build a set of category IDs we care about
+	catIDs := map[int]bool{}
+	for _, d := range deals {
+		if d.CategoryID > 0 {
+			catIDs[d.CategoryID] = true
+		}
+	}
+
+	// Step 3: Load category names and parent categories
+	catNames := map[int]string{}
+	catParents := map[int]string{}
+	for catID := range catIDs {
+		var name, parent string
+		err := s.db.QueryRow("SELECT name, parent_category FROM categories WHERE id = ?", catID).Scan(&name, &parent)
+		if err == nil {
+			catNames[catID] = name
+			catParents[catID] = parent
+		}
+	}
+
+	// Step 4: For each category, get the count of competing deals and aggregate acceptance rate
+	type catStats struct {
+		TotalDeals     int
+		TotalOffered   int
+		TotalAccepted  int
+		YourDeals      int
+	}
+	catStatsMap := map[int]*catStats{}
+
+	for catID := range catIDs {
+		var totalDeals, totalOffered, totalAccepted int
+		s.db.QueryRow(`
+			SELECT COUNT(DISTINCT bd.id)
+			FROM brand_deals bd
+			WHERE bd.category_id = ? AND bd.status != 'deleted'`, catID).Scan(&totalDeals)
+		s.db.QueryRow(`
+			SELECT COUNT(CASE WHEN se.action = 'offered' THEN 1 END),
+			       COUNT(CASE WHEN se.action = 'accepted' THEN 1 END)
+			FROM swap_events se
+			JOIN brand_deals bd ON bd.id = se.deal_id
+			WHERE bd.category_id = ? AND bd.status != 'deleted'`, catID).Scan(&totalOffered, &totalAccepted)
+		catStatsMap[catID] = &catStats{
+			TotalDeals:    totalDeals,
+			TotalOffered:  totalOffered,
+			TotalAccepted: totalAccepted,
+		}
+	}
+
+	// Step 5: Build results for each deal
+	var results []dealIntel
+	// Track per-category rank: collect all deal acceptance rates per category
+	type dealRate struct {
+		DealID int
+		Rate   float64
+	}
+	catDealRates := map[int][]dealRate{}
+
+	// Pre-compute acceptance rates for all deals in our categories
+	for catID := range catIDs {
+		rateRows, err := s.db.Query(`
+			SELECT bd.id,
+				COUNT(CASE WHEN se.action = 'offered' THEN 1 END) as offered,
+				COUNT(CASE WHEN se.action = 'accepted' THEN 1 END) as accepted
+			FROM brand_deals bd
+			LEFT JOIN swap_events se ON se.deal_id = bd.id
+			WHERE bd.category_id = ? AND bd.status != 'deleted'
+			GROUP BY bd.id`, catID)
+		if err != nil {
+			continue
+		}
+		for rateRows.Next() {
+			var id, offered, accepted int
+			rateRows.Scan(&id, &offered, &accepted)
+			rate := 0.0
+			if offered > 0 {
+				rate = float64(accepted) / float64(offered)
+			}
+			catDealRates[catID] = append(catDealRates[catID], dealRate{DealID: id, Rate: rate})
+		}
+		rateRows.Close()
+	}
+
+	for _, d := range deals {
+		var offered, accepted int
+		s.db.QueryRow(`
+			SELECT COUNT(CASE WHEN action = 'offered' THEN 1 END),
+			       COUNT(CASE WHEN action = 'accepted' THEN 1 END)
+			FROM swap_events WHERE deal_id = ?`, d.DealID).Scan(&offered, &accepted)
+
+		yourRate := 0.0
+		if offered > 0 {
+			yourRate = float64(accepted) / float64(offered)
+		}
+
+		catName := catNames[d.CategoryID]
+		parentCat := catParents[d.CategoryID]
+		catAvg := 0.0
+		competingDeals := 0
+		rank := 1
+
+		if cs, ok := catStatsMap[d.CategoryID]; ok {
+			if cs.TotalOffered > 0 {
+				catAvg = float64(cs.TotalAccepted) / float64(cs.TotalOffered)
+			}
+			competingDeals = cs.TotalDeals - 1 // exclude self
+			if competingDeals < 0 {
+				competingDeals = 0
+			}
+			cs.YourDeals++
+		}
+
+		// Compute rank within category (1 = best)
+		if rates, ok := catDealRates[d.CategoryID]; ok {
+			rank = 1
+			for _, dr := range rates {
+				if dr.DealID != d.DealID && dr.Rate > yourRate {
+					rank++
+				}
+			}
+		}
+
+		results = append(results, dealIntel{
+			DealID:             d.DealID,
+			OfferProduct:       d.OfferProduct,
+			CategoryName:       catName,
+			ParentCategory:     parentCat,
+			YourAcceptanceRate: yourRate,
+			CategoryAvgRate:    catAvg,
+			CompetingDeals:     competingDeals,
+			CategoryRank:       rank,
+			TotalOffered:       offered,
+			TotalAccepted:      accepted,
+		})
+	}
+
+	// Step 6: Build category summary keyed by parent_category
+	type catSummary struct {
+		TotalDeals       int     `json:"total_deals"`
+		AvgAcceptanceRate float64 `json:"avg_acceptance_rate"`
+		YourDeals        int     `json:"your_deals"`
+	}
+	categorySummary := map[string]*catSummary{}
+	for catID, cs := range catStatsMap {
+		parent := catParents[catID]
+		if parent == "" {
+			parent = catNames[catID]
+		}
+		if parent == "" {
+			continue
+		}
+		if _, exists := categorySummary[parent]; !exists {
+			categorySummary[parent] = &catSummary{}
+		}
+		categorySummary[parent].TotalDeals += cs.TotalDeals
+		categorySummary[parent].YourDeals += cs.YourDeals
+		if cs.TotalOffered > 0 {
+			// Weighted average: accumulate and average across categories with same parent
+			existingRate := categorySummary[parent].AvgAcceptanceRate
+			if existingRate == 0 {
+				categorySummary[parent].AvgAcceptanceRate = float64(cs.TotalAccepted) / float64(cs.TotalOffered)
+			} else {
+				categorySummary[parent].AvgAcceptanceRate = (existingRate + float64(cs.TotalAccepted)/float64(cs.TotalOffered)) / 2
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"deals":            results,
+		"category_summary": categorySummary,
+	})
+}

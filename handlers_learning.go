@@ -508,6 +508,9 @@ func (s *Server) processLearnings() {
 	// Step 9: Compute user swap predictions (per-user × category × brand acceptance rates)
 	s.processSwapPredictions()
 
+	// Step 10: Detect organic swap propagation within households
+	s.processSwapPropagations()
+
 	// Apply all collected writes
 	for _, w := range writes {
 		s.updateLearning(w.scope, w.scopeID, w.key, w.value, w.confidence)
@@ -1139,4 +1142,165 @@ func (s *Server) checkHouseholdDuplicates(userID int, addedItems []ListItem) []D
 		}
 	}
 	return warnings
+}
+
+// processSwapPropagations detects organic brand adoption within households.
+// When user A accepts a swap for brand X, and later user B in the same household
+// adds brand X items manually (not via swap), that's organic propagation.
+// Uses collect-then-write pattern for SQLite safety.
+func (s *Server) processSwapPropagations() {
+	// Step 1: Collect all accepted swaps with household context
+	type acceptedSwap struct {
+		dealID     int
+		userID     int
+		hhID       int
+		offerBrand string
+		acceptedAt string
+	}
+	var swaps []acceptedSwap
+
+	rows, err := s.db.Query(`
+		SELECT se.deal_id, se.user_id, COALESCE(u.household_id, 0),
+		       bd.offer_brand, se.created_at
+		FROM swap_events se
+		JOIN brand_deals bd ON bd.id = se.deal_id
+		JOIN users u ON u.id = se.user_id
+		WHERE se.action = 'accepted' AND COALESCE(u.household_id, 0) > 0
+	`)
+	if err != nil {
+		log.Printf("[propagation] failed to query accepted swaps: %v", err)
+		return
+	}
+	for rows.Next() {
+		var sw acceptedSwap
+		if err := rows.Scan(&sw.dealID, &sw.userID, &sw.hhID, &sw.offerBrand, &sw.acceptedAt); err != nil {
+			continue
+		}
+		swaps = append(swaps, sw)
+	}
+	rows.Close()
+
+	if len(swaps) == 0 {
+		return
+	}
+
+	// Step 2: For each accepted swap, check if other household members
+	// added items with the same brand (case-insensitive) via manual/sms/email sources
+	type propagation struct {
+		dealID    int
+		sourceUID int
+		adopterUID int
+		hhID      int
+		itemName  string
+		brand     string
+	}
+	var props []propagation
+
+	for _, sw := range swaps {
+		// Find household members who added items with this brand after the swap
+		memberRows, err := s.db.Query(`
+			SELECT hm.user_id, li.name, li.brand
+			FROM household_members hm
+			JOIN list_items li ON li.user_id = hm.user_id
+			WHERE hm.household_id = ?
+			  AND hm.user_id != ?
+			  AND LOWER(li.brand) = LOWER(?)
+			  AND li.source IN ('manual', 'sms', 'email', 'app')
+			  AND li.created_at > ?
+		`, sw.hhID, sw.userID, sw.offerBrand, sw.acceptedAt)
+		if err != nil {
+			continue
+		}
+		for memberRows.Next() {
+			var adopterUID int
+			var itemName, brand string
+			if err := memberRows.Scan(&adopterUID, &itemName, &brand); err != nil {
+				continue
+			}
+			props = append(props, propagation{
+				dealID:    sw.dealID,
+				sourceUID: sw.userID,
+				adopterUID: adopterUID,
+				hhID:      sw.hhID,
+				itemName:  itemName,
+				brand:     brand,
+			})
+		}
+		memberRows.Close()
+	}
+
+	if len(props) == 0 {
+		return
+	}
+
+	// Step 3: Write propagation records (idempotent via UNIQUE constraint)
+	inserted := 0
+	for _, p := range props {
+		result, err := s.db.Exec(`
+			INSERT OR IGNORE INTO swap_propagations (deal_id, source_user_id, adopter_user_id, household_id, item_name, brand)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`, p.dealID, p.sourceUID, p.adopterUID, p.hhID, p.itemName, p.brand)
+		if err == nil {
+			if n, _ := result.RowsAffected(); n > 0 {
+				inserted++
+			}
+		}
+	}
+
+	if inserted > 0 {
+		log.Printf("[propagation] detected %d new organic swap propagations from %d candidates", inserted, len(props))
+	}
+}
+
+// handleSwapPropagations returns recent organic swap propagation records.
+// GET /api/admin/swap-propagations — admin only.
+func (s *Server) handleSwapPropagations(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	if _, ok := s.requireAdmin(w, r); !ok {
+		return
+	}
+
+	rows, err := s.db.Query(`
+		SELECT sp.deal_id, bd.offer_brand, bd.offer_product,
+		       COALESCE(su.name, ''), COALESCE(au.name, ''),
+		       sp.household_id, sp.item_name, sp.created_at
+		FROM swap_propagations sp
+		JOIN brand_deals bd ON bd.id = sp.deal_id
+		JOIN users su ON su.id = sp.source_user_id
+		JOIN users au ON au.id = sp.adopter_user_id
+		ORDER BY sp.created_at DESC
+		LIMIT 100
+	`)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load propagations"})
+		return
+	}
+
+	type propRow struct {
+		DealID          int    `json:"deal_id"`
+		OfferBrand      string `json:"offer_brand"`
+		OfferProduct    string `json:"offer_product"`
+		SourceUserName  string `json:"source_user_name"`
+		AdopterUserName string `json:"adopter_user_name"`
+		HouseholdID     int    `json:"household_id"`
+		ItemName        string `json:"item_name"`
+		CreatedAt       string `json:"created_at"`
+	}
+	var results []propRow
+	for rows.Next() {
+		var p propRow
+		if err := rows.Scan(&p.DealID, &p.OfferBrand, &p.OfferProduct, &p.SourceUserName, &p.AdopterUserName, &p.HouseholdID, &p.ItemName, &p.CreatedAt); err != nil {
+			continue
+		}
+		results = append(results, p)
+	}
+	rows.Close()
+
+	if results == nil {
+		results = []propRow{}
+	}
+
+	writeJSON(w, http.StatusOK, results)
 }

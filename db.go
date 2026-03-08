@@ -1034,26 +1034,7 @@ func initDB(path string) (*sql.DB, error) {
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_penny_learnings_scope ON penny_learnings(scope, scope_id)")
 
-	// store_prices: crowdsourced price data from receipts (location-level learning)
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS store_prices (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			store_name  TEXT NOT NULL,
-			store_zip   TEXT NOT NULL DEFAULT '',
-			product     TEXT NOT NULL,
-			brand       TEXT NOT NULL DEFAULT '',
-			price_cents INTEGER NOT NULL,
-			source      TEXT NOT NULL DEFAULT 'receipt',
-			receipt_id  INTEGER DEFAULT NULL,
-			observed_at TEXT NOT NULL DEFAULT (datetime('now')),
-			UNIQUE(store_name, store_zip, product, brand, observed_at)
-		)
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("creating store_prices table: %w", err)
-	}
-	db.Exec("CREATE INDEX IF NOT EXISTS idx_store_prices_store ON store_prices(store_name, store_zip)")
-	db.Exec("CREATE INDEX IF NOT EXISTS idx_store_prices_product ON store_prices(product)")
+	// store_prices: moved to end of initDB (after stores table creation)
 
 	// --- Dietary profile table ---
 	_, err = db.Exec(`
@@ -1267,6 +1248,79 @@ func initDB(path string) (*sql.DB, error) {
 	} {
 		db.Exec(stmt)
 	}
+
+	// --- Stores (L4 Location Learning foundation) ---
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS stores (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			name         TEXT NOT NULL,
+			chain        TEXT NOT NULL DEFAULT '',
+			address      TEXT NOT NULL DEFAULT '',
+			city         TEXT NOT NULL DEFAULT '',
+			state        TEXT NOT NULL DEFAULT '',
+			zip          TEXT NOT NULL DEFAULT '',
+			latitude     REAL,
+			longitude    REAL,
+			place_id     TEXT NOT NULL DEFAULT '',
+			created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+			UNIQUE(name, address)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating stores table: %w", err)
+	}
+
+	// Store price observations: track real prices seen at stores
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS store_prices (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			store_id     INTEGER NOT NULL REFERENCES stores(id),
+			product_name TEXT NOT NULL,
+			brand        TEXT NOT NULL DEFAULT '',
+			price_cents  INTEGER NOT NULL,
+			category_id  INTEGER NOT NULL DEFAULT 0,
+			source       TEXT NOT NULL DEFAULT 'receipt',
+			observed_at  TEXT NOT NULL DEFAULT (datetime('now')),
+			UNIQUE(store_id, product_name, brand, observed_at)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating store_prices table: %w", err)
+	}
+
+	// Link receipts to stores
+	db.Exec("ALTER TABLE receipts ADD COLUMN store_id INTEGER DEFAULT NULL")
+
+	// Link shopping trips to stores
+	db.Exec("ALTER TABLE shopping_trips ADD COLUMN store_id INTEGER DEFAULT NULL")
+
+	for _, stmt := range []string{
+		"CREATE INDEX IF NOT EXISTS idx_stores_chain ON stores(chain)",
+		"CREATE INDEX IF NOT EXISTS idx_stores_place_id ON stores(place_id)",
+		"CREATE INDEX IF NOT EXISTS idx_store_prices_store ON store_prices(store_id)",
+		"CREATE INDEX IF NOT EXISTS idx_store_prices_product ON store_prices(product_name, brand)",
+	} {
+		db.Exec(stmt)
+	}
+
+	// --- Swap propagation tracking (organic adoption by household members) ---
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS swap_propagations (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			deal_id         INTEGER NOT NULL REFERENCES brand_deals(id),
+			source_user_id  INTEGER NOT NULL,
+			adopter_user_id INTEGER NOT NULL,
+			household_id    INTEGER NOT NULL,
+			item_name       TEXT NOT NULL,
+			brand           TEXT NOT NULL,
+			created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+			UNIQUE(deal_id, adopter_user_id)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating swap_propagations table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_swap_propagations_deal ON swap_propagations(deal_id)")
 
 	return db, nil
 }

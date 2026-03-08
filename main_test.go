@@ -17535,3 +17535,517 @@ func TestPricingTiers_RequiresBrandAuth(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// COMPETITIVE INTEL TESTS
+// =============================================================================
+
+func TestCompetitiveIntel_RequiresBrandAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// No auth cookie — should get 401
+	rr := doRequest(server.handleCompetitiveIntel, "GET", "/brand/competitive-intel", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without auth, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Wrong method — should get 405
+	cookie, _ := brandRegister(t, server, "ci-method@brand.com", "password1234", "MethodCo")
+	rr = doRequest(server.handleCompetitiveIntel, "POST", "/brand/competitive-intel", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for POST, got %d", rr.Code)
+	}
+}
+
+func TestCompetitiveIntel_EmptyDeals(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "ci-empty@brand.com", "password1234", "EmptyCo")
+
+	rr := doRequest(server.handleCompetitiveIntel, "GET", "/brand/competitive-intel", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	deals, ok := body["deals"].([]interface{})
+	if !ok {
+		t.Fatal("expected 'deals' to be an array")
+	}
+	if len(deals) != 0 {
+		t.Errorf("expected empty deals array, got %d items", len(deals))
+	}
+
+	catSummary, ok := body["category_summary"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected 'category_summary' to be an object")
+	}
+	if len(catSummary) != 0 {
+		t.Errorf("expected empty category_summary, got %d entries", len(catSummary))
+	}
+}
+
+func TestCompetitiveIntel_ReturnsData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, brandUserID := brandRegister(t, server, "ci-data@brand.com", "password1234", "DataCo")
+
+	// Create a category so we can link deals to it
+	var catID int
+	err := server.db.QueryRow("SELECT id FROM categories WHERE name = 'Milk'").Scan(&catID)
+	if err != nil {
+		// Insert a test category if Milk doesn't exist
+		res, err := server.db.Exec("INSERT INTO categories (name, parent_category) VALUES ('Milk', 'Dairy')")
+		if err != nil {
+			t.Fatalf("failed to create category: %v", err)
+		}
+		id, _ := res.LastInsertId()
+		catID = int(id)
+	}
+
+	// Insert deals directly so we can control category_id
+	_, err = server.db.Exec(`
+		INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents,
+			total_budget_cents, status, brand_user_id, category_id)
+		VALUES ('Store Brand Milk 1gal', 'DataCo', 'DataCo Milk 1gal', 150, 10000, 'active', ?, ?)`,
+		brandUserID, catID)
+	if err != nil {
+		t.Fatalf("failed to insert deal: %v", err)
+	}
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE brand_user_id = ? ORDER BY id DESC LIMIT 1", brandUserID).Scan(&dealID)
+
+	// Insert a competing deal from another brand (different brand_user_id)
+	_, err = server.db.Exec(`
+		INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents,
+			total_budget_cents, status, brand_user_id, category_id)
+		VALUES ('Store Brand Milk 2%', 'CompetitorCo', 'CompetitorCo Milk 2%', 200, 15000, 'active', 99999, ?)`, catID)
+	if err != nil {
+		t.Fatalf("failed to insert competing deal: %v", err)
+	}
+	var competitorDealID int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE brand_user_id = 99999 ORDER BY id DESC LIMIT 1").Scan(&competitorDealID)
+
+	// Create a test user so swap_events have valid user_id
+	server.db.Exec("INSERT OR IGNORE INTO users (id, name) VALUES (1, 'TestUser')")
+
+	// Insert swap events for our deal: 10 offered, 4 accepted
+	for i := 0; i < 10; i++ {
+		action := "offered"
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (1, ?, ?)", dealID, action)
+	}
+	for i := 0; i < 4; i++ {
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (1, ?, 'accepted')", dealID)
+	}
+
+	// Insert swap events for competitor deal: 20 offered, 4 accepted
+	for i := 0; i < 20; i++ {
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (1, ?, 'offered')", competitorDealID)
+	}
+	for i := 0; i < 4; i++ {
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (1, ?, 'accepted')", competitorDealID)
+	}
+
+	// Now call the endpoint
+	rr := doRequest(server.handleCompetitiveIntel, "GET", "/brand/competitive-intel", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+
+	// Check deals array
+	deals, ok := body["deals"].([]interface{})
+	if !ok || len(deals) == 0 {
+		t.Fatal("expected non-empty deals array")
+	}
+
+	deal := deals[0].(map[string]interface{})
+
+	// Verify deal fields
+	if int(deal["deal_id"].(float64)) != dealID {
+		t.Errorf("expected deal_id %d, got %v", dealID, deal["deal_id"])
+	}
+	if deal["offer_product"] != "DataCo Milk 1gal" {
+		t.Errorf("expected offer_product 'DataCo Milk 1gal', got %v", deal["offer_product"])
+	}
+	if deal["category_name"] != "Milk" {
+		t.Errorf("expected category_name 'Milk', got %v", deal["category_name"])
+	}
+	if deal["parent_category"] != "Dairy" {
+		t.Errorf("expected parent_category 'Dairy', got %v", deal["parent_category"])
+	}
+
+	// Our deal: 10 offered, 4 accepted → acceptance rate 0.4
+	if int(deal["total_offered"].(float64)) != 10 {
+		t.Errorf("expected total_offered 10, got %v", deal["total_offered"])
+	}
+	if int(deal["total_accepted"].(float64)) != 4 {
+		t.Errorf("expected total_accepted 4, got %v", deal["total_accepted"])
+	}
+	yourRate := deal["your_acceptance_rate"].(float64)
+	if yourRate < 0.39 || yourRate > 0.41 {
+		t.Errorf("expected your_acceptance_rate ~0.4, got %v", yourRate)
+	}
+
+	// Category avg: (4+4)/(10+20) = 8/30 ≈ 0.267
+	catAvg := deal["category_avg_rate"].(float64)
+	if catAvg < 0.26 || catAvg > 0.28 {
+		t.Errorf("expected category_avg_rate ~0.267, got %v", catAvg)
+	}
+
+	// Competing deals: 2 total in category - 1 (self) = 1
+	if int(deal["competing_deals"].(float64)) != 1 {
+		t.Errorf("expected competing_deals 1, got %v", deal["competing_deals"])
+	}
+
+	// Our deal has 0.4 rate vs competitor's 0.2, so we should be rank 1
+	if int(deal["category_rank"].(float64)) != 1 {
+		t.Errorf("expected category_rank 1 (best), got %v", deal["category_rank"])
+	}
+
+	// Check category_summary
+	catSummary, ok := body["category_summary"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected 'category_summary' to be an object")
+	}
+	dairy, ok := catSummary["Dairy"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected 'Dairy' in category_summary")
+	}
+	if int(dairy["total_deals"].(float64)) != 2 {
+		t.Errorf("expected Dairy total_deals 2, got %v", dairy["total_deals"])
+	}
+	if int(dairy["your_deals"].(float64)) != 1 {
+		t.Errorf("expected Dairy your_deals 1, got %v", dairy["your_deals"])
+	}
+}
+
+// =============================================================================
+// Swap Propagation Tests
+// =============================================================================
+
+func TestSwapPropagations_TableExists(t *testing.T) {
+	db, err := initDB(":memory:")
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM swap_propagations").Scan(&count)
+	if err != nil {
+		t.Fatalf("swap_propagations table should exist: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 rows in fresh table, got %d", count)
+	}
+}
+
+func TestProcessSwapPropagations_DetectsAdoption(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create two users in the same household
+	cookieA, uidA := loginUser(t, server, "5550001111")
+	_ = cookieA
+	_, uidB := loginUser(t, server, "5550002222")
+
+	// Put both users in the same household (users auto-get solo households on login,
+	// so we update existing entries rather than inserting new ones)
+	server.db.Exec("INSERT OR IGNORE INTO households (id) VALUES (901)")
+	server.db.Exec("UPDATE household_members SET household_id = 901 WHERE user_id = ?", uidA)
+	server.db.Exec("UPDATE household_members SET household_id = 901 WHERE user_id = ?", uidB)
+	server.db.Exec("UPDATE users SET household_id = 901 WHERE id IN (?, ?)", uidA, uidB)
+
+	// Create a brand deal (use high ID to avoid conflicts with seeded deals)
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, status)
+		VALUES (901, 'Old Brand Milk', 'NewBrand', 'NewBrand Milk', 50, 10000, 'active')`)
+
+	// User A accepts the swap
+	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, action, created_at)
+		VALUES (?, 901, 'accepted', datetime('now', '-1 day'))`, uidA)
+
+	// User B manually adds an item with the same brand AFTER the swap
+	server.db.Exec(`INSERT INTO list_items (user_id, name, brand, source, created_at)
+		VALUES (?, 'NewBrand Milk', 'NewBrand', 'manual', datetime('now'))`, uidB)
+
+	// Run propagation detection
+	server.processSwapPropagations()
+
+	// Verify propagation record exists
+	var count int
+	err := server.db.QueryRow("SELECT COUNT(*) FROM swap_propagations WHERE deal_id = 901 AND source_user_id = ? AND adopter_user_id = ?", uidA, uidB).Scan(&count)
+	if err != nil {
+		t.Fatalf("query failed: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 propagation record, got %d", count)
+	}
+
+	// Verify idempotency — running again should not create duplicates
+	server.processSwapPropagations()
+	err = server.db.QueryRow("SELECT COUNT(*) FROM swap_propagations WHERE deal_id = 901").Scan(&count)
+	if err != nil {
+		t.Fatalf("query failed: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected still 1 propagation record after re-run, got %d", count)
+	}
+}
+
+func TestProcessSwapPropagations_IgnoresSwapSource(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create two users in the same household
+	cookieA, uidA := loginUser(t, server, "5550003333")
+	_ = cookieA
+	_, uidB := loginUser(t, server, "5550004444")
+
+	// Put both users in the same household (users auto-get solo households on login,
+	// so we update existing entries rather than inserting new ones)
+	server.db.Exec("INSERT OR IGNORE INTO households (id) VALUES (902)")
+	server.db.Exec("UPDATE household_members SET household_id = 902 WHERE user_id = ?", uidA)
+	server.db.Exec("UPDATE household_members SET household_id = 902 WHERE user_id = ?", uidB)
+	server.db.Exec("UPDATE users SET household_id = 902 WHERE id IN (?, ?)", uidA, uidB)
+
+	// Create a brand deal (use high ID to avoid conflicts with seeded deals)
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, status)
+		VALUES (902, 'Old Brand Juice', 'FreshCo', 'FreshCo Juice', 30, 5000, 'active')`)
+
+	// User A accepts the swap
+	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, action, created_at)
+		VALUES (?, 902, 'accepted', datetime('now', '-1 day'))`, uidA)
+
+	// User B adds an item with the same brand, but via 'swap' source (NOT organic)
+	server.db.Exec(`INSERT INTO list_items (user_id, name, brand, source, created_at)
+		VALUES (?, 'FreshCo Juice', 'FreshCo', 'swap', datetime('now'))`, uidB)
+
+	// Run propagation detection
+	server.processSwapPropagations()
+
+	// Verify NO propagation record exists (swap source should be excluded)
+	var count int
+	err := server.db.QueryRow("SELECT COUNT(*) FROM swap_propagations WHERE deal_id = 902").Scan(&count)
+	if err != nil {
+		t.Fatalf("query failed: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 propagation records for swap-source items, got %d", count)
+	}
+}
+
+func TestSwapPropagations_AdminOnly(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Non-admin user
+	cookie, _ := loginUser(t, server, "5550005555")
+	rr := doRequest(server.handleSwapPropagations, "GET", "/api/admin/swap-propagations", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+
+	// Admin user (phone matches AdminPhone "3104861833")
+	adminCookie, _ := loginUser(t, server, "3104861833")
+	rr = doRequest(server.handleSwapPropagations, "GET", "/api/admin/swap-propagations", nil, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for admin, got %d", rr.Code)
+	}
+}
+
+// --- Store System Tests ---
+
+func TestStores_TableExists(t *testing.T) {
+	db, err := initDB(":memory:")
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM stores").Scan(&count)
+	if err != nil {
+		t.Errorf("stores table doesn't exist: %v", err)
+	}
+	err = db.QueryRow("SELECT COUNT(*) FROM store_prices").Scan(&count)
+	if err != nil {
+		t.Errorf("store_prices table doesn't exist: %v", err)
+	}
+}
+
+func TestUpsertStore_CreateAndFind(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	id1, err := server.upsertStore("Kroger #123", "Kroger", "100 Main St", "Austin", "TX", "78701", "", nil, nil)
+	if err != nil {
+		t.Fatalf("upsertStore: %v", err)
+	}
+	if id1 == 0 {
+		t.Fatal("expected non-zero store ID")
+	}
+
+	id2, err := server.upsertStore("Kroger #123", "Kroger", "100 Main St", "Austin", "TX", "78701", "", nil, nil)
+	if err != nil {
+		t.Fatalf("upsertStore second call: %v", err)
+	}
+	if id2 != id1 {
+		t.Errorf("expected same ID %d on upsert, got %d", id1, id2)
+	}
+
+	id3, err := server.upsertStore("Kroger #456", "Kroger", "200 Oak Ave", "Austin", "TX", "78702", "", nil, nil)
+	if err != nil {
+		t.Fatalf("upsertStore new store: %v", err)
+	}
+	if id3 == id1 {
+		t.Errorf("expected different ID for different store, got same %d", id3)
+	}
+}
+
+func TestUpsertStore_WithCoordinates(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	lat, lng := 30.2672, -97.7431
+	id, err := server.upsertStore("HEB #5", "HEB", "300 Elm St", "Austin", "TX", "78703", "ChIJ123", &lat, &lng)
+	if err != nil {
+		t.Fatalf("upsertStore with coords: %v", err)
+	}
+
+	var gotLat, gotLng float64
+	server.db.QueryRow("SELECT latitude, longitude FROM stores WHERE id = ?", id).Scan(&gotLat, &gotLng)
+	if gotLat < 30.26 || gotLat > 30.27 {
+		t.Errorf("expected lat ~30.267, got %f", gotLat)
+	}
+}
+
+func TestRecordStorePrice(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	id, _ := server.upsertStore("TestStore", "TestChain", "1 Test St", "City", "ST", "00000", "", nil, nil)
+	server.recordStorePrice(id, "Whole Milk 1gal", "DairyPure", 399, 1, "receipt")
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM store_prices WHERE store_id = ?", id).Scan(&count)
+	if count != 1 {
+		t.Errorf("expected 1 price observation, got %d", count)
+	}
+}
+
+func TestRecordStorePrice_SkipsInvalid(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	server.recordStorePrice(0, "Product", "Brand", 100, 0, "receipt")
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM store_prices").Scan(&count)
+	if count != 0 {
+		t.Errorf("expected 0 prices for zero store ID, got %d", count)
+	}
+
+	id, _ := server.upsertStore("Store", "Chain", "Addr", "City", "ST", "00000", "", nil, nil)
+	server.recordStorePrice(id, "", "Brand", 100, 0, "receipt")
+	server.db.QueryRow("SELECT COUNT(*) FROM store_prices").Scan(&count)
+	if count != 0 {
+		t.Errorf("expected 0 prices for empty product, got %d", count)
+	}
+}
+
+func TestHandleStores_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleStores, "GET", "/api/stores", nil, nil)
+	if rr.Code == http.StatusOK {
+		t.Errorf("expected non-200 without auth, got %d", rr.Code)
+	}
+}
+
+func TestHandleStores_ReturnsStores(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	server.upsertStore("Kroger #1", "Kroger", "100 Main St", "Austin", "TX", "78701", "", nil, nil)
+	server.upsertStore("HEB #5", "HEB", "200 Oak Ave", "Austin", "TX", "78702", "", nil, nil)
+
+	rr := doRequest(server.handleStores, "GET", "/api/stores", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var stores []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &stores)
+	if len(stores) != 2 {
+		t.Errorf("expected 2 stores, got %d", len(stores))
+	}
+}
+
+func TestHandleStores_Search(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	server.upsertStore("Kroger #1", "Kroger", "100 Main St", "Austin", "TX", "78701", "", nil, nil)
+	server.upsertStore("HEB #5", "HEB", "200 Oak Ave", "Austin", "TX", "78702", "", nil, nil)
+
+	rr := doRequest(server.handleStores, "GET", "/api/stores?q=kroger", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("search: expected 200, got %d", rr.Code)
+	}
+	var stores []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &stores)
+	if len(stores) != 1 {
+		t.Errorf("search 'kroger': expected 1, got %d", len(stores))
+	}
+
+	rr = doRequest(server.handleStores, "GET", "/api/stores?chain=HEB", nil, []*http.Cookie{cookie})
+	json.Unmarshal(rr.Body.Bytes(), &stores)
+	if len(stores) != 1 {
+		t.Errorf("chain filter 'HEB': expected 1, got %d", len(stores))
+	}
+}
+
+func TestHandleStorePrices_ReturnsHistory(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	id, _ := server.upsertStore("TestStore", "Chain", "Addr", "City", "ST", "00000", "", nil, nil)
+	server.recordStorePrice(id, "Milk 1gal", "DairyPure", 399, 1, "receipt")
+
+	rr := doRequest(server.handleStorePrices, "GET", fmt.Sprintf("/api/stores/%d/prices", id), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var prices []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &prices)
+	if len(prices) != 1 {
+		t.Errorf("expected 1 price entry, got %d", len(prices))
+	}
+}
+
+func TestAdminStoreStats_AdminOnly(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	cookie, _ := loginUser(t, server, "5559999999")
+	rr := doRequest(server.handleAdminStoreStats, "GET", "/api/admin/store-stats", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+
+	adminCookie, _ := loginUser(t, server, "3104861833")
+	rr = doRequest(server.handleAdminStoreStats, "GET", "/api/admin/store-stats", nil, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for admin, got %d", rr.Code)
+	}
+}
+
+func TestReceipts_StoreIDColumn(t *testing.T) {
+	db, err := initDB(":memory:")
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec("SELECT store_id FROM receipts LIMIT 0")
+	if err != nil {
+		t.Errorf("receipts.store_id column missing: %v", err)
+	}
+
+	_, err = db.Exec("SELECT store_id FROM shopping_trips LIMIT 0")
+	if err != nil {
+		t.Errorf("shopping_trips.store_id column missing: %v", err)
+	}
+}
+
