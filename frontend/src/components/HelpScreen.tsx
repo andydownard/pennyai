@@ -1,9 +1,6 @@
 import { useState } from 'react'
 import { ScreenTransition } from './ScreenTransition'
-import {
-  BRAND, TEXT, TEXT_SECONDARY, BORDER, WHITE, FONT,
-  pageStyles,
-} from '../styles'
+import { FONT, pageStyles } from '../styles'
 
 interface HelpScreenProps {
   showToast: (msg: string, type?: 'success' | 'error') => void
@@ -64,31 +61,31 @@ export function HelpScreen({
 
           {/* FAQ Section */}
           <div>
-            <h2 style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 700, color: TEXT, marginBottom: '16px' }}>
+            <h2 style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 700, color: 'var(--text)', marginBottom: '16px' }}>
               Frequently Asked Questions
             </h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0px', borderRadius: '12px', overflow: 'hidden', border: `1px solid ${BORDER}` }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0px', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--border)' }}>
               {faqs.map((faq, i) => (
                 <div key={i}>
-                  {i > 0 && <div style={{ height: '1px', backgroundColor: BORDER }} />}
+                  {i > 0 && <div style={{ height: '1px', backgroundColor: 'var(--border)' }} />}
                   <button
                     onClick={() => setOpenFaq(openFaq === i ? null : i)}
                     style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                       width: '100%', padding: '14px 16px',
-                      backgroundColor: openFaq === i ? `${BRAND}08` : WHITE,
+                      backgroundColor: openFaq === i ? 'color-mix(in srgb, var(--brand) 3%, transparent)' : 'var(--surface)',
                       border: 'none', cursor: 'pointer', textAlign: 'left',
-                      fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: TEXT,
+                      fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: 'var(--text)',
                       gap: '12px',
                     }}
                   >
                     <span style={{ flex: 1 }}>{faq.q}</span>
                     <span style={{
-                      fontSize: '18px', color: TEXT_SECONDARY, flexShrink: 0,
+                      fontSize: '18px', color: 'var(--text-secondary)', flexShrink: 0,
                       transform: openFaq === i ? 'rotate(180deg)' : 'none',
                       transition: 'transform 0.2s ease',
                     }}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <polyline points="6 9 12 15 18 9"/>
                       </svg>
                     </span>
@@ -101,8 +98,8 @@ export function HelpScreen({
                   }}>
                     <div style={{
                       padding: '0 16px 14px 16px',
-                      fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, lineHeight: 1.5,
-                      backgroundColor: openFaq === i ? `${BRAND}08` : WHITE,
+                      fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.5,
+                      backgroundColor: openFaq === i ? 'color-mix(in srgb, var(--brand) 3%, transparent)' : 'var(--surface)',
                     }}>
                       {faq.a}
                     </div>
@@ -117,25 +114,25 @@ export function HelpScreen({
 
           {/* Bug Report Section */}
           <div>
-            <h2 style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 700, color: TEXT, marginBottom: '4px' }}>
+            <h2 style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
               Report a Bug
             </h2>
-            <p style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, marginBottom: '16px' }}>
+            <p style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
               Found something that doesn't look right? Let us know and we'll fix it.
             </p>
             {bugSubmitted ? (
               <div style={{
                 padding: '20px', borderRadius: '12px',
-                backgroundColor: `${BRAND}10`, textAlign: 'center',
+                backgroundColor: 'color-mix(in srgb, var(--brand) 6%, transparent)', textAlign: 'center',
               }}>
-                <p style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: BRAND }}>
+                <p style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: 'var(--brand)' }}>
                   Thanks for your report! We'll look into it.
                 </p>
                 <button
                   onClick={() => setBugSubmitted(false)}
                   style={{
                     marginTop: '12px', background: 'none', border: 'none', cursor: 'pointer',
-                    fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, textDecoration: 'underline',
+                    fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', textDecoration: 'underline',
                   }}
                 >
                   Submit another report
@@ -151,22 +148,22 @@ export function HelpScreen({
                   rows={5}
                   style={{
                     width: '100%', padding: '13px 16px',
-                    fontSize: '16px', fontFamily: FONT, color: TEXT,
-                    backgroundColor: WHITE, border: `1.5px solid ${BORDER}`,
+                    fontSize: '16px', fontFamily: FONT, color: 'var(--text)',
+                    backgroundColor: 'var(--surface)', border: '1.5px solid var(--border)',
                     borderRadius: '12px', outline: 'none',
                     boxSizing: 'border-box', resize: 'vertical',
                     lineHeight: 1.5,
                   }}
-                  onFocus={e => { e.target.style.borderColor = BRAND }}
-                  onBlur={e => { e.target.style.borderColor = BORDER }}
+                  onFocus={e => { e.target.style.borderColor = 'var(--brand)' }}
+                  onBlur={e => { e.target.style.borderColor = 'var(--border)' }}
                 />
                 <button
                   onClick={handleBugSubmit}
                   disabled={!bugDescription.trim() || bugSubmitting}
                   style={{
                     marginTop: '12px', width: '100%', padding: '14px',
-                    backgroundColor: (!bugDescription.trim() || bugSubmitting) ? `${BRAND}60` : BRAND,
-                    color: WHITE, border: 'none', borderRadius: '12px',
+                    backgroundColor: (!bugDescription.trim() || bugSubmitting) ? 'color-mix(in srgb, var(--brand) 38%, var(--bg))' : 'var(--brand)',
+                    color: '#fff', border: 'none', borderRadius: '12px',
                     fontFamily: FONT, fontSize: '16px', fontWeight: 600,
                     cursor: (!bugDescription.trim() || bugSubmitting) ? 'not-allowed' : 'pointer',
                     transition: 'background-color 0.2s',

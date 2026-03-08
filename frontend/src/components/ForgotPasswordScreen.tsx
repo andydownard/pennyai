@@ -1,6 +1,6 @@
 import { FloatingLabelField } from './FloatingLabelField'
 import {
-  TEXT, TEXT_SECONDARY, FONT,
+  FONT,
   authStyles, pageStyles,
 } from '../styles'
 
@@ -24,10 +24,10 @@ export function ForgotPasswordScreen({
     <div style={authStyles.pageCenter}>
       <div style={authStyles.inner}>
         <div style={{ width: '100%', marginBottom: '24px', textAlign: 'center' }}>
-          <div style={{ fontFamily: FONT, fontSize: '22px', fontWeight: 700, color: TEXT, letterSpacing: '-0.5px', marginBottom: '6px' }}>
+          <div style={{ fontFamily: FONT, fontSize: '22px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.5px', marginBottom: '6px' }}>
             Reset your password
           </div>
-          <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY }}>
+          <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)' }}>
             {resetSent ? "If an account exists with that email, we've sent a reset link." : "Enter your email and we'll send you a reset link."}
           </div>
         </div>

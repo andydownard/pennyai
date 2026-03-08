@@ -1,8 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import {
-  BRAND, BRAND_LIGHT, BG, TEXT, TEXT_SECONDARY, BORDER, WHITE,
-  RADIUS_LG, SHADOW_SM, FONT,
-} from '../styles'
+import { RADIUS_LG, SHADOW_SM, FONT } from '../styles'
 
 interface InsightEntry {
   value: string
@@ -67,7 +64,7 @@ export function PennyInsightsCard({ fetchAPI, onClose, track }: PennyInsightsCar
           <button onClick={onClose} style={styles.closeBtn}>&times;</button>
         </div>
         <div style={styles.body}>
-          <div style={{ color: TEXT_SECONDARY, fontSize: 14, fontFamily: FONT }}>Loading...</div>
+          <div style={{ color: 'var(--text-secondary)', fontSize: 14, fontFamily: FONT }}>Loading...</div>
         </div>
       </div>
     )
@@ -167,10 +164,10 @@ export function PennyInsightsCard({ fetchAPI, onClose, track }: PennyInsightsCar
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    background: WHITE,
+    background: 'var(--surface)',
     borderRadius: RADIUS_LG,
     boxShadow: SHADOW_SM,
-    border: `1px solid ${BORDER}`,
+    border: '1px solid var(--border)',
     margin: '12px 16px',
     overflow: 'hidden',
   },
@@ -179,20 +176,20 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '12px 16px',
-    background: BRAND_LIGHT,
-    borderBottom: `1px solid ${BORDER}`,
+    background: 'color-mix(in srgb, var(--brand) 8%, transparent)',
+    borderBottom: '1px solid var(--border)',
   },
   title: {
     fontSize: 15,
     fontWeight: 600,
-    color: BRAND,
+    color: 'var(--brand)',
     fontFamily: FONT,
   },
   closeBtn: {
     background: 'none',
     border: 'none',
     fontSize: 20,
-    color: TEXT_SECONDARY,
+    color: 'var(--text-secondary)',
     cursor: 'pointer',
     padding: '0 4px',
     lineHeight: 1,
@@ -201,7 +198,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '12px 16px',
   },
   emptyText: {
-    color: TEXT_SECONDARY,
+    color: 'var(--text-secondary)',
     fontSize: 14,
     lineHeight: 1.5,
     fontFamily: FONT,
@@ -213,7 +210,7 @@ const styles: Record<string, React.CSSProperties> = {
   sectionTitle: {
     fontSize: 12,
     fontWeight: 600,
-    color: TEXT_SECONDARY,
+    color: 'var(--text-secondary)',
     textTransform: 'uppercase' as const,
     letterSpacing: '0.5px',
     marginBottom: 8,
@@ -224,18 +221,18 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '6px 0',
-    borderBottom: `1px solid ${BG}`,
+    borderBottom: '1px solid var(--bg)',
   },
   insightLabel: {
     fontSize: 14,
-    color: TEXT,
+    color: 'var(--text)',
     fontFamily: FONT,
     textTransform: 'capitalize' as const,
   },
   insightValue: {
     fontSize: 14,
     fontWeight: 500,
-    color: BRAND,
+    color: 'var(--brand)',
     fontFamily: FONT,
   },
   chips: {
@@ -247,8 +244,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     padding: '4px 10px',
     borderRadius: '999px',
-    background: BRAND_LIGHT,
-    color: BRAND,
+    background: 'color-mix(in srgb, var(--brand) 8%, transparent)',
+    color: 'var(--brand)',
     fontFamily: FONT,
     fontWeight: 500,
   },

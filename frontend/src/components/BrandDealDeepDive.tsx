@@ -1,8 +1,5 @@
 import { useState, useEffect } from 'react'
-import {
-  BRAND, TEXT, TEXT_SECONDARY, BORDER, WHITE, FONT, BG,
-  RADIUS_LG, SHADOW_LG, Z_MODAL, ERROR_RED,
-} from '../styles'
+import { FONT, RADIUS_LG, SHADOW_LG, Z_MODAL } from '../styles'
 
 // --- API response types ---
 
@@ -102,9 +99,9 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
   // --- Shared styles ---
 
   const card: React.CSSProperties = {
-    backgroundColor: WHITE,
+    backgroundColor: 'var(--surface)',
     borderRadius: RADIUS_LG,
-    border: `1px solid ${BORDER}`,
+    border: '1px solid var(--border)',
     padding: '16px',
     marginBottom: '16px',
   }
@@ -113,7 +110,7 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
     fontFamily: FONT,
     fontSize: '15px',
     fontWeight: 700,
-    color: TEXT,
+    color: 'var(--text)',
     marginBottom: '12px',
   }
 
@@ -123,7 +120,7 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
     // Show last 30 days (or fewer if less data)
     const data = days.slice(-30)
     if (data.length === 0) {
-      return <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY }}>No performance data yet.</div>
+      return <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)' }}>No performance data yet.</div>
     }
 
     const maxImpressions = Math.max(...data.map(d => d.impressions), 1)
@@ -154,7 +151,7 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
                   width={barWidth}
                   height={impressionH}
                   rx={2}
-                  fill={`${BRAND}30`}
+                  fill={'color-mix(in srgb, var(--brand) 19%, transparent)'}
                 />
                 {/* Accepts bar (inner, darker) */}
                 <rect
@@ -163,7 +160,7 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
                   width={barWidth}
                   height={acceptH}
                   rx={2}
-                  fill={BRAND}
+                  fill="var(--brand)"
                 />
                 {/* Date label every ~5 bars */}
                 {(i % Math.max(1, Math.floor(data.length / 6)) === 0) && (
@@ -173,7 +170,7 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
                     textAnchor="middle"
                     fontSize="9"
                     fontFamily={FONT}
-                    fill={TEXT_SECONDARY}
+                    fill="var(--text-secondary)"
                   >
                     {day.date.slice(5)}
                   </text>
@@ -184,12 +181,12 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
         </svg>
         <div style={{ display: 'flex', gap: '16px', marginTop: '8px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <div style={{ width: '12px', height: '12px', borderRadius: '2px', backgroundColor: `${BRAND}30` }} />
-            <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>Impressions</span>
+            <div style={{ width: '12px', height: '12px', borderRadius: '2px', backgroundColor: 'color-mix(in srgb, var(--brand) 19%, transparent)' }} />
+            <span style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)' }}>Impressions</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <div style={{ width: '12px', height: '12px', borderRadius: '2px', backgroundColor: BRAND }} />
-            <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>Accepts</span>
+            <div style={{ width: '12px', height: '12px', borderRadius: '2px', backgroundColor: 'var(--brand)' }} />
+            <span style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)' }}>Accepts</span>
           </div>
         </div>
       </div>
@@ -198,7 +195,7 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
 
   function renderDeclineReasons(reasons: DeclineReason[]) {
     if (reasons.length === 0) {
-      return <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY }}>No decline data recorded.</div>
+      return <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)' }}>No decline data recorded.</div>
     }
 
     const maxCount = Math.max(...reasons.map(r => r.count), 1)
@@ -208,14 +205,14 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
         {reasons.map((r, i) => (
           <div key={i} style={{ marginBottom: '10px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-              <span style={{ fontFamily: FONT, fontSize: '13px', color: TEXT }}>{r.reason}</span>
-              <span style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: TEXT }}>{r.count}</span>
+              <span style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text)' }}>{r.reason}</span>
+              <span style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>{r.count}</span>
             </div>
-            <div style={{ width: '100%', height: '8px', backgroundColor: `${BORDER}`, borderRadius: '4px', overflow: 'hidden' }}>
+            <div style={{ width: '100%', height: '8px', backgroundColor: 'var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
               <div style={{
                 width: `${(r.count / maxCount) * 100}%`,
                 height: '100%',
-                backgroundColor: ERROR_RED,
+                backgroundColor: 'var(--error)',
                 borderRadius: '4px',
                 transition: 'width 0.3s ease',
               }} />
@@ -228,7 +225,7 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
 
   function renderRecommendations(recs: Recommendation[]) {
     if (recs.length === 0) {
-      return <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY }}>No recommendations at this time.</div>
+      return <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)' }}>No recommendations at this time.</div>
     }
 
     return (
@@ -237,10 +234,10 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
           const priorityColor = PRIORITY_COLORS[rec.priority] || PRIORITY_COLORS.low
           return (
             <div key={i} style={{
-              backgroundColor: BG,
+              backgroundColor: 'var(--bg)',
               borderRadius: RADIUS_LG,
               padding: '14px',
-              border: `1px solid ${BORDER}`,
+              border: '1px solid var(--border)',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
                 {/* Priority badge */}
@@ -261,19 +258,19 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
                   fontFamily: FONT,
                   fontSize: '10px',
                   fontWeight: 600,
-                  color: TEXT_SECONDARY,
-                  backgroundColor: WHITE,
-                  border: `1px solid ${BORDER}`,
+                  color: 'var(--text-secondary)',
+                  backgroundColor: 'var(--surface)',
+                  border: '1px solid var(--border)',
                   padding: '2px 8px',
                   borderRadius: '999px',
                 }}>
                   {rec.category}
                 </span>
               </div>
-              <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT, marginBottom: '4px' }}>
+              <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
                 {rec.title}
               </div>
-              <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, lineHeight: '1.4' }}>
+              <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
                 {rec.description}
               </div>
             </div>
@@ -311,28 +308,28 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
         {stats.map(s => {
           // Highlight accept rate vs category avg
-          let valueColor = TEXT
+          let valueColor = 'var(--text)'
           if (s.label === 'Accept Rate' && metrics.accept_rate >= metrics.category_avg_rate) {
             valueColor = '#276749' // success green
           } else if (s.label === 'Accept Rate' && metrics.accept_rate < metrics.category_avg_rate) {
-            valueColor = ERROR_RED
+            valueColor = 'var(--error)'
           }
 
           return (
             <div key={s.label} style={{
-              backgroundColor: WHITE,
+              backgroundColor: 'var(--surface)',
               borderRadius: RADIUS_LG,
               padding: '14px',
-              border: `1px solid ${BORDER}`,
+              border: '1px solid var(--border)',
             }}>
-              <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              <div style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 {s.label}
               </div>
               <div style={{ fontFamily: FONT, fontSize: '22px', fontWeight: 700, color: valueColor }}>
                 {s.value}
               </div>
               {s.detail && (
-                <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginTop: '2px' }}>
+                <div style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                   {s.detail}
                 </div>
               )}
@@ -363,7 +360,7 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
         width: '100%',
         maxWidth: '520px',
         maxHeight: '90vh',
-        backgroundColor: BG,
+        backgroundColor: 'var(--bg)',
         borderRadius: '16px',
         boxShadow: SHADOW_LG,
         display: 'flex',
@@ -376,11 +373,11 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '16px 20px',
-          backgroundColor: WHITE,
-          borderBottom: `1px solid ${BORDER}`,
+          backgroundColor: 'var(--surface)',
+          borderBottom: '1px solid var(--border)',
           flexShrink: 0,
         }}>
-          <div style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: TEXT }}>
+          <div style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: 'var(--text)' }}>
             Deal Deep Dive
           </div>
           <button
@@ -389,15 +386,15 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
               width: '32px',
               height: '32px',
               borderRadius: '999px',
-              border: `1px solid ${BORDER}`,
-              backgroundColor: BG,
+              border: '1px solid var(--border)',
+              backgroundColor: 'var(--bg)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               cursor: 'pointer',
               fontFamily: FONT,
               fontSize: '16px',
-              color: TEXT_SECONDARY,
+              color: 'var(--text-secondary)',
               lineHeight: 1,
               padding: 0,
             }}
@@ -410,13 +407,13 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
         {/* Scrollable body */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 24px' }}>
           {loading && (
-            <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>
+            <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>
               Loading deal analytics...
             </div>
           )}
 
           {error && (
-            <div style={{ fontFamily: FONT, fontSize: '15px', color: ERROR_RED, textAlign: 'center', padding: '40px 0' }}>
+            <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--error)', textAlign: 'center', padding: '40px 0' }}>
               {error}
             </div>
           )}

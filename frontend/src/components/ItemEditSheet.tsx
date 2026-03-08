@@ -2,9 +2,7 @@ import { BrandLogo } from './BrandLogo'
 import { FloatingLabelField } from './FloatingLabelField'
 import { SectionHeader } from './ActionSheet'
 import { type ListItem } from './ItemRow'
-import {
-  BRAND, TEXT, TEXT_SECONDARY, BORDER, WHITE, FONT, DEPARTMENTS,
-} from '../styles'
+import { FONT, DEPARTMENTS } from '../styles'
 import { type ItemModification } from '../types'
 
 interface EditForm {
@@ -54,15 +52,15 @@ export function ItemEditSheet({
   return (
     <div style={listStyles.overlay} onClick={() => onClose()} role="presentation">
       <div role="dialog" aria-modal="true" aria-label="Edit item" style={{
-        width: '100%', height: '100dvh', backgroundColor: WHITE,
+        width: '100%', height: '100dvh', backgroundColor: 'var(--surface)',
         display: 'flex', flexDirection: 'column' as const,
       }} onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
-          <button onClick={() => onClose()} aria-label="Close edit item" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', color: TEXT }}>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          <button onClick={() => onClose()} aria-label="Close edit item" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', color: 'var(--text)' }}>
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M15 5L5 15M5 5l10 10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
           </button>
-          <span style={{ flex: 1, textAlign: 'center', fontFamily: FONT, fontSize: '17px', fontWeight: 600, color: TEXT }}>Edit item</span>
+          <span style={{ flex: 1, textAlign: 'center', fontFamily: FONT, fontSize: '17px', fontWeight: 600, color: 'var(--text)' }}>Edit item</span>
           <div style={{ width: '28px' }} />
         </div>
         {/* Scrollable content */}
@@ -141,19 +139,19 @@ export function ItemEditSheet({
         </FloatingLabelField>
 
         {/* Urgent toggle */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderTop: `1px solid ${BORDER}`, marginTop: '4px' }}>
-          <span style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>🔥 Urgent</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderTop: '1px solid var(--border)', marginTop: '4px' }}>
+          <span style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text)' }}>🔥 Urgent</span>
           <ToggleSwitch label="Urgent" value={item.urgent} onChange={() => { onUrgentToggle(item.id); setSelectedItem(prev => prev ? { ...prev, urgent: !prev.urgent } : prev) }} />
         </div>
 
         {/* Claim UI */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: `1px solid ${BORDER}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={item.claimed_by_id ? BRAND : TEXT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={item.claimed_by_id ? 'var(--brand)' : 'var(--text)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
               <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
             </svg>
-            <span style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>
+            <span style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text)' }}>
               {!item.claimed_by_id ? "I'll get it" : item.claimed_by_id === currentUserId ? "You're getting this" : `${item.claimed_by_name} is getting this`}
             </span>
           </div>
@@ -170,7 +168,7 @@ export function ItemEditSheet({
         </div>
 
         {itemHistory.length > 0 && (
-          <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${BORDER}` }}>
+          <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
             <SectionHeader label="History" />
             {itemHistory.map((mod, i) => {
               const name = mod.user_name || 'Someone'
@@ -199,10 +197,10 @@ export function ItemEditSheet({
               return (
                 <div key={i} style={{
                   padding: '6px 0',
-                  borderBottom: i < itemHistory.length - 1 ? `1px solid ${BORDER}` : 'none',
+                  borderBottom: i < itemHistory.length - 1 ? '1px solid var(--border)' : 'none',
                   fontFamily: FONT,
                   fontSize: '12px',
-                  color: TEXT_SECONDARY,
+                  color: 'var(--text-secondary)',
                 }}>
                   {description}
                   {ago && <span> · {ago}</span>}
@@ -213,7 +211,7 @@ export function ItemEditSheet({
         )}
         </div>
         {/* Anchored bottom buttons */}
-        <div style={{ flexShrink: 0, padding: '16px 20px', paddingBottom: 'max(16px, env(safe-area-inset-bottom))', borderTop: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column' as const, gap: '8px' }}>
+        <div style={{ flexShrink: 0, padding: '16px 20px', paddingBottom: 'max(16px, env(safe-area-inset-bottom))', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column' as const, gap: '8px' }}>
           <button
             onClick={onSave}
             disabled={!editForm.name.trim() || editLoading}

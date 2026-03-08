@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useFocusTrap } from './ActionSheet'
-import { FONT, ERROR_RED } from '../styles'
+import { FONT } from '../styles'
 
 export function ConfirmModal({ open, title, message, confirmLabel, onConfirm, onCancel, destructive }: {
   open: boolean
@@ -42,7 +42,7 @@ export function ConfirmModal({ open, title, message, confirmLabel, onConfirm, on
           <button onClick={onConfirm} style={{
             flex: 1, padding: '12px', border: 'none', background: 'none',
             fontSize: '17px', fontWeight: 600, fontFamily: FONT, cursor: 'pointer',
-            color: destructive ? ERROR_RED : '#007AFF',
+            color: destructive ? 'var(--error)' : '#007AFF',
           }}>{confirmLabel || 'Confirm'}</button>
         </div>
       </div>

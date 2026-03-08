@@ -1,10 +1,7 @@
 import { PennyAvatar } from './PennyAvatar'
 import { FloatingLabelField } from './FloatingLabelField'
 import { LegalLinks } from './LegalLinks'
-import {
-  BRAND, TEXT, TEXT_SECONDARY, FONT,
-  formatPhone, authStyles, pageStyles,
-} from '../styles'
+import { FONT, formatPhone, authStyles, pageStyles } from '../styles'
 
 interface PhoneScreenProps {
   phone: string
@@ -36,7 +33,7 @@ export function PhoneScreen({
           <PennyAvatar size={130} />
           <div style={{
             fontFamily: FONT, fontSize: '18px', fontWeight: 500,
-            color: TEXT, lineHeight: 1.5, fontStyle: 'italic',
+            color: 'var(--text)', lineHeight: 1.5, fontStyle: 'italic',
             textAlign: 'left', marginTop: '16px',
             minHeight: '54px', maxWidth: '320px', width: '100%',
           }}>{loginPennyText}<span style={{ opacity: 0.4 }} className="cursor-blink">|</span></div>
@@ -70,9 +67,9 @@ export function PhoneScreen({
             type="checkbox"
             checked={smsOptIn}
             onChange={e => onSmsOptInChange(e.target.checked)}
-            style={{ accentColor: BRAND, width: '16px', height: '16px', flexShrink: 0, marginTop: '1px' }}
+            style={{ accentColor: 'var(--brand)', width: '16px', height: '16px', flexShrink: 0, marginTop: '1px' }}
           />
-          <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, lineHeight: 1.5, whiteSpace: 'nowrap' }}>
+          <span style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5, whiteSpace: 'nowrap' }}>
             I agree to receive a one-time login code via text
           </span>
         </label>

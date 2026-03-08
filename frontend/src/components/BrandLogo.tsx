@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { SKELETON, TEXT_SECONDARY, FONT } from '../styles'
+import { FONT } from '../styles'
 
 export function BrandLogo({ brand, size = 52, opacity = 1 }: { brand?: string; size?: number; opacity?: number }) {
   const [failed, setFailed] = useState(false)
@@ -25,9 +25,9 @@ export function BrandLogo({ brand, size = 52, opacity = 1 }: { brand?: string; s
       ) : (
         <div style={{
           width: size, height: size, borderRadius: radius,
-          backgroundColor: SKELETON, border: '1px solid rgba(0,0,0,0.06)', opacity,
+          backgroundColor: 'var(--skeleton)', border: '1px solid rgba(0,0,0,0.06)', opacity,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontFamily: FONT, fontSize, fontWeight: 600, color: TEXT_SECONDARY,
+          fontFamily: FONT, fontSize, fontWeight: 600, color: 'var(--text-secondary)',
         }}>
           {monogram}
         </div>

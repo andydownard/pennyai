@@ -1,9 +1,6 @@
 import { BrandLogo } from './BrandLogo'
 import { SwapCard, type SwapOffer } from './SwapCard'
-import {
-  BRAND, TEXT, TEXT_SECONDARY, WHITE, FONT, BORDER,
-  ERROR_RED, ERROR_RED_BG, SUCCESS_GREEN, SUCCESS_GREEN_BG, SUCCESS_GREEN_LIGHT,
-} from '../styles'
+import { FONT } from '../styles'
 
 export type ListItem = {
   id: number
@@ -69,7 +66,7 @@ const styles = {
     width: '22px',
     height: '22px',
     borderRadius: '50%',
-    border: `2px solid ${checked ? '#C5C0B8' : BORDER}`,
+    border: `2px solid ${checked ? '#C5C0B8' : 'var(--border)'}`,
     backgroundColor: checked ? '#C5C0B8' : 'transparent',
     display: 'flex',
     alignItems: 'center',
@@ -77,7 +74,7 @@ const styles = {
     flexShrink: 0,
     fontSize: '12px',
     fontWeight: 700,
-    color: WHITE,
+    color: '#fff',
     transition: 'all 0.15s',
   }),
 
@@ -94,7 +91,7 @@ const styles = {
   name: (checked: boolean): React.CSSProperties => ({
     fontFamily: FONT,
     fontSize: '17px',
-    color: checked ? TEXT_SECONDARY : TEXT,
+    color: checked ? 'var(--text-secondary)' : 'var(--text)',
     textDecoration: checked ? 'line-through' : 'none',
     transition: 'all 0.15s',
   }),
@@ -102,7 +99,7 @@ const styles = {
   meta: {
     fontFamily: FONT,
     fontSize: '12px',
-    color: TEXT_SECONDARY,
+    color: 'var(--text-secondary)',
   } as React.CSSProperties,
 }
 
@@ -116,10 +113,10 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onS
         position: 'relative' as const,
         ...(item.checked ? { backgroundColor: 'var(--bg)', opacity: 0.7 } : {}),
         ...(isNew ? {
-          backgroundColor: `${BRAND}15`,
+          backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)',
           transition: 'background-color 1.5s ease',
         } : {}),
-        ...(!item.checked && item.urgent ? { backgroundColor: ERROR_RED_BG } : {}),
+        ...(!item.checked && item.urgent ? { backgroundColor: 'var(--error-bg)' } : {}),
       }}>
         <button onClick={() => onToggle(item.id)} style={styles.checkBtn} aria-label={`${item.checked ? 'Uncheck' : 'Check off'} ${item.brand && !item.name.toLowerCase().includes(item.brand.toLowerCase()) ? item.brand + ' ' : ''}${item.name}`}>
           <span style={styles.check(item.checked)} aria-hidden="true">
@@ -139,7 +136,7 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onS
             </span>
           )}
           {ts && (
-            <span style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY }}>
+            <span style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)' }}>
               {ts}
             </span>
           )}
@@ -148,14 +145,14 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onS
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end', flexShrink: 0, paddingRight: '12px' }}>
             {item.swap_savings_cents > 0 && (
               <span style={{
-                backgroundColor: SUCCESS_GREEN_BG, color: SUCCESS_GREEN, border: `1px solid ${SUCCESS_GREEN_LIGHT}`,
+                backgroundColor: 'var(--success-bg)', color: 'var(--success)', border: '1px solid color-mix(in srgb, var(--success) 25%, transparent)',
                 fontSize: '12px', fontWeight: 600, borderRadius: '10px', padding: '2px 8px',
                 whiteSpace: 'nowrap',
               }}>Saved ${(item.swap_savings_cents / 100).toFixed(2)}</span>
             )}
             {item.urgent && (
               <span style={{
-                backgroundColor: ERROR_RED_BG, color: ERROR_RED, border: `1px solid ${ERROR_RED}40`,
+                backgroundColor: 'var(--error-bg)', color: 'var(--error)', border: '1px solid color-mix(in srgb, var(--error) 25%, transparent)',
                 fontSize: '12px', fontWeight: 600, borderRadius: '10px', padding: '2px 8px',
                 whiteSpace: 'nowrap',
               }}>🔥 urgent</span>
@@ -165,7 +162,7 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onS
                 fontSize: '12px', fontWeight: 600, borderRadius: '10px', padding: '2px 8px',
                 whiteSpace: 'nowrap',
                 ...(item.claimed_by_id === currentUserId
-                  ? { backgroundColor: SUCCESS_GREEN_BG, color: SUCCESS_GREEN, border: `1px solid ${SUCCESS_GREEN_LIGHT}` }
+                  ? { backgroundColor: 'var(--success-bg)', color: 'var(--success)', border: '1px solid color-mix(in srgb, var(--success) 25%, transparent)' }
                   : { backgroundColor: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)' }),
               }}>
                 {item.claimed_by_id === currentUserId ? 'Me' : (item.claimed_by_name?.[0] || '?')}

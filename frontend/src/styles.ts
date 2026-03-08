@@ -53,6 +53,7 @@ export const THEME_CSS = `
     --warning-bg: #FEF3C7;
     --skeleton: #E8E6E1;
     --skeleton-shimmer: #F2F1ED;
+    --penny-bg: #F5F3EF;
     color-scheme: light;
   }
 
@@ -72,6 +73,7 @@ export const THEME_CSS = `
     --warning-bg: #331F12;
     --skeleton: #2D2D2D;
     --skeleton-shimmer: #3A3A3A;
+    --penny-bg: #1A1A1A;
     color-scheme: dark;
   }
 `

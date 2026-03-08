@@ -38,11 +38,11 @@ import { ResetPasswordScreen } from './components/ResetPasswordScreen'
 import { ShareScreen } from './components/ShareScreen'
 import { AdminScreen } from './components/AdminScreen'
 import { SharedListScreen } from './components/SharedListScreen'
+import { FeedbackWidget } from './components/FeedbackWidget'
 import { ToggleSwitch } from './components/ToggleSwitch'
 import { type ItemModification } from './types'
 import {
-  BRAND, BG, TEXT, TEXT_SECONDARY, BORDER, ERROR_RED, ERROR_RED_DARK, ERROR_RED_LIGHT,
-  WHITE, FONT, DEPARTMENTS, DEPT_ICONS, SKELETON, SKELETON_SHIMMER,
+  FONT, DEPARTMENTS, DEPT_ICONS,
   THEME_CSS, initTheme, getTheme, setTheme,
 } from './styles'
 
@@ -133,28 +133,28 @@ function Logo() {
       aria-label="Thriftly logo"
     >
       {/* Clipboard body */}
-      <rect x="12" y="10" width="42" height="52" rx="6" stroke={BRAND} strokeWidth="2.5" fill={WHITE} />
+      <rect x="12" y="10" width="42" height="52" rx="6" stroke="var(--brand)" strokeWidth="2.5" fill="var(--surface)" />
 
       {/* Clip tab at top center */}
-      <rect x="25" y="4" width="16" height="10" rx="4" fill={BRAND} />
-      <rect x="29" y="7" width="8" height="4" rx="2" fill={WHITE} />
+      <rect x="25" y="4" width="16" height="10" rx="4" fill="var(--brand)" />
+      <rect x="29" y="7" width="8" height="4" rx="2" fill="var(--surface)" />
 
       {/* List item 1: checked */}
-      <path d="M20 27 L23 30 L28 24" stroke={BRAND} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-      <line x1="33" y1="27" x2="46" y2="27" stroke={BRAND} strokeWidth="2" strokeLinecap="round" opacity="0.7" />
+      <path d="M20 27 L23 30 L28 24" stroke="var(--brand)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="33" y1="27" x2="46" y2="27" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" opacity="0.7" />
 
       {/* List item 2: checked */}
-      <path d="M20 37 L23 40 L28 34" stroke={BRAND} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-      <line x1="33" y1="37" x2="42" y2="37" stroke={BRAND} strokeWidth="2" strokeLinecap="round" opacity="0.7" />
+      <path d="M20 37 L23 40 L28 34" stroke="var(--brand)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="33" y1="37" x2="42" y2="37" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" opacity="0.7" />
 
       {/* List item 3: being written (partial, lighter) */}
-      <circle cx="24" cy="47" r="2" fill={BRAND} opacity="0.3" />
-      <line x1="33" y1="47" x2="39" y2="47" stroke={BRAND} strokeWidth="2" strokeLinecap="round" opacity="0.3" />
+      <circle cx="24" cy="47" r="2" fill="var(--brand)" opacity="0.3" />
+      <line x1="33" y1="47" x2="39" y2="47" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" opacity="0.3" />
 
       {/* AI sparkle — large */}
       <path
         d="M54 14 L56 19 L61 21 L56 23 L54 28 L52 23 L47 21 L52 19 Z"
-        fill={BRAND}
+        fill="var(--brand)"
       >
         <animateTransform
           attributeName="transform"
@@ -169,7 +169,7 @@ function Logo() {
       {/* AI sparkle — small */}
       <path
         d="M60 6 L61 9 L64 10 L61 11 L60 14 L59 11 L56 10 L59 9 Z"
-        fill={BRAND}
+        fill="var(--brand)"
         opacity="0.5"
       />
     </svg>
@@ -197,17 +197,17 @@ function QuantityControl({ value, onChange }: {
   onChange: (newValue: number) => void
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', border: `1.5px solid ${BORDER}`, borderRadius: '12px', backgroundColor: WHITE, flexShrink: 0 }}>
+    <div style={{ display: 'flex', alignItems: 'center', border: '1.5px solid var(--border)', borderRadius: '12px', backgroundColor: 'var(--surface)', flexShrink: 0 }}>
       <button
         onClick={() => onChange(Math.max(1, value - 1))}
         aria-label={`Decrease quantity, currently ${value}`}
-        style={{ width: '38px', height: '42px', border: 'none', background: 'none', fontSize: '17px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        style={{ width: '38px', height: '42px', border: 'none', background: 'none', fontSize: '17px', color: 'var(--brand)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       >−</button>
-      <span aria-live="polite" aria-atomic="true" style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, minWidth: '24px', textAlign: 'center' }}>{value}</span>
+      <span aria-live="polite" aria-atomic="true" style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: 'var(--text)', minWidth: '24px', textAlign: 'center' }}>{value}</span>
       <button
         onClick={() => onChange(value + 1)}
         aria-label={`Increase quantity, currently ${value}`}
-        style={{ width: '38px', height: '42px', border: 'none', background: 'none', fontSize: '17px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        style={{ width: '38px', height: '42px', border: 'none', background: 'none', fontSize: '17px', color: 'var(--brand)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       >+</button>
     </div>
   )
@@ -2043,6 +2043,28 @@ function AppInner() {
     sessionStorage.setItem('nps_dismissed', '1')
   }
 
+  const handleFeedbackSubmit = async (body: string, type: string, urgency: string): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body, type, urgency }),
+      })
+      if (res.ok) {
+        showToast('Got it — your feedback shapes what we build next')
+        return true
+      } else if (res.status === 429) {
+        showToast('Easy — max 10 per hour. Take a breather.', 'error')
+      } else {
+        showToast('Couldn\'t send feedback — try again', 'error')
+      }
+      return false
+    } catch {
+      showToast('No connection — try again later', 'error')
+      return false
+    }
+  }
+
 
   // Push a modal history entry so browser back closes the modal
   const pushModalState = () => {
@@ -2564,7 +2586,7 @@ const handleCodeChange = (index: number, value: string) => {
       <div style={styles.container}>
         <div style={{ ...styles.card, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
           <Logo />
-          <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: 0 }}>Loading…</p>
+          <p style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', margin: 0 }}>Loading…</p>
         </div>
       </div>
     )
@@ -2708,20 +2730,20 @@ const handleCodeChange = (index: number, value: string) => {
     gap: '10px',
     padding: '14px 16px',
     backgroundColor: '#F5F3EF',
-    borderTop: `1px solid ${BORDER}`,
+    borderTop: '1px solid var(--border)',
     fontFamily: FONT,
     fontSize: '15px',
-    color: TEXT,
+    color: 'var(--text)',
     fontWeight: 500,
     zIndex: 40,
     boxShadow: '0 -2px 12px rgba(0,0,0,0.08)',
   } as React.CSSProperties
 
-  const pennyBtnStyle = { background: BRAND, border: 'none', color: WHITE, fontFamily: FONT, fontSize: '12px', fontWeight: 600, cursor: 'pointer', padding: '5px 12px', borderRadius: '12px', flexShrink: 0 } as React.CSSProperties
-  const pennyCloseStyle = { background: 'none', border: 'none', color: TEXT_SECONDARY, fontFamily: FONT, fontSize: '17px', cursor: 'pointer', padding: '8px 12px', lineHeight: 1, flexShrink: 0, opacity: 0.6, minWidth: '44px', minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center' } as React.CSSProperties
+  const pennyBtnStyle = { background: 'var(--brand)', border: 'none', color: '#fff', fontFamily: FONT, fontSize: '12px', fontWeight: 600, cursor: 'pointer', padding: '5px 12px', borderRadius: '12px', flexShrink: 0 } as React.CSSProperties
+  const pennyCloseStyle = { background: 'none', border: 'none', color: 'var(--text-secondary)', fontFamily: FONT, fontSize: '17px', cursor: 'pointer', padding: '8px 12px', lineHeight: 1, flexShrink: 0, opacity: 0.6, minWidth: '44px', minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center' } as React.CSSProperties
 
   const renderPennyToast = () => toast ? (
-    <div role={toast.type === 'error' ? 'alert' : 'status'} style={{ ...pennyBarStyle, backgroundColor: toast.type === 'error' ? ERROR_RED_LIGHT : '#F5F3EF', color: toast.type === 'error' ? ERROR_RED_DARK : TEXT }}>
+    <div role={toast.type === 'error' ? 'alert' : 'status'} style={{ ...pennyBarStyle, backgroundColor: toast.type === 'error' ? 'var(--error-bg)' : '#F5F3EF', color: toast.type === 'error' ? 'var(--error)' : 'var(--text)' }}>
       <PennyAvatar />
       <span style={{ flex: 1 }}>{toast.message}</span>
       {toast.action && (
@@ -2754,7 +2776,7 @@ const handleCodeChange = (index: number, value: string) => {
   const renderPageHeader = (pageName: string, active: Screen) => {
     const isSubScreen = SUB_SCREENS.includes(active)
     return (
-      <div style={{ flexShrink: 0, backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}` }}>
+      <div style={{ flexShrink: 0, backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', position: 'relative' }}>
           {isSubScreen ? (
             <button
@@ -2762,7 +2784,7 @@ const handleCodeChange = (index: number, value: string) => {
               aria-label="Back"
               style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', minWidth: '44px', minHeight: '44px' }}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={TEXT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="15 18 9 12 15 6"/>
               </svg>
             </button>
@@ -2779,7 +2801,7 @@ const handleCodeChange = (index: number, value: string) => {
             fontFamily: FONT,
             fontSize: '15px',
             fontWeight: 600,
-            color: TEXT,
+            color: 'var(--text)',
             display: 'flex',
             alignItems: 'center',
             gap: '6px',
@@ -2789,10 +2811,10 @@ const handleCodeChange = (index: number, value: string) => {
             style={{ marginLeft: 'auto', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1 }}
             onClick={() => setScreen('earnings')}
           >
-            <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: BRAND }}>
+            <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: 'var(--brand)' }}>
               ${(earningsTotalCents / 100).toFixed(2)}
             </span>
-            <span style={{ fontFamily: FONT, fontSize: '10px', color: TEXT_SECONDARY, marginTop: '1px' }}>swaps</span>
+            <span style={{ fontFamily: FONT, fontSize: '10px', color: 'var(--text-secondary)', marginTop: '1px' }}>swaps</span>
           </span>
         </div>
       </div>
@@ -3075,7 +3097,7 @@ const handleCodeChange = (index: number, value: string) => {
     <div style={listStyles.page}>
       <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
       {/* Fixed header — compact */}
-      <div style={{ flexShrink: 0, backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}` }}>
+      <div style={{ flexShrink: 0, backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', position: 'relative' }}>
           <span
             style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: '17px', fontWeight: 700 }}
@@ -3102,8 +3124,8 @@ const handleCodeChange = (index: number, value: string) => {
               placeholder="Shopping List"
               style={{
                 position: 'absolute', left: '50%', transform: 'translateX(-50%)',
-                fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT,
-                background: 'transparent', border: 'none', borderBottom: `1.5px solid ${BRAND}`,
+                fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: 'var(--text)',
+                background: 'transparent', border: 'none', borderBottom: '1.5px solid var(--brand)',
                 outline: 'none', textAlign: 'center', width: '160px', padding: '2px 0',
               }}
             />
@@ -3117,7 +3139,7 @@ const handleCodeChange = (index: number, value: string) => {
                 fontFamily: FONT,
                 fontSize: '15px',
                 fontWeight: 600,
-                color: TEXT,
+                color: 'var(--text)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
@@ -3130,10 +3152,10 @@ const handleCodeChange = (index: number, value: string) => {
             style={{ marginLeft: 'auto', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1 }}
             onClick={() => setScreen('earnings')}
           >
-            <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: BRAND }}>
+            <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: 'var(--brand)' }}>
               ${(earningsTotalCents / 100).toFixed(2)}
             </span>
-            <span style={{ fontFamily: FONT, fontSize: '10px', color: TEXT_SECONDARY, marginTop: '1px' }}>swaps</span>
+            <span style={{ fontFamily: FONT, fontSize: '10px', color: 'var(--text-secondary)', marginTop: '1px' }}>swaps</span>
           </span>
         </div>
         {/* Progress bar */}
@@ -3142,11 +3164,11 @@ const handleCodeChange = (index: number, value: string) => {
           const checkedQty = items.filter(i => i.checked).reduce((s, i) => s + (i.quantity || 1), 0)
           const pct = Math.round((checkedQty / totalQty) * 100)
           return (
-            <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Shopping list ${pct}% complete`} style={{ height: '3px', backgroundColor: BORDER }}>
+            <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Shopping list ${pct}% complete`} style={{ height: '3px', backgroundColor: 'var(--border)' }}>
               <div style={{
                 height: '100%',
                 width: `${pct}%`,
-                backgroundColor: BRAND,
+                backgroundColor: 'var(--brand)',
                 borderRadius: '0 2px 2px 0',
                 transition: 'width 0.3s ease',
               }} />
@@ -3157,15 +3179,15 @@ const handleCodeChange = (index: number, value: string) => {
 
       {/* Trip banner */}
       {activeTrips.length > 0 && (
-        <div style={{ flexShrink: 0, padding: '8px 16px', backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}` }}>
+        <div style={{ flexShrink: 0, padding: '8px 16px', backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
           {activeTrips.map(trip => (
             <div key={trip.id} style={{
               display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px',
-              borderLeft: `3px solid ${trip.is_mine ? BRAND : BORDER}`, borderRadius: '4px',
-              backgroundColor: BG, marginBottom: activeTrips.indexOf(trip) < activeTrips.length - 1 ? '4px' : 0,
+              borderLeft: `3px solid ${trip.is_mine ? 'var(--brand)' : 'var(--border)'}`, borderRadius: '4px',
+              backgroundColor: 'var(--bg)', marginBottom: activeTrips.indexOf(trip) < activeTrips.length - 1 ? '4px' : 0,
             }}>
               {isTripInProgress(trip) && <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4a9470', flexShrink: 0 }} />}
-              <span style={{ flex: 1, fontFamily: FONT, fontSize: '15px', color: TEXT }}>
+              <span style={{ flex: 1, fontFamily: FONT, fontSize: '15px', color: 'var(--text)' }}>
                 <strong>{trip.is_mine ? 'You' : (trip.user_name || 'Someone')}</strong>
                 {' — '}
                 {isTripInProgress(trip) ? 'Shopping now!' : formatTripTime(trip)}
@@ -3186,8 +3208,8 @@ const handleCodeChange = (index: number, value: string) => {
                         setShowDoneSummary(true)
                       }}
                       style={{
-                        fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: WHITE,
-                        backgroundColor: BRAND, border: 'none', borderRadius: '12px',
+                        fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: '#fff',
+                        backgroundColor: 'var(--brand)', border: 'none', borderRadius: '12px',
                         padding: '4px 12px', cursor: 'pointer', whiteSpace: 'nowrap' as const,
                       }}
                     >Done</button>
@@ -3195,7 +3217,7 @@ const handleCodeChange = (index: number, value: string) => {
                   <button
                     onClick={handleCancelTrip}
                     aria-label="Cancel trip"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: TEXT_SECONDARY, display: 'flex' }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: 'var(--text-secondary)', display: 'flex' }}
                   >
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
                   </button>
@@ -3220,7 +3242,7 @@ const handleCodeChange = (index: number, value: string) => {
           <div style={{
             position: 'absolute', top: -40, left: 0, right: 0,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            height: '40px', fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY,
+            height: '40px', fontFamily: FONT, fontSize: '13px', color: 'var(--text-secondary)',
           }}>
             {pullRefreshing ? 'Refreshing...' : pullDistance >= 50 ? 'Release to refresh' : 'Pull to refresh'}
           </div>
@@ -3239,23 +3261,23 @@ const handleCodeChange = (index: number, value: string) => {
             {[1, 2, 3, 4].map(i => (
               <div key={i} style={{
                 display: 'flex', alignItems: 'center', padding: '12px 20px',
-                borderBottom: `1px solid ${BORDER}`, backgroundColor: WHITE,
+                borderBottom: '1px solid var(--border)', backgroundColor: 'var(--surface)',
               }}>
                 <div className="skeleton-shimmer" style={{
                   width: '22px', height: '22px', borderRadius: '50%',
-                  backgroundColor: SKELETON, marginRight: '12px', flexShrink: 0,
+                  backgroundColor: 'var(--skeleton)', marginRight: '12px', flexShrink: 0,
                 }} />
                 <div className="skeleton-shimmer" style={{
                   width: '44px', height: '44px', borderRadius: '8px',
-                  backgroundColor: SKELETON, marginRight: '10px', flexShrink: 0,
+                  backgroundColor: 'var(--skeleton)', marginRight: '10px', flexShrink: 0,
                 }} />
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column' as const, gap: '6px' }}>
                   <div className="skeleton-shimmer" style={{
-                    height: '14px', borderRadius: '4px', backgroundColor: SKELETON,
+                    height: '14px', borderRadius: '4px', backgroundColor: 'var(--skeleton)',
                     width: `${50 + i * 10}%`,
                   }} />
                   <div className="skeleton-shimmer" style={{
-                    height: '10px', borderRadius: '4px', backgroundColor: SKELETON,
+                    height: '10px', borderRadius: '4px', backgroundColor: 'var(--skeleton)',
                     width: `${30 + i * 5}%`,
                   }} />
                 </div>
@@ -3283,7 +3305,7 @@ const handleCodeChange = (index: number, value: string) => {
                   aria-label={`${dept}, ${deptChecked} of ${deptTotal} items checked`}
                 >
                   <span style={{ width: '52px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, paddingLeft: '9px', boxSizing: 'border-box' }} aria-hidden="true">
-                    {deptDone ? <span style={{ color: BRAND, fontSize: '15px' }}>✓</span> : <DeptIcon dept={dept} />}
+                    {deptDone ? <span style={{ color: 'var(--brand)', fontSize: '15px' }}>✓</span> : <DeptIcon dept={dept} />}
                   </span>
                   <span style={deptDone ? { textDecoration: 'line-through', opacity: 0.5 } : undefined}>{dept}</span>
                   <span style={listStyles.deptCount} aria-hidden="true">{deptChecked}/{deptTotal}</span>
@@ -3312,15 +3334,15 @@ const handleCodeChange = (index: number, value: string) => {
       {/* Trip planner suggestion — once per session, 5+ unchecked items, no active trip */}
       {!tripSuggestionDismissed && activeTrips.length === 0 && items.filter(i => !i.checked).length >= 5 && (
         <div style={{
-          flexShrink: 0, padding: '8px 16px', backgroundColor: WHITE,
-          borderTop: `1px solid ${BORDER}`,
+          flexShrink: 0, padding: '8px 16px', backgroundColor: 'var(--surface)',
+          borderTop: '1px solid var(--border)',
           display: 'flex', alignItems: 'center', gap: '10px',
         }}>
-          <span style={{ flex: 1, fontFamily: FONT, fontSize: '14px', color: TEXT }}>
+          <span style={{ flex: 1, fontFamily: FONT, fontSize: '14px', color: 'var(--text)' }}>
             Ready to shop? <button
               onClick={() => { pushModalState(); setShowTripSheet(true) }}
               style={{
-                background: 'none', border: 'none', color: BRAND, fontFamily: FONT,
+                background: 'none', border: 'none', color: 'var(--brand)', fontFamily: FONT,
                 fontSize: '14px', fontWeight: 600, cursor: 'pointer', padding: 0,
                 textDecoration: 'underline', textUnderlineOffset: '2px',
               }}
@@ -3331,7 +3353,7 @@ const handleCodeChange = (index: number, value: string) => {
             aria-label="Dismiss trip suggestion"
             style={{
               background: 'none', border: 'none', cursor: 'pointer', padding: '4px',
-              color: TEXT_SECONDARY, display: 'flex', minWidth: '44px', minHeight: '44px',
+              color: 'var(--text-secondary)', display: 'flex', minWidth: '44px', minHeight: '44px',
               alignItems: 'center', justifyContent: 'center',
             }}
           >
@@ -3354,16 +3376,16 @@ const handleCodeChange = (index: number, value: string) => {
           padding: '24px',
         }}>
           <div role="dialog" aria-modal="true" aria-label="Trip summary" style={{
-            backgroundColor: WHITE, borderRadius: '20px', padding: '32px 24px',
+            backgroundColor: 'var(--surface)', borderRadius: '20px', padding: '32px 24px',
             maxWidth: '360px', width: '100%', textAlign: 'center' as const,
           }}>
             <div style={{ fontSize: '48px', marginBottom: '12px' }}>
               {isFirstTrip ? '🎉' : '✓'}
             </div>
-            <div style={{ fontFamily: FONT, fontSize: '22px', fontWeight: 700, color: TEXT, marginBottom: '4px' }}>
+            <div style={{ fontFamily: FONT, fontSize: '22px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
               {isFirstTrip ? 'First trip complete!' : 'Nice work!'}
             </div>
-            <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, marginBottom: '4px' }}>
+            <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
               {doneSummaryData.checkedCount} of {doneSummaryData.totalCount} item{doneSummaryData.totalCount !== 1 ? 's' : ''} checked off
             </div>
             {/* Trip duration */}
@@ -3375,7 +3397,7 @@ const handleCodeChange = (index: number, value: string) => {
               const remMins = mins % 60
               const durationText = hrs > 0 ? `${hrs}h ${remMins}m` : `${mins} min${mins !== 1 ? 's' : ''}`
               return (
-                <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, marginBottom: '16px' }}>
+                <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
                   {doneSummaryData.checkedCount >= doneSummaryData.totalCount
                     ? `Everything in ${durationText}!`
                     : `${durationText} in the store`}
@@ -3399,8 +3421,8 @@ const handleCodeChange = (index: number, value: string) => {
                 }}
                 style={{
                   width: '100%', padding: '12px', borderRadius: '10px',
-                  border: `1px solid ${BORDER}`, backgroundColor: BG,
-                  fontFamily: FONT, fontSize: '14px', color: TEXT, cursor: 'pointer',
+                  border: '1px solid var(--border)', backgroundColor: 'var(--bg)',
+                  fontFamily: FONT, fontSize: '14px', color: 'var(--text)', cursor: 'pointer',
                   marginBottom: '8px',
                 }}
               >
@@ -3424,7 +3446,7 @@ const handleCodeChange = (index: number, value: string) => {
               }}
               style={{
                 width: '100%', padding: '14px', borderRadius: '10px',
-                backgroundColor: BRAND, color: WHITE, border: 'none',
+                backgroundColor: 'var(--brand)', color: '#fff', border: 'none',
                 fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer',
                 marginBottom: '8px',
               }}
@@ -3436,7 +3458,7 @@ const handleCodeChange = (index: number, value: string) => {
               onClick={() => { setShowDoneSummary(false); setDoneSummaryData(null) }}
               style={{
                 width: '100%', padding: '10px', background: 'none', border: 'none',
-                fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, cursor: 'pointer',
+                fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', cursor: 'pointer',
               }}
             >
               Keep shopping
@@ -3450,12 +3472,12 @@ const handleCodeChange = (index: number, value: string) => {
               }}
               style={{
                 width: '100%', marginTop: '16px', padding: '12px', borderRadius: '10px',
-                border: `1px solid ${BRAND}`, backgroundColor: `${BRAND}08`,
-                fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: BRAND,
+                border: '1px solid var(--brand)', backgroundColor: 'color-mix(in srgb, var(--brand) 3%, transparent)',
+                fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: 'var(--brand)',
                 cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
               }}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
                 <circle cx="12" cy="13" r="4"/>
               </svg>
@@ -3477,7 +3499,7 @@ const handleCodeChange = (index: number, value: string) => {
           }}
           onAnimationEnd={() => setShowDoneOverlay(false)}
         >
-          <span style={{ fontSize: '36px', fontWeight: 700, color: WHITE, fontFamily: FONT, textShadow: '0 2px 12px rgba(0,0,0,0.3)' }}>
+          <span style={{ fontSize: '36px', fontWeight: 700, color: '#fff', fontFamily: FONT, textShadow: '0 2px 12px rgba(0,0,0,0.3)' }}>
             You're done! 🎉
           </span>
         </div>
@@ -3489,8 +3511,8 @@ const handleCodeChange = (index: number, value: string) => {
           position: 'fixed', bottom: '100px', left: '50%', transform: 'translateX(-50%)',
           animation: 'float-up 3000ms cubic-bezier(0.2, 0.6, 0.3, 1) forwards',
           animationDelay: `${i * 600}ms`,
-          fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: BRAND,
-          backgroundColor: WHITE, padding: '6px 14px', borderRadius: '20px',
+          fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: 'var(--brand)',
+          backgroundColor: 'var(--surface)', padding: '6px 14px', borderRadius: '20px',
           boxShadow: '0 2px 8px rgba(0,0,0,0.12)', zIndex: 40,
           pointerEvents: 'none', opacity: 0,
         }} onAnimationEnd={() => setFloatingLabels(prev => prev.filter(l => l.key !== label.key))}>
@@ -3530,10 +3552,10 @@ const handleCodeChange = (index: number, value: string) => {
         }}>
           <div style={{ fontSize: '24px' }}>🎉</div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT }}>
+            <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>
               You saved ${(postSwapShare.savings / 100).toFixed(2)}!
             </div>
-            <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>
+            <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
               Share your smart swap with friends
             </div>
           </div>
@@ -3548,11 +3570,11 @@ const handleCodeChange = (index: number, value: string) => {
             }
             setPostSwapShare(null)
           }} style={{
-            backgroundColor: BRAND, color: '#FFF', border: 'none', borderRadius: '8px',
+            backgroundColor: 'var(--brand)', color: '#FFF', border: 'none', borderRadius: '8px',
             fontFamily: FONT, fontSize: '13px', fontWeight: 600, padding: '8px 14px', cursor: 'pointer',
           }}>Share</button>
           <button onClick={() => setPostSwapShare(null)} style={{
-            background: 'none', border: 'none', color: TEXT_SECONDARY, fontSize: '18px',
+            background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '18px',
             cursor: 'pointer', padding: '4px', lineHeight: 1,
           }}>×</button>
         </div>
@@ -3608,12 +3630,12 @@ const handleCodeChange = (index: number, value: string) => {
       {/* Post-auth join prompt from shared list link */}
       {showJoinPrompt && (
         <div role="presentation" style={{ position: 'fixed', inset: 0, zIndex: 9999, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div role="dialog" aria-modal="true" aria-label="Join shared list" style={{ backgroundColor: WHITE, borderRadius: '16px', padding: '32px 24px', maxWidth: '360px', width: '100%', textAlign: 'center' }}>
+          <div role="dialog" aria-modal="true" aria-label="Join shared list" style={{ backgroundColor: 'var(--surface)', borderRadius: '16px', padding: '32px 24px', maxWidth: '360px', width: '100%', textAlign: 'center' }}>
             <PennyAvatar size={64} />
-            <h2 style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: TEXT, margin: '16px 0 8px' }}>
+            <h2 style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: 'var(--text)', margin: '16px 0 8px' }}>
               {joinPromptName ? `${joinPromptName} wants to shop together!` : 'Shop together!'}
             </h2>
-            <p style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, margin: '0 0 24px', lineHeight: 1.5 }}>
+            <p style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', margin: '0 0 24px', lineHeight: 1.5 }}>
               You'll share one shopping list — items either of you add will show up for both of you.
             </p>
             <button
@@ -3635,13 +3657,13 @@ const handleCodeChange = (index: number, value: string) => {
                 }
                 setShowJoinPrompt(false)
               }}
-              style={{ backgroundColor: BRAND, color: WHITE, border: 'none', borderRadius: '10px', padding: '14px 0', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer', width: '100%', marginBottom: '12px' }}
+              style={{ backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '10px', padding: '14px 0', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer', width: '100%', marginBottom: '12px' }}
             >
               Shop together{joinPromptName ? ` with ${joinPromptName}` : ''}
             </button>
             <button
               onClick={() => setShowJoinPrompt(false)}
-              style={{ background: 'none', border: 'none', fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, cursor: 'pointer', padding: '8px' }}
+              style={{ background: 'none', border: 'none', fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', cursor: 'pointer', padding: '8px' }}
             >
               Start my own list
             </button>
@@ -3751,6 +3773,11 @@ const handleCodeChange = (index: number, value: string) => {
             >Save</button>
         </ActionSheet>
       )}
+
+      {/* Beta feedback FAB — visible on authenticated screens */}
+      {!AUTH_SCREENS.includes(screen) && screen !== 'shared-list' && (
+        <FeedbackWidget onSubmit={handleFeedbackSubmit} />
+      )}
     </div>
     </ScreenTransition>
   )
@@ -3772,7 +3799,7 @@ export default function App() {
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    backgroundColor: BG,
+    backgroundColor: 'var(--bg)',
     fontFamily: FONT,
     display: 'flex',
     flexDirection: 'column' as const,
@@ -3797,7 +3824,7 @@ const styles: Record<string, React.CSSProperties> = {
   error: {
     fontFamily: FONT,
     fontSize: '15px',
-    color: ERROR_RED,
+    color: 'var(--error)',
     margin: '0 0 12px 0',
     fontWeight: 500,
   },
@@ -3812,7 +3839,7 @@ const listStyles = {
     height: '100dvh',
     display: 'flex',
     flexDirection: 'column',
-    backgroundColor: BG,
+    backgroundColor: 'var(--bg)',
     fontFamily: FONT,
     overflow: 'hidden',
   } as React.CSSProperties,
@@ -3822,14 +3849,14 @@ const listStyles = {
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: '16px 20px',
-    backgroundColor: WHITE,
+    backgroundColor: 'var(--surface)',
   } as React.CSSProperties,
 
   headerWordmark: {
     fontFamily: FONT,
     fontSize: '22px',
     fontWeight: 700,
-    color: BRAND,
+    color: 'var(--brand)',
     letterSpacing: '-0.5px',
   } as React.CSSProperties,
 
@@ -3854,13 +3881,13 @@ const listStyles = {
     fontFamily: FONT,
     fontSize: '17px',
     fontWeight: 500,
-    color: TEXT,
+    color: 'var(--text)',
   } as React.CSSProperties,
 
   emptySubtext: {
     fontFamily: FONT,
     fontSize: '15px',
-    color: TEXT_SECONDARY,
+    color: 'var(--text-secondary)',
   } as React.CSSProperties,
 
   deptHeader: (open: boolean, isFirst = false): React.CSSProperties => ({
@@ -3869,18 +3896,18 @@ const listStyles = {
     width: '100%',
     padding: '10px 20px 10px 0',
     marginTop: isFirst ? 0 : '8px',
-    background: open ? `${BRAND}18` : '#F4F2EE',
+    background: open ? 'color-mix(in srgb, var(--brand) 9%, transparent)' : '#F4F2EE',
     border: 'none',
-    borderTop: isFirst ? 'none' : `1px solid ${BORDER}`,
-    borderBottom: `1px solid ${BORDER}`,
-    borderLeft: open ? `3px solid ${BRAND}` : '3px solid transparent',
+    borderTop: isFirst ? 'none' : '1px solid var(--border)',
+    borderBottom: '1px solid var(--border)',
+    borderLeft: open ? '3px solid var(--brand)' : '3px solid transparent',
     cursor: 'pointer',
     textAlign: 'left' as const,
     gap: '0px',
     fontFamily: FONT,
     fontSize: '13px',
     fontWeight: 700,
-    color: open ? BRAND : '#4A4A4A',
+    color: open ? 'var(--brand)' : '#4A4A4A',
     textTransform: 'uppercase' as const,
     letterSpacing: '0.8px',
   }),
@@ -3888,16 +3915,16 @@ const listStyles = {
   deptCount: {
     fontSize: '12px',
     fontWeight: 600,
-    color: BRAND,
+    color: 'var(--brand)',
     marginLeft: 'auto',
-    backgroundColor: `${BRAND}14`,
+    backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)',
     borderRadius: '10px',
     padding: '1px 7px',
   } as React.CSSProperties,
 
   deptChevron: (open: boolean): React.CSSProperties => ({
     fontSize: '17px',
-    color: open ? BRAND : TEXT_SECONDARY,
+    color: open ? 'var(--brand)' : 'var(--text-secondary)',
     transform: open ? 'rotate(90deg)' : 'none',
     transition: 'transform 0.15s, color 0.15s',
     lineHeight: 1,
@@ -3919,7 +3946,7 @@ const listStyles = {
 
   sheet: {
     width: '100%',
-    backgroundColor: WHITE,
+    backgroundColor: 'var(--surface)',
     borderRadius: '20px 20px 0 0',
     padding: '24px 20px',
     paddingBottom: 'max(32px, env(safe-area-inset-bottom))',
@@ -3934,7 +3961,7 @@ const listStyles = {
     fontFamily: FONT,
     fontSize: '17px',
     fontWeight: 600,
-    color: TEXT,
+    color: 'var(--text)',
   } as React.CSSProperties,
 
   sheetRow: {
@@ -3948,9 +3975,9 @@ const listStyles = {
     padding: '13px 16px',
     fontSize: '16px',
     fontFamily: FONT,
-    color: TEXT,
-    backgroundColor: BG,
-    border: `1.5px solid ${BORDER}`,
+    color: 'var(--text)',
+    backgroundColor: 'var(--bg)',
+    border: '1.5px solid var(--border)',
     borderRadius: '12px',
     outline: 'none',
     boxSizing: 'border-box' as const,
@@ -3961,9 +3988,9 @@ const listStyles = {
     padding: '12px 16px',
     fontSize: '16px',
     fontFamily: FONT,
-    color: TEXT,
-    backgroundColor: WHITE,
-    border: `1.5px solid ${BORDER}`,
+    color: 'var(--text)',
+    backgroundColor: 'var(--surface)',
+    border: '1.5px solid var(--border)',
     borderRadius: '12px',
     outline: 'none',
     boxSizing: 'border-box' as const,
@@ -3974,9 +4001,9 @@ const listStyles = {
     padding: '12px 16px',
     fontSize: '16px',
     fontFamily: FONT,
-    color: TEXT,
-    backgroundColor: WHITE,
-    border: `1.5px solid ${BORDER}`,
+    color: 'var(--text)',
+    backgroundColor: 'var(--surface)',
+    border: '1.5px solid var(--border)',
     borderRadius: '12px',
     outline: 'none',
     boxSizing: 'border-box' as const,
@@ -3994,8 +4021,8 @@ const listStyles = {
     fontSize: '16px',
     fontFamily: FONT,
     fontWeight: 600,
-    color: WHITE,
-    backgroundColor: BRAND,
+    color: '#fff',
+    backgroundColor: 'var(--brand)',
     border: 'none',
     borderRadius: '12px',
     cursor: 'pointer',
@@ -4007,9 +4034,9 @@ const listStyles = {
     fontSize: '15px',
     fontFamily: FONT,
     fontWeight: 500,
-    color: ERROR_RED,
+    color: 'var(--error)',
     backgroundColor: 'transparent',
-    border: `1px solid ${ERROR_RED}40`,
+    border: '1px solid color-mix(in srgb, var(--error) 25%, transparent)',
     borderRadius: '12px',
     cursor: 'pointer',
   } as React.CSSProperties,
@@ -4020,7 +4047,7 @@ const listStyles = {
     alignItems: 'center',
     gap: '12px',
     padding: '12px 16px',
-    backgroundColor: BG,
+    backgroundColor: 'var(--bg)',
     borderRadius: '12px',
     cursor: 'pointer',
   } as React.CSSProperties,
@@ -4029,20 +4056,20 @@ const listStyles = {
   subtleLink: {
     fontFamily: FONT,
     fontSize: '13px',
-    color: TEXT_SECONDARY,
+    color: 'var(--text-secondary)',
     background: 'none',
     border: 'none',
     cursor: 'pointer',
     padding: 0,
     textDecoration: 'underline',
-    textDecorationColor: `${TEXT_SECONDARY}40`,
+    textDecorationColor: 'color-mix(in srgb, var(--text-secondary) 25%, transparent)',
     textUnderlineOffset: '2px',
   } as React.CSSProperties,
 
   // Divider line
   divider: {
     height: '1px',
-    backgroundColor: BORDER,
+    backgroundColor: 'var(--border)',
   } as React.CSSProperties,
 }
 
@@ -4063,15 +4090,15 @@ const globalCSS = `
   }
 
   body {
-    background-color: var(--bg, ${BG});
-    color: var(--text, ${TEXT});
+    background-color: var(--bg);
+    color: var(--text);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
   input:focus {
-    border-color: ${BRAND} !important;
-    box-shadow: 0 0 0 3px ${BRAND}18;
+    border-color: var(--brand) !important;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 9%, transparent);
   }
 
   button:active {
@@ -4087,7 +4114,7 @@ const globalCSS = `
 
   /* Selection color */
   ::selection {
-    background-color: ${BRAND}30;
+    background-color: color-mix(in srgb, var(--brand) 19%, transparent);
   }
 
   /* Avatar upload spinner */
@@ -4139,6 +4166,11 @@ const globalCSS = `
     100% { transform: translateY(-340px) scale(1); opacity: 0; }
   }
 
+  @keyframes feedbackSlideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+
   @keyframes done-overlay {
     0% { opacity: 0; }
     15% { opacity: 1; }
@@ -4151,7 +4183,7 @@ const globalCSS = `
     100% { background-position: 200% 0; }
   }
   .skeleton-shimmer {
-    background: linear-gradient(90deg, ${SKELETON} 25%, ${SKELETON_SHIMMER} 50%, ${SKELETON} 75%);
+    background: linear-gradient(90deg, var(--skeleton) 25%, var(--skeleton-shimmer) 50%, var(--skeleton) 75%);
     background-size: 200% 100%;
     animation: skeleton-shimmer 1.8s ease-in-out infinite;
   }
@@ -4177,7 +4209,7 @@ const globalCSS = `
     box-shadow: 0 0 0 3px rgba(74, 148, 112, 0.25) !important;
   }
 
-  button:focus-visible { outline: 2px solid ${BRAND}; outline-offset: 2px; }
+  button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 
   .sr-only { position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0; }
 

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { track } from '../analytics'
 
 const FONT = "'Avenir', 'Avenir Next', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-const PRIMARY = '#35644F'
+// Uses CSS custom properties for dark mode reactivity
 
 interface MilestoneData {
   cents: number
@@ -50,7 +50,7 @@ export function MilestoneCard({ milestone, fetchAPI, onClose }: MilestoneCardPro
         {/* Celebration header */}
         <div style={{ textAlign: 'center', marginBottom: '20px' }}>
           <div style={{ fontSize: '56px', marginBottom: '8px' }}>{emoji}</div>
-          <div style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: PRIMARY, textTransform: 'uppercase' as const, letterSpacing: '2px' }}>
+          <div style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: 'var(--brand)', textTransform: 'uppercase' as const, letterSpacing: '2px' }}>
             Savings Milestone
           </div>
         </div>
@@ -60,17 +60,17 @@ export function MilestoneCard({ milestone, fetchAPI, onClose }: MilestoneCardPro
           textAlign: 'center', padding: '24px', borderRadius: '16px', marginBottom: '20px',
           background: 'linear-gradient(135deg, #F0FFF0 0%, #E8F5E9 100%)',
         }}>
-          <div style={{ fontFamily: FONT, fontSize: '56px', fontWeight: 700, color: PRIMARY }}>
+          <div style={{ fontFamily: FONT, fontSize: '56px', fontWeight: 700, color: 'var(--brand)' }}>
             {milestone.dollars}
           </div>
-          <div style={{ fontFamily: FONT, fontSize: '16px', color: '#666', marginTop: '4px' }}>
+          <div style={{ fontFamily: FONT, fontSize: '16px', color: 'var(--text-secondary)', marginTop: '4px' }}>
             in total savings!
           </div>
         </div>
 
         {/* Motivational message */}
         <div style={{
-          fontFamily: FONT, fontSize: '15px', color: '#444', textAlign: 'center',
+          fontFamily: FONT, fontSize: '15px', color: 'var(--text)', textAlign: 'center',
           lineHeight: '1.5', marginBottom: '24px', padding: '0 8px',
         }}>
           {milestone.cents >= 10000
@@ -83,14 +83,14 @@ export function MilestoneCard({ milestone, fetchAPI, onClose }: MilestoneCardPro
         </div>
 
         {/* Thriftly branding */}
-        <div style={{ textAlign: 'center', fontFamily: FONT, fontSize: '12px', color: '#999', marginBottom: '16px' }}>
+        <div style={{ textAlign: 'center', fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
           thrift.ly
         </div>
 
         {/* Actions */}
         <div style={{ display: 'flex', gap: '12px' }}>
           <button onClick={handleShare} style={{
-            flex: 1, backgroundColor: PRIMARY, color: '#FFF', border: 'none', borderRadius: '12px',
+            flex: 1, backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '12px',
             fontFamily: FONT, fontSize: '15px', fontWeight: 600, padding: '14px', cursor: 'pointer',
           }}>
             {shared ? 'Shared!' : 'Share Achievement'}
@@ -111,12 +111,12 @@ const overlayStyle: React.CSSProperties = {
 }
 
 const cardStyle: React.CSSProperties = {
-  backgroundColor: '#FFF', borderRadius: '20px', padding: '28px',
+  backgroundColor: 'var(--surface)', borderRadius: '20px', padding: '28px',
   maxWidth: '380px', width: '100%', maxHeight: '90vh', overflowY: 'auto',
 }
 
 const closeBtnStyle: React.CSSProperties = {
-  backgroundColor: '#F5F5F5', color: '#666', border: 'none', borderRadius: '12px',
+  backgroundColor: 'var(--bg)', color: 'var(--text-secondary)', border: 'none', borderRadius: '12px',
   fontFamily: "'Avenir', 'Avenir Next', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
   fontSize: '15px', fontWeight: 500, padding: '14px 20px', cursor: 'pointer',
 }

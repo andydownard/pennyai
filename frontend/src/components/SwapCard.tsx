@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { BRAND, TEXT, TEXT_SECONDARY, BORDER, WHITE, ERROR_RED, FONT } from '../styles'
+import { FONT } from '../styles'
 import { BrandLogo } from './BrandLogo'
 import type { DealType } from '../types'
 
@@ -119,13 +119,13 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
       style={{
         margin: '0 0 4px 0',
         borderRadius: '10px',
-        border: `1px solid ${BORDER}`,
+        border: '1px solid var(--border)',
         backgroundColor: 'var(--surface)',
         overflow: 'hidden',
         transition: animState !== 'idle' ? 'opacity 0.3s ease, max-height 0.3s ease' : undefined,
         opacity: animState === 'dismissing' ? 0 : 1,
         maxHeight: animState === 'dismissing' ? '0px' : '500px',
-        ...(animState === 'accepting' ? { backgroundColor: `${BRAND}15` } : {}),
+        ...(animState === 'accepting' ? { backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)' } : {}),
       }}
     >
       {/* Brand Partner disclosure + deal type badge */}
@@ -139,7 +139,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
           fontFamily: FONT,
           fontSize: '11px',
           fontWeight: 500,
-          color: TEXT_SECONDARY,
+          color: 'var(--text-secondary)',
           letterSpacing: '0.3px',
           textTransform: 'uppercase' as const,
         }}>
@@ -148,7 +148,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
         {isBogo && (
           <span style={{
             fontFamily: FONT, fontSize: '10px', fontWeight: 700,
-            color: WHITE, backgroundColor: '#E67E22',
+            color: '#fff', backgroundColor: '#E67E22',
             padding: '2px 6px', borderRadius: '4px',
             letterSpacing: '0.3px', textTransform: 'uppercase' as const,
           }}>2x</span>
@@ -156,7 +156,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
         {isTrial && (
           <span style={{
             fontFamily: FONT, fontSize: '10px', fontWeight: 700,
-            color: WHITE, backgroundColor: '#27AE60',
+            color: '#fff', backgroundColor: '#27AE60',
             padding: '2px 6px', borderRadius: '4px',
             letterSpacing: '0.3px', textTransform: 'uppercase' as const,
           }}>Free Trial</span>
@@ -164,7 +164,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
         {deadlineText && (
           <span style={{
             fontFamily: FONT, fontSize: '10px', fontWeight: 700,
-            color: WHITE, backgroundColor: '#E74C3C',
+            color: '#fff', backgroundColor: '#E74C3C',
             padding: '2px 6px', borderRadius: '4px',
             letterSpacing: '0.3px',
           }}>{deadlineText}</span>
@@ -182,7 +182,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
               fontFamily: FONT,
               fontSize: '15px',
               fontWeight: 600,
-              color: TEXT,
+              color: 'var(--text)',
               lineHeight: 1.3,
             }}>
               {isBogo
@@ -193,7 +193,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
               }
             </div>
             {isTrial && swap.trial_size && (
-              <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>
+              <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                 {swap.trial_size} — keep your original item
               </div>
             )}
@@ -203,7 +203,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
               <div style={{
                 fontFamily: FONT,
                 fontSize: '13px',
-                color: TEXT,
+                color: 'var(--text)',
                 marginTop: '2px',
               }}>
                 {offerPriceLine}
@@ -222,7 +222,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
                   <span style={{
                     fontFamily: FONT,
                     fontSize: '13px',
-                    color: TEXT_SECONDARY,
+                    color: 'var(--text-secondary)',
                   }}>
                     {originalPriceLine}
                   </span>
@@ -235,7 +235,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
                     style={{
                       background: 'none',
                       border: 'none',
-                      color: BRAND,
+                      color: 'var(--brand)',
                       fontFamily: FONT,
                       fontSize: '13px',
                       fontWeight: 600,
@@ -271,7 +271,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
               fontFamily: FONT,
               fontSize: '12px',
               fontWeight: 600,
-              color: TEXT_SECONDARY,
+              color: 'var(--text-secondary)',
               marginBottom: '6px',
             }}>
               Why Penny picked this:
@@ -280,7 +280,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
               <div key={i} style={{
                 fontFamily: FONT,
                 fontSize: '13px',
-                color: TEXT,
+                color: 'var(--text)',
                 lineHeight: 1.5,
                 paddingLeft: '12px',
                 textIndent: '-12px',
@@ -293,7 +293,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
                 fontFamily: FONT,
                 fontSize: '12px',
                 fontWeight: 600,
-                color: ERROR_RED,
+                color: 'var(--error)',
                 marginTop: '6px',
               }}>
                 {swap.allergen_warning}
@@ -314,8 +314,8 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
             style={{
               flex: 1,
               minHeight: '44px',
-              backgroundColor: BRAND,
-              color: WHITE,
+              backgroundColor: 'var(--brand)',
+              color: '#fff',
               border: 'none',
               borderRadius: '10px',
               fontFamily: FONT,
@@ -349,8 +349,8 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
               width: '44px',
               minHeight: '44px',
               backgroundColor: 'transparent',
-              color: TEXT_SECONDARY,
-              border: `1px solid ${BORDER}`,
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border)',
               borderRadius: '10px',
               fontFamily: FONT,
               fontSize: '18px',

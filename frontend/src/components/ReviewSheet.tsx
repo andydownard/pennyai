@@ -1,9 +1,7 @@
 import { ActionSheet } from './ActionSheet'
 import { BrandLogo } from './BrandLogo'
 import { type ListItem } from './ItemRow'
-import {
-  BRAND, TEXT, TEXT_SECONDARY, BORDER, FONT,
-} from '../styles'
+import { FONT } from '../styles'
 
 type SkippedItem = {
   parsed: { name: string; brand: string; quantity: number; size: string; department: string }
@@ -43,34 +41,34 @@ export function ReviewSheet({
               display: 'flex',
               alignItems: 'center',
               padding: '10px 0',
-              borderBottom: `1px solid ${BORDER}`,
+              borderBottom: '1px solid var(--border)',
               gap: '10px',
             }}>
               <BrandLogo brand={item.brand} size={52} />
               <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => onOpenDetail(item)}>
-                <span style={{ fontFamily: FONT, fontSize: '16px', color: TEXT }}>
+                <span style={{ fontFamily: FONT, fontSize: '16px', color: 'var(--text)' }}>
                   {item.brand ? `${item.brand} ` : ''}{item.name}
                 </span>
                 {item.size && (
-                  <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginLeft: '6px' }}>
+                  <span style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '6px' }}>
                     {item.size}
                   </span>
                 )}
-                <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>
-                  {item.department} · <span style={{ color: BRAND, fontSize: '12px' }}>edit</span>
+                <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  {item.department} · <span style={{ color: 'var(--brand)', fontSize: '12px' }}>edit</span>
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0', border: `1.5px solid ${BORDER}`, borderRadius: '10px', overflow: 'hidden', backgroundColor: '#F7F6F3', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0', border: '1.5px solid var(--border)', borderRadius: '10px', overflow: 'hidden', backgroundColor: 'var(--bg)', flexShrink: 0 }}>
                 <button
                   onClick={() => onUpdateQuantity(item, -1)}
                   aria-label={`Decrease quantity of ${item.name}, currently ${item.quantity}`}
-                  style={{ width: '34px', height: '34px', border: 'none', background: 'none', fontSize: '17px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  style={{ width: '34px', height: '34px', border: 'none', background: 'none', fontSize: '17px', color: 'var(--brand)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 >−</button>
-                <span aria-live="polite" aria-atomic="true" style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT, minWidth: '24px', textAlign: 'center' }}>{item.quantity}</span>
+                <span aria-live="polite" aria-atomic="true" style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: 'var(--text)', minWidth: '24px', textAlign: 'center' }}>{item.quantity}</span>
                 <button
                   onClick={() => onUpdateQuantity(item, 1)}
                   aria-label={`Increase quantity of ${item.name}, currently ${item.quantity}`}
-                  style={{ width: '34px', height: '34px', border: 'none', background: 'none', fontSize: '17px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  style={{ width: '34px', height: '34px', border: 'none', background: 'none', fontSize: '17px', color: 'var(--brand)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 >+</button>
               </div>
               <button
@@ -81,9 +79,9 @@ export function ReviewSheet({
                   width: '28px',
                   height: '28px',
                   borderRadius: '50%',
-                  border: `1px solid ${BORDER}`,
+                  border: '1px solid var(--border)',
                   background: 'none',
-                  color: TEXT_SECONDARY,
+                  color: 'var(--text-secondary)',
                   fontSize: '15px',
                   cursor: 'pointer',
                   display: 'flex',
@@ -107,16 +105,16 @@ export function ReviewSheet({
                 display: 'flex',
                 alignItems: 'center',
                 padding: '10px 0',
-                borderBottom: `1px solid ${BORDER}`,
+                borderBottom: '1px solid var(--border)',
                 gap: '10px',
               }}>
                 <BrandLogo brand={skipped.parsed.brand} size={52} />
                 <div style={{ flex: 1, cursor: existing ? 'pointer' : undefined }} onClick={() => existing && onOpenDetail(existing)}>
-                  <span style={{ fontFamily: FONT, fontSize: '16px', color: TEXT }}>
+                  <span style={{ fontFamily: FONT, fontSize: '16px', color: 'var(--text)' }}>
                     {skipped.parsed.brand ? `${skipped.parsed.brand} ` : ''}{skipped.parsed.name}
                   </span>
-                  <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>
-                    On list: {existing?.quantity ?? 1}{existing && <> · <span style={{ color: BRAND, fontSize: '12px' }}>edit</span></>}
+                  <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    On list: {existing?.quantity ?? 1}{existing && <> · <span style={{ color: 'var(--brand)', fontSize: '12px' }}>edit</span></>}
                   </div>
                 </div>
                 <button
@@ -126,9 +124,9 @@ export function ReviewSheet({
                     flexShrink: 0,
                     padding: '6px 14px',
                     borderRadius: '16px',
-                    border: `1.5px solid ${BRAND}`,
+                    border: '1.5px solid var(--brand)',
                     background: 'none',
-                    color: BRAND,
+                    color: 'var(--brand)',
                     fontFamily: FONT,
                     fontSize: '15px',
                     fontWeight: 600,

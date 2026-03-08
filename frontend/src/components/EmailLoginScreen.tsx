@@ -3,7 +3,7 @@ import { PennyAvatar } from './PennyAvatar'
 import { FloatingLabelField } from './FloatingLabelField'
 import { LegalLinks } from './LegalLinks'
 import {
-  BRAND, TEXT, TEXT_SECONDARY, FONT,
+  FONT,
   authStyles, pageStyles,
 } from '../styles'
 
@@ -38,7 +38,7 @@ export function EmailLoginScreen({
           <PennyAvatar size={80} />
           <div style={{
             fontFamily: FONT, fontSize: '15px', fontWeight: 500,
-            color: TEXT, lineHeight: 1.5, fontStyle: 'italic',
+            color: 'var(--text)', lineHeight: 1.5, fontStyle: 'italic',
             textAlign: 'left', marginTop: '12px',
             minHeight: '44px', maxWidth: '320px', width: '100%',
           }}>{loginPennyText}<span style={{ opacity: 0.4 }} className="cursor-blink">|</span></div>
@@ -69,13 +69,13 @@ export function EmailLoginScreen({
               style={{ ...pageStyles.floatingInput, paddingRight: '44px' }}
             />
           </FloatingLabelField>
-          <button type="button" onClick={() => setShowPassword(p => !p)} aria-label={showPassword ? 'Hide password' : 'Show password'} style={{ position: 'absolute', right: '12px', bottom: '12px', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: TEXT_SECONDARY }}>
+          <button type="button" onClick={() => setShowPassword(p => !p)} aria-label={showPassword ? 'Hide password' : 'Show password'} style={{ position: 'absolute', right: '12px', bottom: '12px', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: 'var(--text-secondary)' }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{showPassword ? <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></> : <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>}</svg>
           </button>
         </div>
 
         {error && <p role="alert" style={{ ...authStyles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
-        {magicLinkSent && <p style={{ fontFamily: FONT, fontSize: '14px', color: BRAND, fontWeight: 500, width: '100%', textAlign: 'left' as const, marginBottom: '12px' }}>We sent a sign-in link to your email — check your inbox!</p>}
+        {magicLinkSent && <p style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--brand)', fontWeight: 500, width: '100%', textAlign: 'left' as const, marginBottom: '12px' }}>We sent a sign-in link to your email — check your inbox!</p>}
 
         <button
           onClick={onLogin}

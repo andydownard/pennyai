@@ -1,8 +1,5 @@
 import { LegalLinks } from './LegalLinks'
-import {
-  BRAND, TEXT, TEXT_SECONDARY, BORDER, WHITE, FONT,
-  formatPhone, authStyles,
-} from '../styles'
+import { FONT, formatPhone, authStyles } from '../styles'
 
 interface CodeScreenProps {
   phone: string
@@ -31,10 +28,10 @@ export function CodeScreen({
         <div style={{ width: '100%', marginBottom: '24px', textAlign: 'center' }}>
           <div style={{
             fontFamily: FONT, fontSize: '22px', fontWeight: 700,
-            color: TEXT, letterSpacing: '-0.5px', lineHeight: 1.2,
+            color: 'var(--text)', letterSpacing: '-0.5px', lineHeight: 1.2,
             marginBottom: '6px',
           }}>Check your texts</div>
-          <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, lineHeight: 1.5 }}>
+          <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
             Enter the code sent to {formatPhone(phone)}
           </div>
         </div>
@@ -59,12 +56,12 @@ export function CodeScreen({
               style={{
                 width: '48px', height: '60px',
                 fontSize: '26px', fontFamily: FONT, fontWeight: 700,
-                color: TEXT, textAlign: 'center' as const,
-                backgroundColor: WHITE,
-                border: `2px solid ${digit ? BRAND : BORDER}`,
-                borderRadius: '12px', outline: 'none', caretColor: BRAND,
+                color: 'var(--text)', textAlign: 'center' as const,
+                backgroundColor: 'var(--surface)',
+                border: `2px solid ${digit ? 'var(--brand)' : 'var(--border)'}`,
+                borderRadius: '12px', outline: 'none', caretColor: 'var(--brand)',
                 transition: 'border-color 0.15s, box-shadow 0.15s',
-                boxShadow: digit ? `0 0 0 3px ${BRAND}20` : 'none',
+                boxShadow: digit ? '0 0 0 3px color-mix(in srgb, var(--brand) 12%, transparent)' : 'none',
                 WebkitTextSizeAdjust: '100%',
                 opacity: loading ? 0.5 : 1,
                 boxSizing: 'border-box',
@@ -74,7 +71,7 @@ export function CodeScreen({
         </div>
 
         {loading && (
-          <p style={{ fontFamily: FONT, fontSize: '15px', color: BRAND, fontWeight: 500, margin: '0 0 12px 0' }}>
+          <p style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--brand)', fontWeight: 500, margin: '0 0 12px 0' }}>
             Signing you in…
           </p>
         )}

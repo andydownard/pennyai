@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { ScreenTransition } from './ScreenTransition'
 import { BrandDealDeepDive } from './BrandDealDeepDive'
 import {
-  BRAND, TEXT, TEXT_SECONDARY, BORDER, ERROR_RED, ERROR_RED_BG, WHITE, FONT,
+  FONT,
   pageStyles,
 } from '../styles'
 
@@ -121,7 +121,7 @@ const EMPTY_FORM = {
 }
 
 // --- SVG Sparkline component ---
-function Sparkline({ values, width = 280, height = 60, color = BRAND }: { values: number[]; width?: number; height?: number; color?: string }) {
+function Sparkline({ values, width = 280, height = 60, color = 'var(--brand)' }: { values: number[]; width?: number; height?: number; color?: string }) {
   if (values.length < 2) return null
   const max = Math.max(...values, 1)
   const min = Math.min(...values, 0)
@@ -143,7 +143,7 @@ function Sparkline({ values, width = 280, height = 60, color = BRAND }: { values
 
   return (
     <svg width={width} height={height} style={{ display: 'block', maxWidth: '100%' }}>
-      <path d={areaPath} fill={`${color}20`} />
+      <path d={areaPath} fill={`color-mix(in srgb, ${color} 12%, transparent)`} />
       <polyline
         points={points.join(' ')}
         fill="none"
@@ -163,7 +163,7 @@ function Sparkline({ values, width = 280, height = 60, color = BRAND }: { values
 }
 
 // --- SVG Bar Chart component ---
-function BarChart({ values, labels, width = 280, height = 80, color = BRAND }: { values: number[]; labels?: string[]; width?: number; height?: number; color?: string }) {
+function BarChart({ values, labels, width = 280, height = 80, color = 'var(--brand)' }: { values: number[]; labels?: string[]; width?: number; height?: number; color?: string }) {
   if (values.length === 0) return null
   const max = Math.max(...values, 1)
   const barWidth = Math.max(2, Math.min(12, (width - 20) / values.length - 2))
@@ -182,7 +182,7 @@ function BarChart({ values, labels, width = 280, height = 80, color = BRAND }: {
           <g key={i}>
             <rect x={x} y={y} width={barWidth} height={barH} rx={1} fill={color} opacity={0.8} />
             {labels && labels[i] && i % Math.ceil(values.length / 6) === 0 && (
-              <text x={x + barWidth / 2} y={height - 2} textAnchor="middle" fontSize="8" fill={TEXT_SECONDARY} fontFamily={FONT}>
+              <text x={x + barWidth / 2} y={height - 2} textAnchor="middle" fontSize="8" fill="var(--text-secondary)" fontFamily={FONT}>
                 {labels[i]}
               </text>
             )}
@@ -296,9 +296,9 @@ export function AdminScreen({
 
   const dayOptions = [7, 30, 90]
 
-  const inputStyle = { width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '14px' }
-  const labelStyle = { fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, display: 'block' as const, marginBottom: '2px' }
-  const metricCard: React.CSSProperties = { backgroundColor: WHITE, borderRadius: '12px', padding: '16px', border: `1px solid ${BORDER}` }
+  const inputStyle = { width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', fontFamily: FONT, fontSize: '14px' }
+  const labelStyle = { fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', display: 'block' as const, marginBottom: '2px' }
+  const metricCard: React.CSSProperties = { backgroundColor: 'var(--surface)', borderRadius: '12px', padding: '16px', border: '1px solid var(--border)' }
 
   const TABS: { key: AdminTab; label: string }[] = [
     { key: 'overview', label: 'Overview' },
@@ -310,16 +310,16 @@ export function AdminScreen({
   ]
 
   // Color helpers
-  const riskColor = (score: number) => score > 0.7 ? ERROR_RED : score > 0.5 ? '#D97706' : BRAND
-  const retentionColor = (pct: number) => pct > 50 ? BRAND : pct > 25 ? '#D97706' : ERROR_RED
-  const healthColor = (idx: number) => idx > 70 ? BRAND : idx > 40 ? '#D97706' : ERROR_RED
+  const riskColor = (score: number) => score > 0.7 ? 'var(--error)' : score > 0.5 ? '#D97706' : 'var(--brand)'
+  const retentionColor = (pct: number) => pct > 50 ? 'var(--brand)' : pct > 25 ? '#D97706' : 'var(--error)'
+  const healthColor = (idx: number) => idx > 70 ? 'var(--brand)' : idx > 40 ? '#D97706' : 'var(--error)'
 
   // =====================================================================
   // RENDER: Business Metrics tab
   // =====================================================================
   const renderBusinessMetrics = () => {
-    if (businessLoading) return <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>Loading metrics...</div>
-    if (!businessMetrics || businessMetrics.metrics.length === 0) return <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>No business metrics data available.</div>
+    if (businessLoading) return <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>Loading metrics...</div>
+    if (!businessMetrics || businessMetrics.metrics.length === 0) return <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No business metrics data available.</div>
 
     const metrics = businessMetrics.metrics
     const latest = metrics[metrics.length - 1]
@@ -336,26 +336,26 @@ export function AdminScreen({
         {/* Key metrics cards */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
           <div style={metricCard}>
-            <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '4px' }}>Acceptance Rate</div>
-            <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>
+            <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Acceptance Rate</div>
+            <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: 'var(--text)' }}>
               {latest.acceptance_rate != null ? `${(latest.acceptance_rate * 100).toFixed(1)}%` : 'N/A'}
             </div>
           </div>
           <div style={metricCard}>
-            <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '4px' }}>Gross Revenue</div>
-            <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>
+            <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Gross Revenue</div>
+            <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: 'var(--text)' }}>
               {latest.gross_revenue_cents != null ? `$${(latest.gross_revenue_cents / 100).toFixed(2)}` : 'N/A'}
             </div>
           </div>
           <div style={metricCard}>
-            <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '4px' }}>Active Deals</div>
-            <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>
+            <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Active Deals</div>
+            <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: 'var(--text)' }}>
               {latest.active_deals ?? 'N/A'}
             </div>
           </div>
           <div style={metricCard}>
-            <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '4px' }}>Active Brands</div>
-            <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>
+            <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Active Brands</div>
+            <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: 'var(--text)' }}>
               {latest.active_brands ?? 'N/A'}
             </div>
           </div>
@@ -364,16 +364,16 @@ export function AdminScreen({
         {/* DAU bar chart */}
         <div style={{ ...metricCard, marginBottom: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT }}>DAU (Daily Active Users)</div>
-            <div style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: BRAND }}>{latest.dau}</div>
+            <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>DAU (Daily Active Users)</div>
+            <div style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: 'var(--brand)' }}>{latest.dau}</div>
           </div>
-          <BarChart values={dauValues} labels={dateLabels} width={280} height={70} color={BRAND} />
+          <BarChart values={dauValues} labels={dateLabels} width={280} height={70} color="var(--brand)" />
         </div>
 
         {/* WAU sparkline */}
         <div style={{ ...metricCard, marginBottom: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT }}>WAU (Weekly Active Users)</div>
+            <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>WAU (Weekly Active Users)</div>
             <div style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: '#2D8B5E' }}>{latest.wau}</div>
           </div>
           <Sparkline values={wauValues} width={280} height={60} color="#2D8B5E" />
@@ -382,7 +382,7 @@ export function AdminScreen({
         {/* MAU sparkline */}
         <div style={{ ...metricCard, marginBottom: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT }}>MAU (Monthly Active Users)</div>
+            <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>MAU (Monthly Active Users)</div>
             <div style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: '#1A6B4E' }}>{latest.mau}</div>
           </div>
           <Sparkline values={mauValues} width={280} height={60} color="#1A6B4E" />
@@ -395,20 +395,20 @@ export function AdminScreen({
   // RENDER: Churn Risk tab
   // =====================================================================
   const renderChurnRisk = () => {
-    if (churnLoading) return <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>Loading churn data...</div>
-    if (!churnRisk || churnRisk.at_risk_users.length === 0) return <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>No at-risk users detected.</div>
+    if (churnLoading) return <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>Loading churn data...</div>
+    if (!churnRisk || churnRisk.at_risk_users.length === 0) return <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No at-risk users detected.</div>
 
     return (
       <>
-        <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, marginBottom: '16px' }}>
+        <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
           {churnRisk.count} user{churnRisk.count !== 1 ? 's' : ''} at risk of churning
         </div>
 
         {/* Table header */}
         <div style={{
           display: 'grid', gridTemplateColumns: '1fr 70px 80px 70px',
-          gap: '8px', padding: '8px 0', borderBottom: `2px solid ${BORDER}`,
-          fontFamily: FONT, fontSize: '11px', fontWeight: 700, color: TEXT_SECONDARY, textTransform: 'uppercase' as const,
+          gap: '8px', padding: '8px 0', borderBottom: '2px solid var(--border)',
+          fontFamily: FONT, fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' as const,
         }}>
           <div>Name</div>
           <div style={{ textAlign: 'center' }}>Risk</div>
@@ -426,25 +426,25 @@ export function AdminScreen({
           return (
             <div key={user.user_id} style={{
               display: 'grid', gridTemplateColumns: '1fr 70px 80px 70px',
-              gap: '8px', padding: '10px 0', borderBottom: `1px solid ${BORDER}`,
+              gap: '8px', padding: '10px 0', borderBottom: '1px solid var(--border)',
               alignItems: 'center',
             }}>
-              <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+              <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
                 {user.name || `User #${user.user_id}`}
               </div>
               <div style={{ textAlign: 'center' }}>
                 <span style={{
                   fontFamily: FONT, fontSize: '13px', fontWeight: 700,
-                  color: WHITE, backgroundColor: riskColor(user.composite_risk),
+                  color: '#fff', backgroundColor: riskColor(user.composite_risk),
                   padding: '2px 8px', borderRadius: '10px', display: 'inline-block',
                 }}>
                   {(user.composite_risk * 100).toFixed(0)}%
                 </span>
               </div>
-              <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+              <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
                 {topSignal?.type || '-'}
               </div>
-              <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT, textAlign: 'right', fontWeight: 500 }}>
+              <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text)', textAlign: 'right', fontWeight: 500 }}>
                 {daysSinceActive != null ? `${daysSinceActive}d` : '-'}
               </div>
             </div>
@@ -458,16 +458,16 @@ export function AdminScreen({
   // RENDER: Cohort Retention tab
   // =====================================================================
   const renderCohorts = () => {
-    if (cohortLoading) return <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>Loading cohort data...</div>
-    if (!cohortData || cohortData.cohorts.length === 0) return <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>No cohort data available.</div>
+    if (cohortLoading) return <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>Loading cohort data...</div>
+    if (!cohortData || cohortData.cohorts.length === 0) return <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No cohort data available.</div>
 
     return (
       <>
         {/* Table header */}
         <div style={{
           display: 'grid', gridTemplateColumns: '1fr 55px 60px 65px 55px',
-          gap: '6px', padding: '8px 0', borderBottom: `2px solid ${BORDER}`,
-          fontFamily: FONT, fontSize: '10px', fontWeight: 700, color: TEXT_SECONDARY, textTransform: 'uppercase' as const,
+          gap: '6px', padding: '8px 0', borderBottom: '2px solid var(--border)',
+          fontFamily: FONT, fontSize: '10px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' as const,
         }}>
           <div>Cohort</div>
           <div style={{ textAlign: 'center' }}>Users</div>
@@ -488,28 +488,28 @@ export function AdminScreen({
           return (
             <div key={cohort.cohort_week} style={{
               display: 'grid', gridTemplateColumns: '1fr 55px 60px 65px 55px',
-              gap: '6px', padding: '10px 0', borderBottom: `1px solid ${BORDER}`,
+              gap: '6px', padding: '10px 0', borderBottom: '1px solid var(--border)',
               alignItems: 'center',
             }}>
-              <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT, fontWeight: 500 }}>
+              <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text)', fontWeight: 500 }}>
                 Wk {weekLabel}
               </div>
-              <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT, textAlign: 'center' }}>
+              <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text)', textAlign: 'center' }}>
                 {cohort.user_count}
               </div>
-              <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT, textAlign: 'center' }}>
+              <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text)', textAlign: 'center' }}>
                 {cohort.retained_count}
               </div>
               <div style={{ textAlign: 'center' }}>
                 <span style={{
                   fontFamily: FONT, fontSize: '12px', fontWeight: 700,
-                  color: WHITE, backgroundColor: retentionColor(retentionRate),
+                  color: '#fff', backgroundColor: retentionColor(retentionRate),
                   padding: '2px 8px', borderRadius: '10px', display: 'inline-block',
                 }}>
                   {retentionRate.toFixed(0)}%
                 </span>
               </div>
-              <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT, textAlign: 'right', fontWeight: 500 }}>
+              <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text)', textAlign: 'right', fontWeight: 500 }}>
                 {cohort.avg_swaps.toFixed(1)}
               </div>
             </div>
@@ -523,8 +523,8 @@ export function AdminScreen({
   // RENDER: Marketplace Health tab
   // =====================================================================
   const renderMarketplaceHealth = () => {
-    if (marketplaceLoading) return <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>Loading marketplace health...</div>
-    if (!marketplaceHealth || marketplaceHealth.health.length === 0) return <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>No marketplace health data available.</div>
+    if (marketplaceLoading) return <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>Loading marketplace health...</div>
+    if (!marketplaceHealth || marketplaceHealth.health.length === 0) return <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No marketplace health data available.</div>
 
     const latest = marketplaceHealth.health[marketplaceHealth.health.length - 1]
     const healthValues = marketplaceHealth.health.map(h => h.health_index)
@@ -536,7 +536,7 @@ export function AdminScreen({
           ...metricCard, textAlign: 'center' as const, marginBottom: '20px',
           padding: '24px 16px',
         }}>
-          <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '8px', textTransform: 'uppercase' as const, letterSpacing: '1px' }}>
+          <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' as const, letterSpacing: '1px' }}>
             Marketplace Health Index
           </div>
           <div style={{
@@ -562,7 +562,7 @@ export function AdminScreen({
             { label: 'Balance', value: latest.balance_score },
           ].map(s => (
             <div key={s.label} style={{ ...metricCard, textAlign: 'center' as const, padding: '12px 8px' }}>
-              <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginBottom: '4px' }}>{s.label}</div>
+              <div style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>{s.label}</div>
               <div style={{ fontFamily: FONT, fontSize: '22px', fontWeight: 700, color: healthColor(s.value) }}>
                 {s.value.toFixed(0)}
               </div>
@@ -572,18 +572,18 @@ export function AdminScreen({
 
         {/* Health index trend sparkline */}
         <div style={{ ...metricCard, marginBottom: '20px' }}>
-          <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT, marginBottom: '8px' }}>Health Trend</div>
+          <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)', marginBottom: '8px' }}>Health Trend</div>
           <Sparkline values={healthValues} width={280} height={60} color={healthColor(latest.health_index)} />
         </div>
 
         {/* Daily breakdown table */}
         {marketplaceHealth.health.length > 1 && (
           <>
-            <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT, marginBottom: '8px' }}>Daily Breakdown</div>
+            <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)', marginBottom: '8px' }}>Daily Breakdown</div>
             <div style={{
               display: 'grid', gridTemplateColumns: '1fr 55px 55px 55px 55px',
-              gap: '4px', padding: '8px 0', borderBottom: `2px solid ${BORDER}`,
-              fontFamily: FONT, fontSize: '10px', fontWeight: 700, color: TEXT_SECONDARY, textTransform: 'uppercase' as const,
+              gap: '4px', padding: '8px 0', borderBottom: '2px solid var(--border)',
+              fontFamily: FONT, fontSize: '10px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' as const,
             }}>
               <div>Date</div>
               <div style={{ textAlign: 'center' }}>Supply</div>
@@ -594,10 +594,10 @@ export function AdminScreen({
             {[...marketplaceHealth.health].reverse().slice(0, 14).map(h => (
               <div key={h.date} style={{
                 display: 'grid', gridTemplateColumns: '1fr 55px 55px 55px 55px',
-                gap: '4px', padding: '6px 0', borderBottom: `1px solid ${BORDER}`,
-                fontFamily: FONT, fontSize: '12px', color: TEXT,
+                gap: '4px', padding: '6px 0', borderBottom: '1px solid var(--border)',
+                fontFamily: FONT, fontSize: '12px', color: 'var(--text)',
               }}>
-                <div style={{ color: TEXT_SECONDARY }}>
+                <div style={{ color: 'var(--text-secondary)' }}>
                   {(() => { const d = new Date(h.date); return `${d.getMonth() + 1}/${d.getDate()}` })()}
                 </div>
                 <div style={{ textAlign: 'center' }}>{h.supply_score.toFixed(0)}</div>
@@ -634,8 +634,8 @@ export function AdminScreen({
   }
 
   const urgencyLabel = (urg: string) => {
-    const colors: Record<string, string> = { critical: ERROR_RED, high: '#D97706', normal: TEXT_SECONDARY, low: TEXT_SECONDARY }
-    return <span style={{ fontFamily: FONT, fontSize: '11px', fontWeight: urg === 'critical' || urg === 'high' ? 700 : 400, color: colors[urg] || TEXT_SECONDARY }}>{urg}</span>
+    const colors: Record<string, string> = { critical: 'var(--error)', high: '#D97706', normal: 'var(--text-secondary)', low: 'var(--text-secondary)' }
+    return <span style={{ fontFamily: FONT, fontSize: '11px', fontWeight: urg === 'critical' || urg === 'high' ? 700 : 400, color: colors[urg] || 'var(--text-secondary)' }}>{urg}</span>
   }
 
   const handleTriageFeedback = async (id: number, status: string) => {
@@ -651,8 +651,8 @@ export function AdminScreen({
   }
 
   const renderFeedback = () => {
-    if (feedbackLoading) return <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>Loading feedback...</div>
-    if (!feedbackItems || feedbackItems.length === 0) return <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>No feedback yet.</div>
+    if (feedbackLoading) return <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>Loading feedback...</div>
+    if (!feedbackItems || feedbackItems.length === 0) return <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>No feedback yet.</div>
 
     const filtered = feedbackFilter === 'all' ? feedbackItems : feedbackItems.filter(f => f.status === feedbackFilter)
 
@@ -663,8 +663,8 @@ export function AdminScreen({
           {['all', 'new', 'reviewed', 'roadmapped', 'done'].map(f => (
             <button key={f} onClick={() => setFeedbackFilter(f)} style={{
               padding: '4px 10px', borderRadius: '12px', border: 'none',
-              backgroundColor: feedbackFilter === f ? BRAND : `${BORDER}80`,
-              color: feedbackFilter === f ? WHITE : TEXT,
+              backgroundColor: feedbackFilter === f ? 'var(--brand)' : 'color-mix(in srgb, var(--border) 50%, transparent)',
+              color: feedbackFilter === f ? '#fff' : 'var(--text)',
               fontFamily: FONT, fontSize: '12px', fontWeight: 600, cursor: 'pointer',
               textTransform: 'capitalize' as const,
             }}>{f} {f !== 'all' ? `(${feedbackItems.filter(i => i.status === f).length})` : `(${feedbackItems.length})`}</button>
@@ -675,35 +675,35 @@ export function AdminScreen({
         {filtered.map(f => (
           <div key={f.id} style={{
             ...metricCard, marginBottom: '10px', padding: '14px 16px',
-            borderLeft: `3px solid ${f.urgency === 'critical' ? ERROR_RED : f.urgency === 'high' ? '#D97706' : BORDER}`,
+            borderLeft: `3px solid ${f.urgency === 'critical' ? 'var(--error)' : f.urgency === 'high' ? '#D97706' : 'var(--border)'}`,
           }}>
             {/* Header: type badge + urgency + status */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' as const }}>
               <span style={{
-                padding: '1px 6px', borderRadius: '4px', backgroundColor: `${BRAND}15`,
-                fontFamily: FONT, fontSize: '10px', fontWeight: 700, color: BRAND,
+                padding: '1px 6px', borderRadius: '4px', backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)',
+                fontFamily: FONT, fontSize: '10px', fontWeight: 700, color: 'var(--brand)',
                 textTransform: 'uppercase' as const,
               }}>{f.type}</span>
               {urgencyLabel(f.urgency)}
               {statusBadge(f.status)}
-              <span style={{ marginLeft: 'auto', fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY }}>
+              <span style={{ marginLeft: 'auto', fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)' }}>
                 #{f.id}
               </span>
             </div>
 
             {/* Body */}
-            <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT, lineHeight: 1.5, marginBottom: '8px', whiteSpace: 'pre-wrap' as const }}>
+            <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text)', lineHeight: 1.5, marginBottom: '8px', whiteSpace: 'pre-wrap' as const }}>
               {f.body.length > 300 ? f.body.slice(0, 300) + '...' : f.body}
             </div>
 
             {/* Meta */}
-            <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginBottom: '8px' }}>
+            <div style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
               {f.user_name || `User #${f.user_id}`}
               {f.user_phone ? ` · ${f.user_phone}` : ''}
               {' · '}
               {new Date(f.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
               {f.github_issue_url && (
-                <> · <a href={f.github_issue_url} target="_blank" rel="noopener noreferrer" style={{ color: BRAND }}>GitHub</a></>
+                <> · <a href={f.github_issue_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--brand)' }}>GitHub</a></>
               )}
             </div>
 
@@ -711,20 +711,20 @@ export function AdminScreen({
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
               {f.status !== 'reviewed' && (
                 <button onClick={() => handleTriageFeedback(f.id, 'reviewed')} style={{
-                  padding: '4px 10px', borderRadius: '8px', border: `1px solid ${BORDER}`,
-                  backgroundColor: WHITE, fontFamily: FONT, fontSize: '12px', color: TEXT, cursor: 'pointer',
+                  padding: '4px 10px', borderRadius: '8px', border: '1px solid var(--border)',
+                  backgroundColor: 'var(--surface)', fontFamily: FONT, fontSize: '12px', color: 'var(--text)', cursor: 'pointer',
                 }}>Mark Reviewed</button>
               )}
               {f.status !== 'roadmapped' && (
                 <button onClick={() => handleTriageFeedback(f.id, 'roadmapped')} style={{
-                  padding: '4px 10px', borderRadius: '8px', border: `1px solid ${BRAND}`,
-                  backgroundColor: `${BRAND}10`, fontFamily: FONT, fontSize: '12px', color: BRAND, cursor: 'pointer',
+                  padding: '4px 10px', borderRadius: '8px', border: '1px solid var(--brand)',
+                  backgroundColor: 'color-mix(in srgb, var(--brand) 6%, transparent)', fontFamily: FONT, fontSize: '12px', color: 'var(--brand)', cursor: 'pointer',
                 }}>Roadmap</button>
               )}
               {f.status !== 'done' && (
                 <button onClick={() => handleTriageFeedback(f.id, 'done')} style={{
-                  padding: '4px 10px', borderRadius: '8px', border: `1px solid ${BRAND}`,
-                  backgroundColor: BRAND, fontFamily: FONT, fontSize: '12px', color: WHITE, cursor: 'pointer',
+                  padding: '4px 10px', borderRadius: '8px', border: '1px solid var(--brand)',
+                  backgroundColor: 'var(--brand)', fontFamily: FONT, fontSize: '12px', color: '#fff', cursor: 'pointer',
                 }}>Done</button>
               )}
             </div>
@@ -754,8 +754,8 @@ export function AdminScreen({
               onClick={() => setActiveTab(tab.key)}
               style={{
                 padding: '6px 12px', borderRadius: '16px', border: 'none',
-                backgroundColor: activeTab === tab.key ? BRAND : `${BORDER}80`,
-                color: activeTab === tab.key ? WHITE : TEXT,
+                backgroundColor: activeTab === tab.key ? 'var(--brand)' : 'color-mix(in srgb, var(--border) 50%, transparent)',
+                color: activeTab === tab.key ? '#fff' : 'var(--text)',
                 fontFamily: FONT, fontSize: '13px', fontWeight: 600,
                 cursor: 'pointer', whiteSpace: 'nowrap' as const,
                 flexShrink: 0,
@@ -771,8 +771,8 @@ export function AdminScreen({
         <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
           {dayOptions.map(d => (
             <button key={d} onClick={() => setAdminDays(d)} style={{
-              flex: 1, padding: '8px', borderRadius: '8px', border: `1px solid ${BORDER}`,
-              backgroundColor: adminDays === d ? BRAND : WHITE, color: adminDays === d ? WHITE : TEXT,
+              flex: 1, padding: '8px', borderRadius: '8px', border: '1px solid var(--border)',
+              backgroundColor: adminDays === d ? 'var(--brand)' : 'var(--surface)', color: adminDays === d ? '#fff' : 'var(--text)',
               fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer',
             }}>{d}d</button>
           ))}
@@ -799,46 +799,46 @@ export function AdminScreen({
                     { label: 'K-Factor', value: adminData.k_factor.toFixed(2) },
                   ].map(m => (
                     <div key={m.label} style={metricCard}>
-                      <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '4px' }}>{m.label}</div>
-                      <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>{m.value}</div>
+                      <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>{m.label}</div>
+                      <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: 'var(--text)' }}>{m.value}</div>
                     </div>
                   ))}
                 </div>
 
                 {/* Leaderboard */}
-                <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginBottom: '12px' }}>Referral Leaderboard</div>
+                <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: 'var(--text)', marginBottom: '12px' }}>Referral Leaderboard</div>
                 {adminData.leaderboard.length === 0 ? (
-                  <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY }}>No referrals yet.</div>
+                  <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)' }}>No referrals yet.</div>
                 ) : (
                   adminData.leaderboard.map((entry, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: `1px solid ${BORDER}` }}>
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
                       <div>
-                        <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>{entry.name || entry.phone}</div>
-                        {entry.name && <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>{entry.phone}</div>}
+                        <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text)' }}>{entry.name || entry.phone}</div>
+                        {entry.name && <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)' }}>{entry.phone}</div>}
                       </div>
                       <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: BRAND }}>{entry.points} pts</div>
-                        <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>{entry.referrals} referrals</div>
+                        <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: 'var(--brand)' }}>{entry.points} pts</div>
+                        <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)' }}>{entry.referrals} referrals</div>
                       </div>
                     </div>
                   ))
                 )}
 
                 {/* NPS Responses */}
-                <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '28px', marginBottom: '12px' }}>
+                <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: 'var(--text)', marginTop: '28px', marginBottom: '12px' }}>
                   NPS: {adminData.nps_score.toFixed(0)} ({adminData.nps_total} responses, {adminData.nps_promoters} promoters, {adminData.nps_detractors} detractors)
                 </div>
                 {adminData.nps_responses.length === 0 ? (
-                  <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY }}>No NPS responses yet.</div>
+                  <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)' }}>No NPS responses yet.</div>
                 ) : (
                   adminData.nps_responses.map((resp, i) => (
-                    <div key={i} style={{ padding: '12px 0', borderBottom: `1px solid ${BORDER}` }}>
+                    <div key={i} style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT }}>Score: {resp.score}</div>
-                        <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>{new Date(resp.created_at).toLocaleDateString()}</div>
+                        <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: 'var(--text)' }}>Score: {resp.score}</div>
+                        <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)' }}>{new Date(resp.created_at).toLocaleDateString()}</div>
                       </div>
-                      {resp.comment && <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, marginTop: '4px' }}>{resp.comment}</div>}
-                      <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>{resp.user_name || resp.user_phone}</div>
+                      {resp.comment && <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text)', marginTop: '4px' }}>{resp.comment}</div>}
+                      <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{resp.user_name || resp.user_phone}</div>
                     </div>
                   ))
                 )}
@@ -846,7 +846,7 @@ export function AdminScreen({
                 {/* Swap Stats */}
                 {(adminData.swap_offered != null && adminData.swap_offered > 0) && (
                   <>
-                    <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '28px', marginBottom: '12px' }}>Swap Deals</div>
+                    <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: 'var(--text)', marginTop: '28px', marginBottom: '12px' }}>Swap Deals</div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
                       {[
                         { label: 'Offered', value: adminData.swap_offered },
@@ -855,8 +855,8 @@ export function AdminScreen({
                         { label: 'Accept Rate', value: `${(adminData.swap_accept_rate || 0).toFixed(1)}%` },
                       ].map(m => (
                         <div key={m.label} style={metricCard}>
-                          <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '4px' }}>{m.label}</div>
-                          <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>{m.value}</div>
+                          <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>{m.label}</div>
+                          <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: 'var(--text)' }}>{m.value}</div>
                         </div>
                       ))}
                     </div>
@@ -866,12 +866,12 @@ export function AdminScreen({
                 {/* Payout Checklist */}
                 {adminPayouts.length > 0 && (
                   <>
-                    <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '28px', marginBottom: '12px' }}>Pending Payouts</div>
+                    <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: 'var(--text)', marginTop: '28px', marginBottom: '12px' }}>Pending Payouts</div>
                     {adminPayouts.map(p => (
-                      <div key={p.user_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: `1px solid ${BORDER}` }}>
+                      <div key={p.user_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT, fontWeight: 500 }}>{p.name || 'No name'} — ${(p.total_cents / 100).toFixed(2)}</div>
-                          <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>{p.phone || p.email || 'No contact'} · {p.swap_count} swap{p.swap_count !== 1 ? 's' : ''} · since {new Date(p.oldest_swap).toLocaleDateString()}</div>
+                          <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text)', fontWeight: 500 }}>{p.name || 'No name'} — ${(p.total_cents / 100).toFixed(2)}</div>
+                          <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)' }}>{p.phone || p.email || 'No contact'} · {p.swap_count} swap{p.swap_count !== 1 ? 's' : ''} · since {new Date(p.oldest_swap).toLocaleDateString()}</div>
                         </div>
                         <button
                           onClick={async () => {
@@ -881,7 +881,7 @@ export function AdminScreen({
                               showToast(`Marked $${(p.total_cents / 100).toFixed(2)} as paid for ${p.name || 'user'}`)
                             } else { showToast('Failed to mark as paid', 'error') }
                           }}
-                          style={{ fontSize: '12px', padding: '6px 12px', borderRadius: '6px', border: `1px solid ${BRAND}`, backgroundColor: WHITE, cursor: 'pointer', fontFamily: FONT, color: BRAND, fontWeight: 600, flexShrink: 0 }}
+                          style={{ fontSize: '12px', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--brand)', backgroundColor: 'var(--surface)', cursor: 'pointer', fontFamily: FONT, color: 'var(--brand)', fontWeight: 600, flexShrink: 0 }}
                         >Mark Paid</button>
                       </div>
                     ))}
@@ -889,16 +889,16 @@ export function AdminScreen({
                 )}
 
                 {/* Deal Management */}
-                <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '28px', marginBottom: '12px' }}>
+                <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: 'var(--text)', marginTop: '28px', marginBottom: '12px' }}>
                   Manage Deals
                   <button
                     onClick={() => { setShowDealForm(true); setEditingDealId(null); setDealForm(EMPTY_FORM) }}
-                    style={{ marginLeft: '12px', backgroundColor: BRAND, color: WHITE, border: 'none', borderRadius: '6px', padding: '4px 12px', fontFamily: FONT, fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+                    style={{ marginLeft: '12px', backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '6px', padding: '4px 12px', fontFamily: FONT, fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
                   >+ Add</button>
                 </div>
 
                 {showDealForm && (
-                  <div style={{ backgroundColor: WHITE, borderRadius: '12px', padding: '16px', border: `1px solid ${BORDER}`, marginBottom: '16px' }}>
+                  <div style={{ backgroundColor: 'var(--surface)', borderRadius: '12px', padding: '16px', border: '1px solid var(--border)', marginBottom: '16px' }}>
                     <div style={{ marginBottom: '8px' }}>
                       <label style={labelStyle}>Deal Type</label>
                       <select
@@ -974,30 +974,30 @@ export function AdminScreen({
                             showToast(editingDealId ? 'Deal updated' : 'Deal created')
                           } else { showToast('Failed to save deal', 'error') }
                         }}
-                        style={{ flex: 1, backgroundColor: BRAND, color: WHITE, border: 'none', borderRadius: '8px', padding: '10px', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer' }}
+                        style={{ flex: 1, backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer' }}
                       >{editingDealId ? 'Update' : 'Create'}</button>
-                      <button onClick={() => setShowDealForm(false)} style={{ padding: '10px 16px', borderRadius: '8px', border: `1px solid ${BORDER}`, backgroundColor: WHITE, fontFamily: FONT, fontSize: '15px', cursor: 'pointer', color: TEXT }}>Cancel</button>
+                      <button onClick={() => setShowDealForm(false)} style={{ padding: '10px 16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', fontFamily: FONT, fontSize: '15px', cursor: 'pointer', color: 'var(--text)' }}>Cancel</button>
                     </div>
                   </div>
                 )}
 
                 {adminDeals.map(deal => (
-                  <div key={deal.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: `1px solid ${BORDER}` }}>
+                  <div key={deal.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT, fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
                         {deal.competitor_product} → {deal.offer_brand} {deal.offer_product}
                         {deal.deal_type && deal.deal_type !== 'sku_swap' && (
-                          <span style={{ fontSize: '10px', fontWeight: 700, color: WHITE, backgroundColor: deal.deal_type === 'bogo' ? '#E67E22' : deal.deal_type === 'trial' ? '#27AE60' : '#E74C3C', padding: '1px 5px', borderRadius: '3px', textTransform: 'uppercase' as const }}>{deal.deal_type}</span>
+                          <span style={{ fontSize: '10px', fontWeight: 700, color: '#fff', backgroundColor: deal.deal_type === 'bogo' ? '#E67E22' : deal.deal_type === 'trial' ? '#27AE60' : '#E74C3C', padding: '1px 5px', borderRadius: '3px', textTransform: 'uppercase' as const }}>{deal.deal_type}</span>
                         )}
                       </div>
-                      <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>
+                      <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)' }}>
                         ${(deal.discount_cents / 100).toFixed(2)} off · Budget: ${(deal.daily_budget_cents / 100).toFixed(2)} · Spent: ${(deal.budget_spent_cents / 100).toFixed(2)} · {deal.status}
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
                       <button
                         onClick={() => setDeepDiveDealId(deal.id)}
-                        style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: `1px solid ${BRAND}`, backgroundColor: WHITE, cursor: 'pointer', fontFamily: FONT, color: BRAND, fontWeight: 600 }}
+                        style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--brand)', backgroundColor: 'var(--surface)', cursor: 'pointer', fontFamily: FONT, color: 'var(--brand)', fontWeight: 600 }}
                       >Deep Dive</button>
                       <button
                         onClick={async () => {
@@ -1006,7 +1006,7 @@ export function AdminScreen({
                           const res = await fetch('/api/admin/deals')
                           if (res.ok) setAdminDeals(await res.json())
                         }}
-                        style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: `1px solid ${BORDER}`, backgroundColor: WHITE, cursor: 'pointer', fontFamily: FONT, color: TEXT }}
+                        style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', cursor: 'pointer', fontFamily: FONT, color: 'var(--text)' }}
                       >{deal.status === 'active' ? 'Pause' : 'Resume'}</button>
                       <button
                         onClick={() => {
@@ -1023,7 +1023,7 @@ export function AdminScreen({
                           })
                           setShowDealForm(true)
                         }}
-                        style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: `1px solid ${BORDER}`, backgroundColor: WHITE, cursor: 'pointer', fontFamily: FONT, color: TEXT }}
+                        style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', cursor: 'pointer', fontFamily: FONT, color: 'var(--text)' }}
                       >Edit</button>
                       <button
                         onClick={async () => {
@@ -1031,7 +1031,7 @@ export function AdminScreen({
                           const res = await fetch('/api/admin/deals')
                           if (res.ok) setAdminDeals(await res.json())
                         }}
-                        style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: `1px solid ${ERROR_RED}40`, backgroundColor: ERROR_RED_BG, cursor: 'pointer', fontFamily: FONT, color: ERROR_RED }}
+                        style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: '1px solid color-mix(in srgb, var(--error) 25%, transparent)', backgroundColor: 'var(--error-bg)', cursor: 'pointer', fontFamily: FONT, color: 'var(--error)' }}
                       >Del</button>
                     </div>
                   </div>
@@ -1040,25 +1040,25 @@ export function AdminScreen({
                 {/* Item Analytics */}
                 {analyticsData && (
                   <>
-                    <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '28px', marginBottom: '12px' }}>Item Analytics</div>
+                    <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: 'var(--text)', marginTop: '28px', marginBottom: '12px' }}>Item Analytics</div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
                       <div style={metricCard}>
-                        <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '4px' }}>Items Created</div>
-                        <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>{analyticsData.items_created}</div>
+                        <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Items Created</div>
+                        <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: 'var(--text)' }}>{analyticsData.items_created}</div>
                       </div>
                       <div style={metricCard}>
-                        <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '4px' }}>Total Events</div>
-                        <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>{Object.values(analyticsData.events_by_action).reduce((a, b) => a + b, 0)}</div>
+                        <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Total Events</div>
+                        <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: 'var(--text)' }}>{Object.values(analyticsData.events_by_action).reduce((a, b) => a + b, 0)}</div>
                       </div>
                     </div>
 
                     {Object.keys(analyticsData.items_by_source).length > 0 && (
                       <>
-                        <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT, marginBottom: '8px' }}>By Source</div>
+                        <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)', marginBottom: '8px' }}>By Source</div>
                         {Object.entries(analyticsData.items_by_source).sort((a, b) => b[1] - a[1]).map(([src, cnt]) => (
-                          <div key={src} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: `1px solid ${BORDER}` }}>
-                            <span style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>{src}</span>
-                            <span style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT }}>{cnt}</span>
+                          <div key={src} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                            <span style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text)' }}>{src}</span>
+                            <span style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>{cnt}</span>
                           </div>
                         ))}
                       </>
@@ -1066,11 +1066,11 @@ export function AdminScreen({
 
                     {Object.keys(analyticsData.items_by_department).length > 0 && (
                       <>
-                        <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT, marginTop: '16px', marginBottom: '8px' }}>Top Departments</div>
+                        <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)', marginTop: '16px', marginBottom: '8px' }}>Top Departments</div>
                         {Object.entries(analyticsData.items_by_department).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([dept, cnt]) => (
-                          <div key={dept} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: `1px solid ${BORDER}` }}>
-                            <span style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>{dept}</span>
-                            <span style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT }}>{cnt}</span>
+                          <div key={dept} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                            <span style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text)' }}>{dept}</span>
+                            <span style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>{cnt}</span>
                           </div>
                         ))}
                       </>
@@ -1078,11 +1078,11 @@ export function AdminScreen({
 
                     {Object.keys(analyticsData.events_by_action).length > 0 && (
                       <>
-                        <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT, marginTop: '16px', marginBottom: '8px' }}>Events by Action</div>
+                        <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)', marginTop: '16px', marginBottom: '8px' }}>Events by Action</div>
                         {Object.entries(analyticsData.events_by_action).sort((a, b) => b[1] - a[1]).map(([action, cnt]) => (
-                          <div key={action} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: `1px solid ${BORDER}` }}>
-                            <span style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>{action}</span>
-                            <span style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT }}>{cnt}</span>
+                          <div key={action} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                            <span style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text)' }}>{action}</span>
+                            <span style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>{cnt}</span>
                           </div>
                         ))}
                       </>
@@ -1090,13 +1090,13 @@ export function AdminScreen({
 
                     {analyticsData.events_by_day.length > 0 && (
                       <>
-                        <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT, marginTop: '16px', marginBottom: '8px' }}>Daily Activity</div>
+                        <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)', marginTop: '16px', marginBottom: '8px' }}>Daily Activity</div>
                         {analyticsData.events_by_day.slice(-14).map(d => (
                           <div key={d.date} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
-                            <span style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY }}>{d.date}</span>
+                            <span style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text-secondary)' }}>{d.date}</span>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <div style={{ width: `${Math.min(120, Math.max(4, d.count * 3))}px`, height: '8px', backgroundColor: BRAND, borderRadius: '4px' }} />
-                              <span style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: TEXT, minWidth: '24px', textAlign: 'right' }}>{d.count}</span>
+                              <div style={{ width: `${Math.min(120, Math.max(4, d.count * 3))}px`, height: '8px', backgroundColor: 'var(--brand)', borderRadius: '4px' }} />
+                              <span style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: 'var(--text)', minWidth: '24px', textAlign: 'right' }}>{d.count}</span>
                             </div>
                           </div>
                         ))}
@@ -1106,7 +1106,7 @@ export function AdminScreen({
                 )}
               </>
             ) : (
-              <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>Loading...</div>
+              <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 0' }}>Loading...</div>
             )}
           </>
         )}

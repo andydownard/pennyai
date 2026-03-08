@@ -1,9 +1,6 @@
 import React from 'react'
 import { PennyAvatar } from './PennyAvatar'
-import {
-  BRAND, BG, TEXT, TEXT_SECONDARY, BORDER, WHITE, FONT,
-  ERROR_RED_LIGHT, ERROR_RED_DARK,
-} from '../styles'
+import { FONT } from '../styles'
 
 // Brand disambiguation item from the parse response
 export interface DisambigItem {
@@ -42,7 +39,7 @@ interface PennyBarProps {
 }
 
 const btnStyle: React.CSSProperties = {
-  background: BRAND, border: 'none', color: WHITE, fontFamily: FONT,
+  background: 'var(--brand)', border: 'none', color: '#fff', fontFamily: FONT,
   fontSize: '12px', fontWeight: 600, cursor: 'pointer',
   padding: '5px 12px', borderRadius: '12px', flexShrink: 0,
 }
@@ -51,25 +48,25 @@ const chatBarStyle: React.CSSProperties = {
   flexShrink: 0,
   padding: '8px 8px 8px 4px',
   paddingBottom: '8px',
-  backgroundColor: WHITE,
-  borderTop: '1.5px solid #D4CFC7',
+  backgroundColor: 'var(--surface)',
+  borderTop: '1.5px solid var(--border)',
   boxShadow: '0 -2px 12px rgba(0,0,0,0.06)',
 }
 
 const chatPillStyle: React.CSSProperties = {
   flex: 1, display: 'flex', alignItems: 'flex-end',
-  backgroundColor: BG, border: '1.5px solid #C5C0B8',
+  backgroundColor: 'var(--bg)', border: '1.5px solid var(--border)',
   borderRadius: '24px', overflow: 'hidden', minWidth: 0,
 }
 
 const chatInputStyle: React.CSSProperties = {
   flex: 1, padding: '10px 14px', fontSize: '16px', fontFamily: FONT,
-  color: TEXT, backgroundColor: 'transparent', border: 'none', outline: 'none', minWidth: 0,
+  color: 'var(--text)', backgroundColor: 'transparent', border: 'none', outline: 'none', minWidth: 0,
 }
 
 const chatSendStyle = (active: boolean): React.CSSProperties => ({
   flexShrink: 0, width: '40px', height: '40px', borderRadius: '50%',
-  backgroundColor: 'transparent', color: active ? BRAND : TEXT_SECONDARY,
+  backgroundColor: 'transparent', color: active ? 'var(--brand)' : 'var(--text-secondary)',
   border: 'none', cursor: active ? 'pointer' : 'default',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
   transition: 'color 0.15s',
@@ -83,17 +80,22 @@ export function PennyBar({
   chatInputRef,
 }: PennyBarProps) {
   const hasDisambig = disambig.length > 0 && disambigIndex < disambig.length
-  const bgColor = toastError ? ERROR_RED_LIGHT : '#F5F3EF'
-  const textColor = toastError ? ERROR_RED_DARK : TEXT
+  const bgColor = toastError ? 'var(--error-bg, #FEE2E2)' : 'var(--penny-bg, #F5F3EF)'
+  const textColor = toastError ? 'var(--error, #DC2626)' : 'var(--text)'
   const canSend = (!!chatText.trim() || pendingImages.length > 0) && !chatLoading
 
   return (
     <>
       {/* Penny text + brand disambiguation */}
-      <div style={{ flexShrink: 0, backgroundColor: bgColor, borderTop: `1px solid ${BORDER}`, overflow: 'hidden' }}>
+      <div style={{ flexShrink: 0, backgroundColor: bgColor, borderTop: '1px solid var(--border)', overflow: 'hidden' }}>
         <div style={{ padding: keyboardOpen ? '6px 12px' : '12px 16px', transition: 'padding 200ms ease' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: keyboardOpen ? '8px' : '10px' }}>
-            <PennyAvatar size={keyboardOpen ? 28 : 36} />
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <PennyAvatar size={keyboardOpen ? 28 : 36} />
+              {!hasDisambig && pennyStatus && (
+                <span className="penny-pulse" style={{ position: 'absolute', bottom: '-1px', right: '-1px', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--brand)', border: '1.5px solid var(--penny-bg, #F5F3EF)' }} />
+              )}
+            </div>
             <span style={{
               flex: 1, fontFamily: FONT, fontSize: keyboardOpen ? '13px' : '14px',
               color: textColor, fontWeight: 500,
@@ -107,9 +109,8 @@ export function PennyBar({
               {!hasDisambig && pennyTyping && <span className="cursor-blink" style={{ fontWeight: 300, marginLeft: '1px' }}>|</span>}
             </span>
             {disambig.length > 1 && hasDisambig && keyboardOpen && (
-              <span style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, flexShrink: 0 }}>{disambigIndex + 1}/{disambig.length}</span>
+              <span style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', flexShrink: 0 }}>{disambigIndex + 1}/{disambig.length}</span>
             )}
-            {!hasDisambig && pennyStatus && <span className="penny-pulse" style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: BRAND, flexShrink: 0 }} />}
           </div>
           {/* Screen reader gets full text after typing completes */}
           {!hasDisambig && !pennyTyping && pennyText && (
@@ -129,19 +130,19 @@ export function PennyBar({
             <div style={{ position: 'relative' }}>
               <div style={{ display: 'flex', flexWrap: 'nowrap', overflowX: 'auto', gap: '6px', padding: keyboardOpen ? '4px 12px 6px 42px' : '4px 16px 10px 56px', WebkitOverflowScrolling: 'touch' as any, scrollbarWidth: 'none' as any, msOverflowStyle: 'none' as any }}>
                 {d.current_brand && !d.alternatives.includes(d.current_brand) && (
-                  <button onClick={() => onBrandPick(d.current_brand)} style={{ ...btnStyle, padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0, boxShadow: `0 0 0 2px ${BRAND}` }}>{d.current_brand}</button>
+                  <button onClick={() => onBrandPick(d.current_brand)} style={{ ...btnStyle, padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0, boxShadow: '0 0 0 2px var(--brand)' }}>{d.current_brand}</button>
                 )}
                 {d.alternatives.filter(a => a !== '').map((alt, i) => (
                   <button key={i} onClick={() => onBrandPick(alt)} style={{
                     ...btnStyle,
                     padding: keyboardOpen ? '4px 10px' : '5px 12px',
                     flexShrink: 0,
-                    ...(alt === d.current_brand ? { boxShadow: `0 0 0 2px ${BRAND}` } : { background: 'transparent', color: TEXT, border: `1px solid ${BORDER}` }),
+                    ...(alt === d.current_brand ? { boxShadow: '0 0 0 2px var(--brand)' } : { background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)' }),
                   }}>{alt}</button>
                 ))}
-                <button onClick={onSkipDisambig} aria-label="Skip brand selection" style={{ ...btnStyle, background: 'transparent', color: TEXT_SECONDARY, border: `1px solid ${BORDER}`, padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0 }}>Skip</button>
+                <button onClick={onSkipDisambig} aria-label="Skip brand selection" style={{ ...btnStyle, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0 }}>Skip</button>
                 {disambig.length > 1 && !keyboardOpen && (
-                  <span style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, alignSelf: 'center', paddingLeft: '4px', flexShrink: 0 }}>{disambigIndex + 1}/{disambig.length}</span>
+                  <span style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', alignSelf: 'center', paddingLeft: '4px', flexShrink: 0 }}>{disambigIndex + 1}/{disambig.length}</span>
                 )}
               </div>
               <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: '28px', background: `linear-gradient(to right, transparent, ${bgColor})`, pointerEvents: 'none' }} />
@@ -152,7 +153,7 @@ export function PennyBar({
 
       {/* Photo thumbnail strip */}
       {pendingImages.length > 0 && (
-        <div style={{ display: 'flex', gap: '8px', padding: '8px 12px', overflowX: 'auto', backgroundColor: WHITE, borderTop: `1px solid ${BORDER}`, flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: '8px', padding: '8px 12px', overflowX: 'auto', backgroundColor: 'var(--surface)', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
           {pendingImages.map((img, idx) => (
             <div key={idx} style={{ position: 'relative', flexShrink: 0 }}>
               <img src={img} alt={`Preview ${idx + 1}`} style={{ width: '56px', height: '56px', borderRadius: '8px', objectFit: 'cover' }} />
@@ -162,7 +163,7 @@ export function PennyBar({
                 style={{
                   position: 'absolute', top: '-6px', right: '-6px',
                   width: '18px', height: '18px', borderRadius: '50%',
-                  backgroundColor: TEXT, color: WHITE, border: 'none',
+                  backgroundColor: 'var(--text)', color: '#fff', border: 'none',
                   fontSize: '12px', lineHeight: '18px', textAlign: 'center',
                   cursor: 'pointer', padding: 0,
                 }}
@@ -182,7 +183,7 @@ export function PennyBar({
             onTouchEnd={e => { e.preventDefault(); onAddPhoto() }}
             style={{ flexShrink: 0, width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           </button>
           <div style={chatPillStyle}>
             <textarea

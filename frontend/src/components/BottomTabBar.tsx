@@ -1,5 +1,5 @@
 import { PennyAvatar } from './PennyAvatar'
-import { BRAND, TEXT_SECONDARY, FONT } from '../styles'
+import { FONT } from '../styles'
 
 export type TabScreen = 'home' | 'penny' | 'settings-share' | 'profile'
 
@@ -58,7 +58,7 @@ export function BottomTabBar({ active, onNavigate, pennyUnread, swapCount }: Bot
     >
       {tabs.map(tab => {
         const isActive = active === tab.key
-        const color = isActive ? BRAND : TEXT_SECONDARY
+        const color = isActive ? 'var(--brand)' : 'var(--text-secondary)'
         return (
           <button
             key={tab.key}
@@ -100,7 +100,7 @@ export function BottomTabBar({ active, onNavigate, pennyUnread, swapCount }: Bot
                 minWidth: '16px',
                 height: '16px',
                 borderRadius: '8px',
-                backgroundColor: BRAND,
+                backgroundColor: 'var(--brand)',
                 color: '#fff',
                 fontSize: '10px',
                 fontWeight: 700,
