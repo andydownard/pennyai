@@ -1168,14 +1168,14 @@ function AppInner() {
     if (!data) { showToast('Couldn\'t save your trip — please try again', 'error'); return }
     setShowTripSheet(false)
     loadTrips()
-    showToast('Trip added! Everyone will see it.')
+    typePennyHome('Trip added! Everyone will see it.')
   }
 
   const handleCancelTrip = async () => {
     const data = await fetchAPI('/api/trips', { method: 'DELETE' })
     if (!data) { showToast('Couldn\'t cancel your trip — please try again', 'error'); return }
     loadTrips()
-    showToast('Trip cancelled')
+    typePennyHome('Trip cancelled.')
   }
 
   const getDayOptions = () => {
@@ -1506,7 +1506,7 @@ function AppInner() {
     // Optimistic: remove swap card immediately
     const oldSwaps = { ...swapsByItemId }
     setSwapsByItemId(prev => { const next = { ...prev }; delete next[itemId]; return next })
-    showToast('Swapped!')
+    typePennyHome('Nice swap!')
     try {
       const res = await fetch('/api/list/parse', {
         method: 'POST',
@@ -1531,7 +1531,7 @@ function AppInner() {
         if (!localStorage.getItem(firstSwapKey)) {
           localStorage.setItem(firstSwapKey, '1')
           setShowFireworks(true)
-          showToast('Your first swap! Nice save!')
+          typePennyHome('Your first swap — nice save!')
           track('first_swap_celebration', { deal_id: dealId, offer_brand: offerBrand })
         }
         // Post-swap share prompt — show after successful swap
@@ -1586,14 +1586,11 @@ function AppInner() {
         } else {
           typePennyHome(data.message || 'Receipt processed!')
         }
-        showToast(data.message || 'Receipt processed!')
       } else {
         typePennyHome('Hmm, I couldn\'t read that receipt. Try a clearer photo?')
-        showToast('Couldn\'t process receipt — try again', 'error')
       }
     } catch {
       typePennyHome('Connection hiccup — try again in a moment.')
-      showToast('Connection error — try again', 'error')
     }
     finally {
       setChatLoading(false)
@@ -1940,7 +1937,7 @@ function AppInner() {
             const msg = dupeWarnings.map(d =>
               `${d.added_by} already added ${d.item_name}${d.hours_ago > 0 ? ` ${d.hours_ago}h ago` : ' just now'}`
             ).join('. ')
-            showToast(`Heads up: ${msg}`)
+            typePennyHome(`Heads up — ${msg}`)
             track('household_duplicate_warned', { count: dupeWarnings.length })
           }
         }
@@ -1953,20 +1950,20 @@ function AppInner() {
           setPennyDisambigIndex(0)
         }
 
-        // Show Penny's message or fallback toast
+        // Show Penny's message or fallback summary — Penny speaks, not toasts
         if (action === 'share') {
           // Already handled via typePennyHome above
         } else if (pennyMsg) {
-          showToast(pennyMsg)
+          typePennyHome(pennyMsg)
         } else {
           const parts: string[] = []
-          if (data.added > 0) parts.push(`Added ${data.added} item${data.added === 1 ? '' : 's'}!`)
+          if (data.added > 0) parts.push(`Added ${data.added} item${data.added === 1 ? '' : 's'}`)
           if (skippedItems.length > 0) parts.push(`${skippedItems.length} already on your list`)
           if (removedItems.length > 0) parts.push(`Removed ${removedItems.length} item${removedItems.length === 1 ? '' : 's'}`)
           if (updatedItems.length > 0) parts.push(`Updated ${updatedItems.length} item${updatedItems.length === 1 ? '' : 's'}`)
           if (checkedItems.length > 0) parts.push(`${action === 'check' ? 'Checked' : 'Unchecked'} ${checkedItems.length} item${checkedItems.length === 1 ? '' : 's'}`)
-          if (parts.length > 0) showToast(parts.join(' · '))
-          else if (action === 'add' && addedItems.length === 0 && skippedItems.length === 0) showToast("I couldn't find any items in that — try rewording it?", 'error')
+          if (parts.length > 0) typePennyHome(parts.join(' · '))
+          else if (action === 'add' && addedItems.length === 0 && skippedItems.length === 0) typePennyHome("I couldn't find any items in that — try rewording it?")
         }
 
         // --- Onboarding nudges (spaced, non-intrusive) ---
@@ -2197,7 +2194,7 @@ function AppInner() {
       } else {
         setItems(prev => prev.filter(i => !i.checked)); setExpandedDepts(new Set()); setShowDoneToast(false); setShowFireworks(false); setPennyChimeIn(null)
       }
-      showToast('List cleared', 'success')
+      typePennyHome('List cleared — ready for a fresh start!')
     } else if (result.status !== 401) { showToast('Couldn\'t clear your list — please try again', 'error') }
   }
 
@@ -2209,7 +2206,7 @@ function AppInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: saveNameInput.trim() }),
       })
-      if (data) { setShowSaveSheet(false); setSaveNameInput(''); handleClearList(); showToast('List saved and cleared!') }
+      if (data) { setShowSaveSheet(false); setSaveNameInput(''); handleClearList(); typePennyHome('List saved! You can load it anytime.') }
       else showToast('Couldn\'t save your list — please try again', 'error')
     } catch { showToast('Couldn\'t save your list — please try again', 'error') }
   }
@@ -2220,7 +2217,7 @@ function AppInner() {
     if (result.ok) {
       setScreen('home')
       reloadList()
-      showToast('List loaded!')
+      typePennyHome('List loaded — let\'s get shopping!')
     } else if (result.status !== 401) { showToast('Couldn\'t load that list — please try again', 'error') }
   }
 
@@ -3431,7 +3428,7 @@ const handleCodeChange = (index: number, value: string) => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name: listName, items: items.filter(i => i.checked).map(i => ({ name: i.name, brand: i.brand, department: i.department, quantity: i.quantity, size: i.size, notes: i.notes })) }),
                   })
-                  if (res) showToast(`Saved as "${listName}"`)
+                  if (res) typePennyHome(`Saved as "${listName}" — you can load it anytime!`)
                   else showToast('Could not save list', 'error')
                 }}
                 style={{
@@ -3457,7 +3454,7 @@ const handleCodeChange = (index: number, value: string) => {
                 if (isFirstTrip) {
                   setShowFireworks(true)
                 }
-                showToast('Trip complete!')
+                typePennyHome('Trip complete — great job!')
               }}
               style={{
                 width: '100%', padding: '14px', borderRadius: '10px',
@@ -3662,7 +3659,7 @@ const handleCodeChange = (index: number, value: string) => {
                   })
                   const data = await res.json().catch(() => null)
                   if (res.ok) {
-                    showToast(data?.penny_message || `You joined ${joinPromptName ? joinPromptName + "'s" : 'the shared'} list!`)
+                    typePennyHome(data?.penny_message || `You joined ${joinPromptName ? joinPromptName + "'s" : 'the shared'} list!`)
                   } else {
                     showToast(data?.error || 'Could not join — the invite may have expired', 'error')
                   }
