@@ -184,10 +184,10 @@ export function EarningsScreen({ fetchAPI }: EarningsScreenProps) {
         }}>
           <PennyAvatar size={48} />
           <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, textAlign: 'center' }}>
-            We pay you. No one else does.
+            Swap and get paid. No one else does this.
           </div>
           <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
-            Brands pay to reach you. We share that revenue with you — real money, every time you try something new.
+            Brands pay to reach you. When you swap, we share that revenue with you — real money, every time.
           </div>
           <div style={{ fontFamily: FONT, fontSize: '13px', color: BRAND, textAlign: 'center', fontWeight: 500 }}>
             Accept a swap to start earning.

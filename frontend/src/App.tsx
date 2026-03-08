@@ -3355,6 +3355,7 @@ const handleCodeChange = (index: number, value: string) => {
     'Dashboard': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/></svg>,
     'Saved Lists': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>,
     'Profile': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
+    'Swaps': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>,
   }
 
   const renderPageHeader = (pageName: string, active: Screen) => (
@@ -3368,7 +3369,7 @@ const handleCodeChange = (index: number, value: string) => {
             <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: BRAND }}>
               ${(earningsTotalCents / 100).toFixed(2)}
             </span>
-            <span style={{ fontFamily: FONT, fontSize: '10px', color: TEXT_SECONDARY, marginTop: '1px' }}>earned</span>
+            <span style={{ fontFamily: FONT, fontSize: '10px', color: TEXT_SECONDARY, marginTop: '1px' }}>swaps</span>
           </span>
         ) : (
           <span
@@ -4466,7 +4467,7 @@ const handleCodeChange = (index: number, value: string) => {
   if (screen === 'earnings') {
     return (
       <div style={listStyles.page}>
-        {renderPageHeader('Earnings', 'earnings')}
+        {renderPageHeader('Swaps', 'earnings')}
         <div style={{ flex: 1, overflowY: 'auto' }}>
           <EarningsScreen
             onBack={() => setScreen('home')}
@@ -4515,7 +4516,7 @@ const handleCodeChange = (index: number, value: string) => {
               <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: BRAND }}>
                 ${(earningsTotalCents / 100).toFixed(2)}
               </span>
-              <span style={{ fontFamily: FONT, fontSize: '10px', color: TEXT_SECONDARY, marginTop: '1px' }}>earned</span>
+              <span style={{ fontFamily: FONT, fontSize: '10px', color: TEXT_SECONDARY, marginTop: '1px' }}>swaps</span>
             </span>
           ) : (
             <span
@@ -4662,7 +4663,7 @@ const handleCodeChange = (index: number, value: string) => {
           }}
         >
           <span style={{ fontFamily: FONT, fontSize: '14px', color: BRAND, fontWeight: 600 }}>
-            You've earned ${(swapCreditsCents / 100).toFixed(2)} — brands pay, you benefit
+            ${(swapCreditsCents / 100).toFixed(2)} earned from swaps — brands pay, you benefit
           </span>
           <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>View details ›</span>
         </div>
@@ -5106,12 +5107,12 @@ const handleCodeChange = (index: number, value: string) => {
 
       {/* Savings detail sheet */}
       {showSavingsSheet && (
-        <ActionSheet isOpen={true} onClose={() => { popModalState(); setShowSavingsSheet(false) }} title="Your Savings" maxHeight="70dvh">
+        <ActionSheet isOpen={true} onClose={() => { popModalState(); setShowSavingsSheet(false) }} title="Your Swaps" maxHeight="70dvh">
           <div style={{ padding: '0 4px' }}>
             {/* Summary cards — hide Paid Out when $0 */}
             <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
               {[
-                { label: 'Total Saved', cents: rebateSummary.total_cents, color: BRAND, show: true },
+                { label: 'Total Earned', cents: rebateSummary.total_cents, color: BRAND, show: true },
                 { label: 'Pending Payout', cents: rebateSummary.pending_cents, color: '#D97706', show: true },
                 { label: 'Paid Out', cents: rebateSummary.paid_cents, color: '#059669', show: rebateSummary.paid_cents > 0 },
               ].filter(c => c.show).map(card => (
@@ -5132,7 +5133,7 @@ const handleCodeChange = (index: number, value: string) => {
             {/* Rebate history */}
             {rebateHistory.length === 0 ? (
               <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, textAlign: 'center' as const, padding: '20px 0' }}>
-                Accept a swap deal to start saving!
+                Accept a swap to start earning!
               </div>
             ) : (
               rebateHistory.map(r => (
