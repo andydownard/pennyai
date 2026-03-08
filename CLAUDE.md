@@ -157,6 +157,7 @@ Thriftly is an AI-powered grocery shopping list app with a personality-driven as
 - `POST /auth/email/reset`
 - `POST /auth/logout`
 - `GET /auth/me`
+- `POST /api/auth/link`
 
 ### List Management
 - `GET /api/list`
