@@ -97,8 +97,14 @@ export function SharedListScreen({
         {sharedData && !sharedError && (
           <>
             {sharedData.items.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                <p style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)' }}>This list is empty</p>
+              <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+                <div style={{ fontSize: '48px', marginBottom: '16px' }}>📝</div>
+                <h2 style={{ fontFamily: FONT, fontSize: '18px', color: 'var(--text)', margin: '0 0 8px' }}>
+                  Nothing on this list yet
+                </h2>
+                <p style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.5' }}>
+                  {sharedData.sharer_name || 'The owner'} hasn't added any items yet. Check back soon!
+                </p>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>

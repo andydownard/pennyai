@@ -27,11 +27,12 @@ interface EarningsScreenProps {
   onBack: () => void
   fetchAPI: (url: string, options?: RequestInit) => Promise<Record<string, unknown> | unknown[] | null>
   onViewReceipts?: () => void
+  onGoToList?: () => void
 }
 
 type DaysFilter = 0 | 7 | 30 | 90
 
-export function EarningsScreen({ fetchAPI, onViewReceipts }: EarningsScreenProps) {
+export function EarningsScreen({ fetchAPI, onViewReceipts, onGoToList }: EarningsScreenProps) {
   const [data, setData] = useState<EarningsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [daysFilter, setDaysFilter] = useState<DaysFilter>(0)
@@ -191,8 +192,20 @@ export function EarningsScreen({ fetchAPI, onViewReceipts }: EarningsScreenProps
           <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
             Brands pay to reach you. When you swap, we share that revenue with you — real money, every time.
           </div>
-          <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--brand)', textAlign: 'center', fontWeight: 500 }}>
-            Accept a swap to start earning.
+          {onGoToList && (
+            <button
+              onClick={onGoToList}
+              style={{
+                backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '10px',
+                padding: '12px 24px', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+                marginTop: '4px',
+              }}
+            >
+              Go to my list
+            </button>
+          )}
+          <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center' }}>
+            Swap suggestions appear when you add items to your list
           </div>
         </div>
       ) : (

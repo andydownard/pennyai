@@ -3398,6 +3398,7 @@ const handleCodeChange = (index: number, value: string) => {
             onBack={() => setScreen('home')}
             fetchAPI={fetchAPI}
             onViewReceipts={() => setScreen('receipts')}
+            onGoToList={() => setScreen('home')}
           />
         </div>
         {renderBottomTabs()}
