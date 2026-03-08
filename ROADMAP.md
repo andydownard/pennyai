@@ -372,7 +372,7 @@ Upgrade the brand dashboard with the reporting metrics that 16/18 focus group pa
 ### R1. Conversational Onboarding via Penny
 **Size:** L (2-3 weeks)
 **Priority:** P1 — Activation gate for swaps (users need items on list for swaps to fire)
-**Status:** Planned
+**Status:** Done (4-session progressive onboarding: greeting, name, sharing, SMS, swaps)
 
 **Description:**
 New users currently land on an empty list with no guidance beyond Penny's greeting. Onboarding should happen naturally through conversation with Penny — she introduces herself, asks what the user is shopping for, offers to create their first list, and teaches key features (sharing, SMS, saved lists) organically as the user engages.
@@ -487,9 +487,9 @@ Playwright E2E tests covering critical user flows: login, add items, check items
 
 | # | Item | Size | Phase | Priority | Rationale | Status |
 |---|------|------|-------|----------|-----------|--------|
-| 1 | **M3. Swap Admin Tooling** | S | 1 | P0 | Enables M1 — Andy seeds first 10 deals manually. Ship first so deals exist before swaps code lands. | Planned |
+| 1 | **M3. Swap Admin Tooling** | S | 1 | P0 | Enables M1 — Andy seeds first 10 deals manually. Ship first so deals exist before swaps code lands. | **Done** (admin CRUD for deals, performance metrics) |
 | 2 | **B11 + B14. Swap safety bugs** | S | 1 | P0 | Budget race condition (B11) + rebate farming (B14) = swap accept is exploitable. **Must fix before M1 ships.** | **Done** |
-| 3 | **M1. Penny Swaps v0** | L | 1 | P0 | Core revenue mechanism. Nothing else matters without this. Depends on M3 + B11/B14. | Planned |
+| 3 | **M1. Penny Swaps v0** | L | 1 | P0 | Core revenue mechanism. Nothing else matters without this. Depends on M3 + B11/B14. | **Done** (matching, SwapCard, accept/decline, budget, suppression, auction) |
 | 4 | **M2. Fix Sharing & Invite Flow** | M | 1 | P0 | Distribution channel for swaps — broken sharing = no growth. Parallel with M1. | **Done** |
 | 5 | **Sentry integration** | XS | — | P0 | 2 hours. Required before Stripe webhooks go live. De-risks everything after. (Buy-vs-Build: BUY NOW) | **Done** |
 | 6 | **PostHog integration** | S | — | P0 | Half day. Replaces custom analytics in handlers_admin.go. Needed to measure swap acceptance rates. (Buy-vs-Build: BUY NOW) | **Done** |

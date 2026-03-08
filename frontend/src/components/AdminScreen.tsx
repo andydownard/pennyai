@@ -101,7 +101,13 @@ interface MarketplaceHealthData {
   health: MarketplaceHealthEntry[];
 }
 
-type AdminTab = 'overview' | 'business' | 'churn' | 'cohorts' | 'marketplace'
+interface FeedbackItem {
+  id: number; user_id: number; body: string; type: string; urgency: string;
+  status: string; admin_notes: string; github_issue_url: string;
+  created_at: string; updated_at: string; user_name: string; user_phone: string;
+}
+
+type AdminTab = 'overview' | 'business' | 'churn' | 'cohorts' | 'marketplace' | 'feedback'
 
 const EMPTY_FORM = {
   competitor_product: '', offer_brand: '', offer_product: '',
@@ -212,6 +218,9 @@ export function AdminScreen({
   const [churnLoading, setChurnLoading] = useState(false)
   const [cohortLoading, setCohortLoading] = useState(false)
   const [marketplaceLoading, setMarketplaceLoading] = useState(false)
+  const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[] | null>(null)
+  const [feedbackLoading, setFeedbackLoading] = useState(false)
+  const [feedbackFilter, setFeedbackFilter] = useState<string>('all')
 
   // Original data fetching
   useEffect(() => {
@@ -266,6 +275,17 @@ export function AdminScreen({
     }
   }, [activeTab, marketplaceHealth, marketplaceLoading])
 
+  // Lazy-load feedback
+  useEffect(() => {
+    if (activeTab === 'feedback' && !feedbackItems && !feedbackLoading) {
+      setFeedbackLoading(true)
+      fetchAPI('/api/admin/feedback')
+        .then(data => { if (data) setFeedbackItems(data as unknown as FeedbackItem[]) })
+        .catch(e => console.warn('[load] feedback failed:', e))
+        .finally(() => setFeedbackLoading(false))
+    }
+  }, [activeTab, feedbackItems, feedbackLoading])
+
   // Reset lazy-loaded data when time period changes
   useEffect(() => {
     setBusinessMetrics(null)
@@ -286,6 +306,7 @@ export function AdminScreen({
     { key: 'churn', label: 'Churn' },
     { key: 'cohorts', label: 'Cohorts' },
     { key: 'marketplace', label: 'Health' },
+    { key: 'feedback', label: 'Feedback' },
   ]
 
   // Color helpers
@@ -593,6 +614,126 @@ export function AdminScreen({
     )
   }
 
+  // --- Feedback triage helpers ---
+  const statusBadge = (status: string) => {
+    const colors: Record<string, { bg: string; fg: string }> = {
+      new: { bg: '#EBF5FF', fg: '#1D4ED8' },
+      reviewed: { bg: '#FEF3C7', fg: '#92400E' },
+      roadmapped: { bg: '#E0E7FF', fg: '#4338CA' },
+      done: { bg: '#D1FAE5', fg: '#065F46' },
+    }
+    const c = colors[status] || colors.new
+    return (
+      <span style={{
+        display: 'inline-block', padding: '2px 8px', borderRadius: '10px',
+        backgroundColor: c.bg, color: c.fg,
+        fontFamily: FONT, fontSize: '11px', fontWeight: 600,
+        textTransform: 'capitalize' as const,
+      }}>{status}</span>
+    )
+  }
+
+  const urgencyLabel = (urg: string) => {
+    const colors: Record<string, string> = { critical: ERROR_RED, high: '#D97706', normal: TEXT_SECONDARY, low: TEXT_SECONDARY }
+    return <span style={{ fontFamily: FONT, fontSize: '11px', fontWeight: urg === 'critical' || urg === 'high' ? 700 : 400, color: colors[urg] || TEXT_SECONDARY }}>{urg}</span>
+  }
+
+  const handleTriageFeedback = async (id: number, status: string) => {
+    const res = await fetchAPI(`/api/admin/feedback/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    })
+    if (res) {
+      setFeedbackItems(prev => prev ? prev.map(f => f.id === id ? { ...f, status, updated_at: new Date().toISOString() } : f) : prev)
+      showToast(`Feedback #${id} → ${status}`)
+    }
+  }
+
+  const renderFeedback = () => {
+    if (feedbackLoading) return <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>Loading feedback...</div>
+    if (!feedbackItems || feedbackItems.length === 0) return <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>No feedback yet.</div>
+
+    const filtered = feedbackFilter === 'all' ? feedbackItems : feedbackItems.filter(f => f.status === feedbackFilter)
+
+    return (
+      <>
+        {/* Filter chips */}
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const, marginBottom: '16px' }}>
+          {['all', 'new', 'reviewed', 'roadmapped', 'done'].map(f => (
+            <button key={f} onClick={() => setFeedbackFilter(f)} style={{
+              padding: '4px 10px', borderRadius: '12px', border: 'none',
+              backgroundColor: feedbackFilter === f ? BRAND : `${BORDER}80`,
+              color: feedbackFilter === f ? WHITE : TEXT,
+              fontFamily: FONT, fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+              textTransform: 'capitalize' as const,
+            }}>{f} {f !== 'all' ? `(${feedbackItems.filter(i => i.status === f).length})` : `(${feedbackItems.length})`}</button>
+          ))}
+        </div>
+
+        {/* Feedback items */}
+        {filtered.map(f => (
+          <div key={f.id} style={{
+            ...metricCard, marginBottom: '10px', padding: '14px 16px',
+            borderLeft: `3px solid ${f.urgency === 'critical' ? ERROR_RED : f.urgency === 'high' ? '#D97706' : BORDER}`,
+          }}>
+            {/* Header: type badge + urgency + status */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' as const }}>
+              <span style={{
+                padding: '1px 6px', borderRadius: '4px', backgroundColor: `${BRAND}15`,
+                fontFamily: FONT, fontSize: '10px', fontWeight: 700, color: BRAND,
+                textTransform: 'uppercase' as const,
+              }}>{f.type}</span>
+              {urgencyLabel(f.urgency)}
+              {statusBadge(f.status)}
+              <span style={{ marginLeft: 'auto', fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY }}>
+                #{f.id}
+              </span>
+            </div>
+
+            {/* Body */}
+            <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT, lineHeight: 1.5, marginBottom: '8px', whiteSpace: 'pre-wrap' as const }}>
+              {f.body.length > 300 ? f.body.slice(0, 300) + '...' : f.body}
+            </div>
+
+            {/* Meta */}
+            <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginBottom: '8px' }}>
+              {f.user_name || `User #${f.user_id}`}
+              {f.user_phone ? ` · ${f.user_phone}` : ''}
+              {' · '}
+              {new Date(f.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+              {f.github_issue_url && (
+                <> · <a href={f.github_issue_url} target="_blank" rel="noopener noreferrer" style={{ color: BRAND }}>GitHub</a></>
+              )}
+            </div>
+
+            {/* Triage actions */}
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
+              {f.status !== 'reviewed' && (
+                <button onClick={() => handleTriageFeedback(f.id, 'reviewed')} style={{
+                  padding: '4px 10px', borderRadius: '8px', border: `1px solid ${BORDER}`,
+                  backgroundColor: WHITE, fontFamily: FONT, fontSize: '12px', color: TEXT, cursor: 'pointer',
+                }}>Mark Reviewed</button>
+              )}
+              {f.status !== 'roadmapped' && (
+                <button onClick={() => handleTriageFeedback(f.id, 'roadmapped')} style={{
+                  padding: '4px 10px', borderRadius: '8px', border: `1px solid ${BRAND}`,
+                  backgroundColor: `${BRAND}10`, fontFamily: FONT, fontSize: '12px', color: BRAND, cursor: 'pointer',
+                }}>Roadmap</button>
+              )}
+              {f.status !== 'done' && (
+                <button onClick={() => handleTriageFeedback(f.id, 'done')} style={{
+                  padding: '4px 10px', borderRadius: '8px', border: `1px solid ${BRAND}`,
+                  backgroundColor: BRAND, fontFamily: FONT, fontSize: '12px', color: WHITE, cursor: 'pointer',
+                }}>Done</button>
+              )}
+            </div>
+          </div>
+        ))}
+      </>
+    )
+  }
+
   // =====================================================================
   // MAIN RENDER
   // =====================================================================
@@ -642,6 +783,7 @@ export function AdminScreen({
         {activeTab === 'churn' && renderChurnRisk()}
         {activeTab === 'cohorts' && renderCohorts()}
         {activeTab === 'marketplace' && renderMarketplaceHealth()}
+        {activeTab === 'feedback' && renderFeedback()}
 
         {/* --- Overview tab (original content) --- */}
         {activeTab === 'overview' && (
