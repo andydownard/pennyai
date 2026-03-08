@@ -52,12 +52,12 @@ const styles = {
   } as React.CSSProperties,
 
   checkBtn: {
-    padding: '8px 8px 8px 14px',
+    padding: '12px 8px 12px 14px',
     background: 'none',
     border: 'none',
     cursor: 'pointer',
     flexShrink: 0,
-
+    minHeight: '44px',
     display: 'flex',
     alignItems: 'center',
   } as React.CSSProperties,
