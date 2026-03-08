@@ -484,18 +484,23 @@ function AppInner() {
 
   const CHIME_IN_MESSAGES = [
     'Looking good!', 'Almost there!', 'Nice work!', 'On a roll!', 'Keep going!',
+    'You got this!', 'Crushing it!', 'Making great progress!', 'Speedy shopper!',
+    'Halfway hero!', 'Cart\'s filling up nicely!',
   ]
 
   const FIRST_VISIT_GREETINGS = [
     "Hey! I'm Penny. What do you need from the store?",
     "Hi there! I'm Penny, your grocery sidekick. What are we shopping for?",
     "Hey! I'm Penny. Tell me what you need and I'll get your list started.",
+    "Welcome! I'm Penny. Type, paste, or snap a photo of what you need.",
   ]
 
   const RETURNING_GREETINGS = [
     "What are we shopping for today?",
     "Ready when you are — just tell me what you need!",
     "What can I help you find at the store?",
+    "Back for more? Let's build your list!",
+    "Hey! What's on the menu this week?",
   ]
 
   const IDLE_MESSAGES = [
@@ -504,10 +509,13 @@ function AppInner() {
     "Need help planning a meal? Just ask!",
     "Tip: you can paste a recipe and I'll pull out the ingredients.",
     "You can also snap a photo of a recipe or your fridge!",
+    "Try telling me 'dinner for 4' and I'll suggest ingredients.",
+    "You can share this list with your household — tap Share!",
   ]
 
   const DEPT_DONE_MESSAGES = [
     'done with {dept}!', '{dept} — checked!', '{dept} complete!', 'Finished {dept}!',
+    '{dept} — all set!', 'That\'s {dept} done!',
   ]
 
   const prevDeptDoneRef = useRef<Set<string>>(new Set())
@@ -1102,6 +1110,19 @@ function AppInner() {
         .then(data => { if (data && !Array.isArray(data) && data.show_nps) setShowNPS(true) })
         .catch(e => console.warn('[load] nps check failed:', e))
     }
+  }, [screen])
+
+  // Preload adjacent screen chunks after home loads (improves tab switching)
+  const preloadedRef = useRef(false)
+  useEffect(() => {
+    if (screen !== 'home' || preloadedRef.current) return
+    preloadedRef.current = true
+    const idle = window.requestIdleCallback || ((cb: () => void) => setTimeout(cb, 2000))
+    idle(() => {
+      import('./components/PennySettingsScreen')
+      import('./components/ShareScreen')
+      import('./components/ProfileScreen')
+    })
   }, [screen])
 
   // --- Pull-to-refresh handlers ---
@@ -2418,16 +2439,20 @@ function AppInner() {
 
   const handleClearList = async (all?: boolean) => {
     haptic.heavy()
+    const oldItems = items
+    // Optimistic: clear UI immediately
+    if (all) {
+      setItems([]); setExpandedDepts(new Set()); setShowDoneToast(false); setShowFireworks(false); setPennyChimeIn(null)
+    } else {
+      setItems(prev => prev.filter(i => !i.checked)); setExpandedDepts(new Set()); setShowDoneToast(false); setShowFireworks(false); setPennyChimeIn(null)
+    }
+    typePennyHome('List cleared — ready for a fresh start!')
     const url = all ? '/api/list/clear?all=true' : '/api/list/clear'
     const result = await fetchAction(url, { method: 'POST' })
-    if (result.ok) {
-      if (all) {
-        setItems([]); setExpandedDepts(new Set()); setShowDoneToast(false); setShowFireworks(false); setPennyChimeIn(null)
-      } else {
-        setItems(prev => prev.filter(i => !i.checked)); setExpandedDepts(new Set()); setShowDoneToast(false); setShowFireworks(false); setPennyChimeIn(null)
-      }
-      typePennyHome('List cleared — ready for a fresh start!')
-    } else if (result.status !== 401) { showToast('Couldn\'t clear your list — please try again', 'error') }
+    if (!result.ok && result.status !== 401) {
+      setItems(oldItems) // Rollback
+      showToast('Couldn\'t clear your list — please try again', 'error')
+    }
   }
 
   const handleSaveList = async () => {
