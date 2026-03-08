@@ -137,6 +137,7 @@ type BrandDisambiguation struct {
 	ProductCategory string   `json:"product_category"`
 	CurrentBrand    string   `json:"current_brand"`
 	Alternatives    []string `json:"alternatives"`
+	AutoAssigned    bool     `json:"auto_assigned,omitempty"`
 }
 
 // cachedLogo is a brand logo held in the in-memory logo cache.

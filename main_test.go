@@ -8033,6 +8033,94 @@ func TestBrands_CaseInsensitive(t *testing.T) {
 }
 
 // =============================================================================
+// GLOBAL BRAND DEFAULT TESTS
+// =============================================================================
+
+func TestGlobalBrandDefault_NoData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	brand, ok := getGlobalBrandDefault(server.db, "yogurt")
+	if ok {
+		t.Errorf("Expected no default, got %q", brand)
+	}
+}
+
+func TestGlobalBrandDefault_SinglePick(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5551000001")
+	// Only 1 pick — below the threshold of 2
+	server.db.Exec("INSERT INTO brand_choices (user_id, product_category, brand) VALUES (?, 'yogurt', 'Fage')", userID)
+	brand, ok := getGlobalBrandDefault(server.db, "yogurt")
+	if ok {
+		t.Errorf("Expected no default with only 1 pick, got %q", brand)
+	}
+	_ = brand
+}
+
+func TestGlobalBrandDefault_ClearWinner(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// Create multiple users, each picks Fage
+	for i := 0; i < 5; i++ {
+		_, uid := loginUser(t, server, fmt.Sprintf("555200%04d", i))
+		server.db.Exec("INSERT INTO brand_choices (user_id, product_category, brand) VALUES (?, 'yogurt', 'Fage')", uid)
+	}
+	// One user picks Chobani
+	_, uid6 := loginUser(t, server, "5553000001")
+	server.db.Exec("INSERT INTO brand_choices (user_id, product_category, brand) VALUES (?, 'yogurt', 'Chobani')", uid6)
+
+	brand, ok := getGlobalBrandDefault(server.db, "yogurt")
+	if !ok {
+		t.Fatal("Expected a default brand")
+	}
+	if brand != "Fage" {
+		t.Errorf("Expected Fage, got %q", brand)
+	}
+}
+
+func TestGlobalBrandDefault_NoMajority(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// Even split: 3 each → top has 50% (above 40% threshold), should return
+	for i := 0; i < 3; i++ {
+		_, uid := loginUser(t, server, fmt.Sprintf("555400%04d", i))
+		server.db.Exec("INSERT INTO brand_choices (user_id, product_category, brand) VALUES (?, 'ketchup', 'Heinz')", uid)
+	}
+	for i := 0; i < 3; i++ {
+		_, uid := loginUser(t, server, fmt.Sprintf("555500%04d", i))
+		server.db.Exec("INSERT INTO brand_choices (user_id, product_category, brand) VALUES (?, 'ketchup', 'Hunts')", uid)
+	}
+
+	brand, ok := getGlobalBrandDefault(server.db, "ketchup")
+	if !ok {
+		t.Fatal("Expected a default brand (50% share)")
+	}
+	if brand != "Heinz" && brand != "Hunts" {
+		t.Errorf("Expected one of the brands, got %q", brand)
+	}
+}
+
+func TestGlobalBrandDefault_CaseInsensitive(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	for i := 0; i < 3; i++ {
+		_, uid := loginUser(t, server, fmt.Sprintf("555600%04d", i))
+		server.db.Exec("INSERT INTO brand_choices (user_id, product_category, brand) VALUES (?, 'milk', 'Organic Valley')", uid)
+	}
+	// Query with mixed case
+	brand, ok := getGlobalBrandDefault(server.db, "Milk")
+	if !ok {
+		t.Fatal("Expected a default brand")
+	}
+	if brand != "Organic Valley" {
+		t.Errorf("Expected Organic Valley, got %q", brand)
+	}
+}
+
+func TestGlobalBrandDefault_EmptyCategory(t *testing.T) {
+	_, ok := getGlobalBrandDefault(nil, "")
+	if ok {
+		t.Error("Expected no default for empty category")
+	}
+}
+
+// =============================================================================
 // LIST URGENT ENDPOINT TESTS
 // =============================================================================
 

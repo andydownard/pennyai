@@ -1980,8 +1980,8 @@ function AppInner() {
               nameInputMode.current = true
             }, 2500)
           }
-          // Session 2: Mention sharing (once per session, after 2+ items)
-          else if (loginCount === 2 && !onboardingShareMentioned.current && addedItems.length >= 1) {
+          // After 3rd item on list: mention sharing (item-count-based, not session-based)
+          else if (!onboardingShareMentioned.current && items.length + addedItems.length >= 3) {
             onboardingShareMentioned.current = true
             localStorage.setItem('ob_share', '1')
             syncOnboardingFlags()
@@ -2004,8 +2004,8 @@ function AppInner() {
               ])
             }, 3000)
           }
-          // After 3+ items on list and haven't mentioned swaps yet
-          else if (!onboardingSwapsMentioned.current && items.length + addedItems.length >= 3) {
+          // After 5+ items on list and haven't mentioned swaps yet
+          else if (!onboardingSwapsMentioned.current && items.length + addedItems.length >= 5) {
             onboardingSwapsMentioned.current = true
             localStorage.setItem('ob_swaps', '1')
             syncOnboardingFlags()

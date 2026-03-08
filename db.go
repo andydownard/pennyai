@@ -2135,6 +2135,55 @@ func recordModification(ex dbExecer, itemID, userID int, action, detail, source 
 	}
 }
 
+// getGlobalBrandDefault returns the most-chosen brand for a product category
+// across all users. Used as a smart default when a new user has no preference.
+// Returns ("", false) if no data or no clear winner (top brand needs ≥2 picks
+// and ≥40% of total to be a meaningful default).
+func getGlobalBrandDefault(db *sql.DB, category string) (string, bool) {
+	category = strings.ToLower(strings.TrimSpace(category))
+	if category == "" {
+		return "", false
+	}
+	rows, err := db.Query(`
+		SELECT brand, COUNT(*) as cnt
+		FROM brand_choices
+		WHERE product_category = ? AND brand != ''
+		GROUP BY brand
+		ORDER BY cnt DESC
+		LIMIT 2`, category)
+	if err != nil {
+		return "", false
+	}
+	defer rows.Close()
+
+	var topBrand string
+	var topCount, secondCount int
+	i := 0
+	for rows.Next() {
+		var brand string
+		var cnt int
+		if err := rows.Scan(&brand, &cnt); err != nil {
+			continue
+		}
+		if i == 0 {
+			topBrand = brand
+			topCount = cnt
+		} else {
+			secondCount = cnt
+		}
+		i++
+	}
+	if topBrand == "" || topCount < 2 {
+		return "", false
+	}
+	// Require ≥40% share (top must be meaningfully dominant)
+	total := topCount + secondCount
+	if total > 0 && float64(topCount)/float64(total) < 0.4 {
+		return "", false
+	}
+	return topBrand, true
+}
+
 // recordBrandChoice logs a brand choice and updates the derived preference.
 func recordBrandChoice(db *sql.DB, userID int, category, brand, source string) {
 	category = strings.ToLower(strings.TrimSpace(category))
@@ -2237,6 +2286,25 @@ func resolveBrandAlternatives(db *sql.DB, userID int, pennyBrandMode string, ite
 		if hasPref && pennyBrandMode == "auto" {
 			db.Exec("UPDATE list_items SET brand = ? WHERE id = ?", prefBrand, item.ID)
 			continue
+		}
+
+		// Check global brand popularity as fallback for new users
+		if !hasPref {
+			if globalBrand, ok := getGlobalBrandDefault(db, category); ok {
+				// Auto-assign the popular brand and send as auto_assigned so
+				// the frontend can show 1-tap correction instead of full prompt
+				db.Exec("UPDATE list_items SET brand = ? WHERE id = ?", globalBrand, item.ID)
+				alts := make([]string, len(p.BrandAlternatives))
+				copy(alts, p.BrandAlternatives)
+				disambiguations = append(disambiguations, BrandDisambiguation{
+					ItemID:          item.ID,
+					ProductCategory: category,
+					CurrentBrand:    globalBrand,
+					Alternatives:    alts,
+					AutoAssigned:    true,
+				})
+				continue
+			}
 		}
 
 		// Build disambiguation — reorder with preferred brand first if exists

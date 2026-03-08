@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { PennyAvatar } from './PennyAvatar'
 import { FONT } from '../styles'
 
@@ -7,6 +7,7 @@ export interface DisambigItem {
   product_category: string
   current_brand: string
   alternatives: string[]
+  auto_assigned?: boolean
 }
 
 interface PennyBarProps {
@@ -78,6 +79,7 @@ export function PennyBar({
   chatText, onChatTextChange, chatLoading, onSend, onPaste, onAddPhoto,
   chatInputRef,
 }: PennyBarProps) {
+  const [showAltsForAuto, setShowAltsForAuto] = useState(false)
   const hasDisambig = disambig.length > 0 && disambigIndex < disambig.length
   const bgColor = toastError ? 'var(--error-bg, #FEE2E2)' : 'var(--penny-bg, #F5F3EF)'
   const textColor = toastError ? 'var(--error, #DC2626)' : 'var(--text)'
@@ -98,7 +100,7 @@ export function PennyBar({
               minHeight: keyboardOpen ? undefined : '20px', transition: 'font-size 200ms ease',
             }}>
               {hasDisambig
-                ? (() => { const d = disambig[disambigIndex]; return d.current_brand ? `${d.product_category} (${d.current_brand}) — which brand?` : `${d.product_category} — which brand?` })()
+                ? (() => { const d = disambig[disambigIndex]; return d.auto_assigned ? `I picked ${d.current_brand} for ${d.product_category}` : d.current_brand ? `${d.product_category} (${d.current_brand}) — which brand?` : `${d.product_category} — which brand?` })()
                 : pennyText}
               {!hasDisambig && pennyTyping && <span className="cursor-blink" style={{ fontWeight: 300, marginLeft: '1px' }}>|</span>}
             </span>
@@ -120,23 +122,36 @@ export function PennyBar({
         </div>
         {hasDisambig && (() => {
           const d = disambig[disambigIndex]
+          const isAuto = d.auto_assigned && !showAltsForAuto
           return (
             <div style={{ position: 'relative' }}>
               <div style={{ display: 'flex', flexWrap: 'nowrap', overflowX: 'auto', gap: '6px', padding: keyboardOpen ? '4px 12px 6px 42px' : '4px 16px 10px 56px', WebkitOverflowScrolling: 'touch' as any, scrollbarWidth: 'none' as any, msOverflowStyle: 'none' as any }}>
-                {d.current_brand && !d.alternatives.includes(d.current_brand) && (
-                  <button onClick={() => onBrandPick(d.current_brand)} style={{ ...btnStyle, padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0, boxShadow: '0 0 0 2px var(--brand)' }}>{d.current_brand}</button>
-                )}
-                {d.alternatives.filter(a => a !== '').map((alt, i) => (
-                  <button key={i} onClick={() => onBrandPick(alt)} style={{
-                    ...btnStyle,
-                    padding: keyboardOpen ? '4px 10px' : '5px 12px',
-                    flexShrink: 0,
-                    ...(alt === d.current_brand ? { boxShadow: '0 0 0 2px var(--brand)' } : { background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)' }),
-                  }}>{alt}</button>
-                ))}
-                <button onClick={onSkipDisambig} aria-label="Skip brand selection" style={{ ...btnStyle, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0 }}>Skip</button>
-                {disambig.length > 1 && !keyboardOpen && (
-                  <span style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', alignSelf: 'center', paddingLeft: '4px', flexShrink: 0 }}>{disambigIndex + 1}/{disambig.length}</span>
+                {isAuto ? (
+                  <>
+                    <button onClick={() => { setShowAltsForAuto(false); onBrandPick(d.current_brand) }} style={{ ...btnStyle, padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0 }}>OK</button>
+                    <button onClick={() => setShowAltsForAuto(true)} style={{ ...btnStyle, background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)', padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0 }}>Change</button>
+                    {disambig.length > 1 && (
+                      <span style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', alignSelf: 'center', paddingLeft: '4px', flexShrink: 0 }}>{disambigIndex + 1}/{disambig.length}</span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {d.current_brand && !d.alternatives.includes(d.current_brand) && (
+                      <button onClick={() => { setShowAltsForAuto(false); onBrandPick(d.current_brand) }} style={{ ...btnStyle, padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0, boxShadow: '0 0 0 2px var(--brand)' }}>{d.current_brand}</button>
+                    )}
+                    {d.alternatives.filter(a => a !== '').map((alt, i) => (
+                      <button key={i} onClick={() => { setShowAltsForAuto(false); onBrandPick(alt) }} style={{
+                        ...btnStyle,
+                        padding: keyboardOpen ? '4px 10px' : '5px 12px',
+                        flexShrink: 0,
+                        ...(alt === d.current_brand ? { boxShadow: '0 0 0 2px var(--brand)' } : { background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)' }),
+                      }}>{alt}</button>
+                    ))}
+                    <button onClick={() => { setShowAltsForAuto(false); onSkipDisambig() }} aria-label="Skip brand selection" style={{ ...btnStyle, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0 }}>Skip</button>
+                    {disambig.length > 1 && !keyboardOpen && (
+                      <span style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', alignSelf: 'center', paddingLeft: '4px', flexShrink: 0 }}>{disambigIndex + 1}/{disambig.length}</span>
+                    )}
+                  </>
                 )}
               </div>
               <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: '28px', background: `linear-gradient(to right, transparent, ${bgColor})`, pointerEvents: 'none' }} />
