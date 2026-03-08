@@ -2297,6 +2297,20 @@ function AppInner() {
     }
   }
 
+  // --- Escape key closes topmost modal/sheet ---
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (showDoneSummary) { setShowDoneSummary(false); return }
+      if (selectedItem) { closeEditSheet(); return }
+      if (showTripSheet) { popModalState(); setShowTripSheet(false); return }
+      if (showReviewSheet) { popModalState(); setShowReviewSheet(false); setLastAdded([]); setLastSkipped([]); return }
+      if (showSaveSheet) { popModalState(); setShowSaveSheet(false); return }
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  })
+
   const handleEditSave = async () => {
     if (!selectedItem || !editForm.name.trim() || editLoading) return
     setDisplayBrand(editForm.brand)
@@ -2746,13 +2760,19 @@ const handleCodeChange = (index: number, value: string) => {
 
   const handleTextInviteLink = () => withInviteLink(async link => {
     const message = `Join our household shopping list on Thriftly! ${link}`
+    // Prefer native share sheet (lets user pick iMessage, WhatsApp, email, etc.)
+    if (navigator.share) {
+      track('invite_shared', { method: 'native_share' })
+      try {
+        await navigator.share({ title: 'Join my Thriftly list', text: message, url: link })
+        return
+      } catch { /* user cancelled or share failed — fall through */ }
+    }
     const isMobile = /Mobi|Android/i.test(navigator.userAgent)
     track('invite_shared', { method: isMobile ? 'sms' : 'clipboard' })
     if (isMobile) {
-      // Mobile: open Messages app with pre-filled invite text
       window.location.href = `sms:?&body=${encodeURIComponent(message)}`
     } else {
-      // Desktop: copy invite link to clipboard
       try {
         await navigator.clipboard.writeText(link)
         showToast('Invite link copied!')
