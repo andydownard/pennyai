@@ -1412,33 +1412,36 @@ function AppInner() {
   }, [screen, settingsMembers.length])
 
   const resizeAndSetPhoto = (file: Blob) => {
-    const img = new Image()
-    const objectUrl = URL.createObjectURL(file)
-    img.onload = () => {
-      try {
-        const MAX = 1024
-        let w = img.width
-        let h = img.height
-        if (w > MAX || h > MAX) {
-          if (w > h) { h = Math.round(h * MAX / w); w = MAX }
-          else { w = Math.round(w * MAX / h); h = MAX }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result as string
+      const img = new Image()
+      img.onload = () => {
+        try {
+          const MAX = 1024
+          let w = img.width
+          let h = img.height
+          if (w > MAX || h > MAX) {
+            if (w > h) { h = Math.round(h * MAX / w); w = MAX }
+            else { w = Math.round(w * MAX / h); h = MAX }
+          }
+          const canvas = document.createElement('canvas')
+          canvas.width = w
+          canvas.height = h
+          const ctx = canvas.getContext('2d')
+          if (!ctx) { showToast('Could not process photo', 'error'); return }
+          ctx.drawImage(img, 0, 0, w, h)
+          setPendingImages(prev => [...prev, canvas.toDataURL('image/jpeg', 0.8)])
+        } catch (err) {
+          console.error('[photo] resize error:', err)
+          showToast('Could not process photo — try again', 'error')
         }
-        const canvas = document.createElement('canvas')
-        canvas.width = w
-        canvas.height = h
-        const ctx = canvas.getContext('2d')
-        if (!ctx) { URL.revokeObjectURL(objectUrl); showToast('Could not process photo', 'error'); return }
-        ctx.drawImage(img, 0, 0, w, h)
-        setPendingImages(prev => [...prev, canvas.toDataURL('image/jpeg', 0.8)])
-      } catch (err) {
-        console.error('[photo] resize error:', err)
-        showToast('Could not process photo — try again', 'error')
-      } finally {
-        URL.revokeObjectURL(objectUrl)
       }
+      img.onerror = () => showToast('Could not load photo — try a different image', 'error')
+      img.src = dataUrl
     }
-    img.onerror = () => { URL.revokeObjectURL(objectUrl); showToast('Could not load photo', 'error') }
-    img.src = objectUrl
+    reader.onerror = () => showToast('Could not read photo file', 'error')
+    reader.readAsDataURL(file)
   }
 
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2051,10 +2054,20 @@ function AppInner() {
 
   const handleFeedbackSubmit = async (body: string, type: string, urgency: string): Promise<boolean> => {
     try {
+      // Append device context for debugging
+      const ctx = [
+        `Screen: ${screen}`,
+        `Viewport: ${window.innerWidth}x${window.innerHeight}`,
+        `UA: ${navigator.userAgent}`,
+        `Dark: ${document.documentElement.getAttribute('data-theme')}`,
+        `Items: ${items.length}`,
+      ].join(' | ')
+      const enrichedBody = `${body}\n\n---\n_Device: ${ctx}_`
+
       const res = await fetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body, type, urgency }),
+        body: JSON.stringify({ body: enrichedBody, type, urgency }),
       })
       if (res.ok) {
         showToast('Got it — your feedback shapes what we build next')
