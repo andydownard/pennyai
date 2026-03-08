@@ -18827,3 +18827,189 @@ func TestStoreSubroute_InvalidPath(t *testing.T) {
 		t.Errorf("expected 404 for invalid subroute, got %d", rr.Code)
 	}
 }
+
+// ── v1 Stretch: Rich Product Descriptions Tests ──────────────────────
+
+func TestProductDescription_InSwapResponse(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	server.db.Exec("DELETE FROM brand_deals")
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product,
+		discount_cents, total_budget_cents, status,
+		product_description, key_benefits, brand_story)
+		VALUES (100, 'skippy', 'Jif', 'Creamy Peanut Butter', 200, 10000, 'active',
+		'Smooth, creamy peanut butter made from roasted peanuts.',
+		'["No palm oil","4.6 star avg rating","24% less per ounce"]',
+		'Jif has been Americas favorite peanut butter since 1958.')`)
+
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
+			Message: "Added!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "skippy peanut butter"}, cookies)
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.PendingSwap == nil {
+		t.Fatal("expected a pending swap")
+	}
+
+	if resp.PendingSwap.ProductDescription != "Smooth, creamy peanut butter made from roasted peanuts." {
+		t.Errorf("unexpected product_description: %q", resp.PendingSwap.ProductDescription)
+	}
+	if len(resp.PendingSwap.KeyBenefits) != 3 {
+		t.Errorf("expected 3 key_benefits, got %d", len(resp.PendingSwap.KeyBenefits))
+	}
+	if resp.PendingSwap.BrandStory != "Jif has been Americas favorite peanut butter since 1958." {
+		t.Errorf("unexpected brand_story: %q", resp.PendingSwap.BrandStory)
+	}
+}
+
+func TestProductDescription_EmptyGracefulDegradation(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	server.db.Exec("DELETE FROM brand_deals")
+	// No product_description, key_benefits, or brand_story
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product,
+		discount_cents, total_budget_cents, status)
+		VALUES (100, 'skippy', 'Jif', 'Creamy Peanut Butter', 200, 10000, 'active')`)
+
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
+			Message: "Added!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "skippy peanut butter"}, cookies)
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.PendingSwap == nil {
+		t.Fatal("expected a pending swap")
+	}
+
+	// Empty descriptions should not appear in JSON (omitempty)
+	if resp.PendingSwap.ProductDescription != "" {
+		t.Errorf("expected empty product_description, got %q", resp.PendingSwap.ProductDescription)
+	}
+	if resp.PendingSwap.KeyBenefits != nil {
+		t.Errorf("expected nil key_benefits, got %v", resp.PendingSwap.KeyBenefits)
+	}
+}
+
+func TestParseKeyBenefits_EmptyInput(t *testing.T) {
+	if result := parseKeyBenefits(""); result != nil {
+		t.Errorf("expected nil for empty string, got %v", result)
+	}
+	if result := parseKeyBenefits("[]"); result != nil {
+		t.Errorf("expected nil for empty array, got %v", result)
+	}
+	if result := parseKeyBenefits("invalid json"); result != nil {
+		t.Errorf("expected nil for invalid json, got %v", result)
+	}
+}
+
+func TestParseKeyBenefits_ValidInput(t *testing.T) {
+	result := parseKeyBenefits(`["benefit1","benefit2","benefit3"]`)
+	if len(result) != 3 {
+		t.Fatalf("expected 3 benefits, got %d", len(result))
+	}
+	if result[0] != "benefit1" || result[2] != "benefit3" {
+		t.Errorf("unexpected benefits: %v", result)
+	}
+}
+
+func TestBrandDealCreation_WithProductDescription(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Register brand user
+	rr := doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
+		"email":        "brand@example.com",
+		"password":     "securepassword123",
+		"company_name": "Test Co",
+	}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register: expected 200, got %d", rr.Code)
+	}
+	var brandCookie *http.Cookie
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == "brand_session" {
+			brandCookie = c
+			break
+		}
+	}
+
+	// Create deal with rich description fields
+	rr = doRequest(server.handleBrandDeals, "POST", "/brand/deals", map[string]interface{}{
+		"competitor_product":    "Old Brand Cola",
+		"offer_brand":          "NewCola",
+		"offer_product":        "NewCola Zero Sugar",
+		"discount_cents":       150,
+		"daily_budget_cents":   10000,
+		"product_description":  "Refreshing zero-sugar cola with natural flavors.",
+		"key_benefits":         `["Zero sugar","Natural caffeine","No artificial sweeteners"]`,
+		"brand_story":          "NewCola was founded to prove that healthy can taste great.",
+	}, []*http.Cookie{brandCookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create deal: expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	dealID := int(body["id"].(float64))
+
+	// Verify stored correctly
+	var desc, benefits, story string
+	server.db.QueryRow("SELECT product_description, key_benefits, brand_story FROM brand_deals WHERE id = ?", dealID).
+		Scan(&desc, &benefits, &story)
+	if desc != "Refreshing zero-sugar cola with natural flavors." {
+		t.Errorf("product_description: got %q", desc)
+	}
+	if benefits != `["Zero sugar","Natural caffeine","No artificial sweeteners"]` {
+		t.Errorf("key_benefits: got %q", benefits)
+	}
+	if story != "NewCola was founded to prove that healthy can taste great." {
+		t.Errorf("brand_story: got %q", story)
+	}
+}
+
+func TestConversationDepthColumn_Exists(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Insert a swap event with conversation_depth
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	_, err := server.db.Exec(
+		"INSERT INTO swap_events (user_id, deal_id, action, conversation_depth) VALUES (1, 1, 'offered', 3)")
+	if err != nil {
+		t.Fatalf("failed to insert swap_event with conversation_depth: %v", err)
+	}
+
+	var depth int
+	server.db.QueryRow("SELECT conversation_depth FROM swap_events WHERE user_id = 1").Scan(&depth)
+	if depth != 3 {
+		t.Errorf("expected conversation_depth 3, got %d", depth)
+	}
+}

@@ -312,7 +312,10 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 		       why_bullets, allergen_notes,
 		       deal_type, quantity_offered, trial_product_name, trial_size, campaign_tag,
 		       COALESCE(ends_at,''),
-		       COALESCE(category_id, 0)
+		       COALESCE(category_id, 0),
+		       COALESCE(product_description, ''),
+		       COALESCE(key_benefits, '[]'),
+		       COALESCE(brand_story, '')
 		FROM brand_deals
 		WHERE status = 'active'
 		  AND (starts_at <= datetime('now') OR starts_at IS NULL)
@@ -346,6 +349,9 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 		CampaignTag         string
 		EndsAt              string
 		CategoryID          int
+		ProductDescription  string
+		KeyBenefitsJSON     string
+		BrandStory          string
 	}
 	var deals []activeDeal
 	for rows.Next() {
@@ -358,7 +364,8 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 			&d.OfferUnitPrice, &d.CompetitorUnitPrice,
 			&d.WhyBulletsJSON, &d.AllergenNotes,
 			&d.DealType, &d.QuantityOffered, &d.TrialProductName, &d.TrialSize, &d.CampaignTag,
-			&d.EndsAt, &d.CategoryID); err != nil {
+			&d.EndsAt, &d.CategoryID,
+			&d.ProductDescription, &d.KeyBenefitsJSON, &d.BrandStory); err != nil {
 			continue
 		}
 		d.BudgetRemaining = budgetTotal - budgetSpent
@@ -552,11 +559,29 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 				CampaignTag:        deal.CampaignTag,
 				EndsAt:             deal.EndsAt,
 				StoreName:          storeName,
+				ProductDescription: deal.ProductDescription,
+				BrandStory:         deal.BrandStory,
+				KeyBenefits:        parseKeyBenefits(deal.KeyBenefitsJSON),
 			}
 		}
 	}
 
 	return nil
+}
+
+// parseKeyBenefits parses a JSON array of strings, returning nil on empty/invalid.
+func parseKeyBenefits(jsonStr string) []string {
+	if jsonStr == "" || jsonStr == "[]" {
+		return nil
+	}
+	var benefits []string
+	if err := json.Unmarshal([]byte(jsonStr), &benefits); err != nil {
+		return nil
+	}
+	if len(benefits) == 0 {
+		return nil
+	}
+	return benefits
 }
 
 func (s *Server) handleBrands(w http.ResponseWriter, r *http.Request) {

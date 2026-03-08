@@ -1207,6 +1207,15 @@ func initDB(path string) (*sql.DB, error) {
 	// Link brand_deals to categories (0 = uncategorized)
 	db.Exec("ALTER TABLE brand_deals ADD COLUMN category_id INTEGER NOT NULL DEFAULT 0")
 
+	// v1 Stretch: rich product descriptions for conversational swap explanations
+	db.Exec("ALTER TABLE brand_deals ADD COLUMN product_description TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE brand_deals ADD COLUMN key_benefits TEXT NOT NULL DEFAULT '[]'") // JSON array
+	db.Exec("ALTER TABLE brand_deals ADD COLUMN brand_story TEXT NOT NULL DEFAULT ''")
+
+	// Swap conversational depth tracking
+	db.Exec("ALTER TABLE swap_events ADD COLUMN conversation_depth INTEGER NOT NULL DEFAULT 0")
+	db.Exec("ALTER TABLE swap_events ADD COLUMN why_tapped_at TEXT DEFAULT NULL")
+
 	// --- Category pricing tiers ---
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS category_pricing_tiers (

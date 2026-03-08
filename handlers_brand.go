@@ -403,6 +403,9 @@ func (s *Server) createBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 		TrialProductName     string `json:"trial_product_name"`
 		TrialSize            string `json:"trial_size"`
 		CampaignTag          string `json:"campaign_tag"`
+		ProductDescription   string `json:"product_description"`
+		KeyBenefits          string `json:"key_benefits"`
+		BrandStory           string `json:"brand_story"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -453,15 +456,15 @@ func (s *Server) createBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 			offer_size, competitor_size, offer_unit_price, competitor_unit_price,
 			unit_label, why_bullets, allergen_notes,
 			deal_type, quantity_offered, trial_product_name, trial_size, campaign_tag,
-			category_id
-		) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			category_id, product_description, key_benefits, brand_story
+		) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		req.CompetitorProduct, req.OfferBrand, req.OfferProduct, req.DiscountCents,
 		req.TotalBudgetCents, bs.BrandUserID,
 		req.OfferPriceCents, req.CompetitorPriceCents,
 		req.OfferSize, req.CompetitorSize, req.OfferUnitPrice, req.CompetitorUnitPrice,
 		req.UnitLabel, req.WhyBullets, req.AllergenNotes,
 		req.DealType, req.QuantityOffered, req.TrialProductName, req.TrialSize, req.CampaignTag,
-		categoryID,
+		categoryID, req.ProductDescription, req.KeyBenefits, req.BrandStory,
 	)
 	if err != nil {
 		dbError(w, err, "Failed to create deal")

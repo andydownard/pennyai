@@ -225,6 +225,10 @@ type PendingSwap struct {
 	EndsAt           string `json:"ends_at,omitempty"`
 	// Store-aware pricing
 	StoreName string `json:"store_name,omitempty"`
+	// v1 Stretch: rich product descriptions
+	ProductDescription string   `json:"product_description,omitempty"`
+	KeyBenefits        []string `json:"key_benefits,omitempty"`
+	BrandStory         string   `json:"brand_story,omitempty"`
 }
 
 // ProfilePhoto represents a user's avatar image stored as a BLOB.

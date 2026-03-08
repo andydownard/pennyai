@@ -139,10 +139,10 @@ When a user's grocery list contains an item that matches an active brand deal, P
 - Admin can create/edit/deactivate deals via `/admin`
 
 **v1 Stretch Goals (merge when brand portal ships product descriptions):**
-- Extend `brand_deals` with: `product_description`, `key_benefits` (JSON array), `brand_story` (text)
+- ✅ Extend `brand_deals` with: `product_description`, `key_benefits` (JSON array), `brand_story` (text) — all 3 columns added, brand portal accepts them on deal creation, swap card returns them with graceful degradation (omitempty)
 - Penny explains WHY the swap is good conversationally, not just via card
 - User can ask follow-up questions about the swapped product
-- Track conversational depth per swap (messages before accept/decline)
+- ✅ Track conversational depth per swap — `conversation_depth` column on `swap_events`
 - Commodity items: lean on savings; premium items: lean on product qualities
 
 ---
