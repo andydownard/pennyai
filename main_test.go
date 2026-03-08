@@ -21207,3 +21207,429 @@ func TestSwapClaims_MethodNotAllowed(t *testing.T) {
 		t.Errorf("POST to /claims should return 405, got %d", rr.Code)
 	}
 }
+
+// =============================================================================
+// Admin Analytics
+// =============================================================================
+
+func TestAdminAnalytics_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleAdminAnalytics, "GET", "/api/admin/analytics", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without auth, got %d", rr.Code)
+	}
+}
+
+func TestAdminAnalytics_ForbiddenForNonAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "+15559990001")
+
+	rr := doRequest(server.handleAdminAnalytics, "GET", "/api/admin/analytics", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+
+func TestAdminAnalytics_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Admin user
+	user, _ := upsertUser(server.db, "3104861833")
+	token, _ := server.sessions.CreateSession(user.ID, "3104861833", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	// Seed an item modification
+	server.db.Exec("INSERT INTO list_items (user_id, name, quantity, checked) VALUES (?, 'Milk', 1, 0)", user.ID)
+	var itemID int
+	server.db.QueryRow("SELECT id FROM list_items WHERE user_id = ?", user.ID).Scan(&itemID)
+	server.db.Exec("INSERT INTO item_modifications (item_id, user_id, action, source) VALUES (?, ?, 'added', 'chat')", itemID, user.ID)
+
+	rr := doRequest(server.handleAdminAnalytics, "GET", "/api/admin/analytics?days=30", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["items_created"] == nil {
+		t.Error("response missing items_created field")
+	}
+	if body["items_by_source"] == nil {
+		t.Error("response missing items_by_source field")
+	}
+	if body["events_by_action"] == nil {
+		t.Error("response missing events_by_action field")
+	}
+}
+
+func TestAdminAnalytics_CustomDays(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	user, _ := upsertUser(server.db, "3104861833")
+	token, _ := server.sessions.CreateSession(user.ID, "3104861833", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(server.handleAdminAnalytics, "GET", "/api/admin/analytics?days=7", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestAdminAnalytics_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleAdminAnalytics, "POST", "/api/admin/analytics", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for POST, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// Admin Payouts
+// =============================================================================
+
+func TestAdminPayouts_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleAdminPayouts, "GET", "/api/admin/payouts", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestAdminPayouts_ForbiddenForNonAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "+15559990002")
+
+	rr := doRequest(server.handleAdminPayouts, "GET", "/api/admin/payouts", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+
+func TestAdminPayouts_GetEmpty(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	user, _ := upsertUser(server.db, "3104861833")
+	token, _ := server.sessions.CreateSession(user.ID, "3104861833", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(server.handleAdminPayouts, "GET", "/api/admin/payouts", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var payouts []interface{}
+	json.Unmarshal(rr.Body.Bytes(), &payouts)
+	if len(payouts) != 0 {
+		t.Errorf("expected 0 payouts, got %d", len(payouts))
+	}
+}
+
+func TestAdminPayouts_GetWithPendingRebates(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	adminUser, _ := upsertUser(server.db, "3104861833")
+	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
+	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
+
+	// Create a regular user with pending rebates
+	regularUser, _ := upsertUser(server.db, "5559990003")
+	server.db.Exec("UPDATE users SET name = 'Jane', email = 'jane@test.com' WHERE id = ?", regularUser.ID)
+
+	// Create a deal, swap event, and swap rebate
+	dealRes, _ := server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, status)
+		VALUES ('Brand A', 'Brand B', 'Product B', 150, 10000, 'active')`)
+	dealID, _ := dealRes.LastInsertId()
+	swapRes, _ := server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, 1, 'accepted')`, regularUser.ID, dealID)
+	swapEventID, _ := swapRes.LastInsertId()
+	server.db.Exec(`INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, ?, ?, 75, 'pending')`, regularUser.ID, swapEventID, dealID)
+
+	rr := doRequest(server.handleAdminPayouts, "GET", "/api/admin/payouts", nil, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var payouts []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &payouts)
+	if len(payouts) != 1 {
+		t.Fatalf("expected 1 payout entry, got %d", len(payouts))
+	}
+	if payouts[0]["name"] != "Jane" {
+		t.Errorf("payout name: got %v, want Jane", payouts[0]["name"])
+	}
+	if payouts[0]["total_cents"].(float64) != 75 {
+		t.Errorf("payout total_cents: got %v, want 75", payouts[0]["total_cents"])
+	}
+}
+
+func TestAdminPayouts_PostMarksIssued(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	adminUser, _ := upsertUser(server.db, "3104861833")
+	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
+	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
+
+	// Create user with pending rebate
+	regularUser, _ := upsertUser(server.db, "5559990004")
+	dealRes, _ := server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, status)
+		VALUES ('X', 'Y', 'Z', 100, 5000, 'active')`)
+	dealID, _ := dealRes.LastInsertId()
+	swapRes, _ := server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, 1, 'accepted')`, regularUser.ID, dealID)
+	swapEventID, _ := swapRes.LastInsertId()
+	server.db.Exec(`INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, ?, ?, 50, 'pending')`, regularUser.ID, swapEventID, dealID)
+
+	// POST to mark as issued
+	rr := doRequest(server.handleAdminPayouts, "POST", "/api/admin/payouts",
+		map[string]interface{}{"user_id": regularUser.ID}, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["updated"].(float64) != 1 {
+		t.Errorf("updated: got %v, want 1", body["updated"])
+	}
+
+	// Verify status changed
+	var status string
+	server.db.QueryRow("SELECT status FROM swap_rebates WHERE user_id = ?", regularUser.ID).Scan(&status)
+	if status != "issued" {
+		t.Errorf("rebate status: got %s, want issued", status)
+	}
+}
+
+func TestAdminPayouts_PostMissingUserID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	adminUser, _ := upsertUser(server.db, "3104861833")
+	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
+	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
+
+	rr := doRequest(server.handleAdminPayouts, "POST", "/api/admin/payouts",
+		map[string]interface{}{"user_id": 0}, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing user_id, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// Magic Link Verify
+// =============================================================================
+
+func TestMagicLinkVerify_ValidToken(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create a user
+	user, _ := upsertUser(server.db, "5559990005")
+	server.db.Exec("UPDATE users SET email = 'magic@test.com' WHERE id = ?", user.ID)
+
+	// Insert a magic link token
+	magicToken := "test-magic-token-123"
+	server.db.Exec(`INSERT INTO password_resets (user_id, token, used, expires_at)
+		VALUES (?, ?, 0, datetime('now', '+1 hour'))`, user.ID, "magic:"+magicToken)
+
+	rr := doRequest(server.handleMagicLinkVerify, "GET",
+		"/auth/email/magic-verify?token="+magicToken, nil, nil)
+	// Should redirect to home
+	if rr.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if loc != "/" {
+		t.Errorf("redirect location: got %s, want /", loc)
+	}
+
+	// Should have a session cookie
+	var hasCookie bool
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == "session" && c.Value != "" {
+			hasCookie = true
+		}
+	}
+	if !hasCookie {
+		t.Error("no session cookie set after magic link verify")
+	}
+
+	// Token should be marked as used
+	var used int
+	server.db.QueryRow("SELECT used FROM password_resets WHERE token = ?", "magic:"+magicToken).Scan(&used)
+	if used != 1 {
+		t.Errorf("token used: got %d, want 1", used)
+	}
+}
+
+func TestMagicLinkVerify_ExpiredToken(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	user, _ := upsertUser(server.db, "5559990006")
+	server.db.Exec(`INSERT INTO password_resets (user_id, token, used, expires_at)
+		VALUES (?, 'magic:expired-token', 0, datetime('now', '-1 hour'))`, user.ID)
+
+	rr := doRequest(server.handleMagicLinkVerify, "GET",
+		"/auth/email/magic-verify?token=expired-token", nil, nil)
+	if rr.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "expired-link") {
+		t.Errorf("expected redirect to expired-link, got %s", loc)
+	}
+}
+
+func TestMagicLinkVerify_UsedToken(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	user, _ := upsertUser(server.db, "5559990007")
+	server.db.Exec(`INSERT INTO password_resets (user_id, token, used, expires_at)
+		VALUES (?, 'magic:used-token', 1, datetime('now', '+1 hour'))`, user.ID)
+
+	rr := doRequest(server.handleMagicLinkVerify, "GET",
+		"/auth/email/magic-verify?token=used-token", nil, nil)
+	if rr.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "expired-link") {
+		t.Errorf("expected redirect to expired-link for used token, got %s", loc)
+	}
+}
+
+func TestMagicLinkVerify_EmptyToken(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleMagicLinkVerify, "GET",
+		"/auth/email/magic-verify?token=", nil, nil)
+	if rr.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "invalid-link") {
+		t.Errorf("expected redirect to invalid-link, got %s", loc)
+	}
+}
+
+func TestMagicLinkVerify_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleMagicLinkVerify, "POST",
+		"/auth/email/magic-verify", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for POST, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// Brand Transactions
+// =============================================================================
+
+func TestBrandTransactions_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleBrandTransactions, "GET", "/brand/transactions", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestBrandTransactions_EmptyList(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "txn@brand.com", "password1234", "TxnCo")
+
+	rr := doRequest(server.handleBrandTransactions, "GET", "/brand/transactions", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var txns []interface{}
+	json.Unmarshal(rr.Body.Bytes(), &txns)
+	if len(txns) != 0 {
+		t.Errorf("expected 0 transactions, got %d", len(txns))
+	}
+}
+
+func TestBrandTransactions_WithData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, brandUserID := brandRegister(t, server, "txn2@brand.com", "password1234", "TxnCo2")
+
+	// Insert a transaction
+	server.db.Exec(`INSERT INTO brand_transactions (brand_user_id, type, amount_cents, description, stripe_id)
+		VALUES (?, 'deposit', 10000, 'Initial deposit', 'pi_test_123')`, brandUserID)
+
+	rr := doRequest(server.handleBrandTransactions, "GET", "/brand/transactions", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var txns []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &txns)
+	if len(txns) != 1 {
+		t.Fatalf("expected 1 transaction, got %d", len(txns))
+	}
+	if txns[0]["type"] != "deposit" {
+		t.Errorf("transaction type: got %v, want deposit", txns[0]["type"])
+	}
+	if txns[0]["amount_cents"].(float64) != 10000 {
+		t.Errorf("amount_cents: got %v, want 10000", txns[0]["amount_cents"])
+	}
+	if txns[0]["stripe_id"] != "pi_test_123" {
+		t.Errorf("stripe_id: got %v, want pi_test_123", txns[0]["stripe_id"])
+	}
+}
+
+func TestBrandTransactions_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleBrandTransactions, "POST", "/brand/transactions", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for POST, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// Brand Export
+// =============================================================================
+
+func TestBrandExport_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleBrandExport, "GET", "/brand/export", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestBrandExport_CSVHeaders(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "export@brand.com", "password1234", "ExportCo")
+
+	rr := doRequest(server.handleBrandExport, "GET", "/brand/export?type=swaps", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	ct := rr.Header().Get("Content-Type")
+	if ct != "text/csv" {
+		t.Errorf("Content-Type: got %s, want text/csv", ct)
+	}
+
+	cd := rr.Header().Get("Content-Disposition")
+	if !strings.Contains(cd, "attachment") || !strings.Contains(cd, ".csv") {
+		t.Errorf("Content-Disposition missing attachment/csv: got %s", cd)
+	}
+
+	// Should have CSV header row
+	body := rr.Body.String()
+	if !strings.Contains(body, "date,deal_id") {
+		t.Errorf("CSV missing header row, body: %s", body)
+	}
+}
+
+func TestBrandExport_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleBrandExport, "POST", "/brand/export", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for POST, got %d", rr.Code)
+	}
+}
