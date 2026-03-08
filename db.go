@@ -1122,6 +1122,8 @@ func initDB(path string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating category_swap_insights table: %w", err)
 	}
+	// Add top_decline_reason column for category-level decline reason tracking
+	db.Exec("ALTER TABLE category_swap_insights ADD COLUMN top_decline_reason TEXT NOT NULL DEFAULT ''")
 
 	// business_metrics_daily: daily snapshot of key business metrics
 	_, err = db.Exec(`

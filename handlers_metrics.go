@@ -121,10 +121,11 @@ func (s *Server) processDailyMetrics(dateStr string) {
 	// 2. Category swap insights — aggregate across deals by competitor_product
 	// =========================================================================
 	type catInsight struct {
-		category  string
-		offered   int
-		accepted  int
-		avgDisc   float64
+		category         string
+		offered          int
+		accepted         int
+		avgDisc          float64
+		topDeclineReason string
 	}
 	var catData []catInsight
 
@@ -152,6 +153,42 @@ func (s *Server) processDailyMetrics(dateStr string) {
 		catRows.Close()
 	}
 
+	// Collect top decline reason per category
+	type catDecline struct {
+		category string
+		reason   string
+	}
+	var catDeclines []catDecline
+	declineRows, err := s.db.Query(`
+		SELECT LOWER(bd.competitor_product) as category, se.decline_reason, COUNT(*) as cnt
+		FROM swap_events se
+		JOIN brand_deals bd ON bd.id = se.deal_id
+		WHERE se.action = 'declined' AND se.decline_reason != '' AND bd.status != 'deleted'
+		GROUP BY LOWER(bd.competitor_product), se.decline_reason
+		ORDER BY LOWER(bd.competitor_product), cnt DESC
+	`)
+	if err != nil {
+		log.Printf("[metrics] failed to query category decline reasons: %v", err)
+	} else {
+		for declineRows.Next() {
+			var cd catDecline
+			var cnt int
+			if err := declineRows.Scan(&cd.category, &cd.reason, &cnt); err != nil {
+				log.Printf("[metrics] scan category decline: %v", err)
+				continue
+			}
+			catDeclines = append(catDeclines, cd)
+		}
+		declineRows.Close()
+	}
+	// Build map: category -> top decline reason (first per category due to ORDER BY cnt DESC)
+	topDeclineMap := map[string]string{}
+	for _, cd := range catDeclines {
+		if _, exists := topDeclineMap[cd.category]; !exists {
+			topDeclineMap[cd.category] = cd.reason
+		}
+	}
+
 	// Write category_swap_insights
 	for _, ci := range catData {
 		acceptRate := 0.0
@@ -159,15 +196,17 @@ func (s *Server) processDailyMetrics(dateStr string) {
 			acceptRate = float64(ci.accepted) / float64(ci.offered) * 100.0
 		}
 		totalSwaps := ci.offered
+		topReason := topDeclineMap[ci.category]
 		_, err := s.db.Exec(`
-			INSERT INTO category_swap_insights (category, avg_acceptance_rate, avg_discount_pct, total_swaps, last_computed)
-			VALUES (?, ?, ?, ?, datetime('now'))
+			INSERT INTO category_swap_insights (category, avg_acceptance_rate, avg_discount_pct, total_swaps, top_decline_reason, last_computed)
+			VALUES (?, ?, ?, ?, ?, datetime('now'))
 			ON CONFLICT(category) DO UPDATE SET
 				avg_acceptance_rate = excluded.avg_acceptance_rate,
 				avg_discount_pct = excluded.avg_discount_pct,
 				total_swaps = excluded.total_swaps,
+				top_decline_reason = excluded.top_decline_reason,
 				last_computed = datetime('now')
-		`, ci.category, acceptRate, ci.avgDisc, totalSwaps)
+		`, ci.category, acceptRate, ci.avgDisc, totalSwaps, topReason)
 		if err != nil {
 			log.Printf("[metrics] failed to upsert category_swap_insights for %s: %v", ci.category, err)
 		}
@@ -267,6 +306,7 @@ func (s *Server) runDailyMetricsLoop() {
 	s.processChurnSignals()
 	s.processUserCohorts()
 	s.processMarketplaceHealth()
+	s.processSegmentAnalysis()
 
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
@@ -276,6 +316,7 @@ func (s *Server) runDailyMetricsLoop() {
 		s.processChurnSignals()
 		s.processUserCohorts()
 		s.processMarketplaceHealth()
+		s.processSegmentAnalysis()
 	}
 }
 
@@ -1054,5 +1095,254 @@ func (s *Server) handleMarketplaceHealth(w http.ResponseWriter, r *http.Request)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"health": results,
+	})
+}
+
+// =============================================================================
+// SEGMENT ANALYSIS
+// =============================================================================
+
+// processSegmentAnalysis groups users by price_sensitivity from penny_learnings
+// and computes acceptance rates per segment. Upserts into category_swap_insights
+// with category = "segment:<name>". Uses collect-then-write pattern.
+func (s *Server) processSegmentAnalysis() {
+	start := time.Now()
+
+	// Step 1: Collect user->segment mapping from penny_learnings
+	type userSegment struct {
+		userID  int
+		segment string
+	}
+	var userSegments []userSegment
+
+	rows, err := s.db.Query(`
+		SELECT scope_id, value
+		FROM penny_learnings
+		WHERE scope = 'user' AND key = 'price_sensitivity' AND value != ''
+	`)
+	if err != nil {
+		log.Printf("[segment] failed to query penny_learnings: %v", err)
+		return
+	}
+	segmentUsers := map[string][]int{} // segment -> list of user IDs
+	for rows.Next() {
+		var us userSegment
+		if err := rows.Scan(&us.userID, &us.segment); err != nil {
+			log.Printf("[segment] scan user segment: %v", err)
+			continue
+		}
+		userSegments = append(userSegments, us)
+		segmentUsers[us.segment] = append(segmentUsers[us.segment], us.userID)
+	}
+	rows.Close()
+
+	if len(segmentUsers) == 0 {
+		log.Printf("[segment] no user segments found, skipping")
+		return
+	}
+
+	// Step 2: For each user, collect offer/accept counts and avg discount
+	type userSwapStats struct {
+		offers       int
+		accepts      int
+		totalDisc    float64
+		acceptCount  int // for averaging discount
+	}
+	userStats := map[int]*userSwapStats{}
+
+	rows, err = s.db.Query(`
+		SELECT se.user_id,
+			COUNT(CASE WHEN se.action = 'offered' THEN 1 END) as offers,
+			COUNT(CASE WHEN se.action = 'accepted' THEN 1 END) as accepts,
+			COALESCE(AVG(CASE WHEN se.action = 'accepted' THEN bd.discount_cents END), 0) as avg_disc
+		FROM swap_events se
+		JOIN brand_deals bd ON bd.id = se.deal_id
+		GROUP BY se.user_id
+	`)
+	if err != nil {
+		log.Printf("[segment] failed to query swap stats: %v", err)
+		return
+	}
+	for rows.Next() {
+		var userID, offers, accepts int
+		var avgDisc float64
+		if err := rows.Scan(&userID, &offers, &accepts, &avgDisc); err != nil {
+			log.Printf("[segment] scan swap stats: %v", err)
+			continue
+		}
+		userStats[userID] = &userSwapStats{
+			offers:  offers,
+			accepts: accepts,
+			totalDisc:   avgDisc,
+			acceptCount: accepts,
+		}
+	}
+	rows.Close()
+
+	// Step 3: Aggregate per segment
+	type segmentResult struct {
+		segment         string
+		totalOffers     int
+		totalAccepts    int
+		avgDiscountCents float64
+	}
+	var results []segmentResult
+
+	for segment, uids := range segmentUsers {
+		var totalOffers, totalAccepts int
+		var discSum float64
+		var discCount int
+		for _, uid := range uids {
+			if stats, ok := userStats[uid]; ok {
+				totalOffers += stats.offers
+				totalAccepts += stats.accepts
+				if stats.acceptCount > 0 {
+					discSum += stats.totalDisc
+					discCount++
+				}
+			}
+		}
+		avgDisc := 0.0
+		if discCount > 0 {
+			avgDisc = discSum / float64(discCount)
+		}
+		results = append(results, segmentResult{
+			segment:         segment,
+			totalOffers:     totalOffers,
+			totalAccepts:    totalAccepts,
+			avgDiscountCents: avgDisc,
+		})
+	}
+
+	// Step 4: Write to category_swap_insights with category = "segment:<name>"
+	for _, sr := range results {
+		acceptRate := 0.0
+		if sr.totalOffers > 0 {
+			acceptRate = float64(sr.totalAccepts) / float64(sr.totalOffers) * 100.0
+		}
+		cat := "segment:" + sr.segment
+		_, err := s.db.Exec(`
+			INSERT INTO category_swap_insights (category, avg_acceptance_rate, avg_discount_pct, total_swaps, last_computed)
+			VALUES (?, ?, ?, ?, datetime('now'))
+			ON CONFLICT(category) DO UPDATE SET
+				avg_acceptance_rate = excluded.avg_acceptance_rate,
+				avg_discount_pct = excluded.avg_discount_pct,
+				total_swaps = excluded.total_swaps,
+				last_computed = datetime('now')
+		`, cat, acceptRate, sr.avgDiscountCents, sr.totalOffers)
+		if err != nil {
+			log.Printf("[segment] failed to upsert segment insight for %s: %v", cat, err)
+		}
+	}
+
+	elapsed := time.Since(start)
+	log.Printf("[segment] processed %d segments (%d users) in %v", len(results), len(userSegments), elapsed)
+}
+
+// handleSegmentAnalysis handles GET /api/admin/segment-analysis
+// Returns segment acceptance rates and avg discounts from category_swap_insights
+// where category starts with "segment:". Requires admin auth.
+func (s *Server) handleSegmentAnalysis(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	if _, ok := s.requireAdmin(w, r); !ok {
+		return
+	}
+
+	rows, err := s.db.Query(`
+		SELECT category, avg_acceptance_rate, avg_discount_pct, total_swaps, last_computed
+		FROM category_swap_insights
+		WHERE category LIKE 'segment:%'
+		ORDER BY category
+	`)
+	if err != nil {
+		dbError(w, err, "Failed to query segment analysis")
+		return
+	}
+
+	type segmentRow struct {
+		Segment         string  `json:"segment"`
+		AcceptanceRate  float64 `json:"acceptance_rate"`
+		AvgDiscountCents float64 `json:"avg_discount_cents"`
+		TotalOffers     int     `json:"total_offers"`
+		LastComputed    string  `json:"last_computed"`
+	}
+
+	var results []segmentRow
+	for rows.Next() {
+		var category string
+		var sr segmentRow
+		if err := rows.Scan(&category, &sr.AcceptanceRate, &sr.AvgDiscountCents, &sr.TotalOffers, &sr.LastComputed); err != nil {
+			log.Printf("[segment-analysis] scan: %v", err)
+			continue
+		}
+		sr.Segment = strings.TrimPrefix(category, "segment:")
+		results = append(results, sr)
+	}
+	rows.Close()
+
+	if results == nil {
+		results = []segmentRow{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"segments": results,
+	})
+}
+
+// =============================================================================
+// CATEGORY-LEVEL INSIGHTS
+// =============================================================================
+
+// handleCategoryInsights handles GET /api/admin/category-insights
+// Returns all category_swap_insights rows from last 30 days (non-segment rows).
+// Requires admin auth.
+func (s *Server) handleCategoryInsights(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	if _, ok := s.requireAdmin(w, r); !ok {
+		return
+	}
+
+	rows, err := s.db.Query(`
+		SELECT category, avg_acceptance_rate, avg_discount_pct, total_swaps, top_decline_reason, last_computed
+		FROM category_swap_insights
+		WHERE category NOT LIKE 'segment:%'
+			AND last_computed >= datetime('now', '-30 days')
+		ORDER BY total_swaps DESC
+	`)
+	if err != nil {
+		dbError(w, err, "Failed to query category insights")
+		return
+	}
+
+	type categoryRow struct {
+		Category         string  `json:"category"`
+		AcceptanceRate   float64 `json:"acceptance_rate"`
+		AvgDiscountCents float64 `json:"avg_discount_cents"`
+		TotalSwaps       int     `json:"total_swaps"`
+		TopDeclineReason string  `json:"top_decline_reason"`
+		LastComputed     string  `json:"last_computed"`
+	}
+
+	var results []categoryRow
+	for rows.Next() {
+		var cr categoryRow
+		if err := rows.Scan(&cr.Category, &cr.AcceptanceRate, &cr.AvgDiscountCents, &cr.TotalSwaps, &cr.TopDeclineReason, &cr.LastComputed); err != nil {
+			log.Printf("[category-insights] scan: %v", err)
+			continue
+		}
+		results = append(results, cr)
+	}
+	rows.Close()
+
+	if results == nil {
+		results = []categoryRow{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"categories": results,
 	})
 }

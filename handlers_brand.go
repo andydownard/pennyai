@@ -930,6 +930,239 @@ func (s *Server) handleBrandDeposit(w http.ResponseWriter, r *http.Request) {
 }
 
 // =============================================================================
+// OPTIMIZE THIS DEAL — AI-powered recommendations
+// =============================================================================
+
+// handleOptimizeDeal handles GET /brand/optimize/{id}
+// Returns actionable recommendations for improving a deal's performance.
+// Requires brand session auth and deal ownership.
+func (s *Server) handleOptimizeDeal(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	bs, ok := s.requireBrandSession(w, r)
+	if !ok {
+		return
+	}
+
+	idStr := strings.TrimPrefix(r.URL.Path, "/brand/optimize/")
+	dealID, err := strconv.Atoi(idStr)
+	if err != nil || dealID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid deal ID"})
+		return
+	}
+
+	// Verify ownership and load deal details
+	var competitorProduct, offerBrand, offerProduct, status, whyBullets, allergenNotes, dealType string
+	var discountCents, budgetCents, spentCents, offerPriceCents, competitorPriceCents int
+	err = s.db.QueryRow(`
+		SELECT competitor_product, offer_brand, offer_product, status, discount_cents,
+			total_budget_cents, budget_spent_cents, offer_price_cents, competitor_price_cents,
+			COALESCE(why_bullets, '[]'), COALESCE(allergen_notes, ''), COALESCE(deal_type, 'sku_swap')
+		FROM brand_deals WHERE id = ? AND brand_user_id = ? AND status != 'deleted'`,
+		dealID, bs.BrandUserID).Scan(
+		&competitorProduct, &offerBrand, &offerProduct, &status, &discountCents,
+		&budgetCents, &spentCents, &offerPriceCents, &competitorPriceCents,
+		&whyBullets, &allergenNotes, &dealType)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Deal not found"})
+		return
+	}
+
+	// Collect performance metrics
+	var offered, accepted, declined int
+	s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE deal_id = ? AND action = 'offered'", dealID).Scan(&offered)
+	s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE deal_id = ? AND action = 'accepted'", dealID).Scan(&accepted)
+	s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE deal_id = ? AND action = 'declined'", dealID).Scan(&declined)
+
+	// Top decline reasons
+	type reasonCount struct {
+		Reason string `json:"reason"`
+		Count  int    `json:"count"`
+	}
+	var declineReasons []reasonCount
+	dRows, dErr := s.db.Query(`
+		SELECT COALESCE(NULLIF(decline_reason, ''), 'unspecified') as reason, COUNT(*) as cnt
+		FROM swap_events
+		WHERE deal_id = ? AND action = 'declined'
+		GROUP BY reason ORDER BY cnt DESC LIMIT 5`, dealID)
+	if dErr == nil {
+		for dRows.Next() {
+			var rc reasonCount
+			dRows.Scan(&rc.Reason, &rc.Count)
+			declineReasons = append(declineReasons, rc)
+		}
+		dRows.Close()
+	}
+
+	// Category benchmark — how does this deal compare to others in same category?
+	var categoryAvgAcceptRate float64
+	s.db.QueryRow(`
+		SELECT CASE WHEN SUM(CASE WHEN se.action = 'offered' THEN 1 ELSE 0 END) > 0
+			THEN CAST(SUM(CASE WHEN se.action = 'accepted' THEN 1 ELSE 0 END) AS REAL) /
+				 SUM(CASE WHEN se.action = 'offered' THEN 1 ELSE 0 END) * 100
+			ELSE 0 END
+		FROM swap_events se
+		JOIN brand_deals bd ON bd.id = se.deal_id
+		WHERE LOWER(bd.competitor_product) = LOWER(?) AND bd.status != 'deleted'`,
+		competitorProduct).Scan(&categoryAvgAcceptRate)
+
+	// Generate recommendations
+	acceptRate := 0.0
+	if offered > 0 {
+		acceptRate = float64(accepted) / float64(offered) * 100
+	}
+	budgetUtilization := 0.0
+	if budgetCents > 0 {
+		budgetUtilization = float64(spentCents) / float64(budgetCents) * 100
+	}
+
+	type recommendation struct {
+		Priority    string `json:"priority"` // high, medium, low
+		Category    string `json:"category"` // discount, messaging, targeting, budget, timing
+		Title       string `json:"title"`
+		Description string `json:"description"`
+	}
+	var recs []recommendation
+
+	// Rule 1: Low acceptance rate
+	if offered >= 10 && acceptRate < 20 {
+		recs = append(recs, recommendation{
+			Priority:    "high",
+			Category:    "discount",
+			Title:       "Increase discount to boost acceptance",
+			Description: fmt.Sprintf("Your acceptance rate is %.0f%%, well below the 30%% target. Consider increasing the discount from $%.2f to $%.2f to make the swap more compelling.", acceptRate, float64(discountCents)/100, float64(discountCents)*1.5/100),
+		})
+	} else if offered >= 10 && acceptRate < 35 {
+		recs = append(recs, recommendation{
+			Priority:    "medium",
+			Category:    "discount",
+			Title:       "Fine-tune your discount",
+			Description: fmt.Sprintf("Your acceptance rate is %.0f%%. A small discount increase could push it above 35%% and improve ROI.", acceptRate),
+		})
+	}
+
+	// Rule 2: Price comparison disadvantage
+	if offerPriceCents > 0 && competitorPriceCents > 0 && offerPriceCents > competitorPriceCents {
+		diff := offerPriceCents - competitorPriceCents
+		if diff > discountCents {
+			recs = append(recs, recommendation{
+				Priority:    "high",
+				Category:    "discount",
+				Title:       "Discount doesn't cover price difference",
+				Description: fmt.Sprintf("Your product is $%.2f more expensive than the competitor, but the discount is only $%.2f. Users still pay more after the swap — increase discount to at least cover the gap.", float64(diff)/100, float64(discountCents)/100),
+			})
+		}
+	}
+
+	// Rule 3: Top decline reason analysis
+	if len(declineReasons) > 0 && declineReasons[0].Count >= 3 {
+		topReason := declineReasons[0].Reason
+		switch topReason {
+		case "price":
+			recs = append(recs, recommendation{
+				Priority:    "high",
+				Category:    "discount",
+				Title:       "Users cite price as top decline reason",
+				Description: "The most common decline reason is price sensitivity. Consider a larger discount or a BOGO offer to overcome price resistance.",
+			})
+		case "brand_loyal":
+			recs = append(recs, recommendation{
+				Priority:    "medium",
+				Category:    "messaging",
+				Title:       "Brand loyalty is your biggest competitor",
+				Description: "Users decline because they're loyal to their current brand. Strengthen your 'why switch' bullets with taste tests, awards, or unique ingredients.",
+			})
+		case "dietary":
+			recs = append(recs, recommendation{
+				Priority:    "high",
+				Category:    "targeting",
+				Title:       "Dietary concerns causing declines",
+				Description: "Users with dietary restrictions are being shown this deal. Add allergen notes to improve targeting and avoid showing the deal to incompatible users.",
+			})
+		case "tried_before":
+			recs = append(recs, recommendation{
+				Priority:    "low",
+				Category:    "targeting",
+				Title:       "Users already tried your product",
+				Description: "Some users decline because they've tried this product before. Consider a different product variant or a loyalty-based offer for repeat purchases.",
+			})
+		}
+	}
+
+	// Rule 4: Missing why_bullets
+	if whyBullets == "" || whyBullets == "[]" {
+		recs = append(recs, recommendation{
+			Priority:    "medium",
+			Category:    "messaging",
+			Title:       "Add 'why switch' reasons",
+			Description: "Deals with compelling reasons to switch see 40% higher acceptance. Add 2-3 bullet points: price advantage, ratings, unique features.",
+		})
+	}
+
+	// Rule 5: Missing allergen info
+	if allergenNotes == "" && dealType == "sku_swap" {
+		recs = append(recs, recommendation{
+			Priority:    "low",
+			Category:    "targeting",
+			Title:       "Add allergen information",
+			Description: "Adding allergen notes helps Penny avoid showing your deal to users with dietary restrictions, reducing wasted impressions and improving acceptance rate.",
+		})
+	}
+
+	// Rule 6: Budget nearly exhausted
+	if budgetUtilization > 80 && status == "active" {
+		recs = append(recs, recommendation{
+			Priority:    "medium",
+			Category:    "budget",
+			Title:       "Budget almost exhausted",
+			Description: fmt.Sprintf("You've used %.0f%% of your budget. Consider topping up to maintain momentum — paused deals lose ranking.", budgetUtilization),
+		})
+	}
+
+	// Rule 7: Below category average
+	if offered >= 10 && categoryAvgAcceptRate > 0 && acceptRate < categoryAvgAcceptRate-10 {
+		recs = append(recs, recommendation{
+			Priority:    "medium",
+			Category:    "targeting",
+			Title:       "Below category average",
+			Description: fmt.Sprintf("Your deal's acceptance rate (%.0f%%) is below the category average (%.0f%%). Review competitor deals in this category for positioning insights.", acceptRate, categoryAvgAcceptRate),
+		})
+	}
+
+	// Rule 8: Low impression volume
+	if offered < 10 {
+		recs = append(recs, recommendation{
+			Priority:    "low",
+			Category:    "budget",
+			Title:       "Not enough data yet",
+			Description: fmt.Sprintf("Only %d impressions so far. Most recommendations need 10+ impressions to be meaningful. Consider increasing budget to gather more data.", offered),
+		})
+	}
+
+	if recs == nil {
+		recs = []recommendation{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"deal_id":       dealID,
+		"offer_product": offerProduct,
+		"offer_brand":   offerBrand,
+		"metrics": map[string]interface{}{
+			"offered":              offered,
+			"accepted":             accepted,
+			"declined":             declined,
+			"accept_rate":          acceptRate,
+			"budget_utilization":   budgetUtilization,
+			"category_avg_rate":    categoryAvgAcceptRate,
+		},
+		"decline_reasons":    declineReasons,
+		"recommendations":    recs,
+		"recommendation_count": len(recs),
+	})
+}
+
+// =============================================================================
 // STRIPE WEBHOOK (M5)
 // =============================================================================
 

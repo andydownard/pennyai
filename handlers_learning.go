@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -425,6 +426,85 @@ func (s *Server) processLearnings() {
 		})
 	}
 
+	// 8. User-level: shopping role detection for household members
+	// Determines each member's role: primary_shopper, list_builder, or occasional
+	// based on items added and items checked off.
+	type roleRow struct {
+		uid        int
+		hhID       int
+		totalItems int
+		checkedOff int
+	}
+	var roleData []roleRow
+	roleRows, err := s.db.Query(`
+		SELECT u.id, COALESCE(u.household_id, 0) as hh_id,
+			COUNT(DISTINCT li.id) as total_items,
+			COUNT(DISTINCT CASE WHEN li.checked = 1 THEN li.id END) as checked_off
+		FROM users u
+		JOIN household_members hm ON hm.user_id = u.id
+		JOIN list_items li ON li.user_id = u.id
+		GROUP BY u.id
+	`)
+	if err == nil {
+		for roleRows.Next() {
+			var r roleRow
+			roleRows.Scan(&r.uid, &r.hhID, &r.totalItems, &r.checkedOff)
+			roleData = append(roleData, r)
+		}
+		roleRows.Close()
+	}
+
+	// Group by household to compute median total_items per household
+	hhMembers := map[int][]roleRow{}
+	for _, r := range roleData {
+		if r.hhID > 0 {
+			hhMembers[r.hhID] = append(hhMembers[r.hhID], r)
+		}
+	}
+
+	for _, members := range hhMembers {
+		// Compute median total_items for this household
+		totals := make([]int, len(members))
+		for i, m := range members {
+			totals[i] = m.totalItems
+		}
+		sort.Ints(totals)
+		median := totals[len(totals)/2]
+
+		for _, m := range members {
+			var role string
+			if m.totalItems <= 5 {
+				role = "occasional"
+			} else if m.totalItems >= median {
+				checkRatio := 0.0
+				if m.totalItems > 0 {
+					checkRatio = float64(m.checkedOff) / float64(m.totalItems)
+				}
+				if checkRatio > 0.5 {
+					role = "primary_shopper"
+				} else if checkRatio < 0.3 {
+					role = "list_builder"
+				} else {
+					role = "list_builder"
+				}
+			} else {
+				// Below median but more than 5 items
+				checkRatio := 0.0
+				if m.totalItems > 0 {
+					checkRatio = float64(m.checkedOff) / float64(m.totalItems)
+				}
+				if checkRatio < 0.3 {
+					role = "list_builder"
+				} else {
+					role = "occasional"
+				}
+			}
+			// Confidence based on data volume: more items = higher confidence, caps at 1.0
+			conf := clampConfidence(float64(m.totalItems)/20.0, 1.0)
+			writes = append(writes, learning{"user", m.uid, "shopping_role", role, conf})
+		}
+	}
+
 	// Apply all collected writes
 	for _, w := range writes {
 		s.updateLearning(w.scope, w.scopeID, w.key, w.value, w.confidence)
@@ -492,6 +572,17 @@ func (s *Server) buildLearningContext(userID int) string {
 				parts = append(parts, fmt.Sprintf("- Adds ~%s items/month", v))
 			case k == "avg_accepted_discount_cents":
 				parts = append(parts, fmt.Sprintf("- Typical accepted discount: $%.2f", parseFloat(v)/100))
+			case k == "shopping_role":
+				roleDesc := v
+				switch v {
+				case "primary_shopper":
+					roleDesc = "primary shopper (adds and checks off most items)"
+				case "list_builder":
+					roleDesc = "list builder (adds items but rarely checks them off)"
+				case "occasional":
+					roleDesc = "occasional contributor"
+				}
+				parts = append(parts, fmt.Sprintf("- Household role: %s", roleDesc))
 			case strings.HasPrefix(k, "repurchase_cycle:"):
 				item := strings.TrimPrefix(k, "repurchase_cycle:")
 				parts = append(parts, fmt.Sprintf("- Buys %s every %s", item, v))
@@ -554,6 +645,124 @@ func (s *Server) buildLearningContext(userID int) string {
 	}
 
 	return "What Penny knows about this user (use this context to personalize suggestions — never reference these facts directly unless relevant):\n" + strings.Join(parts, "\n")
+}
+
+// RepurchaseNudge represents a single "time to restock" nudge for an item
+// whose repurchase cycle has elapsed since the user last added it.
+type RepurchaseNudge struct {
+	ItemName    string `json:"item_name"`
+	CycleDays   int    `json:"cycle_days"`
+	DaysOverdue int    `json:"days_overdue"`
+	LastAdded   string `json:"last_added"`
+}
+
+// getRepurchaseNudges queries penny_learnings for repurchase_cycle insights
+// and checks if any items are "due" (last added + cycle days <= now).
+// Uses collect-then-write pattern for SQLite (MaxOpenConns=1).
+func (s *Server) getRepurchaseNudges(userID int) []RepurchaseNudge {
+	// Step 1: Collect all repurchase_cycle learnings for this user
+	type cycleInfo struct {
+		itemName string
+		avgDays  int
+	}
+	var cycles []cycleInfo
+
+	rows, err := s.db.Query(`SELECT key, value FROM penny_learnings
+		WHERE scope = 'user' AND scope_id = ? AND key LIKE 'repurchase_cycle:%'`,
+		userID)
+	if err != nil {
+		return nil
+	}
+	for rows.Next() {
+		var k, v string
+		rows.Scan(&k, &v)
+		itemName := strings.TrimPrefix(k, "repurchase_cycle:")
+		if itemName == "" {
+			continue
+		}
+		var days float64
+		fmt.Sscanf(v, "%f", &days)
+		if days <= 0 {
+			continue
+		}
+		cycles = append(cycles, cycleInfo{itemName: itemName, avgDays: int(days)})
+	}
+	rows.Close()
+
+	if len(cycles) == 0 {
+		return nil
+	}
+
+	// Step 2: For each cycle item, find the most recent time it was added
+	var nudges []RepurchaseNudge
+	now := time.Now()
+
+	for _, c := range cycles {
+		var lastAddedStr string
+		err := s.db.QueryRow(`
+			SELECT MAX(im.created_at)
+			FROM item_modifications im
+			JOIN list_items li ON li.id = im.item_id
+			WHERE im.user_id = ? AND im.action = 'added' AND LOWER(li.name) = LOWER(?)
+		`, userID, c.itemName).Scan(&lastAddedStr)
+		if err != nil || lastAddedStr == "" {
+			continue
+		}
+
+		// Parse the last added timestamp
+		lastAdded, err := time.Parse("2006-01-02 15:04:05", lastAddedStr)
+		if err != nil {
+			// Try alternate format
+			lastAdded, err = time.Parse("2006-01-02T15:04:05Z", lastAddedStr)
+			if err != nil {
+				continue
+			}
+		}
+
+		// Check if the item is due: current_date - last_added_date >= avg_days
+		daysSinceAdded := int(now.Sub(lastAdded).Hours() / 24)
+		daysOverdue := daysSinceAdded - c.avgDays
+		if daysOverdue >= 0 {
+			// Also check the item isn't currently on the list (unchecked)
+			var onList int
+			s.db.QueryRow(`SELECT COUNT(*) FROM list_items
+				WHERE user_id = ? AND LOWER(name) = LOWER(?) AND checked = 0`,
+				userID, c.itemName).Scan(&onList)
+			if onList > 0 {
+				continue // already on the list, no need to nudge
+			}
+
+			nudges = append(nudges, RepurchaseNudge{
+				ItemName:    c.itemName,
+				CycleDays:   c.avgDays,
+				DaysOverdue: daysOverdue,
+				LastAdded:   lastAdded.Format("2006-01-02"),
+			})
+		}
+	}
+
+	return nudges
+}
+
+// handleRepurchaseNudges returns pending repurchase nudges for the logged-in user.
+// GET /api/penny/nudges
+func (s *Server) handleRepurchaseNudges(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	nudges := s.getRepurchaseNudges(session.UserID)
+	if nudges == nil {
+		nudges = []RepurchaseNudge{} // return empty array, not null
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"nudges": nudges,
+	})
 }
 
 // parseFloat is a simple helper for converting string to float64.

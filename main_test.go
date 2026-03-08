@@ -27,6 +27,7 @@ import (
 	"net/textproto"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16034,4 +16035,926 @@ func TestMarketplaceHealth_AdminSuccess(t *testing.T) {
 		t.Error("Expected at least one health entry after processMarketplaceHealth")
 	}
 }
+
+// =============================================================================
+// SEGMENT ANALYSIS TESTS
+// =============================================================================
+
+func TestSegmentAnalysis_AdminOnly(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Unauthenticated: should get 401
+	rr := doRequest(server.handleSegmentAnalysis, "GET", "/api/admin/segment-analysis", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401 without session, got %d", rr.Code)
+	}
+
+	// Non-admin user: should get 403
+	cookie, _ := loginUser(t, server, "5559999999")
+	rr = doRequest(server.handleSegmentAnalysis, "GET", "/api/admin/segment-analysis", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Expected 403 for non-admin, got %d", rr.Code)
+	}
+
+	// Wrong method: should get 405
+	adminCookie, _ := loginUser(t, server, "3104861833")
+	rr = doRequest(server.handleSegmentAnalysis, "POST", "/api/admin/segment-analysis", nil, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected 405 for POST, got %d", rr.Code)
+	}
+
+	// Admin GET: should succeed with empty segments
+	rr = doRequest(server.handleSegmentAnalysis, "GET", "/api/admin/segment-analysis", nil, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for admin GET, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	segments, ok := body["segments"].([]interface{})
+	if !ok {
+		t.Fatal("Expected 'segments' array in response")
+	}
+	if len(segments) != 0 {
+		t.Errorf("Expected 0 segments before processing, got %d", len(segments))
+	}
+}
+
+func TestProcessSegmentAnalysis(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create users with different price sensitivities
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551000001')")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (101, '+15551000002')")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (102, '+15551000003')")
+
+	// Set price_sensitivity learnings
+	server.updateLearning("user", 100, "price_sensitivity", "high", 0.8)
+	server.updateLearning("user", 101, "price_sensitivity", "low", 0.7)
+	server.updateLearning("user", 102, "price_sensitivity", "high", 0.9)
+
+	// Create brand deals (use high IDs to avoid seed data conflicts)
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status)
+		VALUES (900, 'ketchup', 'Hunts', 'Tomato Ketchup', 100, 10000, 'active')`)
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status)
+		VALUES (901, 'mustard', 'Frenchs', 'Yellow Mustard', 75, 10000, 'active')`)
+
+	// Create swap events: user 100 (high) -> 2 offered, 1 accepted
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (100, 900, 1, 'offered')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (100, 900, 1, 'offered')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (100, 900, 1, 'accepted')")
+
+	// Create swap events: user 101 (low) -> 3 offered, 0 accepted
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (101, 901, 2, 'offered')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (101, 901, 2, 'offered')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (101, 901, 2, 'offered')")
+
+	// Create swap events: user 102 (high) -> 1 offered, 1 accepted
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (102, 900, 3, 'offered')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (102, 900, 3, 'accepted')")
+
+	server.processSegmentAnalysis()
+
+	// Verify segment:high was created
+	var acceptRate float64
+	var totalSwaps int
+	err := server.db.QueryRow(`SELECT avg_acceptance_rate, total_swaps FROM category_swap_insights WHERE category = 'segment:high'`).Scan(&acceptRate, &totalSwaps)
+	if err != nil {
+		t.Fatalf("Expected segment:high row, got error: %v", err)
+	}
+	// high segment: users 100 and 102 have 3 offers, 2 accepts = 66.7%
+	if totalSwaps != 3 {
+		t.Errorf("segment:high total_swaps: got %d, want 3", totalSwaps)
+	}
+	if acceptRate < 60.0 || acceptRate > 70.0 {
+		t.Errorf("segment:high acceptance_rate: got %.1f, want ~66.7", acceptRate)
+	}
+
+	// Verify segment:low was created
+	err = server.db.QueryRow(`SELECT avg_acceptance_rate, total_swaps FROM category_swap_insights WHERE category = 'segment:low'`).Scan(&acceptRate, &totalSwaps)
+	if err != nil {
+		t.Fatalf("Expected segment:low row, got error: %v", err)
+	}
+	// low segment: user 101 has 3 offers, 0 accepts = 0%
+	if totalSwaps != 3 {
+		t.Errorf("segment:low total_swaps: got %d, want 3", totalSwaps)
+	}
+	if acceptRate != 0.0 {
+		t.Errorf("segment:low acceptance_rate: got %.1f, want 0.0", acceptRate)
+	}
+
+	// Idempotency: run again, should upsert not duplicate
+	server.processSegmentAnalysis()
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM category_swap_insights WHERE category = 'segment:high'").Scan(&count)
+	if count != 1 {
+		t.Errorf("Expected exactly 1 segment:high row after double-run, got %d", count)
+	}
+}
+
+// =============================================================================
+// CATEGORY INSIGHTS TESTS
+// =============================================================================
+
+func TestCategoryInsights_AdminOnly(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Unauthenticated: should get 401
+	rr := doRequest(server.handleCategoryInsights, "GET", "/api/admin/category-insights", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401 without session, got %d", rr.Code)
+	}
+
+	// Non-admin user: should get 403
+	cookie, _ := loginUser(t, server, "5559999999")
+	rr = doRequest(server.handleCategoryInsights, "GET", "/api/admin/category-insights", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Expected 403 for non-admin, got %d", rr.Code)
+	}
+
+	// Wrong method: should get 405
+	adminCookie, _ := loginUser(t, server, "3104861833")
+	rr = doRequest(server.handleCategoryInsights, "POST", "/api/admin/category-insights", nil, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected 405 for POST, got %d", rr.Code)
+	}
+
+	// Admin GET with data: seed category_swap_insights and verify
+	server.db.Exec(`INSERT INTO category_swap_insights (category, avg_acceptance_rate, avg_discount_pct, total_swaps, top_decline_reason, last_computed)
+		VALUES ('ketchup', 65.5, 150.0, 20, 'brand_loyal', datetime('now'))`)
+	server.db.Exec(`INSERT INTO category_swap_insights (category, avg_acceptance_rate, avg_discount_pct, total_swaps, top_decline_reason, last_computed)
+		VALUES ('mustard', 40.0, 75.0, 10, 'price', datetime('now'))`)
+	// Also insert a segment row — should NOT appear in category insights
+	server.db.Exec(`INSERT INTO category_swap_insights (category, avg_acceptance_rate, avg_discount_pct, total_swaps, last_computed)
+		VALUES ('segment:high', 70.0, 100.0, 5, datetime('now'))`)
+
+	rr = doRequest(server.handleCategoryInsights, "GET", "/api/admin/category-insights", nil, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for admin GET, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	categories, ok := body["categories"].([]interface{})
+	if !ok {
+		t.Fatal("Expected 'categories' array in response")
+	}
+	// Should have 2 category rows (ketchup, mustard) but NOT the segment row
+	// Note: seeded deals from initDB may also create rows, so check at least 2
+	foundKetchup := false
+	foundSegment := false
+	for _, c := range categories {
+		row := c.(map[string]interface{})
+		cat := row["category"].(string)
+		if cat == "ketchup" {
+			foundKetchup = true
+			if row["top_decline_reason"] != "brand_loyal" {
+				t.Errorf("Expected top_decline_reason 'brand_loyal' for ketchup, got %v", row["top_decline_reason"])
+			}
+		}
+		if cat == "segment:high" {
+			foundSegment = true
+		}
+	}
+	if !foundKetchup {
+		t.Error("Expected ketchup category in results")
+	}
+	if foundSegment {
+		t.Error("segment:high should not appear in category insights")
+	}
+}
+
+// =============================================================================
+// SHOPPING ROLE DETECTION TESTS (L2 Household Learning)
+// =============================================================================
+
+func TestShoppingRole_PrimaryShopper(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create a household with two users
+	server.db.Exec("INSERT INTO households (id) VALUES (1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (100, '+15551111111', 1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (101, '+15552222222', 1)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 100, 'owner')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 101, 'member')")
+
+	// User 100: 20 items, 15 checked — check_ratio = 0.75 (> 0.5), total > median => primary_shopper
+	for i := 1; i <= 20; i++ {
+		checked := 0
+		if i <= 15 {
+			checked = 1
+		}
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (100, ?, ?)",
+			fmt.Sprintf("Item %d", i), checked)
+	}
+
+	// User 101: 3 items, 0 checked — total <= 5 => occasional
+	for i := 1; i <= 3; i++ {
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (101, ?, 0)",
+			fmt.Sprintf("Item %d", i))
+	}
+
+	server.processLearnings()
+
+	var role100 string
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 100 AND key = 'shopping_role'").Scan(&role100)
+	if role100 != "primary_shopper" {
+		t.Errorf("User 100 role: got %q, want 'primary_shopper'", role100)
+	}
+
+	var role101 string
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 101 AND key = 'shopping_role'").Scan(&role101)
+	if role101 != "occasional" {
+		t.Errorf("User 101 role: got %q, want 'occasional'", role101)
+	}
+}
+
+func TestShoppingRole_ListBuilder(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create a household with two users
+	server.db.Exec("INSERT INTO households (id) VALUES (1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (200, '+15553333333', 1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (201, '+15554444444', 1)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 200, 'owner')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 201, 'member')")
+
+	// User 200: 15 items, 1 checked — check_ratio = 0.067 (< 0.3), total > 5 => list_builder
+	for i := 1; i <= 15; i++ {
+		checked := 0
+		if i == 1 {
+			checked = 1
+		}
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (200, ?, ?)",
+			fmt.Sprintf("Item %d", i), checked)
+	}
+
+	// User 201: 10 items, 0 checked — check_ratio = 0.0 (< 0.3), total > 5
+	for i := 1; i <= 10; i++ {
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (201, ?, 0)",
+			fmt.Sprintf("Item %d", i))
+	}
+
+	server.processLearnings()
+
+	var role200 string
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 200 AND key = 'shopping_role'").Scan(&role200)
+	if role200 != "list_builder" {
+		t.Errorf("User 200 role: got %q, want 'list_builder'", role200)
+	}
+
+	var role201 string
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 201 AND key = 'shopping_role'").Scan(&role201)
+	if role201 != "list_builder" {
+		t.Errorf("User 201 role: got %q, want 'list_builder'", role201)
+	}
+}
+
+func TestShoppingRole_Occasional(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create a household with two users
+	server.db.Exec("INSERT INTO households (id) VALUES (1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (300, '+15555555555', 1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (301, '+15556666666', 1)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 300, 'owner')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 301, 'member')")
+
+	// User 300: 5 items, 3 checked — total <= 5 => occasional
+	for i := 1; i <= 5; i++ {
+		checked := 0
+		if i <= 3 {
+			checked = 1
+		}
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (300, ?, ?)",
+			fmt.Sprintf("Item %d", i), checked)
+	}
+
+	// User 301: 2 items, 0 checked — total <= 5 => occasional
+	for i := 1; i <= 2; i++ {
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (301, ?, 0)",
+			fmt.Sprintf("Item %d", i))
+	}
+
+	server.processLearnings()
+
+	var role300 string
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 300 AND key = 'shopping_role'").Scan(&role300)
+	if role300 != "occasional" {
+		t.Errorf("User 300 role: got %q, want 'occasional'", role300)
+	}
+
+	var role301 string
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 301 AND key = 'shopping_role'").Scan(&role301)
+	if role301 != "occasional" {
+		t.Errorf("User 301 role: got %q, want 'occasional'", role301)
+	}
+}
+
+func TestShoppingRole_Confidence(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create household
+	server.db.Exec("INSERT INTO households (id) VALUES (1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (400, '+15557777777', 1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (401, '+15558888888', 1)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 400, 'owner')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 401, 'member')")
+
+	// User 400: 4 items => confidence = 4/20 = 0.2
+	for i := 1; i <= 4; i++ {
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (400, ?, 0)",
+			fmt.Sprintf("Item %d", i))
+	}
+	// User 401: 30 items => confidence = 30/20 = 1.5 clamped to 1.0
+	for i := 1; i <= 30; i++ {
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (401, ?, 1)",
+			fmt.Sprintf("Item %d", i))
+	}
+
+	server.processLearnings()
+
+	var conf400 float64
+	server.db.QueryRow("SELECT confidence FROM penny_learnings WHERE scope = 'user' AND scope_id = 400 AND key = 'shopping_role'").Scan(&conf400)
+	if conf400 < 0.15 || conf400 > 0.25 {
+		t.Errorf("User 400 confidence: got %f, want ~0.2", conf400)
+	}
+
+	var conf401 float64
+	server.db.QueryRow("SELECT confidence FROM penny_learnings WHERE scope = 'user' AND scope_id = 401 AND key = 'shopping_role'").Scan(&conf401)
+	if conf401 != 1.0 {
+		t.Errorf("User 401 confidence: got %f, want 1.0", conf401)
+	}
+}
+
+func TestShoppingRole_NoHousehold(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// User without household — should NOT get a shopping role
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (500, '+15559999999')")
+	for i := 1; i <= 10; i++ {
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (500, ?, 1)",
+			fmt.Sprintf("Item %d", i))
+	}
+
+	server.processLearnings()
+
+	var role string
+	err := server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 500 AND key = 'shopping_role'").Scan(&role)
+	if err == nil && role != "" {
+		t.Errorf("User without household should not have shopping_role, got %q", role)
+	}
+}
+
+func TestShoppingRole_InLearningContext(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create user with autotune enabled
+	server.db.Exec("INSERT INTO users (id, phone_number, penny_autotune, household_id) VALUES (600, '+15550001111', 1, 1)")
+	server.db.Exec("INSERT INTO households (id) VALUES (1)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 600, 'owner')")
+
+	// Set the shopping_role learning directly
+	server.updateLearning("user", 600, "shopping_role", "primary_shopper", 0.8)
+
+	ctx := server.buildLearningContext(600)
+	if !strings.Contains(ctx, "primary shopper") {
+		t.Errorf("Expected 'primary shopper' in learning context, got: %s", ctx)
+	}
+	if !strings.Contains(ctx, "adds and checks off most items") {
+		t.Errorf("Expected role description in learning context, got: %s", ctx)
+	}
+}
+
+func TestShoppingRole_ListBuilderInContext(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	server.db.Exec("INSERT INTO users (id, phone_number, penny_autotune, household_id) VALUES (700, '+15550002222', 1, 1)")
+	server.db.Exec("INSERT INTO households (id) VALUES (1)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 700, 'owner')")
+
+	server.updateLearning("user", 700, "shopping_role", "list_builder", 0.6)
+
+	ctx := server.buildLearningContext(700)
+	if !strings.Contains(ctx, "list builder") {
+		t.Errorf("Expected 'list builder' in learning context, got: %s", ctx)
+	}
+}
+
+func TestShoppingRole_OccasionalInContext(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	server.db.Exec("INSERT INTO users (id, phone_number, penny_autotune, household_id) VALUES (800, '+15550003333', 1, 1)")
+	server.db.Exec("INSERT INTO households (id) VALUES (1)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 800, 'owner')")
+
+	server.updateLearning("user", 800, "shopping_role", "occasional", 0.4)
+
+	ctx := server.buildLearningContext(800)
+	if !strings.Contains(ctx, "occasional contributor") {
+		t.Errorf("Expected 'occasional contributor' in learning context, got: %s", ctx)
+	}
+}
+
+func TestShoppingRole_ThreePersonHousehold(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create a 3-person household
+	server.db.Exec("INSERT INTO households (id) VALUES (1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (900, '+15550004444', 1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (901, '+15550005555', 1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (902, '+15550006666', 1)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 900, 'owner')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 901, 'member')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 902, 'member')")
+
+	// User 900: 30 items, 25 checked — heavy shopper, high check ratio => primary_shopper
+	for i := 1; i <= 30; i++ {
+		checked := 0
+		if i <= 25 {
+			checked = 1
+		}
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (900, ?, ?)",
+			fmt.Sprintf("Item %d", i), checked)
+	}
+
+	// User 901: 15 items, 1 checked — above median, low check ratio => list_builder
+	for i := 1; i <= 15; i++ {
+		checked := 0
+		if i == 1 {
+			checked = 1
+		}
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (901, ?, ?)",
+			fmt.Sprintf("Item %d", i), checked)
+	}
+
+	// User 902: 3 items, 0 checked — <= 5 => occasional
+	for i := 1; i <= 3; i++ {
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (902, ?, 0)",
+			fmt.Sprintf("Item %d", i))
+	}
+
+	server.processLearnings()
+
+	var role900, role901, role902 string
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 900 AND key = 'shopping_role'").Scan(&role900)
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 901 AND key = 'shopping_role'").Scan(&role901)
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 902 AND key = 'shopping_role'").Scan(&role902)
+
+	if role900 != "primary_shopper" {
+		t.Errorf("User 900 (heavy shopper): got %q, want 'primary_shopper'", role900)
+	}
+	if role901 != "list_builder" {
+		t.Errorf("User 901 (adds but doesn't check): got %q, want 'list_builder'", role901)
+	}
+	if role902 != "occasional" {
+		t.Errorf("User 902 (few items): got %q, want 'occasional'", role902)
+	}
+}
+
+func TestShoppingRole_Idempotent(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	server.db.Exec("INSERT INTO households (id) VALUES (1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (1000, '+15550007777', 1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (1001, '+15550008888', 1)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 1000, 'owner')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 1001, 'member')")
+
+	for i := 1; i <= 10; i++ {
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (1000, ?, 1)",
+			fmt.Sprintf("Item %d", i))
+	}
+	for i := 1; i <= 2; i++ {
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (1001, ?, 0)",
+			fmt.Sprintf("Item %d", i))
+	}
+
+	// Run twice — should produce same result (upsert)
+	server.processLearnings()
+	server.processLearnings()
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM penny_learnings WHERE scope = 'user' AND scope_id = 1000 AND key = 'shopping_role'").Scan(&count)
+	if count != 1 {
+		t.Errorf("Expected exactly 1 shopping_role row for user 1000, got %d", count)
+	}
+}
+
+// =============================================================================
+// REPURCHASE NUDGE TESTS (L2 Household Learning)
+// =============================================================================
+
+func TestRepurchaseNudges_Empty(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleRepurchaseNudges, "GET", "/api/penny/nudges", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	nudges := body["nudges"].([]interface{})
+	if len(nudges) != 0 {
+		t.Errorf("Expected 0 nudges for new user, got %d", len(nudges))
+	}
+}
+
+func TestRepurchaseNudges_DueItem(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	server.db.Exec(`INSERT INTO penny_learnings (scope, scope_id, key, value, confidence, updated_at)
+		VALUES ('user', ?, 'repurchase_cycle:Milk', '7', 0.8, datetime('now'))`, userID)
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, checked) VALUES (1, ?, 'Milk', 1)", userID)
+	server.db.Exec(`INSERT INTO item_modifications (item_id, user_id, action, created_at)
+		VALUES (1, ?, 'added', datetime('now', '-10 days'))`, userID)
+
+	rr := doRequest(server.handleRepurchaseNudges, "GET", "/api/penny/nudges", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	nudges := body["nudges"].([]interface{})
+	if len(nudges) != 1 {
+		t.Fatalf("Expected 1 nudge, got %d", len(nudges))
+	}
+	nudge := nudges[0].(map[string]interface{})
+	if nudge["item_name"] != "Milk" {
+		t.Errorf("Expected nudge for 'Milk', got %v", nudge["item_name"])
+	}
+}
+
+func TestRepurchaseNudges_NotDueYet(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	server.db.Exec(`INSERT INTO penny_learnings (scope, scope_id, key, value, confidence, updated_at)
+		VALUES ('user', ?, 'repurchase_cycle:Eggs', '14', 0.7, datetime('now'))`, userID)
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, checked) VALUES (1, ?, 'Eggs', 1)", userID)
+	server.db.Exec(`INSERT INTO item_modifications (item_id, user_id, action, created_at)
+		VALUES (1, ?, 'added', datetime('now', '-5 days'))`, userID)
+
+	rr := doRequest(server.handleRepurchaseNudges, "GET", "/api/penny/nudges", nil, []*http.Cookie{cookie})
+	body := parseJSON(rr)
+	nudges := body["nudges"].([]interface{})
+	if len(nudges) != 0 {
+		t.Errorf("Expected 0 nudges (not due yet), got %d", len(nudges))
+	}
+}
+
+func TestRepurchaseNudges_AlreadyOnList(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	server.db.Exec(`INSERT INTO penny_learnings (scope, scope_id, key, value, confidence, updated_at)
+		VALUES ('user', ?, 'repurchase_cycle:Bread', '7', 0.8, datetime('now'))`, userID)
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, checked) VALUES (1, ?, 'Bread', 0)", userID)
+	server.db.Exec(`INSERT INTO item_modifications (item_id, user_id, action, created_at)
+		VALUES (1, ?, 'added', datetime('now', '-10 days'))`, userID)
+
+	rr := doRequest(server.handleRepurchaseNudges, "GET", "/api/penny/nudges", nil, []*http.Cookie{cookie})
+	body := parseJSON(rr)
+	nudges := body["nudges"].([]interface{})
+	if len(nudges) != 0 {
+		t.Errorf("Expected 0 nudges (already on list), got %d", len(nudges))
+	}
+}
+
+func TestRepurchaseNudges_Unauthorized(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleRepurchaseNudges, "GET", "/api/penny/nudges", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// OPTIMIZE THIS DEAL TESTS (L3 Brand Learning)
+// =============================================================================
+
+func TestOptimizeDeal_Unauthorized(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleOptimizeDeal, "GET", "/brand/optimize/1", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401, got %d", rr.Code)
+	}
+}
+
+func TestOptimizeDeal_NotFound(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "opt@test.com", "password123", "OptCo")
+
+	rr := doRequest(server.handleOptimizeDeal, "GET", "/brand/optimize/99999", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Expected 404, got %d", rr.Code)
+	}
+}
+
+func TestOptimizeDeal_InvalidID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "opt2@test.com", "password123", "OptCo2")
+
+	rr := doRequest(server.handleOptimizeDeal, "GET", "/brand/optimize/abc", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Expected 400, got %d", rr.Code)
+	}
+}
+
+func TestOptimizeDeal_NotOwner(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie1, _ := brandRegister(t, server, "owner@test.com", "password123", "OwnerCo")
+	cookie2, _ := brandRegister(t, server, "other@test.com", "password123", "OtherCo")
+
+	dealID := createTestDeal(t, server, cookie1)
+
+	rr := doRequest(server.handleOptimizeDeal, "GET",
+		fmt.Sprintf("/brand/optimize/%d", dealID), nil, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Expected 404 for non-owner, got %d", rr.Code)
+	}
+}
+
+func TestOptimizeDeal_LowImpressions(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "low@test.com", "password123", "LowCo")
+	dealID := createTestDeal(t, server, cookie)
+
+	rr := doRequest(server.handleOptimizeDeal, "GET",
+		fmt.Sprintf("/brand/optimize/%d", dealID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	recs := body["recommendations"].([]interface{})
+	// Should have "Not enough data yet" recommendation
+	found := false
+	for _, r := range recs {
+		rec := r.(map[string]interface{})
+		if rec["title"] == "Not enough data yet" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("Expected 'Not enough data yet' recommendation for deal with 0 impressions")
+	}
+}
+
+func TestOptimizeDeal_MissingBullets(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, brandUserID := brandRegister(t, server, "bullets@test.com", "password123", "BulletCo")
+
+	// Create deal with empty why_bullets
+	result, _ := server.db.Exec(`INSERT INTO brand_deals (
+		competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents,
+		status, brand_user_id, offer_price_cents, competitor_price_cents,
+		offer_size, competitor_size, offer_unit_price, competitor_unit_price,
+		unit_label, why_bullets, allergen_notes, deal_type, quantity_offered)
+		VALUES ('Cola', 'TestBrand', 'TestCola', 50, 5000, 'active', ?, 400, 500, '12pk', '12pk', '$0.33/can', '$0.42/can', 'can', '', '', 'sku_swap', 1)`,
+		brandUserID)
+	dealID64, _ := result.LastInsertId()
+
+	// Add 15 swap events (offered + declined) to get past low-impression threshold
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '+15551234567')")
+	for i := 0; i < 15; i++ {
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (1, ?, 'offered')", dealID64)
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, decline_reason) VALUES (1, ?, 'declined', 'price')", dealID64)
+	}
+
+	rr := doRequest(server.handleOptimizeDeal, "GET",
+		fmt.Sprintf("/brand/optimize/%d", dealID64), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	recs := body["recommendations"].([]interface{})
+	foundBullets := false
+	foundPrice := false
+	for _, r := range recs {
+		rec := r.(map[string]interface{})
+		if rec["title"] == "Add 'why switch' reasons" {
+			foundBullets = true
+		}
+		if rec["title"] == "Users cite price as top decline reason" {
+			foundPrice = true
+		}
+	}
+	if !foundBullets {
+		t.Error("Expected 'Add why switch reasons' recommendation")
+	}
+	if !foundPrice {
+		t.Error("Expected 'Users cite price as top decline reason' recommendation")
+	}
+
+	// Verify metrics in response
+	metrics := body["metrics"].(map[string]interface{})
+	if metrics["offered"].(float64) != 15 {
+		t.Errorf("Expected 15 offered, got %v", metrics["offered"])
+	}
+	if metrics["declined"].(float64) != 15 {
+		t.Errorf("Expected 15 declined, got %v", metrics["declined"])
+	}
+}
+
+// =============================================================================
+// REPURCHASE NUDGE TESTS
+// =============================================================================
+
+func TestRepurchaseNudge_NoSession(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleRepurchaseNudges, "GET", "/api/penny/nudges", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401, got %d", rr.Code)
+	}
+}
+
+func TestRepurchaseNudge_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+	rr := doRequest(server.handleRepurchaseNudges, "POST", "/api/penny/nudges", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected 405, got %d", rr.Code)
+	}
+}
+
+func TestRepurchaseNudge_EmptyWhenNoLearnings(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleRepurchaseNudges, "GET", "/api/penny/nudges", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	nudges, ok := body["nudges"].([]interface{})
+	if !ok {
+		t.Fatal("Expected 'nudges' array in response")
+	}
+	if len(nudges) != 0 {
+		t.Errorf("Expected empty nudges array, got %d items", len(nudges))
+	}
+}
+
+func TestRepurchaseNudge_OverdueItemReturned(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Seed a repurchase_cycle learning: milk every 7 days
+	server.updateLearning("user", userID, "repurchase_cycle:milk", "7 days", 0.8)
+
+	// Seed item_modifications: milk was last added 10 days ago
+	itemID := createListItem(t, server.db, userID, "Milk", "Dairy")
+	tenDaysAgo := time.Now().Add(-10 * 24 * time.Hour).Format("2006-01-02 15:04:05")
+	server.db.Exec(`INSERT INTO item_modifications (item_id, user_id, action, created_at)
+		VALUES (?, ?, 'added', ?)`, itemID, userID, tenDaysAgo)
+
+	// Mark the list item as checked so it doesn't suppress the nudge
+	server.db.Exec("UPDATE list_items SET checked = 1 WHERE id = ?", itemID)
+
+	rr := doRequest(server.handleRepurchaseNudges, "GET", "/api/penny/nudges", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	nudges, ok := body["nudges"].([]interface{})
+	if !ok {
+		t.Fatal("Expected 'nudges' array in response")
+	}
+	if len(nudges) != 1 {
+		t.Fatalf("Expected 1 nudge, got %d", len(nudges))
+	}
+
+	nudge := nudges[0].(map[string]interface{})
+	if nudge["item_name"] != "milk" {
+		t.Errorf("Expected item_name 'milk', got %v", nudge["item_name"])
+	}
+	if int(nudge["cycle_days"].(float64)) != 7 {
+		t.Errorf("Expected cycle_days 7, got %v", nudge["cycle_days"])
+	}
+	// days_overdue should be ~3 (10 days since added - 7 day cycle)
+	daysOverdue := int(nudge["days_overdue"].(float64))
+	if daysOverdue < 2 || daysOverdue > 4 {
+		t.Errorf("Expected days_overdue ~3, got %d", daysOverdue)
+	}
+	if nudge["last_added"] == nil || nudge["last_added"] == "" {
+		t.Error("Expected non-empty last_added date")
+	}
+}
+
+func TestRepurchaseNudge_NotDueYet(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Seed a repurchase_cycle learning: milk every 14 days
+	server.updateLearning("user", userID, "repurchase_cycle:milk", "14 days", 0.8)
+
+	// Seed item_modifications: milk was last added 5 days ago (not due for 9 more days)
+	itemID := createListItem(t, server.db, userID, "Milk", "Dairy")
+	fiveDaysAgo := time.Now().Add(-5 * 24 * time.Hour).Format("2006-01-02 15:04:05")
+	server.db.Exec(`INSERT INTO item_modifications (item_id, user_id, action, created_at)
+		VALUES (?, ?, 'added', ?)`, itemID, userID, fiveDaysAgo)
+
+	// Mark checked so it's not "on the list"
+	server.db.Exec("UPDATE list_items SET checked = 1 WHERE id = ?", itemID)
+
+	rr := doRequest(server.handleRepurchaseNudges, "GET", "/api/penny/nudges", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rr.Code)
+	}
+
+	body := parseJSON(rr)
+	nudges := body["nudges"].([]interface{})
+	if len(nudges) != 0 {
+		t.Errorf("Expected 0 nudges (item not due yet), got %d", len(nudges))
+	}
+}
+
+func TestRepurchaseNudge_SuppressedWhenOnList(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Seed a repurchase_cycle learning: eggs every 7 days
+	server.updateLearning("user", userID, "repurchase_cycle:eggs", "7 days", 0.8)
+
+	// Seed item_modifications: eggs were last added 10 days ago (overdue)
+	itemID := createListItem(t, server.db, userID, "Eggs", "Dairy")
+	tenDaysAgo := time.Now().Add(-10 * 24 * time.Hour).Format("2006-01-02 15:04:05")
+	server.db.Exec(`INSERT INTO item_modifications (item_id, user_id, action, created_at)
+		VALUES (?, ?, 'added', ?)`, itemID, userID, tenDaysAgo)
+
+	// Leave the item unchecked on the list — nudge should be suppressed
+	// (checked defaults to 0 / false)
+
+	rr := doRequest(server.handleRepurchaseNudges, "GET", "/api/penny/nudges", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rr.Code)
+	}
+
+	body := parseJSON(rr)
+	nudges := body["nudges"].([]interface{})
+	if len(nudges) != 0 {
+		t.Errorf("Expected 0 nudges (item already on list), got %d", len(nudges))
+	}
+}
+
+func TestRepurchaseNudge_MultipleItems(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Seed two repurchase cycles
+	server.updateLearning("user", userID, "repurchase_cycle:milk", "7 days", 0.8)
+	server.updateLearning("user", userID, "repurchase_cycle:bread", "5 days", 0.6)
+
+	// Both items overdue
+	milkID := createListItem(t, server.db, userID, "Milk", "Dairy")
+	breadID := createListItem(t, server.db, userID, "Bread", "Bakery")
+	tenDaysAgo := time.Now().Add(-10 * 24 * time.Hour).Format("2006-01-02 15:04:05")
+	server.db.Exec(`INSERT INTO item_modifications (item_id, user_id, action, created_at)
+		VALUES (?, ?, 'added', ?)`, milkID, userID, tenDaysAgo)
+	server.db.Exec(`INSERT INTO item_modifications (item_id, user_id, action, created_at)
+		VALUES (?, ?, 'added', ?)`, breadID, userID, tenDaysAgo)
+
+	// Mark both as checked (off the active list)
+	server.db.Exec("UPDATE list_items SET checked = 1 WHERE id IN (?, ?)", milkID, breadID)
+
+	rr := doRequest(server.handleRepurchaseNudges, "GET", "/api/penny/nudges", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rr.Code)
+	}
+
+	body := parseJSON(rr)
+	nudges := body["nudges"].([]interface{})
+	if len(nudges) != 2 {
+		t.Errorf("Expected 2 nudges, got %d", len(nudges))
+	}
+}
+
+func TestRepurchaseNudge_DoesNotLeakAcrossUsers(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userA := loginUser(t, server, "5551234567")
+	cookieB, _ := loginUser(t, server, "5559876543")
+
+	// Seed repurchase cycle for user A only
+	server.updateLearning("user", userA, "repurchase_cycle:milk", "7 days", 0.8)
+	itemID := createListItem(t, server.db, userA, "Milk", "Dairy")
+	tenDaysAgo := time.Now().Add(-10 * 24 * time.Hour).Format("2006-01-02 15:04:05")
+	server.db.Exec(`INSERT INTO item_modifications (item_id, user_id, action, created_at)
+		VALUES (?, ?, 'added', ?)`, itemID, userA, tenDaysAgo)
+	server.db.Exec("UPDATE list_items SET checked = 1 WHERE id = ?", itemID)
+
+	// User B should see no nudges
+	rr := doRequest(server.handleRepurchaseNudges, "GET", "/api/penny/nudges", nil, []*http.Cookie{cookieB})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rr.Code)
+	}
+
+	body := parseJSON(rr)
+	nudges := body["nudges"].([]interface{})
+	if len(nudges) != 0 {
+		t.Errorf("Expected 0 nudges for user B, got %d", len(nudges))
+	}
+}
+
+// Ensure sort import is used — this is a compile-time check
+var _ = sort.Ints
 
