@@ -1226,6 +1226,32 @@ func initDB(path string) (*sql.DB, error) {
 	// Link brand_deals to categories (0 = uncategorized)
 	db.Exec("ALTER TABLE brand_deals ADD COLUMN category_id INTEGER NOT NULL DEFAULT 0")
 
+	// --- User swap predictions ---
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS user_swap_predictions (
+			user_id         INTEGER NOT NULL,
+			category_id     INTEGER NOT NULL DEFAULT 0,
+			brand           TEXT NOT NULL DEFAULT '',
+			acceptance_rate REAL NOT NULL DEFAULT 0.0,
+			total_offers    INTEGER NOT NULL DEFAULT 0,
+			total_accepts   INTEGER NOT NULL DEFAULT 0,
+			avg_time_to_action_ms INTEGER NOT NULL DEFAULT 0,
+			confidence      REAL NOT NULL DEFAULT 0.0,
+			computed_at     TEXT NOT NULL DEFAULT (datetime('now')),
+			UNIQUE(user_id, category_id, brand)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating user_swap_predictions table: %w", err)
+	}
+
+	for _, stmt := range []string{
+		"CREATE INDEX IF NOT EXISTS idx_user_swap_predictions_user ON user_swap_predictions(user_id)",
+		"CREATE INDEX IF NOT EXISTS idx_user_swap_predictions_category ON user_swap_predictions(user_id, category_id)",
+	} {
+		db.Exec(stmt)
+	}
+
 	return db, nil
 }
 

@@ -310,7 +310,8 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 		       offer_unit_price, competitor_unit_price,
 		       why_bullets, allergen_notes,
 		       deal_type, quantity_offered, trial_product_name, trial_size, campaign_tag,
-		       COALESCE(ends_at,'')
+		       COALESCE(ends_at,''),
+		       COALESCE(category_id, 0)
 		FROM brand_deals
 		WHERE status = 'active'
 		  AND (starts_at <= datetime('now') OR starts_at IS NULL)
@@ -343,6 +344,7 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 		TrialSize           string
 		CampaignTag         string
 		EndsAt              string
+		CategoryID          int
 	}
 	var deals []activeDeal
 	for rows.Next() {
@@ -355,7 +357,7 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 			&d.OfferUnitPrice, &d.CompetitorUnitPrice,
 			&d.WhyBulletsJSON, &d.AllergenNotes,
 			&d.DealType, &d.QuantityOffered, &d.TrialProductName, &d.TrialSize, &d.CampaignTag,
-			&d.EndsAt); err != nil {
+			&d.EndsAt, &d.CategoryID); err != nil {
 			continue
 		}
 		d.BudgetRemaining = budgetTotal - budgetSpent
@@ -410,6 +412,16 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 				userID, deal.ID).Scan(&priorAccepts)
 			if priorAccepts > 0 {
 				continue
+			}
+
+			// Prediction filter: suppress deals where confidence is high and acceptance rate is very low
+			if autotune == 1 {
+				predRate, predConf := s.getUserSwapPrediction(userID, deal.CategoryID, deal.OfferBrand)
+				if predConf >= 0.5 && predRate < 0.10 {
+					log.Printf("[swaps] prediction filter: skipping deal %d for user %d (predicted acceptance %.1f%%, confidence %.2f)",
+						deal.ID, userID, predRate*100, predConf)
+					continue
+				}
 			}
 
 			// Found a match! Log the offer and return it

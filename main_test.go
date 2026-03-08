@@ -17024,3 +17024,336 @@ func TestSwapEvent_TimeToActionAndWhyTapped(t *testing.T) {
 // Ensure sort import is used — this is a compile-time check
 var _ = sort.Ints
 
+// =============================================================================
+// CATEGORY TAXONOMY TESTS
+// =============================================================================
+
+func TestCategories_ListAll(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Categories are seeded by initDB — test that the endpoint returns them grouped
+	rr := doRequest(server.handleCategories, "GET", "/api/categories", nil, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var grouped map[string][]struct {
+		ID   int    `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &grouped); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	// Verify we have the expected parent categories
+	expectedParents := []string{"Dairy", "Produce", "Pantry", "Beverages", "Frozen", "Meat", "Snacks", "Condiments", "Baking", "Cleaning", "Personal Care", "Baby", "Pet", "Paper Goods"}
+	for _, parent := range expectedParents {
+		if _, ok := grouped[parent]; !ok {
+			t.Errorf("Missing parent category: %s", parent)
+		}
+	}
+
+	// Verify Dairy has expected subcategories
+	dairyCats := grouped["Dairy"]
+	if len(dairyCats) == 0 {
+		t.Fatal("Dairy category has no subcategories")
+	}
+	found := false
+	for _, c := range dairyCats {
+		if c.Name == "Milk" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected 'Milk' in Dairy subcategories")
+	}
+
+	// Verify Cache-Control header
+	cc := rr.Header().Get("Cache-Control")
+	if cc != "public, max-age=3600" {
+		t.Errorf("Cache-Control: got %q, want %q", cc, "public, max-age=3600")
+	}
+}
+
+func TestCategories_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleCategories, "POST", "/api/categories", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status: got %d, want 405", rr.Code)
+	}
+}
+
+func TestCategorizeProduct(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	tests := []struct {
+		name        string
+		product     string
+		wantNonZero bool
+	}{
+		{"matches coffee", "Folgers Coffee", true},
+		{"matches cereal", "Cheerios Cereal", true},
+		{"matches laundry detergent", "Tide Laundry Detergent", true},
+		{"matches yogurt", "Greek Yogurt", true},
+		{"matches chips", "Potato Chips", true},
+		{"case insensitive", "chocolate chips bag", true},
+		{"no match", "Spaceship Parts", false},
+		{"empty string", "", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			id := categorizeProduct(server.db, tc.product)
+			if tc.wantNonZero && id == 0 {
+				t.Errorf("categorizeProduct(%q) = 0, want non-zero", tc.product)
+			}
+			if !tc.wantNonZero && id != 0 {
+				t.Errorf("categorizeProduct(%q) = %d, want 0", tc.product, id)
+			}
+		})
+	}
+}
+
+func TestCategorySeed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Verify categories were seeded
+	var count int
+	if err := server.db.QueryRow("SELECT COUNT(*) FROM categories").Scan(&count); err != nil {
+		t.Fatalf("Failed to count categories: %v", err)
+	}
+	if count < 50 {
+		t.Errorf("Expected at least 50 seeded categories, got %d", count)
+	}
+
+	// Verify idempotency — calling seedCategories again should not error or duplicate
+	if err := seedCategories(server.db); err != nil {
+		t.Fatalf("seedCategories second call failed: %v", err)
+	}
+	var count2 int
+	server.db.QueryRow("SELECT COUNT(*) FROM categories").Scan(&count2)
+	if count2 != count {
+		t.Errorf("seedCategories not idempotent: %d vs %d", count, count2)
+	}
+
+	// Verify parent_category is populated
+	var emptyParentCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM categories WHERE parent_category = ''").Scan(&emptyParentCount)
+	if emptyParentCount > 0 {
+		t.Errorf("Found %d categories with empty parent_category", emptyParentCount)
+	}
+
+	// Verify category_id column exists on brand_deals
+	_, err := server.db.Exec("SELECT category_id FROM brand_deals LIMIT 1")
+	if err != nil {
+		t.Errorf("brand_deals.category_id column not found: %v", err)
+	}
+}
+
+func TestCategories_NoAuthRequired(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Should work without any session cookie
+	rr := doRequest(server.handleCategories, "GET", "/api/categories", nil, nil)
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected 200 without auth, got %d", rr.Code)
+	}
+}
+
+// --- User Swap Predictions Tests ---
+
+func TestProcessSwapPredictions_Empty(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// Should not panic or error with no swap events
+	server.processSwapPredictions()
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM user_swap_predictions").Scan(&count)
+	if count != 0 {
+		t.Errorf("expected 0 predictions with no swap events, got %d", count)
+	}
+}
+
+func TestProcessSwapPredictions_ComputesRates(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, uid := loginUser(t, server, "5551234567")
+
+	// Create a deal with category (use id=100 to avoid conflicting with seeded deals)
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product,
+		discount_cents, status, deal_type, category_id)
+		VALUES (100, 'Brand A Milk', 'Brand B', 'Brand B Milk', 50, 'active', 'sku_swap', 1)`)
+
+	// Create 10 offered, 3 accepted, 7 declined
+	for i := 0; i < 10; i++ {
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, 100, 1, 'offered')", uid)
+	}
+	for i := 0; i < 3; i++ {
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, time_to_action_ms) VALUES (?, 100, 1, 'accepted', 2000)", uid)
+	}
+	for i := 0; i < 7; i++ {
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, time_to_action_ms) VALUES (?, 100, 1, 'declined', 5000)", uid)
+	}
+
+	server.processSwapPredictions()
+
+	// Check category prediction (category_id=1, brand="")
+	var rate, conf float64
+	var offers, accepts int
+	err := server.db.QueryRow(
+		"SELECT acceptance_rate, confidence, total_offers, total_accepts FROM user_swap_predictions WHERE user_id = ? AND category_id = 1 AND brand = ''",
+		uid,
+	).Scan(&rate, &conf, &offers, &accepts)
+	if err != nil {
+		t.Fatalf("category prediction not found: %v", err)
+	}
+	if offers != 10 {
+		t.Errorf("expected 10 offers, got %d", offers)
+	}
+	if accepts != 3 {
+		t.Errorf("expected 3 accepts, got %d", accepts)
+	}
+	expectedRate := 0.3
+	if rate < expectedRate-0.01 || rate > expectedRate+0.01 {
+		t.Errorf("expected acceptance rate ~0.3, got %f", rate)
+	}
+	if conf != 1.0 {
+		t.Errorf("expected confidence 1.0 with 10 offers, got %f", conf)
+	}
+
+	// Check brand prediction (category_id=0, brand="Brand B")
+	err = server.db.QueryRow(
+		"SELECT acceptance_rate, confidence FROM user_swap_predictions WHERE user_id = ? AND category_id = 0 AND brand = 'Brand B'",
+		uid,
+	).Scan(&rate, &conf)
+	if err != nil {
+		t.Fatalf("brand prediction not found: %v", err)
+	}
+	if rate < 0.29 || rate > 0.31 {
+		t.Errorf("expected brand acceptance rate ~0.3, got %f", rate)
+	}
+}
+
+func TestGetUserSwapPrediction_NoPrediction(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, uid := loginUser(t, server, "5551234567")
+
+	// No predictions exist — should return neutral (0.5, 0)
+	rate, conf := server.getUserSwapPrediction(uid, 1, "SomeBrand")
+	if rate != 0.5 {
+		t.Errorf("expected neutral rate 0.5, got %f", rate)
+	}
+	if conf != 0 {
+		t.Errorf("expected zero confidence, got %f", conf)
+	}
+}
+
+func TestGetUserSwapPrediction_CategoryOnly(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, uid := loginUser(t, server, "5551234567")
+
+	// Insert only category prediction
+	server.db.Exec(`INSERT INTO user_swap_predictions (user_id, category_id, brand, acceptance_rate, total_offers, total_accepts, confidence)
+		VALUES (?, 5, '', 0.7, 20, 14, 0.9)`, uid)
+
+	rate, conf := server.getUserSwapPrediction(uid, 5, "UnknownBrand")
+	if rate < 0.69 || rate > 0.71 {
+		t.Errorf("expected rate ~0.7, got %f", rate)
+	}
+	if conf < 0.89 || conf > 0.91 {
+		t.Errorf("expected confidence ~0.9, got %f", conf)
+	}
+}
+
+func TestGetUserSwapPrediction_BrandOnly(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, uid := loginUser(t, server, "5551234567")
+
+	// Insert only brand prediction
+	server.db.Exec(`INSERT INTO user_swap_predictions (user_id, category_id, brand, acceptance_rate, total_offers, total_accepts, confidence)
+		VALUES (?, 0, 'Acme', 0.2, 15, 3, 0.8)`, uid)
+
+	rate, conf := server.getUserSwapPrediction(uid, 99, "Acme")
+	if rate < 0.19 || rate > 0.21 {
+		t.Errorf("expected rate ~0.2, got %f", rate)
+	}
+	if conf < 0.79 || conf > 0.81 {
+		t.Errorf("expected confidence ~0.8, got %f", conf)
+	}
+}
+
+func TestGetUserSwapPrediction_BlendsRates(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, uid := loginUser(t, server, "5551234567")
+
+	// Insert both category and brand predictions with equal confidence
+	server.db.Exec(`INSERT INTO user_swap_predictions (user_id, category_id, brand, acceptance_rate, total_offers, total_accepts, confidence)
+		VALUES (?, 5, '', 0.8, 20, 16, 0.8)`, uid)
+	server.db.Exec(`INSERT INTO user_swap_predictions (user_id, category_id, brand, acceptance_rate, total_offers, total_accepts, confidence)
+		VALUES (?, 0, 'Acme', 0.4, 20, 8, 0.8)`, uid)
+
+	rate, conf := server.getUserSwapPrediction(uid, 5, "Acme")
+	// Blended: (0.8*0.8 + 0.4*0.8) / (0.8+0.8) = 0.96/1.6 = 0.6
+	if rate < 0.59 || rate > 0.61 {
+		t.Errorf("expected blended rate ~0.6, got %f", rate)
+	}
+	// Confidence: min((0.8+0.8)/2, 1.0) = 0.8
+	if conf < 0.79 || conf > 0.81 {
+		t.Errorf("expected blended confidence ~0.8, got %f", conf)
+	}
+}
+
+func TestSwapPredictions_AdminOnly(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Non-admin user
+	cookie, _ := loginUser(t, server, "5559999999")
+	rr := doRequest(server.handleSwapPredictions, "GET", "/api/admin/swap-predictions", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+
+	// Admin user
+	adminCookie, _ := loginUser(t, server, "3104861833")
+	rr = doRequest(server.handleSwapPredictions, "GET", "/api/admin/swap-predictions", nil, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for admin, got %d", rr.Code)
+	}
+}
+
+func TestSwapPredictions_PredictionFilter(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, uid := loginUser(t, server, "5551234567")
+
+	// Enable autotune for the user
+	server.db.Exec("UPDATE users SET penny_autotune = 1 WHERE id = ?", uid)
+
+	// Insert a low-acceptance, high-confidence prediction
+	server.db.Exec(`INSERT INTO user_swap_predictions (user_id, category_id, brand, acceptance_rate, total_offers, total_accepts, confidence)
+		VALUES (?, 0, 'BadBrand', 0.05, 40, 2, 0.9)`, uid)
+
+	// getUserSwapPrediction should return the low rate
+	rate, conf := server.getUserSwapPrediction(uid, 0, "BadBrand")
+	if rate > 0.1 {
+		t.Errorf("expected low rate, got %f", rate)
+	}
+	if conf < 0.5 {
+		t.Errorf("expected high confidence, got %f", conf)
+	}
+}
+
+func TestUserSwapPredictions_TableExists(t *testing.T) {
+	db, err := initDB(":memory:")
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM user_swap_predictions").Scan(&count)
+	if err != nil {
+		t.Errorf("user_swap_predictions table doesn't exist: %v", err)
+	}
+}
+
