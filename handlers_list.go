@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -371,6 +372,14 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 
 	for _, item := range addedItems {
 		itemKey := strings.ToLower(item.Brand + " " + item.Name)
+
+		// Dynamic auction: collect all eligible deals for this item, then pick the best
+		type auctionCandidate struct {
+			deal     activeDeal
+			bidScore float64 // effective bid = discount_cents × predicted_acceptance
+		}
+		var candidates []auctionCandidate
+
 		for _, deal := range deals {
 			// Case-insensitive fuzzy match: check if competitor product appears in item
 			competitor := strings.ToLower(deal.CompetitorProduct)
@@ -415,8 +424,10 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 			}
 
 			// Prediction filter: suppress deals where confidence is high and acceptance rate is very low
+			predRate := 0.5 // neutral default
 			if autotune == 1 {
-				predRate, predConf := s.getUserSwapPrediction(userID, deal.CategoryID, deal.OfferBrand)
+				pRate, predConf := s.getUserSwapPrediction(userID, deal.CategoryID, deal.OfferBrand)
+				predRate = pRate
 				if predConf >= 0.5 && predRate < 0.10 {
 					log.Printf("[swaps] prediction filter: skipping deal %d for user %d (predicted acceptance %.1f%%, confidence %.2f)",
 						deal.ID, userID, predRate*100, predConf)
@@ -424,7 +435,36 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 				}
 			}
 
-			// Found a match! Log the offer and return it
+			// Compute auction bid score: discount × predicted acceptance rate
+			bidScore := float64(deal.DiscountCents) * predRate
+			candidates = append(candidates, auctionCandidate{deal: deal, bidScore: bidScore})
+		}
+
+		if len(candidates) == 0 {
+			continue
+		}
+
+		// Sort by bid score descending — highest effective bid wins
+		sort.Slice(candidates, func(i, j int) bool {
+			return candidates[i].bidScore > candidates[j].bidScore
+		})
+
+		// Winner is the first candidate
+		winner := candidates[0]
+		deal := winner.deal
+
+		// Log auction results: winner gets 'offered', losers get 'outbid'
+		if len(candidates) > 1 {
+			log.Printf("[auction] %d candidates for item %q — winner: deal %d (bid %.1f), %d outbid",
+				len(candidates), item.Name, deal.ID, winner.bidScore, len(candidates)-1)
+			for _, loser := range candidates[1:] {
+				s.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, ?, 'outbid')",
+					userID, loser.deal.ID, item.ID)
+			}
+		}
+
+		{
+			// Found a match via auction! Log the offer and return it
 			s.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, ?, 'offered')",
 				userID, deal.ID, item.ID)
 			s.db.Exec("UPDATE users SET deal_shown_count = deal_shown_count + 1 WHERE id = ?", userID)

@@ -18145,3 +18145,432 @@ func TestProcessCategoryAlerts_DetectsRisingStar(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// CATEGORY INTELLIGENCE SUBSCRIPTIONS
+// =============================================================================
+
+func TestCategoryReport_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleCategoryReport, "GET", "/brand/category-report/Dairy", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestCategoryReport_FreeTier(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "cat-free@example.com", "password123", "FreeCo")
+
+	// Create a category and a deal linked to it
+	var catID int
+	server.db.QueryRow("SELECT id FROM categories WHERE parent_category = 'Dairy' LIMIT 1").Scan(&catID)
+	if catID == 0 {
+		// Insert a subcategory under Dairy if none exists
+		res, _ := server.db.Exec("INSERT INTO categories (name, parent_category) VALUES ('Milk', 'Dairy')")
+		id, _ := res.LastInsertId()
+		catID = int(id)
+	}
+
+	// Create a brand deal in the Dairy category
+	server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, category_id, status)
+		VALUES ('Competitor Milk', 'TestBrand', 'TestBrand Milk', 100, 5000, ?, 'active')`, catID)
+
+	rr := doRequest(server.handleCategoryReport, "GET", "/brand/category-report/Dairy", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["tier"] != "free" {
+		t.Errorf("expected tier=free, got %v", body["tier"])
+	}
+	if body["category"] != "Dairy" {
+		t.Errorf("expected category=Dairy, got %v", body["category"])
+	}
+	if body["total_deals"] == nil {
+		t.Error("expected total_deals in response")
+	}
+	if body["total_swaps"] == nil {
+		t.Error("expected total_swaps in response")
+	}
+	if body["upgrade_prompt"] == nil {
+		t.Error("expected upgrade_prompt in free tier response")
+	}
+	// Free tier should NOT include premium fields
+	if body["avg_acceptance_rate"] != nil {
+		t.Error("free tier should not include avg_acceptance_rate")
+	}
+	if body["subcategories"] != nil {
+		t.Error("free tier should not include subcategories")
+	}
+}
+
+func TestCategoryReport_PremiumTier(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, brandUserID := brandRegister(t, server, "cat-prem@example.com", "password123", "PremCo")
+
+	// Set subscription to premium
+	server.db.Exec(`INSERT INTO brand_subscriptions (brand_user_id, tier) VALUES (?, 'premium')`, brandUserID)
+
+	// Create a category and deals
+	var catID int
+	server.db.QueryRow("SELECT id FROM categories WHERE parent_category = 'Dairy' LIMIT 1").Scan(&catID)
+	if catID == 0 {
+		res, _ := server.db.Exec("INSERT INTO categories (name, parent_category) VALUES ('Milk', 'Dairy')")
+		id, _ := res.LastInsertId()
+		catID = int(id)
+	}
+
+	// Create two deals in the Dairy category
+	res1, _ := server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, category_id, status)
+		VALUES ('Competitor Milk', 'TestBrand', 'TestBrand Milk', 150, 5000, ?, 'active')`, catID)
+	dealID1, _ := res1.LastInsertId()
+
+	server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, category_id, status)
+		VALUES ('Competitor Yogurt', 'TestBrand', 'TestBrand Yogurt', 200, 5000, ?, 'active')`, catID)
+
+	// Create some swap events
+	server.db.Exec(`INSERT INTO users (id, phone_number) VALUES (9990, '+15559990000')`)
+	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, action, decline_reason, time_to_action_ms) VALUES (9990, ?, 'accepted', '', 2500)`, dealID1)
+	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, action, decline_reason, time_to_action_ms) VALUES (9990, ?, 'declined', 'price', 4000)`, dealID1)
+	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, action, decline_reason, time_to_action_ms) VALUES (9990, ?, 'declined', 'brand_loyal', 3500)`, dealID1)
+
+	rr := doRequest(server.handleCategoryReport, "GET", "/brand/category-report/Dairy", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["tier"] != "premium" {
+		t.Errorf("expected tier=premium, got %v", body["tier"])
+	}
+	if body["category"] != "Dairy" {
+		t.Errorf("expected category=Dairy, got %v", body["category"])
+	}
+	if body["total_deals"] == nil {
+		t.Error("expected total_deals in response")
+	}
+	if body["total_swaps"] == nil {
+		t.Error("expected total_swaps in response")
+	}
+	if body["avg_acceptance_rate"] == nil {
+		t.Error("expected avg_acceptance_rate in premium response")
+	}
+	if body["top_decline_reasons"] == nil {
+		t.Error("expected top_decline_reasons in premium response")
+	}
+	if body["avg_discount_cents"] == nil {
+		t.Error("expected avg_discount_cents in premium response")
+	}
+	if body["avg_time_to_action_ms"] == nil {
+		t.Error("expected avg_time_to_action_ms in premium response")
+	}
+	if body["propagation_rate"] == nil {
+		t.Error("expected propagation_rate in premium response")
+	}
+	if body["subcategories"] == nil {
+		t.Error("expected subcategories in premium response")
+	}
+	// Should NOT have upgrade_prompt
+	if body["upgrade_prompt"] != nil {
+		t.Error("premium tier should not include upgrade_prompt")
+	}
+
+	// Validate decline reasons contain our test data
+	reasons, ok := body["top_decline_reasons"].([]interface{})
+	if !ok {
+		t.Fatal("top_decline_reasons should be an array")
+	}
+	if len(reasons) < 1 {
+		t.Error("expected at least one decline reason")
+	}
+
+	// Validate subcategories is an array
+	subs, ok := body["subcategories"].([]interface{})
+	if !ok {
+		t.Fatal("subcategories should be an array")
+	}
+	if len(subs) < 1 {
+		t.Error("expected at least one subcategory")
+	}
+}
+
+func TestBrandSubscription_GetAndSet(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "sub@example.com", "password123", "SubCo")
+
+	// GET — default tier should be free
+	rr := doRequest(server.handleBrandSubscription, "GET", "/brand/subscription", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET subscription: expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["tier"] != "free" {
+		t.Errorf("expected default tier=free, got %v", body["tier"])
+	}
+
+	// POST — upgrade to premium
+	rr = doRequest(server.handleBrandSubscription, "POST", "/brand/subscription",
+		map[string]string{"tier": "premium"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST subscription: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body = parseJSON(rr)
+	if body["tier"] != "premium" {
+		t.Errorf("expected tier=premium after upgrade, got %v", body["tier"])
+	}
+
+	// GET — should now be premium
+	rr = doRequest(server.handleBrandSubscription, "GET", "/brand/subscription", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET subscription after upgrade: expected 200, got %d", rr.Code)
+	}
+	body = parseJSON(rr)
+	if body["tier"] != "premium" {
+		t.Errorf("expected tier=premium, got %v", body["tier"])
+	}
+
+	// POST — downgrade back to free
+	rr = doRequest(server.handleBrandSubscription, "POST", "/brand/subscription",
+		map[string]string{"tier": "free"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST subscription downgrade: expected 200, got %d", rr.Code)
+	}
+	body = parseJSON(rr)
+	if body["tier"] != "free" {
+		t.Errorf("expected tier=free after downgrade, got %v", body["tier"])
+	}
+
+	// POST — invalid tier
+	rr = doRequest(server.handleBrandSubscription, "POST", "/brand/subscription",
+		map[string]string{"tier": "gold"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid tier, got %d", rr.Code)
+	}
+
+	// No auth — should be 401
+	rr = doRequest(server.handleBrandSubscription, "GET", "/brand/subscription", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without auth, got %d", rr.Code)
+	}
+}
+
+// ── Dynamic Auction Pricing Tests ─────────────────────────────────────
+
+func TestAuction_HighestBidScoreWins(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	// Create user
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Delete seeded deals to have a clean slate
+	server.db.Exec("DELETE FROM brand_deals")
+
+	// Create two competing deals for "skippy" — deal A has lower discount but will have higher bid score
+	// Deal A: 200 cents discount (with default 0.5 prediction = bid score 100)
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product,
+		discount_cents, total_budget_cents, status)
+		VALUES (100, 'skippy', 'BrandA', 'BrandA Peanut Butter', 200, 10000, 'active')`)
+
+	// Deal B: 150 cents discount (with default 0.5 prediction = bid score 75)
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product,
+		discount_cents, total_budget_cents, status)
+		VALUES (101, 'skippy', 'BrandB', 'BrandB Peanut Butter', 150, 10000, 'active')`)
+
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
+			Message: "Added peanut butter!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "skippy peanut butter"}, cookies)
+
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.PendingSwap == nil {
+		t.Fatal("expected a pending swap")
+	}
+
+	// BrandA should win (higher discount × same prediction = higher bid score)
+	if resp.PendingSwap.OfferBrand != "BrandA" {
+		t.Errorf("expected BrandA to win auction, got %s", resp.PendingSwap.OfferBrand)
+	}
+	if resp.PendingSwap.DiscountCents != 200 {
+		t.Errorf("expected 200 discount cents, got %d", resp.PendingSwap.DiscountCents)
+	}
+}
+
+func TestAuction_OutbidEventsLogged(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	server.db.Exec("DELETE FROM brand_deals")
+
+	// Create 3 competing deals
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product,
+		discount_cents, total_budget_cents, status)
+		VALUES (100, 'skippy', 'Winner', 'Winner PB', 300, 10000, 'active')`)
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product,
+		discount_cents, total_budget_cents, status)
+		VALUES (101, 'skippy', 'Loser1', 'Loser1 PB', 200, 10000, 'active')`)
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product,
+		discount_cents, total_budget_cents, status)
+		VALUES (102, 'skippy', 'Loser2', 'Loser2 PB', 100, 10000, 'active')`)
+
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
+			Message: "Added!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "skippy peanut butter"}, cookies)
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify winner gets 'offered'
+	var offeredCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'offered'").Scan(&offeredCount)
+	if offeredCount != 1 {
+		t.Errorf("expected 1 offered event, got %d", offeredCount)
+	}
+
+	// Verify losers get 'outbid'
+	var outbidCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'outbid'").Scan(&outbidCount)
+	if outbidCount != 2 {
+		t.Errorf("expected 2 outbid events, got %d", outbidCount)
+	}
+
+	// Verify winner's deal_id
+	var winnerDealID int
+	server.db.QueryRow("SELECT deal_id FROM swap_events WHERE action = 'offered'").Scan(&winnerDealID)
+	if winnerDealID != 100 {
+		t.Errorf("expected winner deal_id 100, got %d", winnerDealID)
+	}
+}
+
+func TestAuction_SingleCandidate_NoOutbidEvents(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	server.db.Exec("DELETE FROM brand_deals")
+
+	// Only one deal for skippy
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product,
+		discount_cents, total_budget_cents, status)
+		VALUES (100, 'skippy', 'OnlyBrand', 'OnlyBrand PB', 200, 10000, 'active')`)
+
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
+			Message: "Added!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "skippy peanut butter"}, cookies)
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.PendingSwap == nil {
+		t.Fatal("expected a pending swap")
+	}
+	if resp.PendingSwap.OfferBrand != "OnlyBrand" {
+		t.Errorf("expected OnlyBrand, got %s", resp.PendingSwap.OfferBrand)
+	}
+
+	// No outbid events should be logged
+	var outbidCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'outbid'").Scan(&outbidCount)
+	if outbidCount != 0 {
+		t.Errorf("expected 0 outbid events for single candidate, got %d", outbidCount)
+	}
+}
+
+func TestAuction_PredictionWeightedBidding(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Enable autotune so predictions are used
+	server.db.Exec("UPDATE users SET penny_autotune = 1 WHERE id = 1")
+
+	server.db.Exec("DELETE FROM brand_deals")
+
+	// Deal A: high discount (300) but low predicted acceptance → bid score = 300 × 0.2 = 60
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product,
+		discount_cents, total_budget_cents, status, category_id)
+		VALUES (100, 'skippy', 'ExpensiveBrand', 'Expensive PB', 300, 10000, 'active', 0)`)
+
+	// Deal B: lower discount (200) but high predicted acceptance → bid score = 200 × 0.8 = 160
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product,
+		discount_cents, total_budget_cents, status, category_id)
+		VALUES (101, 'skippy', 'PopularBrand', 'Popular PB', 200, 10000, 'active', 0)`)
+
+	// Seed prediction data: user 1 has high acceptance for PopularBrand, low for ExpensiveBrand
+	_, err1 := server.db.Exec(`INSERT INTO user_swap_predictions (user_id, category_id, brand, acceptance_rate, confidence, total_offers, total_accepts)
+		VALUES (1, 0, 'ExpensiveBrand', 0.2, 0.8, 10, 2)`)
+	if err1 != nil {
+		t.Fatalf("failed to insert prediction for ExpensiveBrand: %v", err1)
+	}
+	_, err2 := server.db.Exec(`INSERT INTO user_swap_predictions (user_id, category_id, brand, acceptance_rate, confidence, total_offers, total_accepts)
+		VALUES (1, 0, 'PopularBrand', 0.8, 0.8, 10, 8)`)
+	if err2 != nil {
+		t.Fatalf("failed to insert prediction for PopularBrand: %v", err2)
+	}
+
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
+			Message: "Added!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "skippy peanut butter"}, cookies)
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.PendingSwap == nil {
+		t.Fatal("expected a pending swap")
+	}
+
+	// PopularBrand should win despite lower discount because bid score 160 > 60
+	if resp.PendingSwap.OfferBrand != "PopularBrand" {
+		t.Errorf("expected PopularBrand to win prediction-weighted auction, got %s", resp.PendingSwap.OfferBrand)
+	}
+}

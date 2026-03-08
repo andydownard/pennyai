@@ -749,9 +749,9 @@ Break-even math:
 
 ### Tier 3: Long-term moats (transformative revenue within 12 months)
 
-- [ ] **Category intelligence subscriptions** — paid data product for brands ($2K-10K/mo)
-- [ ] **Predictive category alerts** — early disruption signals for brand PMs
-- [ ] **Dynamic auction pricing** — brands bid for swap slots when competing in same category
+- [x] **Category intelligence subscriptions** — `GET /brand/category-report/{category}` with free/premium tier gating, brand_subscriptions table
+- [x] **Predictive category alerts** — rising star, declining brand, and category heating detection via `processCategoryAlerts()`, dual admin/brand access
+- [x] **Dynamic auction pricing** — brands bid for swap slots when competing in same category ✅ done: bid score = discount × predicted acceptance, highest wins, losers logged as 'outbid'
 
 ### Unanimous Panel Recommendations
 
