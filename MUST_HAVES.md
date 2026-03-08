@@ -14,3 +14,7 @@ _Submitted: 2026-03-08 18:02 UTC_
 ## [CRITICAL] 2026-03-08 18:03 UTC
 Photos broken
 _Submitted: 2026-03-08 18:03 UTC_
+
+## [CRITICAL] 2026-03-08 18:07 UTC
+Eliminate the extra feedback bubble cruft
+_Submitted: 2026-03-08 18:07 UTC_
