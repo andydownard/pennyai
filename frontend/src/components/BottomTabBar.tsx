@@ -1,5 +1,5 @@
 import { PennyAvatar } from './PennyAvatar'
-import { BRAND, TEXT_SECONDARY, WHITE, FONT, BORDER } from '../styles'
+import { BRAND, TEXT_SECONDARY, FONT } from '../styles'
 
 export type TabScreen = 'home' | 'penny' | 'settings-share' | 'profile'
 
@@ -47,8 +47,8 @@ export function BottomTabBar({ active, onNavigate, pennyUnread, swapCount }: Bot
         flexShrink: 0,
         height: `${TAB_HEIGHT}px`,
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-        backgroundColor: WHITE,
-        borderTop: `1px solid ${BORDER}`,
+        backgroundColor: 'var(--surface)',
+        borderTop: '1px solid var(--border)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-around',

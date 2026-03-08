@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { PennyAvatar } from './PennyAvatar'
 import { BrandLogo } from './BrandLogo'
-import { BRAND, TEXT, TEXT_SECONDARY, BORDER, WHITE, FONT } from '../styles'
+import { FONT } from '../styles'
 
 interface EarningTransaction {
   id: number
@@ -121,7 +121,7 @@ export function EarningsScreen({ fetchAPI, onViewReceipts }: EarningsScreenProps
   if (loading && !data) {
     return (
       <div style={{ padding: '40px 20px', textAlign: 'center' }}>
-        <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY }}>Loading earnings...</div>
+        <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)' }}>Loading earnings...</div>
       </div>
     )
   }
@@ -142,18 +142,18 @@ export function EarningsScreen({ fetchAPI, onViewReceipts }: EarningsScreenProps
       {/* Summary cards */}
       <div style={{ display: 'flex', gap: '8px', margin: '16px 0' }}>
         {[
-          { label: 'Total', cents: data?.total_cents || 0, color: TEXT },
-          { label: 'Pending', cents: data?.pending_cents || 0, color: '#D97706' },
-          { label: 'Paid', cents: data?.paid_cents || 0, color: '#059669' },
+          { label: 'Total', cents: data?.total_cents || 0, color: 'var(--text)' },
+          { label: 'Pending', cents: data?.pending_cents || 0, color: 'var(--warning)' },
+          { label: 'Paid', cents: data?.paid_cents || 0, color: 'var(--success)' },
         ].map(card => (
           <div key={card.label} style={{
-            flex: 1, padding: '14px 8px', borderRadius: '10px', backgroundColor: WHITE,
-            textAlign: 'center' as const, border: `1px solid ${BORDER}`,
+            flex: 1, padding: '14px 8px', borderRadius: '10px', backgroundColor: 'var(--surface)',
+            textAlign: 'center' as const, border: '1px solid var(--border)',
           }}>
             <div style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: card.color }}>
               ${(card.cents / 100).toFixed(2)}
             </div>
-            <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginTop: '3px' }}>
+            <div style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', marginTop: '3px' }}>
               {card.label}
             </div>
           </div>
@@ -167,9 +167,9 @@ export function EarningsScreen({ fetchAPI, onViewReceipts }: EarningsScreenProps
             key={d}
             onClick={() => handleFilterChange(d)}
             style={{
-              flex: 1, padding: '8px 0', borderRadius: '20px', border: `1px solid ${BORDER}`,
-              backgroundColor: daysFilter === d ? BRAND : WHITE,
-              color: daysFilter === d ? WHITE : TEXT,
+              flex: 1, padding: '8px 0', borderRadius: '20px', border: '1px solid var(--border)',
+              backgroundColor: daysFilter === d ? 'var(--brand)' : 'var(--surface)',
+              color: daysFilter === d ? '#fff' : 'var(--text)',
               fontFamily: FONT, fontSize: '13px', fontWeight: 500, cursor: 'pointer',
             }}
           >
@@ -185,13 +185,13 @@ export function EarningsScreen({ fetchAPI, onViewReceipts }: EarningsScreenProps
           padding: '40px 20px', gap: '16px',
         }}>
           <PennyAvatar size={48} />
-          <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, textAlign: 'center' }}>
+          <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: 'var(--text)', textAlign: 'center' }}>
             Swap and get paid. No one else does this.
           </div>
-          <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
+          <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
             Brands pay to reach you. When you swap, we share that revenue with you — real money, every time.
           </div>
-          <div style={{ fontFamily: FONT, fontSize: '13px', color: BRAND, textAlign: 'center', fontWeight: 500 }}>
+          <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--brand)', textAlign: 'center', fontWeight: 500 }}>
             Accept a swap to start earning.
           </div>
         </div>
@@ -200,26 +200,26 @@ export function EarningsScreen({ fetchAPI, onViewReceipts }: EarningsScreenProps
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {data!.transactions.map(tx => (
             <div key={tx.id} style={{
-              backgroundColor: WHITE, borderRadius: '10px', padding: '14px 16px',
-              border: `1px solid ${BORDER}`,
+              backgroundColor: 'var(--surface)', borderRadius: '10px', padding: '14px 16px',
+              border: '1px solid var(--border)',
             }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                 <BrandLogo brand={tx.offer_brand} size={44} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT }}>
+                  <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>
                     {tx.offer_brand} {tx.offer_product}
                   </div>
                   {tx.competitor_product && (
-                    <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>
+                    <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                       Swapped from {tx.competitor_product}
                     </div>
                   )}
-                  <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginTop: '4px' }}>
+                  <div style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                     {formatDate(tx.created_at)}
                   </div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 700, color: BRAND }}>
+                  <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 700, color: 'var(--brand)' }}>
                     ${(tx.amount_cents / 100).toFixed(2)}
                   </div>
                   <div style={{ marginTop: '4px' }}>{statusBadge(tx.status)}</div>
@@ -243,8 +243,8 @@ export function EarningsScreen({ fetchAPI, onViewReceipts }: EarningsScreenProps
                     onClick={() => handleUploadClick(tx.id)}
                     disabled={uploadingId === tx.id}
                     style={{
-                      fontFamily: FONT, fontSize: '12px', color: BRAND, fontWeight: 500,
-                      background: 'none', border: `1px solid ${BRAND}`, borderRadius: '6px',
+                      fontFamily: FONT, fontSize: '12px', color: 'var(--brand)', fontWeight: 500,
+                      background: 'none', border: '1px solid var(--brand)', borderRadius: '6px',
                       padding: '4px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px',
                       opacity: uploadingId === tx.id ? 0.5 : 1,
                     }}
@@ -266,7 +266,7 @@ export function EarningsScreen({ fetchAPI, onViewReceipts }: EarningsScreenProps
       {/* Info note */}
       {!isEmpty && (
         <div style={{
-          fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, textAlign: 'center',
+          fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center',
           padding: '16px 0 8px', lineHeight: '1.5',
         }}>
           Brands pay to reach you — we share the revenue. No other grocery app does this. Payouts sent monthly via Venmo.
@@ -279,12 +279,12 @@ export function EarningsScreen({ fetchAPI, onViewReceipts }: EarningsScreenProps
           onClick={onViewReceipts}
           style={{
             width: '100%', marginTop: '8px', padding: '12px', borderRadius: '10px',
-            border: `1px solid ${BORDER}`, backgroundColor: WHITE,
-            fontFamily: FONT, fontSize: '14px', fontWeight: 500, color: TEXT,
+            border: '1px solid var(--border)', backgroundColor: 'var(--surface)',
+            fontFamily: FONT, fontSize: '14px', fontWeight: 500, color: 'var(--text)',
             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
           }}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/>
             <line x1="16" y1="13" x2="8" y2="13"/>

@@ -43,7 +43,7 @@ export function ActionSheet({ isOpen, onClose, title, children, maxHeight }: {
   return (
     <div style={listStyles.overlay} onClick={onClose} role="presentation">
       <div ref={trapRef} role="dialog" aria-modal="true" aria-label={title || 'Dialog'} style={{ ...listStyles.sheet, ...(maxHeight ? { maxHeight } : {}) }} onClick={e => e.stopPropagation()}>
-        <div style={{ width: '36px', height: '4px', borderRadius: '2px', backgroundColor: '#D1CEC9', margin: '0 auto 12px', flexShrink: 0 }} />
+        <div style={{ width: '36px', height: '4px', borderRadius: '2px', backgroundColor: 'var(--border)', margin: '0 auto 12px', flexShrink: 0 }} />
         {title && <p style={listStyles.sheetTitle}>{title}</p>}
         {children}
       </div>

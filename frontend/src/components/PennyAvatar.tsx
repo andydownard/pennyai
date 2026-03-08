@@ -1,4 +1,4 @@
-import { BORDER } from '../styles'
+// Uses CSS custom properties for dark mode reactivity
 
 export function PennyAvatar({ size = 36 }: { size?: number }) {
   const isLarge = size > 80
@@ -9,8 +9,8 @@ export function PennyAvatar({ size = 36 }: { size?: number }) {
       borderRadius: '50%',
       overflow: 'hidden',
       flexShrink: 0,
-      backgroundColor: '#e8e4df',
-      border: isLarge ? `2px solid ${BORDER}` : `1px solid ${BORDER}`,
+      backgroundColor: 'var(--skeleton)',
+      border: isLarge ? '2px solid var(--border)' : '1px solid var(--border)',
       boxShadow: isLarge ? '0 4px 20px rgba(0,0,0,0.08)' : 'none',
     }}>
       <img

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { PennyAvatar } from './PennyAvatar'
-import { BRAND, TEXT, WHITE, FONT, BORDER } from '../styles'
+import { FONT } from '../styles'
 
 export type Screen = 'phone' | 'code' | 'home' | 'penny' | 'profile' | 'settings-share' | 'admin' | 'email-login' | 'email-register' | 'forgot-password' | 'reset-password' | 'shared-list' | 'help' | 'earnings' | 'receipts'
 
@@ -15,7 +15,7 @@ interface NavigationMenuProps {
 }
 
 const avatarCircleStyle = (size = 32): React.CSSProperties => ({
-  width: `${size}px`, height: `${size}px`, borderRadius: '50%', backgroundColor: BRAND, color: WHITE,
+  width: `${size}px`, height: `${size}px`, borderRadius: '50%', backgroundColor: 'var(--brand)', color: '#fff',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
   fontFamily: FONT, fontSize: '15px', fontWeight: 600, flexShrink: 0,
 })
@@ -30,7 +30,7 @@ const styles = {
     position: 'absolute' as const,
     top: '44px',
     right: 0,
-    backgroundColor: WHITE,
+    backgroundColor: 'var(--surface)',
     borderRadius: '12px',
     boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
     padding: '6px 0',
@@ -47,7 +47,7 @@ const styles = {
     fontFamily: FONT,
     fontSize: '15px',
     fontWeight: active ? 600 : 400,
-    color: active ? BRAND : TEXT,
+    color: active ? 'var(--brand)' : 'var(--text)',
     background: 'none',
     border: 'none',
     textAlign: 'left' as const,
@@ -116,7 +116,7 @@ export function NavigationMenu({ active, isAdmin, firstName, lastName, userId, a
             <button style={styles.item(active === 'penny')} onClick={() => nav('penny')} role="menuitem">
               <PennyAvatar size={18} /> Penny
             </button>
-            <div style={{ height: '1px', backgroundColor: BORDER, margin: '4px 0' }} role="separator" />
+            <div style={{ height: '1px', backgroundColor: 'var(--border)', margin: '4px 0' }} role="separator" />
             <button style={styles.item(active === 'profile')} onClick={() => nav('profile')} role="menuitem">
               {icons.profile} Profile
             </button>

@@ -42,12 +42,15 @@ export const THEME_CSS = `
     --bg: #F7F6F3;
     --text: #2A2A2A;
     --text-secondary: #6B6B6B;
+    --text-tertiary: #999999;
     --border: #E0DDD6;
     --surface: #FFFFFF;
     --error: #C53030;
     --error-bg: #FEF2F2;
     --success: #276749;
     --success-bg: #F0FFF4;
+    --warning: #D97706;
+    --warning-bg: #FEF3C7;
     --skeleton: #E8E6E1;
     --skeleton-shimmer: #F2F1ED;
     color-scheme: light;
@@ -58,12 +61,15 @@ export const THEME_CSS = `
     --bg: #121212;
     --text: #E8E6E1;
     --text-secondary: #9CA3AF;
+    --text-tertiary: #666666;
     --border: #2D2D2D;
     --surface: #1E1E1E;
     --error: #F87171;
     --error-bg: #2D1515;
     --success: #4ADE80;
     --success-bg: #14291A;
+    --warning: #F59E0B;
+    --warning-bg: #331F12;
     --skeleton: #2D2D2D;
     --skeleton-shimmer: #3A3A3A;
     color-scheme: dark;
@@ -164,12 +170,13 @@ export function formatPhone(digits: string): string {
 }
 
 // Page-level layout styles shared across screens
+// Uses CSS custom properties (var(--x)) for dark mode reactivity.
 export const pageStyles = {
   page: {
     height: '100dvh',
     display: 'flex',
     flexDirection: 'column',
-    backgroundColor: BG,
+    backgroundColor: 'var(--bg)',
     fontFamily: FONT,
     overflow: 'hidden',
   } as React.CSSProperties,
@@ -184,7 +191,7 @@ export const pageStyles = {
     fontFamily: FONT,
     fontSize: '22px',
     fontWeight: 700,
-    color: BRAND,
+    color: 'var(--brand)',
     letterSpacing: '-0.5px',
   } as React.CSSProperties,
 
@@ -193,9 +200,9 @@ export const pageStyles = {
     padding: '12px 16px',
     fontSize: '16px',
     fontFamily: FONT,
-    color: TEXT,
-    backgroundColor: WHITE,
-    border: `1.5px solid ${BORDER}`,
+    color: 'var(--text)',
+    backgroundColor: 'var(--surface)',
+    border: '1.5px solid var(--border)',
     borderRadius: '12px',
     outline: 'none',
     boxSizing: 'border-box' as const,
@@ -203,7 +210,7 @@ export const pageStyles = {
 
   divider: {
     height: '1px',
-    backgroundColor: BORDER,
+    backgroundColor: 'var(--border)',
   } as React.CSSProperties,
 
   settingsCard: {
@@ -211,7 +218,7 @@ export const pageStyles = {
     alignItems: 'center',
     gap: '12px',
     padding: '12px 16px',
-    backgroundColor: BG,
+    backgroundColor: 'var(--bg)',
     borderRadius: '12px',
     cursor: 'pointer',
   } as React.CSSProperties,
@@ -231,7 +238,7 @@ export const listStyles = {
   sheet: {
     width: '100%',
     maxWidth: '480px',
-    backgroundColor: WHITE,
+    backgroundColor: 'var(--surface)',
     borderRadius: '20px 20px 0 0',
     padding: '16px 20px 40px',
     maxHeight: '82svh',
@@ -243,7 +250,7 @@ export const listStyles = {
     fontFamily: FONT,
     fontSize: '17px',
     fontWeight: 600,
-    color: TEXT,
+    color: 'var(--text)',
     marginBottom: '16px',
     textAlign: 'center' as const,
     flexShrink: 0,
@@ -254,8 +261,8 @@ export const listStyles = {
     fontSize: '16px',
     fontFamily: FONT,
     fontWeight: 600,
-    color: WHITE,
-    backgroundColor: BRAND,
+    color: '#FFFFFF',
+    backgroundColor: 'var(--brand)',
     border: 'none',
     borderRadius: '12px',
     cursor: 'pointer',
@@ -267,7 +274,7 @@ export const authStyles = {
   error: {
     fontFamily: FONT,
     fontSize: '15px',
-    color: ERROR_RED,
+    color: 'var(--error)',
     margin: '0 0 12px 0',
     fontWeight: 500,
   } as React.CSSProperties,
@@ -275,7 +282,7 @@ export const authStyles = {
   subtleLink: {
     fontFamily: FONT,
     fontSize: '13px',
-    color: TEXT_SECONDARY,
+    color: 'var(--text-secondary)',
     background: 'none',
     border: 'none',
     cursor: 'pointer',
@@ -284,7 +291,7 @@ export const authStyles = {
   } as React.CSSProperties,
 
   page: {
-    backgroundColor: BG,
+    backgroundColor: 'var(--bg)',
     fontFamily: FONT,
     minHeight: '100%',
     display: 'flex',
@@ -295,7 +302,7 @@ export const authStyles = {
   } as React.CSSProperties,
 
   pageCenter: {
-    backgroundColor: BG,
+    backgroundColor: 'var(--bg)',
     fontFamily: FONT,
     minHeight: '100%',
     display: 'flex',
@@ -329,8 +336,8 @@ export const authStyles = {
     fontSize: '16px',
     fontFamily: FONT,
     fontWeight: 700,
-    color: WHITE,
-    backgroundColor: BRAND,
+    color: '#FFFFFF',
+    backgroundColor: 'var(--brand)',
     border: 'none',
     borderRadius: '14px',
     marginBottom: '16px',
@@ -346,12 +353,12 @@ export const authStyles = {
   dividerLine: {
     flex: 1,
     height: '1px',
-    backgroundColor: BORDER,
+    backgroundColor: 'var(--border)',
   } as React.CSSProperties,
 
   dividerText: {
     fontFamily: FONT,
     fontSize: '13px',
-    color: TEXT_SECONDARY,
+    color: 'var(--text-secondary)',
   } as React.CSSProperties,
 }

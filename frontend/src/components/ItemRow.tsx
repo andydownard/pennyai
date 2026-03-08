@@ -50,8 +50,8 @@ const styles = {
   row: {
     display: 'flex',
     alignItems: 'center',
-    borderBottom: `1px solid ${BORDER}`,
-    backgroundColor: WHITE,
+    borderBottom: '1px solid var(--border)',
+    backgroundColor: 'var(--surface)',
   } as React.CSSProperties,
 
   checkBtn: {
@@ -114,7 +114,7 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onS
       <div style={{
         ...styles.row,
         position: 'relative' as const,
-        ...(item.checked ? { backgroundColor: '#F5F4F1', opacity: 0.7 } : {}),
+        ...(item.checked ? { backgroundColor: 'var(--bg)', opacity: 0.7 } : {}),
         ...(isNew ? {
           backgroundColor: `${BRAND}15`,
           transition: 'background-color 1.5s ease',
@@ -166,7 +166,7 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onS
                 whiteSpace: 'nowrap',
                 ...(item.claimed_by_id === currentUserId
                   ? { backgroundColor: SUCCESS_GREEN_BG, color: SUCCESS_GREEN, border: `1px solid ${SUCCESS_GREEN_LIGHT}` }
-                  : { backgroundColor: '#F7F6F3', color: TEXT, border: `1px solid ${BORDER}` }),
+                  : { backgroundColor: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)' }),
               }}>
                 {item.claimed_by_id === currentUserId ? 'Me' : (item.claimed_by_name?.[0] || '?')}
               </span>

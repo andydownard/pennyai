@@ -120,7 +120,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
         margin: '0 0 4px 0',
         borderRadius: '10px',
         border: `1px solid ${BORDER}`,
-        backgroundColor: WHITE,
+        backgroundColor: 'var(--surface)',
         overflow: 'hidden',
         transition: animState !== 'idle' ? 'opacity 0.3s ease, max-height 0.3s ease' : undefined,
         opacity: animState === 'dismissing' ? 0 : 1,
@@ -264,7 +264,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
           <div style={{
             marginTop: '8px',
             padding: '10px 12px',
-            backgroundColor: '#F7F6F3',
+            backgroundColor: 'var(--bg)',
             borderRadius: '8px',
           }}>
             <div style={{

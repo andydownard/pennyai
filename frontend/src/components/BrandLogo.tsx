@@ -19,7 +19,7 @@ export function BrandLogo({ brand, size = 52, opacity = 1 }: { brand?: string; s
           width={size}
           height={size}
           loading="lazy"
-          style={{ borderRadius: radius, objectFit: 'contain' as const, backgroundColor: '#FAFAFA', border: '1px solid rgba(0,0,0,0.06)', padding: pad, opacity, transition: 'opacity 0.15s' }}
+          style={{ borderRadius: radius, objectFit: 'contain' as const, backgroundColor: 'var(--surface)', border: '1px solid rgba(0,0,0,0.06)', padding: pad, opacity, transition: 'opacity 0.15s' }}
           onError={() => setFailed(true)}
         />
       ) : (
