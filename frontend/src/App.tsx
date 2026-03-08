@@ -4460,7 +4460,7 @@ const globalCSS = `
     width: 22px;
     height: 22px;
     border-radius: 50%;
-    background: #2D6A4F;
+    background: var(--brand);
     border: 2px solid white;
     box-shadow: 0 1px 4px rgba(0,0,0,0.2);
     cursor: pointer;
@@ -4469,7 +4469,7 @@ const globalCSS = `
     width: 22px;
     height: 22px;
     border-radius: 50%;
-    background: #2D6A4F;
+    background: var(--brand);
     border: 2px solid white;
     box-shadow: 0 1px 4px rgba(0,0,0,0.2);
     cursor: pointer;
