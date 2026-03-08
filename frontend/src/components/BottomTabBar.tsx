@@ -89,7 +89,7 @@ export function BottomTabBar({ active, onNavigate, pennyUnread, swapCount }: Bot
                 width: '8px',
                 height: '8px',
                 borderRadius: '50%',
-                backgroundColor: '#EF4444',
+                backgroundColor: 'var(--error)',
               }} />
             )}
             {tab.key === 'home' && !!swapCount && swapCount > 0 && active !== 'home' && (

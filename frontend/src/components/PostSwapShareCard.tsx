@@ -12,7 +12,7 @@ export function PostSwapShareCard({ brand, savings, showToast, onDismiss }: Post
   return (
     <div style={{
       padding: '12px 16px', margin: '8px 16px', borderRadius: '12px',
-      backgroundColor: '#F0FFF0', border: '1px solid #C8E6C9',
+      backgroundColor: 'var(--success-bg)', border: '1px solid color-mix(in srgb, var(--success) 25%, transparent)',
       display: 'flex', alignItems: 'center', gap: '12px',
       animation: 'fadeInUp 0.3s ease',
     }}>

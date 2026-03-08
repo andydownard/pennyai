@@ -102,9 +102,9 @@ export function EarningsScreen({ fetchAPI, onViewReceipts }: EarningsScreenProps
 
   const statusBadge = (status: string) => {
     const config: Record<string, { label: string; bg: string; color: string }> = {
-      pending: { label: 'Pending', bg: '#FEF3C7', color: '#D97706' },
-      issued: { label: 'Issued', bg: '#DBEAFE', color: '#2563EB' },
-      paid: { label: 'Paid', bg: '#D1FAE5', color: '#059669' },
+      pending: { label: 'Pending', bg: 'var(--warning-bg)', color: 'var(--warning)' },
+      issued: { label: 'Issued', bg: 'var(--info-bg)', color: 'var(--info)' },
+      paid: { label: 'Paid', bg: 'var(--success-bg)', color: 'var(--success)' },
     }
     const c = config[status] || config.pending
     return (
@@ -230,7 +230,7 @@ export function EarningsScreen({ fetchAPI, onViewReceipts }: EarningsScreenProps
               <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {tx.attachment_path ? (
                   <span style={{
-                    fontFamily: FONT, fontSize: '12px', color: '#059669', fontWeight: 500,
+                    fontFamily: FONT, fontSize: '12px', color: 'var(--success)', fontWeight: 500,
                     display: 'flex', alignItems: 'center', gap: '4px',
                   }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

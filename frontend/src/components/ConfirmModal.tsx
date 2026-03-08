@@ -36,13 +36,13 @@ export function ConfirmModal({ open, title, message, confirmLabel, onConfirm, on
         <div style={{ display: 'flex', borderTop: '1px solid var(--border)', marginTop: '16px' }}>
           <button onClick={onCancel} style={{
             flex: 1, padding: '12px', border: 'none', background: 'none',
-            fontSize: '17px', fontFamily: FONT, color: '#007AFF', cursor: 'pointer',
+            fontSize: '17px', fontFamily: FONT, color: 'var(--info)', cursor: 'pointer',
             borderRight: '1px solid var(--border)',
           }}>Cancel</button>
           <button onClick={onConfirm} style={{
             flex: 1, padding: '12px', border: 'none', background: 'none',
             fontSize: '17px', fontWeight: 600, fontFamily: FONT, cursor: 'pointer',
-            color: destructive ? 'var(--error)' : '#007AFF',
+            color: destructive ? 'var(--error)' : 'var(--info)',
           }}>{confirmLabel || 'Confirm'}</button>
         </div>
       </div>

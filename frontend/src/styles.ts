@@ -51,6 +51,9 @@ export const THEME_CSS = `
     --success-bg: #F0FFF4;
     --warning: #D97706;
     --warning-bg: #FEF3C7;
+    --info: #2563EB;
+    --info-bg: #DBEAFE;
+    --neutral-bg: #E5E7EB;
     --skeleton: #E8E6E1;
     --skeleton-shimmer: #F2F1ED;
     --penny-bg: #F5F3EF;
@@ -71,6 +74,9 @@ export const THEME_CSS = `
     --success-bg: #14291A;
     --warning: #F59E0B;
     --warning-bg: #331F12;
+    --info: #60A5FA;
+    --info-bg: #1E3A5F;
+    --neutral-bg: #374151;
     --skeleton: #2D2D2D;
     --skeleton-shimmer: #3A3A3A;
     --penny-bg: #1A1A1A;

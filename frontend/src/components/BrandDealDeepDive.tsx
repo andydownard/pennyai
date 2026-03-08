@@ -55,9 +55,9 @@ interface BrandDealDeepDiveProps {
 // --- Priority badge colors ---
 
 const PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
-  high:   { bg: '#FEE2E2', text: '#C53030' },
-  medium: { bg: '#FEF3C7', text: '#92400E' },
-  low:    { bg: '#DBEAFE', text: '#1E40AF' },
+  high:   { bg: 'var(--error-bg)', text: 'var(--error)' },
+  medium: { bg: 'var(--warning-bg)', text: 'var(--warning)' },
+  low:    { bg: 'var(--info-bg)', text: 'var(--info)' },
 }
 
 export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
@@ -310,7 +310,7 @@ export function BrandDealDeepDive({ dealId, onClose }: BrandDealDeepDiveProps) {
           // Highlight accept rate vs category avg
           let valueColor = 'var(--text)'
           if (s.label === 'Accept Rate' && metrics.accept_rate >= metrics.category_avg_rate) {
-            valueColor = '#276749' // success green
+            valueColor = 'var(--success)'
           } else if (s.label === 'Accept Rate' && metrics.accept_rate < metrics.category_avg_rate) {
             valueColor = 'var(--error)'
           }

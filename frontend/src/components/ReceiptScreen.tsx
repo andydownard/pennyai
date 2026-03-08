@@ -134,12 +134,12 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
           {selectedReceipt.swaps_verified > 0 && (
             <div style={{
               marginTop: '10px', padding: '6px 10px', borderRadius: '8px',
-              backgroundColor: '#D1FAE5', display: 'inline-flex', alignItems: 'center', gap: '6px',
+              backgroundColor: 'var(--success-bg)', display: 'inline-flex', alignItems: 'center', gap: '6px',
             }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12"/>
               </svg>
-              <span style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: '#059669' }}>
+              <span style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: 'var(--success)' }}>
                 {selectedReceipt.swaps_verified} swap{selectedReceipt.swaps_verified !== 1 ? 's' : ''} verified
               </span>
             </div>
@@ -149,19 +149,19 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
         {/* Confirmation prompt for low-confidence items */}
         {hasUnconfirmed && (
           <div style={{
-            backgroundColor: '#FFFBEB', borderRadius: '10px', padding: '14px 16px',
-            border: '1px solid #FDE68A', marginBottom: '12px',
+            backgroundColor: 'var(--warning-bg)', borderRadius: '10px', padding: '14px 16px',
+            border: '1px solid color-mix(in srgb, var(--warning) 30%, transparent)', marginBottom: '12px',
           }}>
-            <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: '#92400E', marginBottom: '8px' }}>
+            <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--warning)', marginBottom: '8px' }}>
               Help Penny learn
             </div>
-            <div style={{ fontFamily: FONT, fontSize: '13px', color: '#78350F', lineHeight: '1.5', marginBottom: '12px' }}>
+            <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text)', lineHeight: '1.5', marginBottom: '12px' }}>
               I found {lowConfidenceItems.length} item{lowConfidenceItems.length !== 1 ? 's' : ''} I'm not sure about. Can you confirm?
             </div>
             {lowConfidenceItems.map(item => (
               <div key={item.id} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '8px 0', borderTop: '1px solid #FDE68A',
+                padding: '8px 0', borderTop: '1px solid color-mix(in srgb, var(--warning) 30%, transparent)',
               }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text)', fontWeight: 500 }}>
@@ -176,7 +176,7 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
                     onClick={() => setConfirmingItems(prev => ({ ...prev, [item.id]: true }))}
                     style={{
                       width: '32px', height: '32px', borderRadius: '16px', border: 'none',
-                      backgroundColor: confirmingItems[item.id] ? '#059669' : '#E5E7EB',
+                      backgroundColor: confirmingItems[item.id] ? 'var(--success)' : 'var(--neutral-bg)',
                       color: confirmingItems[item.id] ? '#fff' : 'var(--text-secondary)',
                       cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}
@@ -190,7 +190,7 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
                     onClick={() => setConfirmingItems(prev => ({ ...prev, [item.id]: false }))}
                     style={{
                       width: '32px', height: '32px', borderRadius: '16px', border: 'none',
-                      backgroundColor: confirmingItems[item.id] === false ? '#DC2626' : '#E5E7EB',
+                      backgroundColor: confirmingItems[item.id] === false ? 'var(--error)' : 'var(--neutral-bg)',
                       color: confirmingItems[item.id] === false ? '#fff' : 'var(--text-secondary)',
                       cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}
@@ -249,9 +249,9 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
                   {item.matched_name && (
                     <div style={{
                       fontFamily: FONT, fontSize: '12px', marginTop: '2px',
-                      color: item.confidence === 'high' ? '#059669' :
-                             item.confidence === 'medium' ? '#D97706' :
-                             item.confidence === 'rejected' ? '#DC2626' : 'var(--text-secondary)',
+                      color: item.confidence === 'high' ? 'var(--success)' :
+                             item.confidence === 'medium' ? 'var(--warning)' :
+                             item.confidence === 'rejected' ? 'var(--error)' : 'var(--text-secondary)',
                     }}>
                       {item.confidence === 'rejected' ? 'Not a match' :
                        `Matched: ${item.matched_name}`}
@@ -368,12 +368,12 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
                 {receipt.swaps_verified > 0 && (
                   <div style={{
                     marginTop: '4px', padding: '2px 8px', borderRadius: '10px',
-                    backgroundColor: '#D1FAE5', display: 'inline-flex', alignItems: 'center', gap: '4px',
+                    backgroundColor: 'var(--success-bg)', display: 'inline-flex', alignItems: 'center', gap: '4px',
                   }}>
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="20 6 9 17 4 12"/>
                     </svg>
-                    <span style={{ fontFamily: FONT, fontSize: '11px', fontWeight: 600, color: '#059669' }}>
+                    <span style={{ fontFamily: FONT, fontSize: '11px', fontWeight: 600, color: 'var(--success)' }}>
                       {receipt.swaps_verified} verified
                     </span>
                   </div>

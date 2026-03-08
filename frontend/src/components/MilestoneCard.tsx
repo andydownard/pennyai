@@ -57,7 +57,7 @@ export function MilestoneCard({ milestone, fetchAPI, onClose }: MilestoneCardPro
         {/* Big milestone number */}
         <div style={{
           textAlign: 'center', padding: '24px', borderRadius: '16px', marginBottom: '20px',
-          background: 'linear-gradient(135deg, #F0FFF0 0%, #E8F5E9 100%)',
+          background: 'linear-gradient(135deg, var(--success-bg) 0%, color-mix(in srgb, var(--success) 10%, var(--bg)) 100%)',
         }}>
           <div style={{ fontFamily: FONT, fontSize: '56px', fontWeight: 700, color: 'var(--brand)' }}>
             {milestone.dollars}

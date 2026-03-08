@@ -329,9 +329,9 @@ export function AdminScreen({
   ]
 
   // Color helpers
-  const riskColor = (score: number) => score > 0.7 ? 'var(--error)' : score > 0.5 ? '#D97706' : 'var(--brand)'
-  const retentionColor = (pct: number) => pct > 50 ? 'var(--brand)' : pct > 25 ? '#D97706' : 'var(--error)'
-  const healthColor = (idx: number) => idx > 70 ? 'var(--brand)' : idx > 40 ? '#D97706' : 'var(--error)'
+  const riskColor = (score: number) => score > 0.7 ? 'var(--error)' : score > 0.5 ? 'var(--warning)' : 'var(--brand)'
+  const retentionColor = (pct: number) => pct > 50 ? 'var(--brand)' : pct > 25 ? 'var(--warning)' : 'var(--error)'
+  const healthColor = (idx: number) => idx > 70 ? 'var(--brand)' : idx > 40 ? 'var(--warning)' : 'var(--error)'
 
   // =====================================================================
   // RENDER: Business Metrics tab
@@ -393,18 +393,18 @@ export function AdminScreen({
         <div style={{ ...metricCard, marginBottom: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>WAU (Weekly Active Users)</div>
-            <div style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: '#2D8B5E' }}>{latest.wau}</div>
+            <div style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: 'var(--brand)' }}>{latest.wau}</div>
           </div>
-          <Sparkline values={wauValues} width={280} height={60} color="#2D8B5E" />
+          <Sparkline values={wauValues} width={280} height={60} color="var(--brand)" />
         </div>
 
         {/* MAU sparkline */}
         <div style={{ ...metricCard, marginBottom: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>MAU (Monthly Active Users)</div>
-            <div style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: '#1A6B4E' }}>{latest.mau}</div>
+            <div style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: 'var(--brand)' }}>{latest.mau}</div>
           </div>
-          <Sparkline values={mauValues} width={280} height={60} color="#1A6B4E" />
+          <Sparkline values={mauValues} width={280} height={60} color="var(--brand)" />
         </div>
       </>
     )
@@ -636,10 +636,10 @@ export function AdminScreen({
   // --- Feedback triage helpers ---
   const statusBadge = (status: string) => {
     const colors: Record<string, { bg: string; fg: string }> = {
-      new: { bg: '#EBF5FF', fg: '#1D4ED8' },
-      reviewed: { bg: '#FEF3C7', fg: '#92400E' },
-      roadmapped: { bg: '#E0E7FF', fg: '#4338CA' },
-      done: { bg: '#D1FAE5', fg: '#065F46' },
+      new: { bg: 'var(--info-bg)', fg: 'var(--info)' },
+      reviewed: { bg: 'var(--warning-bg)', fg: 'var(--warning)' },
+      roadmapped: { bg: 'var(--info-bg)', fg: 'var(--info)' },
+      done: { bg: 'var(--success-bg)', fg: 'var(--success)' },
     }
     const c = colors[status] || colors.new
     return (
@@ -653,7 +653,7 @@ export function AdminScreen({
   }
 
   const urgencyLabel = (urg: string) => {
-    const colors: Record<string, string> = { critical: 'var(--error)', high: '#D97706', normal: 'var(--text-secondary)', low: 'var(--text-secondary)' }
+    const colors: Record<string, string> = { critical: 'var(--error)', high: 'var(--warning)', normal: 'var(--text-secondary)', low: 'var(--text-secondary)' }
     return <span style={{ fontFamily: FONT, fontSize: '11px', fontWeight: urg === 'critical' || urg === 'high' ? 700 : 400, color: colors[urg] || 'var(--text-secondary)' }}>{urg}</span>
   }
 
@@ -699,7 +699,7 @@ export function AdminScreen({
         {filtered.map(f => (
           <div key={f.id} style={{
             ...metricCard, marginBottom: '10px', padding: '14px 16px',
-            borderLeft: `3px solid ${f.urgency === 'critical' ? 'var(--error)' : f.urgency === 'high' ? '#D97706' : 'var(--border)'}`,
+            borderLeft: `3px solid ${f.urgency === 'critical' ? 'var(--error)' : f.urgency === 'high' ? 'var(--warning)' : 'var(--border)'}`,
           }}>
             {/* Header: type badge + urgency + status */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' as const }}>
@@ -1027,7 +1027,7 @@ export function AdminScreen({
                       <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
                         {deal.competitor_product} → {deal.offer_brand} {deal.offer_product}
                         {deal.deal_type && deal.deal_type !== 'sku_swap' && (
-                          <span style={{ fontSize: '10px', fontWeight: 700, color: '#fff', backgroundColor: deal.deal_type === 'bogo' ? '#E67E22' : deal.deal_type === 'trial' ? '#27AE60' : '#E74C3C', padding: '1px 5px', borderRadius: '3px', textTransform: 'uppercase' as const }}>{deal.deal_type}</span>
+                          <span style={{ fontSize: '10px', fontWeight: 700, color: '#fff', backgroundColor: deal.deal_type === 'bogo' ? 'var(--warning)' : deal.deal_type === 'trial' ? 'var(--success)' : 'var(--error)', padding: '1px 5px', borderRadius: '3px', textTransform: 'uppercase' as const }}>{deal.deal_type}</span>
                         )}
                       </div>
                       <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)' }}>

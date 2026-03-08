@@ -148,7 +148,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
         {isBogo && (
           <span style={{
             fontFamily: FONT, fontSize: '10px', fontWeight: 700,
-            color: '#fff', backgroundColor: '#E67E22',
+            color: '#fff', backgroundColor: 'var(--warning)',
             padding: '2px 6px', borderRadius: '4px',
             letterSpacing: '0.3px', textTransform: 'uppercase' as const,
           }}>2x</span>
@@ -156,7 +156,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
         {isTrial && (
           <span style={{
             fontFamily: FONT, fontSize: '10px', fontWeight: 700,
-            color: '#fff', backgroundColor: '#27AE60',
+            color: '#fff', backgroundColor: 'var(--success)',
             padding: '2px 6px', borderRadius: '4px',
             letterSpacing: '0.3px', textTransform: 'uppercase' as const,
           }}>Free Trial</span>
@@ -164,7 +164,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
         {deadlineText && (
           <span style={{
             fontFamily: FONT, fontSize: '10px', fontWeight: 700,
-            color: '#fff', backgroundColor: '#E74C3C',
+            color: '#fff', backgroundColor: 'var(--error)',
             padding: '2px 6px', borderRadius: '4px',
             letterSpacing: '0.3px',
           }}>{deadlineText}</span>
