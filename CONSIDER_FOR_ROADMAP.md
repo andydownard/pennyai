@@ -30,3 +30,10 @@ You don’t recognize the words “flour” or “rigatoni” as items to purcha
 ---
 _Device: Screen: home | Viewport: 403x395 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 26_3_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/145.0.7632.108 Mobile/15E148 Safari/604.1 | Dark: light | Items: 10_
 _Submitted: 2026-03-08 21:55 UTC_
+
+## [NORMAL] 2026-03-08 21:55 UTC
+I shouldn’t need to tap a lightbulb to add a comment or correction. I should be able to type it directly into the same text window.
+
+---
+_Device: Screen: home | Viewport: 403x395 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 26_3_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/145.0.7632.108 Mobile/15E148 Safari/604.1 | Dark: light | Items: 10_
+_Submitted: 2026-03-08 21:55 UTC_
