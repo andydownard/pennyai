@@ -385,8 +385,25 @@ func (s *Server) processLearnings() {
 		s.updateLearning(w.scope, w.scopeID, w.key, w.value, w.confidence)
 	}
 
+	// Update penny_context_cache for all active users
+	userIDs := map[int]bool{}
+	for _, w := range writes {
+		if w.scope == "user" {
+			userIDs[w.scopeID] = true
+		}
+	}
+	for uid := range userIDs {
+		ctx := s.buildLearningContext(uid)
+		if ctx != "" {
+			s.db.Exec(`INSERT INTO penny_context_cache (user_id, context_json, computed_at)
+				VALUES (?, ?, datetime('now'))
+				ON CONFLICT(user_id) DO UPDATE SET context_json = ?, computed_at = datetime('now')`,
+				uid, ctx, ctx)
+		}
+	}
+
 	elapsed := time.Since(start)
-	log.Printf("[learning] processed %d learnings in %v", len(writes), elapsed)
+	log.Printf("[learning] processed %d learnings, updated %d context caches in %v", len(writes), len(userIDs), elapsed)
 }
 
 func clampConfidence(a, b float64) float64 {

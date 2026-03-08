@@ -364,6 +364,13 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 		}
 	}
 
+	// Load user allergens for safety filtering
+	var userAllergens []string
+	var allergensJSON string
+	if err := s.db.QueryRow("SELECT COALESCE(allergens, '[]') FROM user_dietary_profiles WHERE user_id = ?", userID).Scan(&allergensJSON); err == nil {
+		json.Unmarshal([]byte(allergensJSON), &userAllergens)
+	}
+
 	for _, item := range addedItems {
 		itemKey := strings.ToLower(item.Brand + " " + item.Name)
 		for _, deal := range deals {
@@ -371,6 +378,21 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 			competitor := strings.ToLower(deal.CompetitorProduct)
 			if !strings.Contains(itemKey, competitor) && !strings.Contains(strings.ToLower(item.Name), competitor) {
 				continue
+			}
+
+			// SAFETY: Allergen hard-filter — never suggest products containing user's allergens
+			if len(userAllergens) > 0 {
+				dealText := strings.ToLower(deal.AllergenNotes + " " + deal.OfferProduct + " " + deal.OfferBrand)
+				allergenMatch := false
+				for _, allergen := range userAllergens {
+					if strings.Contains(dealText, strings.ToLower(allergen)) {
+						allergenMatch = true
+						break
+					}
+				}
+				if allergenMatch {
+					continue
+				}
 			}
 
 			// Manual slider 34-66: only show if discount > $1

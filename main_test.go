@@ -15417,6 +15417,53 @@ func TestDietaryProfile_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestAllergenHardFilter_BlocksSwap(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number, penny_slider) VALUES (100, '+15551234567', 0)")
+
+	// Set up a dairy allergen
+	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (100, '["dairy"]', '[]')`)
+
+	// Create a deal that has dairy in allergen_notes
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status, allergen_notes)
+		VALUES (800, 'milk', 'Oatly', 'Oat Milk', 50, 10000, 'active', 'Contains dairy proteins')`)
+
+	// Create a deal that does NOT contain allergens
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status, allergen_notes)
+		VALUES (801, 'ketchup', 'Hunts', 'Ketchup', 50, 10000, 'active', '')`)
+
+	// Add a milk item — should NOT trigger the dairy deal due to allergen filter
+	milkItem := ListItem{ID: 1, Name: "Milk", Brand: "Kirkland", Department: "Dairy & Eggs"}
+	swap := server.checkDealsForItems(100, []ListItem{milkItem})
+	if swap != nil {
+		t.Errorf("Expected no swap for dairy-allergic user with milk deal, got deal ID %d", swap.DealID)
+	}
+
+	// Add a ketchup item — should trigger the ketchup deal (no allergen match)
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department, checked) VALUES (2, 100, 'Ketchup', 'Heinz', 'Pantry & Dry Goods', 0)")
+	ketchupItem := ListItem{ID: 2, Name: "Ketchup", Brand: "Heinz", Department: "Pantry & Dry Goods"}
+	swap = server.checkDealsForItems(100, []ListItem{ketchupItem})
+	if swap == nil {
+		t.Error("Expected swap for ketchup deal (no allergen match)")
+	}
+}
+
+func TestAllergenHardFilter_NoProfile(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number, penny_slider) VALUES (100, '+15551234567', 0)")
+
+	// No dietary profile — deals should work normally
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status, allergen_notes)
+		VALUES (800, 'milk', 'Oatly', 'Oat Milk', 50, 10000, 'active', 'Contains dairy')`)
+
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department, checked) VALUES (1, 100, 'Milk', 'Kirkland', 'Dairy & Eggs', 0)")
+	milkItem := ListItem{ID: 1, Name: "Milk", Brand: "Kirkland", Department: "Dairy & Eggs"}
+	swap := server.checkDealsForItems(100, []ListItem{milkItem})
+	if swap == nil {
+		t.Error("Expected swap for user without dietary profile")
+	}
+}
+
 // =============================================================================
 // DAILY METRICS AGGREGATION TESTS
 // =============================================================================
