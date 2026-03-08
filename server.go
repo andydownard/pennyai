@@ -242,6 +242,7 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/admin/business-metrics", server.handleBusinessMetrics)
 	http.HandleFunc("/api/admin/churn-risk", server.handleChurnRisk)
 	http.HandleFunc("/api/admin/cohort-analysis", server.handleCohortAnalysis)
+	http.HandleFunc("/api/admin/marketplace-health", server.handleMarketplaceHealth)
 	http.HandleFunc("/api/admin/backup", server.handleAdminBackup)
 	http.HandleFunc("/api/wrapped", server.handleWrapped)
 	http.HandleFunc("/api/milestones/check", server.handleMilestoneCheck)

@@ -266,6 +266,7 @@ func (s *Server) runDailyMetricsLoop() {
 	s.processDailyMetrics(yesterday)
 	s.processChurnSignals()
 	s.processUserCohorts()
+	s.processMarketplaceHealth()
 
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
@@ -274,6 +275,7 @@ func (s *Server) runDailyMetricsLoop() {
 		s.processDailyMetrics(yesterday)
 		s.processChurnSignals()
 		s.processUserCohorts()
+		s.processMarketplaceHealth()
 	}
 }
 
@@ -930,5 +932,127 @@ func (s *Server) handleCohortAnalysis(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"cohorts": results,
+	})
+}
+
+// =============================================================================
+// MARKETPLACE HEALTH INDEX
+// =============================================================================
+
+// processMarketplaceHealth computes a daily health score for the marketplace.
+// Supply (deal coverage), demand (user engagement), balance, and concentration.
+func (s *Server) processMarketplaceHealth() {
+	today := time.Now().Format("2006-01-02")
+
+	// Supply score: how many active deals exist relative to target (50)
+	var activeDeals int
+	s.db.QueryRow("SELECT COUNT(*) FROM brand_deals WHERE status = 'active'").Scan(&activeDeals)
+	supplyScore := clampConfidence(float64(activeDeals)/50.0, 1.0) * 100
+
+	// Demand score: DAU relative to target (100)
+	var dau int
+	s.db.QueryRow(`SELECT COUNT(DISTINCT user_id) FROM sessions
+		WHERE created_at >= datetime('now', '-1 day')`).Scan(&dau)
+	demandScore := clampConfidence(float64(dau)/100.0, 1.0) * 100
+
+	// Balance score: ratio of supply to demand (ideal = 1.0)
+	balanceScore := 50.0 // default if both are 0
+	if activeDeals > 0 && dau > 0 {
+		ratio := float64(activeDeals) / float64(dau)
+		if ratio > 1.0 {
+			ratio = 1.0 / ratio
+		}
+		balanceScore = ratio * 100
+	}
+
+	// Revenue concentration: HHI (Herfindahl-Hirschman Index)
+	// 0 = perfectly diverse, 1 = single brand
+	type brandSpend struct {
+		brand string
+		spent int
+	}
+	var brandSpends []brandSpend
+	var totalSpent int
+	bRows, err := s.db.Query(`
+		SELECT bd.offer_brand, SUM(bd.budget_spent_cents) as spent
+		FROM brand_deals bd
+		WHERE bd.budget_spent_cents > 0
+		GROUP BY bd.offer_brand
+	`)
+	if err == nil {
+		for bRows.Next() {
+			var bs brandSpend
+			bRows.Scan(&bs.brand, &bs.spent)
+			brandSpends = append(brandSpends, bs)
+			totalSpent += bs.spent
+		}
+		bRows.Close()
+	}
+	concentration := 0.0
+	if totalSpent > 0 {
+		for _, bs := range brandSpends {
+			share := float64(bs.spent) / float64(totalSpent)
+			concentration += share * share
+		}
+	}
+
+	// Composite health index
+	healthIndex := (supplyScore + demandScore + balanceScore + (1-concentration)*100) / 4
+
+	s.db.Exec(`INSERT INTO marketplace_health (date, supply_score, demand_score, balance_score, revenue_concentration, health_index, computed_at)
+		VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+		ON CONFLICT(date) DO UPDATE SET supply_score=?, demand_score=?, balance_score=?, revenue_concentration=?, health_index=?, computed_at=datetime('now')`,
+		today, supplyScore, demandScore, balanceScore, concentration, healthIndex,
+		supplyScore, demandScore, balanceScore, concentration, healthIndex)
+
+	log.Printf("[metrics] marketplace health: supply=%.0f demand=%.0f balance=%.0f concentration=%.2f health=%.0f",
+		supplyScore, demandScore, balanceScore, concentration, healthIndex)
+}
+
+// handleMarketplaceHealth handles GET /api/admin/marketplace-health
+// Returns last 30 days of marketplace health data.
+func (s *Server) handleMarketplaceHealth(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	if _, ok := s.requireAdmin(w, r); !ok {
+		return
+	}
+
+	rows, err := s.db.Query(`
+		SELECT date, supply_score, demand_score, balance_score, revenue_concentration, health_index
+		FROM marketplace_health
+		WHERE date >= DATE('now', '-30 days')
+		ORDER BY date DESC
+	`)
+	if err != nil {
+		dbError(w, err, "Failed to query marketplace health")
+		return
+	}
+
+	type healthRow struct {
+		Date                string  `json:"date"`
+		SupplyScore         float64 `json:"supply_score"`
+		DemandScore         float64 `json:"demand_score"`
+		BalanceScore        float64 `json:"balance_score"`
+		RevenueConcentration float64 `json:"revenue_concentration"`
+		HealthIndex         float64 `json:"health_index"`
+	}
+	var results []healthRow
+	for rows.Next() {
+		var h healthRow
+		if err := rows.Scan(&h.Date, &h.SupplyScore, &h.DemandScore, &h.BalanceScore, &h.RevenueConcentration, &h.HealthIndex); err != nil {
+			continue
+		}
+		results = append(results, h)
+	}
+	rows.Close()
+
+	if results == nil {
+		results = []healthRow{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"health": results,
 	})
 }

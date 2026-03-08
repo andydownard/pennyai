@@ -1184,6 +1184,23 @@ func initDB(path string) (*sql.DB, error) {
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_user_cohorts_week ON user_cohorts(cohort_week)")
 
+	// Marketplace health index — daily aggregate
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS marketplace_health (
+			id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+			date                TEXT NOT NULL UNIQUE,
+			supply_score        REAL NOT NULL DEFAULT 0.0,
+			demand_score        REAL NOT NULL DEFAULT 0.0,
+			balance_score       REAL NOT NULL DEFAULT 0.0,
+			revenue_concentration REAL NOT NULL DEFAULT 0.0,
+			health_index        REAL NOT NULL DEFAULT 0.0,
+			computed_at         TEXT NOT NULL DEFAULT (datetime('now'))
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating marketplace_health table: %w", err)
+	}
+
 	return db, nil
 }
 

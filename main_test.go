@@ -15966,3 +15966,72 @@ func TestCohortAnalysis_AdminOnly(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// MARKETPLACE HEALTH TESTS
+// =============================================================================
+
+func TestProcessMarketplaceHealth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Seed some deals and sessions to produce non-zero scores
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
+	server.db.Exec("INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES ('tok1', 100, datetime('now'), datetime('now', '+30 days'))")
+	server.db.Exec(`INSERT INTO brand_deals (competitor_item, offer_brand, offer_product, discount_cents, budget_cents, status,
+		offer_price_cents, competitor_price_cents, offer_size, competitor_size, offer_unit_price, competitor_unit_price, unit_label, why_bullets)
+		VALUES ('test', 'TestBrand', 'TestProduct', 50, 500, 'active', 100, 150, '1 lb', '1 lb', '$1/lb', '$1.50/lb', 'lb', '[]')`)
+
+	server.processMarketplaceHealth()
+
+	// Verify a row was written
+	var healthIndex float64
+	err := server.db.QueryRow("SELECT health_index FROM marketplace_health WHERE date = ?",
+		time.Now().Format("2006-01-02")).Scan(&healthIndex)
+	if err != nil {
+		t.Fatalf("Expected marketplace_health row, got error: %v", err)
+	}
+	if healthIndex <= 0 {
+		t.Errorf("Expected positive health index, got %.2f", healthIndex)
+	}
+
+	// Run again — should upsert, not duplicate
+	server.processMarketplaceHealth()
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM marketplace_health WHERE date = ?",
+		time.Now().Format("2006-01-02")).Scan(&count)
+	if count != 1 {
+		t.Errorf("Expected exactly 1 row after double-run, got %d", count)
+	}
+}
+
+func TestMarketplaceHealth_AdminOnly(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleMarketplaceHealth, "GET", "/api/admin/marketplace-health", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+
+func TestMarketplaceHealth_AdminSuccess(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Seed data
+	server.processMarketplaceHealth()
+
+	rr := doRequest(server.handleMarketplaceHealth, "GET", "/api/admin/marketplace-health", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for admin, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	health, ok := body["health"].([]interface{})
+	if !ok {
+		t.Fatal("Expected 'health' array in response")
+	}
+	if len(health) == 0 {
+		t.Error("Expected at least one health entry after processMarketplaceHealth")
+	}
+}
+
