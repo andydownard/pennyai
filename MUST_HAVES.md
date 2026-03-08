@@ -17,3 +17,10 @@ When logging in with SMS I select the option on the keyboard to autofill the cod
 ---
 _Device: Screen: home | Viewport: 377x641 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 26_3_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/145.0.7632.108 Mobile/15E148 Safari/604.1 | Dark: dark | Items: 1_
 _Submitted: 2026-03-08 18:58 UTC_
+
+## [HIGH] 2026-03-08 18:59 UTC
+On mobile (iPhone 17) the footer isn’t locked to the bottom and you can scroll it off the page and then not be able to access the buttons.
+
+---
+_Device: Screen: home | Viewport: 377x641 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 26_3_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/145.0.7632.108 Mobile/15E148 Safari/604.1 | Dark: dark | Items: 1_
+_Submitted: 2026-03-08 18:59 UTC_
