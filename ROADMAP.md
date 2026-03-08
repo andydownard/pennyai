@@ -512,7 +512,7 @@ Replace the current polling model (frontend fetches `GET /api/list` every few se
 ### R5. End-to-End Tests (Playwright)
 **Size:** M (1-2 weeks)
 **Priority:** P1 — Shipping brand portal + payments without E2E coverage is a reliability risk
-**Status:** Config exists, no tests written
+**Status:** Done — 88 E2E tests across 10 spec files, all passing (auth, list, navigation, penny, profile, swaps, API, assets, help, auth-linking)
 
 **Description:**
 Playwright E2E tests covering critical user flows: login, add items, check items, share with household, trip planning. The config and directory structure (`frontend/e2e/`, `playwright.config.ts`) already exist. **Updated:** Add swap acceptance flow and brand portal login to the critical path tests.
@@ -542,7 +542,7 @@ Playwright E2E tests covering critical user flows: login, add items, check items
 | 4 | **M2. Fix Sharing & Invite Flow** | M | 1 | P0 | Distribution channel for swaps — broken sharing = no growth. Parallel with M1. | **Done** |
 | 5 | **Sentry integration** | XS | — | P0 | 2 hours. Required before Stripe webhooks go live. De-risks everything after. (Buy-vs-Build: BUY NOW) | **Done** |
 | 6 | **PostHog integration** | S | — | P0 | Half day. Replaces custom analytics in handlers_admin.go. Needed to measure swap acceptance rates. (Buy-vs-Build: BUY NOW) | **Done** |
-| 7 | **R5. E2E Tests** | M | 2 | P1 | Brand portal + payments need E2E coverage. Moved up — ship before M4, not after. | **In progress** (Sprint 3) |
+| 7 | **R5. E2E Tests** | M | 2 | P1 | Brand portal + payments need E2E coverage. Moved up — ship before M4, not after. | **Done** — 88 tests, 10 spec files, all passing |
 | 8 | **R1. Conversational Onboarding** | L | 2 | P1 | Activation gate — swaps only fire when users have items on list. | **Done** (Sprint 3 — server-side flags, refined prompts) |
 | 9 | **M4. Brand Portal v0** | L | 2 | P0 | Self-serve brand sign-up = revenue without Andy on every call. Depends on R5. | **Done** (Sprint 4) |
 | 10 | **M5. Stripe Payment** | M | 2 | P0 | Proof of willingness to pay. Depends on Sentry (#5) for webhook reliability. | **Done** (Sprint 4) |
