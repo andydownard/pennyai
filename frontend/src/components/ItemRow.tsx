@@ -52,7 +52,7 @@ const styles = {
   } as React.CSSProperties,
 
   checkBtn: {
-    padding: '10px 10px 10px 20px',
+    padding: '8px 8px 8px 14px',
     background: 'none',
     border: 'none',
     cursor: 'pointer',
@@ -63,8 +63,8 @@ const styles = {
   } as React.CSSProperties,
 
   check: (checked: boolean): React.CSSProperties => ({
-    width: '22px',
-    height: '22px',
+    width: '20px',
+    height: '20px',
     borderRadius: '50%',
     border: `2px solid ${checked ? '#C5C0B8' : 'var(--text-secondary)'}`,
     backgroundColor: checked ? '#C5C0B8' : 'transparent',
@@ -80,17 +80,17 @@ const styles = {
 
   center: {
     flex: 1,
-    padding: '10px 0',
+    padding: '7px 0',
     cursor: 'pointer',
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: '2px',
+    gap: '1px',
 
   } as React.CSSProperties,
 
   name: (checked: boolean): React.CSSProperties => ({
     fontFamily: FONT,
-    fontSize: '17px',
+    fontSize: '15px',
     color: checked ? 'var(--text-secondary)' : 'var(--text)',
     textDecoration: checked ? 'line-through' : 'none',
     transition: 'all 0.15s',
@@ -98,7 +98,7 @@ const styles = {
 
   meta: {
     fontFamily: FONT,
-    fontSize: '12px',
+    fontSize: '11px',
     color: 'var(--text-secondary)',
   } as React.CSSProperties,
 }
@@ -123,8 +123,8 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onS
             {item.checked && '✓'}
           </span>
         </button>
-        <div style={{ marginRight: '10px' }}>
-          <BrandLogo brand={item.brand} size={52} opacity={item.checked ? 0.4 : 1} />
+        <div style={{ marginRight: '8px' }}>
+          <BrandLogo brand={item.brand} size={36} opacity={item.checked ? 0.4 : 1} />
         </div>
         <div style={styles.center} onClick={() => onTap(item)} role="button" tabIndex={0} aria-label={`Edit ${item.brand && !item.name.toLowerCase().includes(item.brand.toLowerCase()) ? item.brand + ' ' : ''}${item.name}`} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTap(item) } }}>
           <span style={styles.name(item.checked)}>
@@ -136,7 +136,7 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onS
             </span>
           )}
           {ts && (
-            <span style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)' }}>
+            <span style={{ fontFamily: FONT, fontSize: '10px', color: 'var(--text-secondary)' }}>
               {ts}
             </span>
           )}

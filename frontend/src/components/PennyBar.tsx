@@ -34,6 +34,7 @@ interface PennyBarProps {
   onSend: () => void
   onPaste: (e: React.ClipboardEvent) => void
   onAddPhoto: () => void
+  onOpenCamera: () => void
   // Refs (forwarded)
   chatInputRef: React.RefObject<HTMLTextAreaElement | null>
 }
@@ -76,7 +77,7 @@ export function PennyBar({
   pennyText, pennyTyping, buttons, toastError,
   keyboardOpen, disambig, disambigIndex, onBrandPick, onSkipDisambig,
   pendingImages, onRemoveImage,
-  chatText, onChatTextChange, chatLoading, onSend, onPaste, onAddPhoto,
+  chatText, onChatTextChange, chatLoading, onSend, onPaste, onAddPhoto, onOpenCamera,
   chatInputRef,
 }: PennyBarProps) {
   const [showAltsForAuto, setShowAltsForAuto] = useState(false)
@@ -186,12 +187,27 @@ export function PennyBar({
       <div style={chatBarStyle}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px' }}>
           <button
-            title="Add photo"
-            aria-label="Add photo"
-            onClick={() => onAddPhoto()}
-            style={{ flexShrink: 0, width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+            title="Take photo"
+            aria-label="Take photo with camera"
+            onClick={() => onOpenCamera()}
+            style={{ flexShrink: 0, width: '40px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+              <circle cx="12" cy="13" r="4"/>
+            </svg>
+          </button>
+          <button
+            title="Add from photo library"
+            aria-label="Add from photo library"
+            onClick={() => onAddPhoto()}
+            style={{ flexShrink: 0, width: '36px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <polyline points="21 15 16 10 5 21"/>
+            </svg>
           </button>
           <div style={chatPillStyle}>
             <textarea

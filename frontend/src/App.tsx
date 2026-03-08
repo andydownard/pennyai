@@ -323,6 +323,7 @@ function AppInner() {
   // --- Photo state ---
   const [pendingImages, setPendingImages] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
   const receiptInputRef = useRef<HTMLInputElement>(null)
   const chatInputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -3544,7 +3545,7 @@ const handleCodeChange = (index: number, value: string) => {
       ))}
 
 
-      {/* Hidden file input for camera/photo */}
+      {/* Hidden file input for photo library */}
       <input
         ref={fileInputRef}
         type="file"
@@ -3553,6 +3554,16 @@ const handleCodeChange = (index: number, value: string) => {
         onChange={handlePhotoSelect}
         style={{ display: 'none' }}
         aria-label="Upload photos"
+      />
+      {/* Hidden file input for camera capture */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handlePhotoSelect}
+        style={{ display: 'none' }}
+        aria-label="Take photo"
       />
       {/* Separate hidden input for receipt capture — rear camera */}
       <input
@@ -3594,6 +3605,7 @@ const handleCodeChange = (index: number, value: string) => {
         onSend={handleSendChat}
         onPaste={handlePaste}
         onAddPhoto={() => fileInputRef.current?.click()}
+        onOpenCamera={() => cameraInputRef.current?.click()}
         chatInputRef={chatInputRef}
       />
 
