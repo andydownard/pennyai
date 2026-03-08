@@ -19,19 +19,16 @@ Claude Code MUST implement these. If they conflict with existing code or CLAUDE.
 - ~~[CRITICAL] 2026-03-08 21:45 UTC — Feedback bubble for approved numbers only, on every page~~ — Fixed: isFeedbackUser checks FeedbackPhones, widget renders on all authenticated screens
 - ~~[CRITICAL] 2026-03-08 21:50 UTC — Include shopping experience, not just list creation~~ — Fixed: feedback widget now shows on all screens including during shopping trips
 
+- ~~[CRITICAL] 2026-03-08 21:01 UTC — Show more items, less scrolling~~ — Fixed: compact item rows (logo 52→36px, name 17→15px, padding reduced), compact department headers, compact Penny bar/tabs
+- ~~[CRITICAL] 2026-03-08 21:01 UTC — Items in store-aisle order~~ — Already implemented: items grouped by DEPARTMENTS array in store-walk order (Produce → Bakery → ... → Other)
+- ~~[CRITICAL] 2026-03-08 21:01 UTC — Auto-save list~~ — Fixed: checked items auto-saved as "Trip [date]" when finishing a trip
+- ~~[CRITICAL] 2026-03-08 21:01 UTC — Camera as top-level button~~ — Fixed: separate camera + photo library buttons in input bar
+
 ## [CRITICAL] 2026-03-08 21:01 UTC — Remaining items
-
-Need to show more items on screen so there’s less scrolling
-
-Show items in same order as picking in the store
-
-Saving the list should be automatic
 
 Seems like there should be a master list that’s automatically compiled as you go
 
 Maybe one master list per store: WF, Costco etc. and you can easily switch between them
-
-Camera itself should be top level button; maybe Photo library too
 
 When in camera mode, maybe be able to stay there to add multiple items (submit one at a time) one after the other without always tapping +.  Ie the item confirmation could appear briefly over top of the camera mode and then disappear.
 
