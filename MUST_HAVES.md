@@ -24,13 +24,12 @@ Claude Code MUST implement these. If they conflict with existing code or CLAUDE.
 - ~~[CRITICAL] 2026-03-08 21:01 UTC — Auto-save list~~ — Fixed: checked items auto-saved as "Trip [date]" when finishing a trip
 - ~~[CRITICAL] 2026-03-08 21:01 UTC — Camera as top-level button~~ — Fixed: separate camera + photo library buttons in input bar
 
+- ~~[CRITICAL] 2026-03-08 21:01 UTC — Master list auto-compiled~~ — Fixed: checked items auto-merge into "My Groceries" master list on trip finish (find-or-create + dedup merge)
+- ~~[CRITICAL] 2026-03-08 21:01 UTC — Continuous camera mode~~ — Fixed: camera auto-submits photo, shows brief confirmation overlay, re-opens camera for next item; cancel exits mode
+
 ## [CRITICAL] 2026-03-08 21:01 UTC — Remaining items
 
-Seems like there should be a master list that’s automatically compiled as you go
-
 Maybe one master list per store: WF, Costco etc. and you can easily switch between them
-
-When in camera mode, maybe be able to stay there to add multiple items (submit one at a time) one after the other without always tapping +.  Ie the item confirmation could appear briefly over top of the camera mode and then disappear.
 
 ---
 _Device: Screen: home | Viewport: 394x699 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1 | Dark: dark | Items: 0_
