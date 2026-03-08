@@ -7,8 +7,8 @@ test.describe('List operations', () => {
   })
 
   test('empty list shows Penny greeting', async ({ page }) => {
-    await expect(page.getByText('Your list is empty.')).toBeVisible()
-    await expect(page.getByText('Tell Penny what you need.')).toBeVisible()
+    await expect(page.getByText('What do you need from the store?')).toBeVisible()
+    await expect(page.getByText('Type, paste a list, or snap a photo')).toBeVisible()
   })
 
   test('add item via API and it appears in list', async ({ page }) => {
@@ -58,7 +58,7 @@ test.describe('List operations', () => {
     })
 
     await page.reload()
-    await expect(page.getByText('Your list is empty.')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('What do you need from the store?')).toBeVisible({ timeout: 10_000 })
   })
 
   test('multiple items appear in correct order', async ({ page }) => {
