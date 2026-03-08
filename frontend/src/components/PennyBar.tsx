@@ -214,8 +214,8 @@ export function PennyBar({
               ref={chatInputRef as React.RefObject<HTMLTextAreaElement>}
               rows={1}
               enterKeyHint="send"
-              aria-label={hasDisambig ? "Type a brand name" : "Tell Penny what you need"}
-              placeholder={hasDisambig ? "Or type a brand name\u2026" : "Tell Penny what you need\u2026"}
+              aria-label={hasDisambig ? "Type a brand name" : "Add items or tell Penny anything"}
+              placeholder={hasDisambig ? "Or type a brand name\u2026" : "Add, edit, or ask Penny\u2026"}
               value={chatText}
               onChange={e => {
                 onChatTextChange(e.target.value)
