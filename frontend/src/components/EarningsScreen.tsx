@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { PennyAvatar } from './PennyAvatar'
 import { BrandLogo } from './BrandLogo'
+import { StatusBadge } from './StatusBadge'
 import { FONT } from '../styles'
 
 interface EarningTransaction {
@@ -101,22 +102,10 @@ export function EarningsScreen({ fetchAPI, onViewReceipts, onGoToList }: Earning
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
-  const statusBadge = (status: string) => {
-    const config: Record<string, { label: string; bg: string; color: string }> = {
-      pending: { label: 'Pending', bg: 'var(--warning-bg)', color: 'var(--warning)' },
-      issued: { label: 'Issued', bg: 'var(--info-bg)', color: 'var(--info)' },
-      paid: { label: 'Paid', bg: 'var(--success-bg)', color: 'var(--success)' },
-    }
-    const c = config[status] || config.pending
-    return (
-      <span style={{
-        fontFamily: FONT, fontSize: '11px', fontWeight: 600,
-        padding: '2px 8px', borderRadius: '10px',
-        backgroundColor: c.bg, color: c.color,
-      }}>
-        {c.label}
-      </span>
-    )
+  const STATUS_MAP: Record<string, { label: string; variant: 'warning' | 'info' | 'success' }> = {
+    pending: { label: 'Pending', variant: 'warning' },
+    issued: { label: 'Issued', variant: 'info' },
+    paid: { label: 'Paid', variant: 'success' },
   }
 
   if (loading && !data) {
@@ -235,7 +224,7 @@ export function EarningsScreen({ fetchAPI, onViewReceipts, onGoToList }: Earning
                   <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 700, color: 'var(--brand)' }}>
                     ${(tx.amount_cents / 100).toFixed(2)}
                   </div>
-                  <div style={{ marginTop: '4px' }}>{statusBadge(tx.status)}</div>
+                  <div style={{ marginTop: '4px' }}><StatusBadge label={(STATUS_MAP[tx.status] || STATUS_MAP.pending).label} variant={(STATUS_MAP[tx.status] || STATUS_MAP.pending).variant} /></div>
                 </div>
               </div>
 

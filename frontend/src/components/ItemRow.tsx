@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
 import { BrandLogo } from './BrandLogo'
+import { StatusBadge } from './StatusBadge'
 import { SwapCard, type SwapOffer } from './SwapCard'
 import { FONT, DEPT_ICONS } from '../styles'
 
@@ -239,18 +240,10 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onD
         {(item.urgent || item.claimed_by_id || item.swap_savings_cents > 0) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end', flexShrink: 0, paddingRight: '12px' }}>
             {item.swap_savings_cents > 0 && (
-              <span style={{
-                backgroundColor: 'var(--success-bg)', color: 'var(--success)', border: '1px solid color-mix(in srgb, var(--success) 25%, transparent)',
-                fontSize: '12px', fontWeight: 600, borderRadius: '10px', padding: '2px 8px',
-                whiteSpace: 'nowrap',
-              }}>Saved ${(item.swap_savings_cents / 100).toFixed(2)}</span>
+              <StatusBadge label={`Saved $${(item.swap_savings_cents / 100).toFixed(2)}`} variant="success" bordered />
             )}
             {item.urgent && (
-              <span style={{
-                backgroundColor: 'var(--error-bg)', color: 'var(--error)', border: '1px solid color-mix(in srgb, var(--error) 25%, transparent)',
-                fontSize: '12px', fontWeight: 600, borderRadius: '10px', padding: '2px 8px',
-                whiteSpace: 'nowrap',
-              }}>🔥 urgent</span>
+              <StatusBadge label="🔥 urgent" variant="error" bordered />
             )}
             {item.claimed_by_id && (
               <span style={{

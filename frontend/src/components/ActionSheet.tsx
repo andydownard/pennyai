@@ -1,6 +1,9 @@
 import { useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
-import { listStyles, FONT } from '../styles'
+import { listStyles } from '../styles'
+
+// Re-export SectionHeader from its standalone file for backward compatibility
+export { SectionHeader } from './SectionHeader'
 
 // Focus trap hook: constrains Tab/Shift+Tab within a container, restores focus on unmount.
 export function useFocusTrap(isActive: boolean) {
@@ -51,8 +54,3 @@ export function ActionSheet({ isOpen, onClose, title, children, maxHeight }: {
   )
 }
 
-export function SectionHeader({ label }: { label: string }) {
-  return (
-    <p style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px' }}>{label}</p>
-  )
-}
