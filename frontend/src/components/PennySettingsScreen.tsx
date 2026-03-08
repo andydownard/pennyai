@@ -1,5 +1,6 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { PennyAvatar } from './PennyAvatar'
+import { PennyInsightsCard } from './PennyInsightsCard'
 import { ToggleSwitch } from './ToggleSwitch'
 import { ScreenTransition } from './ScreenTransition'
 import {
@@ -16,6 +17,7 @@ interface PennySettingsScreenProps {
   onAutotuneToggle: () => void
   onDealsToggle: () => void
   fetchAPI: (url: string, options?: RequestInit) => Promise<Record<string, unknown> | unknown[] | null>
+  track: (event: string, props?: Record<string, unknown>) => void
   renderHeader: () => React.ReactNode
   renderToast: () => React.ReactNode
   renderBottomTabs: () => React.ReactNode
@@ -25,10 +27,11 @@ interface PennySettingsScreenProps {
 export function PennySettingsScreen({
   pennyPhone, pennySlider, pennyAutotune, pennyDeals,
   onSliderChange, onAutotuneToggle, onDealsToggle,
-  fetchAPI,
+  fetchAPI, track,
   renderHeader, renderToast, renderBottomTabs, transitionStyle,
 }: PennySettingsScreenProps) {
   const sliderSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [showInsights, setShowInsights] = useState(false)
 
   const saveSlider = (val: number) => {
     onSliderChange(val)
@@ -101,6 +104,35 @@ export function PennySettingsScreen({
             </div>
             <ToggleSwitch value={pennyAutotune} onChange={onAutotuneToggle} />
           </div>
+
+          {/* "What Penny Knows" — only visible when autotune is ON */}
+          {pennyAutotune && (
+            <>
+              {!showInsights ? (
+                <button
+                  onClick={() => setShowInsights(true)}
+                  style={{
+                    width: '100%', padding: '10px 16px',
+                    background: 'none', border: `1px solid ${BORDER}`,
+                    borderRadius: '10px', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    fontFamily: FONT, fontSize: '13px', color: BRAND,
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                  </svg>
+                  What Penny knows about you
+                </button>
+              ) : (
+                <PennyInsightsCard
+                  fetchAPI={fetchAPI}
+                  onClose={() => setShowInsights(false)}
+                  track={track}
+                />
+              )}
+            </>
+          )}
 
           {/* Slider — only visible when autotune is OFF */}
           <div style={{

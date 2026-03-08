@@ -1906,6 +1906,16 @@ function AppInner() {
             setSwapsByItemId(prev => ({ ...prev, [swap.item_id]: swap }))
             track('swap_offered', { deal_id: swap.deal_id, offer_brand: swap.offer_brand, discount_cents: swap.discount_cents })
           }
+
+          // Show household duplicate warnings
+          const dupeWarnings = (data.duplicate_warnings || []) as Array<{ item_name: string; added_by: string; hours_ago: number }>
+          if (dupeWarnings.length > 0) {
+            const msg = dupeWarnings.map(d =>
+              `${d.added_by} already added ${d.item_name}${d.hours_ago > 0 ? ` ${d.hours_ago}h ago` : ' just now'}`
+            ).join('. ')
+            showToast(`Heads up: ${msg}`)
+            track('household_duplicate_warned', { count: dupeWarnings.length })
+          }
         }
         setTimeout(() => chatInputRef.current?.focus(), 150)
 
@@ -2804,6 +2814,7 @@ const handleCodeChange = (index: number, value: string) => {
         onAutotuneToggle={toggleAutotune}
         onDealsToggle={toggleDeals}
         fetchAPI={fetchAPI}
+        track={track}
         renderHeader={() => renderPageHeader('Penny', 'penny')}
         renderToast={renderPennyToast}
         renderBottomTabs={renderBottomTabs}
