@@ -14777,3 +14777,128 @@ func TestAdminBackup_WithFileDB(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// MILESTONE TESTS
+// =============================================================================
+
+func TestMilestoneCheck_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleMilestoneCheck, "GET", "/api/milestones/check", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestMilestoneCheck_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
+	token, _ := server.sessions.CreateSession(100, "+15551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(server.handleMilestoneCheck, "POST", "/api/milestones/check", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status: got %d, want 405", rr.Code)
+	}
+}
+
+func TestMilestoneCheck_NoSavings(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
+	token, _ := server.sessions.CreateSession(100, "+15551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(server.handleMilestoneCheck, "GET", "/api/milestones/check", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	body := parseJSON(rr)
+	if body["milestone"] != nil {
+		t.Errorf("Expected nil milestone for no savings, got %v", body["milestone"])
+	}
+}
+
+func TestMilestoneCheck_WithSavings(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number, name) VALUES (100, '+15551234567', 'Test User')")
+	token, _ := server.sessions.CreateSession(100, "+15551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	// Insert deal and rebates totaling $12 (1200 cents) — should trigger $10 milestone
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status)
+		VALUES (900, 'heinz', 'Hunts', 'Ketchup', 200, 10000, 'active')`)
+	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (900, 100, 900, 'accepted')")
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (100, 900, 900, 1200, 'pending')")
+
+	rr := doRequest(server.handleMilestoneCheck, "GET", "/api/milestones/check", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	body := parseJSON(rr)
+	milestone, ok := body["milestone"].(map[string]interface{})
+	if !ok || milestone == nil {
+		t.Fatalf("Expected milestone object, got %v", body["milestone"])
+	}
+	if cents, ok := milestone["cents"].(float64); !ok || cents != 1000 {
+		t.Errorf("milestone.cents: got %v, want 1000", milestone["cents"])
+	}
+	if dollars, ok := milestone["dollars"].(string); !ok || dollars != "$10" {
+		t.Errorf("milestone.dollars: got %v, want '$10'", milestone["dollars"])
+	}
+}
+
+func TestMilestoneAck_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
+	token, _ := server.sessions.CreateSession(100, "+15551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	// Insert deal and rebates
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status)
+		VALUES (900, 'heinz', 'Hunts', 'Ketchup', 200, 10000, 'active')`)
+	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (900, 100, 900, 'accepted')")
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (100, 900, 900, 1200, 'pending')")
+
+	// First check — should show $10 milestone
+	rr := doRequest(server.handleMilestoneCheck, "GET", "/api/milestones/check", nil, []*http.Cookie{cookie})
+	body := parseJSON(rr)
+	milestone := body["milestone"].(map[string]interface{})
+	if milestone["cents"].(float64) != 1000 {
+		t.Fatalf("Expected $10 milestone, got %v", milestone["cents"])
+	}
+
+	// Acknowledge
+	rr2 := doRequest(server.handleMilestoneAck, "POST", "/api/milestones/ack", map[string]int{"cents": 1000}, []*http.Cookie{cookie})
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("Ack status: got %d, want 200", rr2.Code)
+	}
+
+	// Check again — should be nil now
+	rr3 := doRequest(server.handleMilestoneCheck, "GET", "/api/milestones/check", nil, []*http.Cookie{cookie})
+	body3 := parseJSON(rr3)
+	if body3["milestone"] != nil {
+		t.Errorf("Expected nil milestone after ack, got %v", body3["milestone"])
+	}
+}
+
+func TestMilestoneAck_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleMilestoneAck, "POST", "/api/milestones/ack", map[string]int{"cents": 1000}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestMilestoneAck_InvalidBody(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
+	token, _ := server.sessions.CreateSession(100, "+15551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(server.handleMilestoneAck, "POST", "/api/milestones/ack", map[string]int{"cents": 0}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Status: got %d, want 400", rr.Code)
+	}
+}
+

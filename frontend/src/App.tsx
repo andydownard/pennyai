@@ -22,6 +22,7 @@ import { ItemEditSheet } from './components/ItemEditSheet'
 import { ReviewSheet } from './components/ReviewSheet'
 import { EarningsScreen } from './components/EarningsScreen'
 import { WrappedCard } from './components/WrappedCard'
+import { MilestoneCard } from './components/MilestoneCard'
 import { ReceiptScreen } from './components/ReceiptScreen'
 import { BottomTabBar, type TabScreen } from './components/BottomTabBar'
 import { ScreenTransition, useScreenTransition } from './components/ScreenTransition'
@@ -447,6 +448,7 @@ function AppInner() {
   // --- Post-swap share prompt ---
   const [postSwapShare, setPostSwapShare] = useState<{ brand: string; savings: number } | null>(null)
   const [showWrapped, setShowWrapped] = useState(false)
+  const [milestoneData, setMilestoneData] = useState<{ cents: number; dollars: string; share_text: string; total_cents: number } | null>(null)
 
   // --- Penny chime-in state ---
   const [pennyChimeIn, setPennyChimeIn] = useState<string | null>(null)
@@ -560,6 +562,18 @@ function AppInner() {
       if (newItemTimerRef.current) clearTimeout(newItemTimerRef.current)
     }
   }, [])
+
+  // Check for savings milestones when earnings screen opens
+  useEffect(() => {
+    if (screen !== 'earnings') return
+    fetchAPI('/api/milestones/check').then(d => {
+      if (d && !Array.isArray(d) && d.milestone) {
+        const m = d.milestone as { cents: number; dollars: string; share_text: string; total_cents: number }
+        setMilestoneData(m)
+        track('milestone_reached', { cents: m.cents, total_cents: m.total_cents })
+      }
+    }).catch(() => {})
+  }, [screen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Refs ---
   // We need refs to programmatically focus inputs (autofocus, auto-advance)
@@ -2972,6 +2986,7 @@ const handleCodeChange = (index: number, value: string) => {
         {renderBottomTabs()}
       </div>
       {showWrapped && <WrappedCard fetchAPI={fetchAPI} onClose={() => setShowWrapped(false)} />}
+      {milestoneData && <MilestoneCard milestone={milestoneData} fetchAPI={fetchAPI} onClose={() => setMilestoneData(null)} />}
       </ScreenTransition>
     )
   }

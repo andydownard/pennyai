@@ -209,3 +209,107 @@ func (s *Server) adminDB() *sql.DB {
 	}
 	return s.db
 }
+
+// Savings milestone thresholds in cents
+var milestoneThresholds = []int{1000, 2500, 5000, 10000, 25000, 50000} // $10, $25, $50, $100, $250, $500
+
+// handleMilestoneCheck returns the highest unacknowledged savings milestone.
+// GET /api/milestones/check
+func (s *Server) handleMilestoneCheck(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	// Get total lifetime savings
+	var totalCents int
+	s.db.QueryRow(`SELECT COALESCE(SUM(amount_cents), 0) FROM swap_rebates WHERE user_id = ?`,
+		session.UserID).Scan(&totalCents)
+
+	// Find highest reached but unacked milestone
+	var unacked struct {
+		cents int
+		found bool
+	}
+	for i := len(milestoneThresholds) - 1; i >= 0; i-- {
+		threshold := milestoneThresholds[i]
+		if totalCents < threshold {
+			continue
+		}
+		// Insert if not exists (reached but never recorded)
+		s.db.Exec(`INSERT OR IGNORE INTO savings_milestones (user_id, cents) VALUES (?, ?)`,
+			session.UserID, threshold)
+
+		// Check if unacked
+		var ackedAt sql.NullString
+		err := s.db.QueryRow(`SELECT acked_at FROM savings_milestones WHERE user_id = ? AND cents = ?`,
+			session.UserID, threshold).Scan(&ackedAt)
+		if err == nil && !ackedAt.Valid {
+			unacked.cents = threshold
+			unacked.found = true
+			break
+		}
+	}
+
+	if !unacked.found {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"milestone": nil,
+		})
+		return
+	}
+
+	dollars := fmt.Sprintf("$%d", unacked.cents/100)
+	if unacked.cents%100 != 0 {
+		dollars = fmt.Sprintf("$%d.%02d", unacked.cents/100, unacked.cents%100)
+	}
+
+	var userName string
+	s.db.QueryRow("SELECT COALESCE(name, '') FROM users WHERE id = ?", session.UserID).Scan(&userName)
+
+	shareText := fmt.Sprintf("I just hit %s in savings on Thriftly! Brands pay me to try their products.", dollars)
+	if userName != "" {
+		shareText = fmt.Sprintf("%s just hit %s in savings on Thriftly! Brands pay you to try their products.", userName, dollars)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"milestone": map[string]interface{}{
+			"cents":      unacked.cents,
+			"dollars":    dollars,
+			"share_text": shareText + "\n\nGet Thriftly: https://app.thrift.ly",
+			"total_cents": totalCents,
+		},
+	})
+}
+
+// handleMilestoneAck marks a savings milestone as acknowledged.
+// POST /api/milestones/ack  { "cents": 1000 }
+func (s *Server) handleMilestoneAck(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		Cents int `json:"cents"`
+	}
+	if !decodeJSON(w, r, &body) || body.Cents <= 0 {
+		if body.Cents <= 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid milestone"})
+		}
+		return
+	}
+
+	// Ensure the milestone record exists and mark acked
+	s.db.Exec(`INSERT OR IGNORE INTO savings_milestones (user_id, cents) VALUES (?, ?)`,
+		session.UserID, body.Cents)
+	s.db.Exec(`UPDATE savings_milestones SET acked_at = datetime('now') WHERE user_id = ? AND cents = ?`,
+		session.UserID, body.Cents)
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}

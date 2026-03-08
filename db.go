@@ -970,6 +970,22 @@ func initDB(path string) (*sql.DB, error) {
 	// Earnings: attachment support on swap_rebates
 	db.Exec("ALTER TABLE swap_rebates ADD COLUMN attachment_path TEXT NOT NULL DEFAULT ''")
 
+	// savings_milestones: tracks which savings milestones a user has acknowledged
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS savings_milestones (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id    INTEGER NOT NULL REFERENCES users(id),
+			cents      INTEGER NOT NULL,
+			reached_at TEXT NOT NULL DEFAULT (datetime('now')),
+			acked_at   TEXT DEFAULT NULL,
+			UNIQUE(user_id, cents)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating savings_milestones table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_savings_milestones_user ON savings_milestones(user_id)")
+
 	return db, nil
 }
 

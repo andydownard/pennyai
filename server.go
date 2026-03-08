@@ -241,6 +241,8 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/admin/payouts", server.handleAdminPayouts)
 	http.HandleFunc("/api/admin/backup", server.handleAdminBackup)
 	http.HandleFunc("/api/wrapped", server.handleWrapped)
+	http.HandleFunc("/api/milestones/check", server.handleMilestoneCheck)
+	http.HandleFunc("/api/milestones/ack", server.handleMilestoneAck)
 
 	// --- A/B Testing ---
 	http.HandleFunc("GET /api/ab/variant", handleGetVariant(server))
