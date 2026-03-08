@@ -66,7 +66,7 @@ const styles = {
     width: '22px',
     height: '22px',
     borderRadius: '50%',
-    border: `2px solid ${checked ? '#C5C0B8' : 'var(--border)'}`,
+    border: `2px solid ${checked ? '#C5C0B8' : 'var(--text-secondary)'}`,
     backgroundColor: checked ? '#C5C0B8' : 'transparent',
     display: 'flex',
     alignItems: 'center',
