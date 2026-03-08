@@ -601,13 +601,15 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Text          string   `json:"text"`
-		Image         string   `json:"image"`
-		Images        []string `json:"images"`
-		SwapDealID    int      `json:"swap_deal_id"`
-		SwapItemID    int      `json:"swap_item_id"`
-		IsReceipt     bool     `json:"is_receipt"`
-		DeclineReason string   `json:"decline_reason"` // optional: tried_before, dietary, brand_loyal, price, other
+		Text            string   `json:"text"`
+		Image           string   `json:"image"`
+		Images          []string `json:"images"`
+		SwapDealID      int      `json:"swap_deal_id"`
+		SwapItemID      int      `json:"swap_item_id"`
+		IsReceipt       bool     `json:"is_receipt"`
+		DeclineReason   string   `json:"decline_reason"`    // optional: tried_before, dietary, brand_loyal, price, other
+		TimeToActionMs  int      `json:"time_to_action_ms"` // ms from swap card render to accept/decline tap
+		WhyTapped       bool     `json:"why_tapped"`        // true if user tapped "Why?" before deciding
 	}
 	// Decode directly — don't use decodeJSON which would override our 10MB limit with 1MB
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -742,8 +744,12 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Log accepted event
-			result, err := tx.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, ?, 'accepted')",
-				session.UserID, req.SwapDealID, req.SwapItemID)
+			whyTappedInt := 0
+			if req.WhyTapped {
+				whyTappedInt = 1
+			}
+			result, err := tx.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, time_to_action_ms, why_tapped) VALUES (?, ?, ?, 'accepted', ?, ?)",
+				session.UserID, req.SwapDealID, req.SwapItemID, req.TimeToActionMs, whyTappedInt)
 			if err != nil {
 				log.Printf("[swaps] failed to insert swap event: %v", err)
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
@@ -807,8 +813,12 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			// decline_swap
-			s.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, decline_reason) VALUES (?, ?, ?, 'declined', ?)",
-				session.UserID, req.SwapDealID, req.SwapItemID, req.DeclineReason)
+			declineWhyTapped := 0
+			if req.WhyTapped {
+				declineWhyTapped = 1
+			}
+			s.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, decline_reason, time_to_action_ms, why_tapped) VALUES (?, ?, ?, 'declined', ?, ?, ?)",
+				session.UserID, req.SwapDealID, req.SwapItemID, req.DeclineReason, req.TimeToActionMs, declineWhyTapped)
 			s.db.Exec(`INSERT INTO swap_suppressions (user_id, deal_id, decline_count) VALUES (?, ?, 1)
 				ON CONFLICT(user_id, deal_id) DO UPDATE SET decline_count = decline_count + 1`,
 				session.UserID, req.SwapDealID)

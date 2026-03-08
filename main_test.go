@@ -16976,6 +16976,51 @@ func TestRepurchaseNudge_DoesNotLeakAcrossUsers(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// SWAP INTERACTION ENRICHMENT TESTS
+// =============================================================================
+
+func TestSwapEvent_TimeToActionAndWhyTapped(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Verify the columns exist by inserting directly
+	_, err := server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, action, time_to_action_ms, why_tapped)
+		VALUES (1, 1, 'offered', 0, 0)`)
+	if err != nil {
+		// Need parent rows for foreign keys
+		server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '+15551234567')")
+		server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, status)
+			VALUES (1, 'test', 'TestBrand', 'TestProduct', 50, 'active')`)
+		_, err = server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, action, time_to_action_ms, why_tapped)
+			VALUES (1, 1, 'offered', 0, 0)`)
+		if err != nil {
+			t.Fatalf("Failed to insert swap_event with enrichment columns: %v", err)
+		}
+	}
+
+	// Insert with enrichment values
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (2, '+15559999999')")
+	_, err = server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, action, time_to_action_ms, why_tapped)
+		VALUES (2, 1, 'accepted', 4500, 1)`)
+	if err != nil {
+		t.Fatalf("Failed to insert enriched swap_event: %v", err)
+	}
+
+	// Verify values stored correctly
+	var ttaMs int
+	var whyTapped int
+	err = server.db.QueryRow("SELECT time_to_action_ms, why_tapped FROM swap_events WHERE user_id = 2 AND action = 'accepted'").Scan(&ttaMs, &whyTapped)
+	if err != nil {
+		t.Fatalf("Failed to query enriched swap_event: %v", err)
+	}
+	if ttaMs != 4500 {
+		t.Errorf("Expected time_to_action_ms=4500, got %d", ttaMs)
+	}
+	if whyTapped != 1 {
+		t.Errorf("Expected why_tapped=1, got %d", whyTapped)
+	}
+}
+
 // Ensure sort import is used — this is a compile-time check
 var _ = sort.Ints
 

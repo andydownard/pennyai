@@ -1084,6 +1084,9 @@ func initDB(path string) (*sql.DB, error) {
 
 	// swap_events: decline_reason column for tracking why users decline swaps
 	db.Exec("ALTER TABLE swap_events ADD COLUMN decline_reason TEXT NOT NULL DEFAULT ''")
+	// swap_events: enrichment columns for swap interaction analytics (CEO panel recommendation #1)
+	db.Exec("ALTER TABLE swap_events ADD COLUMN time_to_action_ms INTEGER NOT NULL DEFAULT 0")
+	db.Exec("ALTER TABLE swap_events ADD COLUMN why_tapped INTEGER NOT NULL DEFAULT 0")
 
 	// ==========================================================================
 	// DAILY METRICS AGGREGATION TABLES (deal performance learning)
