@@ -395,6 +395,7 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Name != nil {
 		addSetClause(&setClauses, &args, "name", strings.TrimSpace(*req.Name))
+		addSetClause(&setClauses, &args, "name_source", "manual")
 	}
 	if req.Email != nil {
 		addSetClause(&setClauses, &args, "email", email)

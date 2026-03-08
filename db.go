@@ -891,6 +891,7 @@ func initDB(path string) (*sql.DB, error) {
 	// User profile photo column
 	db.Exec("ALTER TABLE users ADD COLUMN onboarding_flags TEXT NOT NULL DEFAULT '{}'")
 	db.Exec("ALTER TABLE users ADD COLUMN profile_photo TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE users ADD COLUMN name_source TEXT NOT NULL DEFAULT 'auto'")
 
 	// --- M7: Receipt Reading Enhancement ---
 
@@ -1385,6 +1386,23 @@ func initDB(path string) (*sql.DB, error) {
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_feedback_requests_status ON feedback_requests(status)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_feedback_requests_user_id ON feedback_requests(user_id)")
+
+	// Account merge audit trail
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS account_merges (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			surviving_user  INTEGER NOT NULL REFERENCES users(id),
+			merged_user     INTEGER,
+			provider_linked TEXT NOT NULL,
+			provider_id     TEXT NOT NULL,
+			data_actions    TEXT NOT NULL DEFAULT '{}',
+			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating account_merges table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_account_merges_surviving ON account_merges(surviving_user)")
 
 	return db, nil
 }
@@ -2520,6 +2538,178 @@ func createSoloHousehold(db *sql.DB, userID int) (int, error) {
 	return hID, nil
 }
 
+// logAccountMerge records an account merge event for audit purposes.
+func logAccountMerge(ex dbExecer, survivingUser, mergedUser int, provider, providerID string, actions map[string]string) {
+	data, _ := json.Marshal(actions)
+	var mergedPtr interface{}
+	if mergedUser > 0 {
+		mergedPtr = mergedUser
+	}
+	ex.Exec(
+		"INSERT INTO account_merges (surviving_user, merged_user, provider_linked, provider_id, data_actions) VALUES (?, ?, ?, ?, ?)",
+		survivingUser, mergedPtr, provider, providerID, string(data),
+	)
+}
+
+// mergeHouseholds cleans up household membership when two users are merged.
+// Returns a description of what was done for the audit log.
+func mergeHouseholds(tx dbExecer, survivingID, orphanedID int) string {
+	var survivingHH, orphanedHH sql.NullInt64
+	tx.QueryRow("SELECT household_id FROM users WHERE id = ?", survivingID).Scan(&survivingHH)
+	tx.QueryRow("SELECT household_id FROM users WHERE id = ?", orphanedID).Scan(&orphanedHH)
+
+	if !orphanedHH.Valid {
+		return "orphaned user had no household"
+	}
+
+	// Remove orphaned user from their household
+	tx.Exec("DELETE FROM household_members WHERE user_id = ?", orphanedID)
+	tx.Exec("UPDATE users SET household_id = NULL WHERE id = ?", orphanedID)
+
+	if survivingHH.Valid && orphanedHH.Int64 == survivingHH.Int64 {
+		return fmt.Sprintf("removed duplicate membership in household %d", orphanedHH.Int64)
+	}
+	return fmt.Sprintf("removed orphaned membership in household %d", orphanedHH.Int64)
+}
+
+// mergeUserData transfers data from an orphaned user to the surviving user.
+// Returns a map of action descriptions for the audit log.
+func mergeUserData(tx dbExecer, survivingID, orphanedID int) map[string]string {
+	actions := map[string]string{}
+
+	// 1. List items: transfer non-duplicate items, merge quantities for duplicates
+	rows, err := tx.Query(
+		"SELECT id, name, quantity FROM list_items WHERE user_id = ?", orphanedID,
+	)
+	if err == nil {
+		transferred, merged := 0, 0
+		type orphanItem struct {
+			id       int
+			name     string
+			quantity int
+		}
+		var orphanItems []orphanItem
+		for rows.Next() {
+			var item orphanItem
+			if err := rows.Scan(&item.id, &item.name, &item.quantity); err == nil {
+				orphanItems = append(orphanItems, item)
+			}
+		}
+		rows.Close()
+
+		for _, item := range orphanItems {
+			var existingID, existingQty int
+			err := tx.QueryRow(
+				"SELECT id, quantity FROM list_items WHERE user_id = ? AND LOWER(name) = LOWER(?)",
+				survivingID, item.name,
+			).Scan(&existingID, &existingQty)
+			if err == nil {
+				// Duplicate — add quantities
+				tx.Exec("UPDATE list_items SET quantity = ? WHERE id = ?", existingQty+item.quantity, existingID)
+				tx.Exec("DELETE FROM list_items WHERE id = ?", item.id)
+				merged++
+			} else {
+				// No duplicate — reassign
+				tx.Exec("UPDATE list_items SET user_id = ? WHERE id = ?", survivingID, item.id)
+				transferred++
+			}
+		}
+		if transferred+merged > 0 {
+			actions["list_items"] = fmt.Sprintf("%d transferred, %d merged quantities", transferred, merged)
+		}
+	}
+
+	// 2. Transfer item_modifications
+	if result, err := tx.Exec("UPDATE item_modifications SET user_id = ? WHERE user_id = ?", survivingID, orphanedID); err == nil {
+		if n, _ := result.RowsAffected(); n > 0 {
+			actions["item_modifications"] = fmt.Sprintf("%d transferred", n)
+		}
+	}
+
+	// 3. Profile photo: keep most recent
+	var survPhotoTime, orphPhotoTime sql.NullString
+	tx.QueryRow("SELECT updated_at FROM profile_photos WHERE user_id = ?", survivingID).Scan(&survPhotoTime)
+	tx.QueryRow("SELECT updated_at FROM profile_photos WHERE user_id = ?", orphanedID).Scan(&orphPhotoTime)
+
+	if orphPhotoTime.Valid {
+		if !survPhotoTime.Valid {
+			// Only orphaned has a photo — move it
+			tx.Exec("UPDATE profile_photos SET user_id = ? WHERE user_id = ?", survivingID, orphanedID)
+			actions["profile_photo"] = "transferred from merged user (surviving had none)"
+		} else if orphPhotoTime.String > survPhotoTime.String {
+			// Orphaned's photo is newer — replace
+			tx.Exec("DELETE FROM profile_photos WHERE user_id = ?", survivingID)
+			tx.Exec("UPDATE profile_photos SET user_id = ? WHERE user_id = ?", survivingID, orphanedID)
+			actions["profile_photo"] = "kept merged user's photo (more recent)"
+		} else {
+			// Surviving's photo is newer or equal — delete orphaned's
+			tx.Exec("DELETE FROM profile_photos WHERE user_id = ?", orphanedID)
+			actions["profile_photo"] = "kept surviving user's photo (more recent)"
+		}
+	}
+
+	// 4. Display name: prefer manually set
+	var survName, orphName sql.NullString
+	var survNameSrc, orphNameSrc string
+	tx.QueryRow("SELECT name, COALESCE(name_source,'auto') FROM users WHERE id = ?", survivingID).Scan(&survName, &survNameSrc)
+	tx.QueryRow("SELECT name, COALESCE(name_source,'auto') FROM users WHERE id = ?", orphanedID).Scan(&orphName, &orphNameSrc)
+
+	if orphName.Valid && orphName.String != "" && orphNameSrc == "manual" && survNameSrc != "manual" {
+		tx.Exec("UPDATE users SET name = ?, name_source = 'manual' WHERE id = ?", orphName.String, survivingID)
+		actions["display_name"] = fmt.Sprintf("used merged user's name '%s' (manually set)", orphName.String)
+	} else if survName.Valid && survName.String != "" {
+		actions["display_name"] = fmt.Sprintf("kept surviving user's name '%s'", survName.String)
+	}
+
+	// 5. Saved lists: reassign
+	if result, err := tx.Exec("UPDATE saved_lists SET user_id = ? WHERE user_id = ?", survivingID, orphanedID); err == nil {
+		if n, _ := result.RowsAffected(); n > 0 {
+			actions["saved_lists"] = fmt.Sprintf("%d transferred", n)
+		}
+	}
+
+	// 6. Brand preferences: transfer non-duplicates
+	if result, err := tx.Exec(`
+		UPDATE brand_preferences SET user_id = ? WHERE user_id = ? AND product_category NOT IN (
+			SELECT product_category FROM brand_preferences WHERE user_id = ?
+		)`, survivingID, orphanedID, survivingID); err == nil {
+		if n, _ := result.RowsAffected(); n > 0 {
+			actions["brand_preferences"] = fmt.Sprintf("%d transferred", n)
+		}
+	}
+	tx.Exec("DELETE FROM brand_preferences WHERE user_id = ?", orphanedID)
+
+	// 7. Swap events/rebates: reassign
+	if result, err := tx.Exec("UPDATE swap_events SET user_id = ? WHERE user_id = ?", survivingID, orphanedID); err == nil {
+		if n, _ := result.RowsAffected(); n > 0 {
+			actions["swap_events"] = fmt.Sprintf("%d transferred", n)
+		}
+	}
+	if result, err := tx.Exec("UPDATE swap_rebates SET user_id = ? WHERE user_id = ?", survivingID, orphanedID); err == nil {
+		if n, _ := result.RowsAffected(); n > 0 {
+			actions["swap_rebates"] = fmt.Sprintf("%d transferred", n)
+		}
+	}
+
+	// 8. Auth methods: reassign remaining
+	tx.Exec("UPDATE OR IGNORE auth_methods SET user_id = ? WHERE user_id = ?", survivingID, orphanedID)
+	tx.Exec("DELETE FROM auth_methods WHERE user_id = ?", orphanedID) // clean up any that couldn't be moved due to unique constraint
+
+	// 9. Sessions: delete orphaned
+	tx.Exec("DELETE FROM sessions WHERE user_id = ?", orphanedID)
+
+	// 10. Household cleanup
+	hhAction := mergeHouseholds(tx, survivingID, orphanedID)
+	actions["household"] = hhAction
+
+	// 11. Soft-delete the orphaned user
+	tx.Exec("UPDATE users SET email = '', phone_number = NULL, name = ? WHERE id = ?",
+		fmt.Sprintf("[merged into user %d]", survivingID), orphanedID)
+	actions["orphaned_user"] = fmt.Sprintf("user %d soft-deleted", orphanedID)
+
+	return actions
+}
+
 // resolveOrCreateUser finds or creates a user for the given auth provider.
 // 1. Check auth_methods for existing (provider, provider_id) → return that user
 // 2. If email provided, check users for matching email → link auth method (auto-merge)
@@ -2586,6 +2776,37 @@ func resolveOrCreateUser(db *sql.DB, provider, providerID, email, name string) (
 			// Update name if empty
 			if name != "" {
 				tx.Exec("UPDATE users SET name = ? WHERE id = ? AND (name IS NULL OR name = '')", name, existingID)
+			}
+
+			// Check for orphaned users with the same email (true user-level merge)
+			fullMerged := false
+			orphanRows, _ := tx.Query(
+				"SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND id != ? AND email != '' AND name NOT LIKE '[merged into user%'",
+				email, existingID,
+			)
+			if orphanRows != nil {
+				var orphanIDs []int
+				for orphanRows.Next() {
+					var oid int
+					if err := orphanRows.Scan(&oid); err == nil {
+						orphanIDs = append(orphanIDs, oid)
+					}
+				}
+				orphanRows.Close()
+				for _, orphanID := range orphanIDs {
+					actions := mergeUserData(tx, existingID, orphanID)
+					logAccountMerge(tx, existingID, orphanID, provider, providerID, actions)
+					log.Printf("[auth] full user merge: user %d absorbed user %d (%s)", existingID, orphanID, email)
+					merged = true
+					fullMerged = true
+				}
+			}
+
+			// Log the auth-method-only merge if no full user merge happened
+			if merged && !fullMerged {
+				logAccountMerge(tx, existingID, 0, provider, providerID, map[string]string{
+					"auth_method": fmt.Sprintf("linked %s:%s", provider, providerID),
+				})
 			}
 
 			var user User

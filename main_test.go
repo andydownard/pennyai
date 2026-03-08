@@ -20027,3 +20027,324 @@ func TestAPIConfig_NoCredentialLeak(t *testing.T) {
 		}
 	}
 }
+
+// --- Account Merge: Audit Trail ---
+
+func TestAccountMerge_AuditTrailLogged(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// Create user via email first
+	user1, _ := resolveOrCreateUser(server.db, "email", "email1", "merge@test.com", "Alice")
+	// Merge via Google with same email
+	user2, _ := resolveOrCreateUser(server.db, "google", "goog123", "merge@test.com", "Alice G")
+	if user2.ID != user1.ID {
+		t.Fatalf("expected merge to same user, got %d vs %d", user2.ID, user1.ID)
+	}
+	if !user2.Merged {
+		t.Fatal("expected Merged flag to be true")
+	}
+
+	// Check audit trail
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM account_merges WHERE surviving_user = ?", user1.ID).Scan(&count)
+	if count == 0 {
+		t.Error("expected account_merges row to be created")
+	}
+	var providerLinked, dataActions string
+	server.db.QueryRow("SELECT provider_linked, data_actions FROM account_merges WHERE surviving_user = ? ORDER BY id DESC LIMIT 1", user1.ID).Scan(&providerLinked, &dataActions)
+	if providerLinked != "google" {
+		t.Errorf("expected provider_linked=google, got %s", providerLinked)
+	}
+	if dataActions == "" || dataActions == "{}" {
+		t.Error("expected data_actions to contain merge details")
+	}
+}
+
+// --- Account Merge: Household Dedup ---
+
+func TestAccountMerge_HouseholdDedup_SameHousehold(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// Create user 1 with email
+	user1, _ := resolveOrCreateUser(server.db, "email", "e1", "hh@test.com", "User1")
+	// Create user 2 separately (different email)
+	user2, _ := resolveOrCreateUser(server.db, "email", "e2", "hh2@test.com", "User2")
+
+	// Put user2 in user1's household
+	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (?, ?)", user1.HouseholdID, user2.ID)
+	server.db.Exec("UPDATE users SET household_id = ? WHERE id = ?", user1.HouseholdID, user2.ID)
+
+	// Now update user2's email to match user1 for a merge scenario
+	server.db.Exec("UPDATE users SET email = ? WHERE id = ?", "hh@test.com", user2.ID)
+
+	// Trigger merge via a new auth method for the same email
+	merged, _ := resolveOrCreateUser(server.db, "google", "g_hh", "hh@test.com", "")
+
+	if merged.ID != user1.ID {
+		t.Fatalf("expected merge to user1, got %d", merged.ID)
+	}
+
+	// User2 should no longer be in the household
+	var memberCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM household_members WHERE user_id = ?", user2.ID).Scan(&memberCount)
+	if memberCount != 0 {
+		t.Errorf("expected orphaned user removed from household, but still has %d memberships", memberCount)
+	}
+}
+
+func TestAccountMerge_HouseholdDedup_DifferentHouseholds(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	user1, _ := resolveOrCreateUser(server.db, "email", "e1", "diff@test.com", "User1")
+	user2, _ := resolveOrCreateUser(server.db, "phone", "p2", "", "User2")
+
+	// Both should be in different households
+	if user1.HouseholdID == user2.HouseholdID {
+		t.Fatal("expected different households")
+	}
+
+	oldHH := user2.HouseholdID
+	// Set user2's email to match user1 for merge
+	server.db.Exec("UPDATE users SET email = ? WHERE id = ?", "diff@test.com", user2.ID)
+
+	// Trigger merge
+	merged, _ := resolveOrCreateUser(server.db, "google", "g_diff", "diff@test.com", "")
+	if merged.ID != user1.ID {
+		t.Fatalf("expected merge to user1, got %d", merged.ID)
+	}
+
+	// User2 should be removed from old household
+	var memberCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM household_members WHERE user_id = ? AND household_id = ?", user2.ID, oldHH).Scan(&memberCount)
+	if memberCount != 0 {
+		t.Error("expected orphaned user removed from their old household")
+	}
+}
+
+// --- Account Merge: Conflict Resolution ---
+
+func TestAccountMerge_ListItems_Union(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	user1, _ := resolveOrCreateUser(server.db, "email", "e1", "list@test.com", "User1")
+	user2, _ := resolveOrCreateUser(server.db, "phone", "p2", "", "User2")
+
+	// User1 has Milk (qty 1) and Bread (qty 2)
+	server.db.Exec("INSERT INTO list_items (user_id, name, quantity) VALUES (?, 'Milk', 1)", user1.ID)
+	server.db.Exec("INSERT INTO list_items (user_id, name, quantity) VALUES (?, 'Bread', 2)", user1.ID)
+	// User2 has Milk (qty 2) and Eggs (qty 1)
+	server.db.Exec("INSERT INTO list_items (user_id, name, quantity) VALUES (?, 'Milk', 2)", user2.ID)
+	server.db.Exec("INSERT INTO list_items (user_id, name, quantity) VALUES (?, 'Eggs', 1)", user2.ID)
+
+	// Set user2's email to match user1
+	server.db.Exec("UPDATE users SET email = ? WHERE id = ?", "list@test.com", user2.ID)
+
+	// Trigger merge
+	resolveOrCreateUser(server.db, "google", "g_list", "list@test.com", "")
+
+	// User1 should now have: Milk (qty 3), Bread (qty 2), Eggs (qty 1)
+	var milkQty, breadQty, eggsQty int
+	server.db.QueryRow("SELECT quantity FROM list_items WHERE user_id = ? AND name = 'Milk'", user1.ID).Scan(&milkQty)
+	server.db.QueryRow("SELECT quantity FROM list_items WHERE user_id = ? AND name = 'Bread'", user1.ID).Scan(&breadQty)
+	server.db.QueryRow("SELECT quantity FROM list_items WHERE user_id = ? AND name = 'Eggs'", user1.ID).Scan(&eggsQty)
+
+	if milkQty != 3 {
+		t.Errorf("expected Milk qty=3, got %d", milkQty)
+	}
+	if breadQty != 2 {
+		t.Errorf("expected Bread qty=2, got %d", breadQty)
+	}
+	if eggsQty != 1 {
+		t.Errorf("expected Eggs qty=1, got %d", eggsQty)
+	}
+
+	// User2 should have no list items
+	var u2Count int
+	server.db.QueryRow("SELECT COUNT(*) FROM list_items WHERE user_id = ?", user2.ID).Scan(&u2Count)
+	if u2Count != 0 {
+		t.Errorf("expected orphaned user to have 0 list items, got %d", u2Count)
+	}
+}
+
+func TestAccountMerge_ProfilePhoto_KeepsNewest(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	user1, _ := resolveOrCreateUser(server.db, "email", "e1", "photo@test.com", "User1")
+	user2, _ := resolveOrCreateUser(server.db, "phone", "p2", "", "User2")
+
+	// User1 has older photo, user2 has newer photo
+	server.db.Exec("INSERT INTO profile_photos (user_id, photo_data, content_type, updated_at) VALUES (?, X'01', 'image/png', '2026-01-01')", user1.ID)
+	server.db.Exec("INSERT INTO profile_photos (user_id, photo_data, content_type, updated_at) VALUES (?, X'02', 'image/png', '2026-03-01')", user2.ID)
+
+	// Set user2's email to match user1
+	server.db.Exec("UPDATE users SET email = ? WHERE id = ?", "photo@test.com", user2.ID)
+
+	// Trigger merge
+	resolveOrCreateUser(server.db, "google", "g_photo", "photo@test.com", "")
+
+	// User1 should have user2's newer photo (0x02)
+	var photoData []byte
+	server.db.QueryRow("SELECT photo_data FROM profile_photos WHERE user_id = ?", user1.ID).Scan(&photoData)
+	if len(photoData) != 1 || photoData[0] != 0x02 {
+		t.Errorf("expected user1 to have newer photo (0x02), got %v", photoData)
+	}
+
+	// User2 should have no photo
+	var u2Count int
+	server.db.QueryRow("SELECT COUNT(*) FROM profile_photos WHERE user_id = ?", user2.ID).Scan(&u2Count)
+	if u2Count != 0 {
+		t.Errorf("expected orphaned user to have 0 photos, got %d", u2Count)
+	}
+}
+
+func TestAccountMerge_ProfilePhoto_TransfersIfOnlySurvivingHasNone(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	user1, _ := resolveOrCreateUser(server.db, "email", "e1", "nophoto@test.com", "User1")
+	user2, _ := resolveOrCreateUser(server.db, "phone", "p2", "", "User2")
+
+	// Only user2 has a photo
+	server.db.Exec("INSERT INTO profile_photos (user_id, photo_data, content_type, updated_at) VALUES (?, X'AA', 'image/jpeg', '2026-02-01')", user2.ID)
+
+	server.db.Exec("UPDATE users SET email = ? WHERE id = ?", "nophoto@test.com", user2.ID)
+	resolveOrCreateUser(server.db, "google", "g_nophoto", "nophoto@test.com", "")
+
+	var photoData []byte
+	server.db.QueryRow("SELECT photo_data FROM profile_photos WHERE user_id = ?", user1.ID).Scan(&photoData)
+	if len(photoData) != 1 || photoData[0] != 0xAA {
+		t.Errorf("expected user1 to get user2's photo (0xAA), got %v", photoData)
+	}
+}
+
+func TestAccountMerge_DisplayName_PrefersManual(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	user1, _ := resolveOrCreateUser(server.db, "email", "e1", "name@test.com", "AutoName")
+	user2, _ := resolveOrCreateUser(server.db, "phone", "p2", "", "ManualName")
+
+	// User1 has auto name, user2 has manually set name
+	server.db.Exec("UPDATE users SET name_source = 'auto' WHERE id = ?", user1.ID)
+	server.db.Exec("UPDATE users SET name_source = 'manual' WHERE id = ?", user2.ID)
+
+	server.db.Exec("UPDATE users SET email = ? WHERE id = ?", "name@test.com", user2.ID)
+	merged, _ := resolveOrCreateUser(server.db, "google", "g_name", "name@test.com", "")
+
+	if merged.Name != "ManualName" {
+		t.Errorf("expected merged user to have manual name 'ManualName', got '%s'", merged.Name)
+	}
+
+	// Verify name_source is now manual on surviving user
+	var src string
+	server.db.QueryRow("SELECT name_source FROM users WHERE id = ?", user1.ID).Scan(&src)
+	if src != "manual" {
+		t.Errorf("expected name_source=manual, got %s", src)
+	}
+}
+
+func TestAccountMerge_DisplayName_KeepsSurvivingManual(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	user1, _ := resolveOrCreateUser(server.db, "email", "e1", "keep@test.com", "MyName")
+	user2, _ := resolveOrCreateUser(server.db, "phone", "p2", "", "OtherManual")
+
+	// Both have manual names — surviving keeps theirs
+	server.db.Exec("UPDATE users SET name_source = 'manual' WHERE id = ?", user1.ID)
+	server.db.Exec("UPDATE users SET name_source = 'manual' WHERE id = ?", user2.ID)
+
+	server.db.Exec("UPDATE users SET email = ? WHERE id = ?", "keep@test.com", user2.ID)
+	merged, _ := resolveOrCreateUser(server.db, "google", "g_keep", "keep@test.com", "")
+
+	if merged.Name != "MyName" {
+		t.Errorf("expected surviving user's name 'MyName', got '%s'", merged.Name)
+	}
+}
+
+func TestAccountMerge_OrphanedUserSoftDeleted(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	user1, _ := resolveOrCreateUser(server.db, "email", "e1", "soft@test.com", "User1")
+	user2, _ := resolveOrCreateUser(server.db, "phone", "p2", "", "User2")
+
+	server.db.Exec("UPDATE users SET email = ? WHERE id = ?", "soft@test.com", user2.ID)
+	resolveOrCreateUser(server.db, "google", "g_soft", "soft@test.com", "")
+
+	var orphanName, orphanEmail string
+	server.db.QueryRow("SELECT COALESCE(name,''), COALESCE(email,'') FROM users WHERE id = ?", user2.ID).Scan(&orphanName, &orphanEmail)
+
+	expectedName := fmt.Sprintf("[merged into user %d]", user1.ID)
+	if orphanName != expectedName {
+		t.Errorf("expected orphan name '%s', got '%s'", expectedName, orphanName)
+	}
+	if orphanEmail != "" {
+		t.Errorf("expected orphan email to be empty, got '%s'", orphanEmail)
+	}
+}
+
+func TestAccountMerge_SavedListsTransferred(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	user1, _ := resolveOrCreateUser(server.db, "email", "e1", "saved@test.com", "User1")
+	user2, _ := resolveOrCreateUser(server.db, "phone", "p2", "", "User2")
+
+	// User2 has a saved list
+	server.db.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, 'Weekly Groceries')", user2.ID)
+
+	server.db.Exec("UPDATE users SET email = ? WHERE id = ?", "saved@test.com", user2.ID)
+	resolveOrCreateUser(server.db, "google", "g_saved", "saved@test.com", "")
+
+	// Saved list should now belong to user1
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM saved_lists WHERE user_id = ?", user1.ID).Scan(&count)
+	if count != 1 {
+		t.Errorf("expected 1 saved list transferred to user1, got %d", count)
+	}
+
+	var u2Count int
+	server.db.QueryRow("SELECT COUNT(*) FROM saved_lists WHERE user_id = ?", user2.ID).Scan(&u2Count)
+	if u2Count != 0 {
+		t.Errorf("expected 0 saved lists remaining on user2, got %d", u2Count)
+	}
+}
+
+func TestAccountMerge_NoOrphan_AuthMethodOnly(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// Normal case: no orphaned user, just auth method linking
+	user1, _ := resolveOrCreateUser(server.db, "email", "e1", "authonly@test.com", "Alice")
+	user2, _ := resolveOrCreateUser(server.db, "google", "g_auth", "authonly@test.com", "Alice G")
+
+	if user2.ID != user1.ID {
+		t.Fatalf("expected same user, got %d vs %d", user2.ID, user1.ID)
+	}
+	if !user2.Merged {
+		t.Fatal("expected Merged flag to be true")
+	}
+
+	// Audit trail should exist
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM account_merges WHERE surviving_user = ?", user1.ID).Scan(&count)
+	if count != 1 {
+		t.Errorf("expected 1 audit trail entry, got %d", count)
+	}
+
+	// merged_user should be NULL (no orphaned user)
+	var mergedUser sql.NullInt64
+	server.db.QueryRow("SELECT merged_user FROM account_merges WHERE surviving_user = ?", user1.ID).Scan(&mergedUser)
+	if mergedUser.Valid {
+		t.Errorf("expected merged_user=NULL for auth-only merge, got %d", mergedUser.Int64)
+	}
+}
+
+func TestSettingsUpdate_SetsNameSourceManual(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "+15550001234")
+
+	// Verify initial name_source is 'auto'
+	var src string
+	server.db.QueryRow("SELECT COALESCE(name_source,'auto') FROM users WHERE id = ?", userID).Scan(&src)
+	if src != "auto" {
+		t.Errorf("expected initial name_source=auto, got %s", src)
+	}
+
+	// Update name via settings
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]string{"name": "Manually Set"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// name_source should now be 'manual'
+	server.db.QueryRow("SELECT name_source FROM users WHERE id = ?", userID).Scan(&src)
+	if src != "manual" {
+		t.Errorf("expected name_source=manual after settings update, got %s", src)
+	}
+}
