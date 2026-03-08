@@ -567,6 +567,56 @@ Break-even math:
 - ~~User profile photo~~ — Camera/upload button on profile screen, shows avatar in nav and household lists
 - ~~Accessibility audit~~ — `aria-label` on interactive elements, WCAG AA color contrast, VoiceOver/TalkBack tested
 - ~~Expand Go test coverage~~ — Partially done (Sprint 5 — brand portal tests added, more integration tests needed)
+- ~~Swaps indicator + transaction screen~~ — Header shows "$X.XX swaps" (tappable), opens full Swaps screen with summary cards (Total/Pending/Paid), time filter pills, transaction history with receipt upload per rebate. New `GET /api/earnings`, `POST /api/earnings/{id}/upload` endpoints. 12 Go tests. Files: `handlers_earnings.go`, `EarningsScreen.tsx`, `App.tsx`, `models.go`, `db.go`, `server.go`.
+- ~~Profile page duplicate fix~~ — Name and phone appeared twice (static display under avatar + editable fields). Removed static display, kept editable fields only.
+- ~~Clear list confirmation UX~~ — Backend no longer auto-deletes checked items on "clear list" command. Frontend presents unambiguous options: "Clear N checked items" / "Clear entire list (N items)" / "Cancel". All buttons state exactly what they do.
+
+---
+
+## Google OAuth + Unified Auth Experience
+
+### Google OAuth Infrastructure (P0) — DONE
+- ~~GCP project created: **Thriftly** (ID: `thriftly-489605`) under thrift.ly org~~
+- ~~OAuth client created: `116812213585-oehqe9jgb8akl861numamhvehn2t5umh.apps.googleusercontent.com`~~
+- ~~Authorized origins: `http://localhost:5173`, `http://localhost:8080`~~
+- ~~Authorized redirect URIs: `http://localhost:8080/auth/google/callback`, `http://localhost:5173/auth/google/callback`~~
+- ~~OAuth consent screen published to production (any Google user can sign in)~~
+
+### Google OAuth Local Testing (P0)
+- Add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to local `.env` with the new credentials
+- Verify Google OAuth login flow works end-to-end locally (consent screen → callback → session created)
+- **Why:** Google OAuth has been coded but never tested with real GCP credentials. Must work before production.
+
+### Google OAuth Production Deploy (P1)
+- Add production origins and redirect URIs once Railway deploy domain is confirmed
+- Verify end-to-end on production
+- **Why:** Local-only OAuth is useless without production URLs.
+
+### Login with Google — Profile Auto-Population (P0)
+- On Google sign-in, auto-populate the user's **profile photo**, **display name**, and **email** from Google's OAuth response (picture, name, email claims)
+- Profile photo should appear immediately in nav bar, profile page, and household member lists — zero effort from the user
+- Email should be stored and linked to the account automatically (no "enter your email" step)
+- If user already has a profile photo (e.g. uploaded one), Google photo becomes the default only if they haven't set one
+- **Why:** Google gives us rich profile data for free. Using it instantly makes the app feel polished and personal. One tap to sign in and your profile is already complete.
+
+### Unified Auth: Easy & Delightful Multi-Method Linking (P0)
+**North star:** Every user ends up with both a phone number AND an email, regardless of how they signed up. Both channels are valuable (SMS for Penny texting, email for receipts/password reset). Make it effortless to add the missing one.
+
+- **Signed up with Google?** → After first login, Penny gently prompts: "Want to text me? Add your phone number and I can help you manage your list over SMS." One-tap opens the phone input. No friction, no mandatory gate.
+- **Signed up with phone/SMS?** → Penny prompts: "Add your email so I can send you receipts and you can log in from any device." Or: "Sign in with Google to connect your email instantly."
+- **Signed up with email/password?** → Penny prompts: "Add your phone number to text me your grocery list on the go."
+- All prompts are **one-time, dismissible, non-blocking**. Penny remembers if you dismissed and doesn't re-ask in the same session. Uses the existing NPS-style session persistence pattern.
+- **Why:** The more contact methods we have, the stickier the user is. SMS users who also have email are 3x more valuable (receipts, password reset, re-engagement). Google users who also have phone can use Penny over text.
+
+### Account Merging — Simple & Safe (P1)
+**Current state:** `resolveOrCreateUser()` auto-merges accounts by matching email. This handles the common case (sign up with email, later sign in with Google using same email).
+
+**Needs improvement:**
+- When a merge happens, clearly tell the user: "Welcome back! I linked your Google account to your existing Thriftly account." Don't silently merge — users should feel informed, not confused.
+- **Household dedup on merge:** If both the old and new account are in the same household, automatically drop the duplicate membership. Keep the one with more history. No orphaned household members.
+- **Conflict resolution:** If both accounts have list items, merge the lists (union, not replace). If both have different profile photos, keep the most recently set one. If both have different display names, prefer the one the user manually set over the auto-populated one.
+- **Merge audit trail:** Log merges in `item_modifications` or a new `account_merges` table so we can debug issues. Include: which accounts merged, which auth methods linked, what data was preserved vs dropped.
+- **Why:** Multi-auth merging is where trust breaks down if done wrong. Users who lose data or get confused by duplicate households will churn. Do the hard work to make it invisible.
 
 ---
 
