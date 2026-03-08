@@ -23,7 +23,7 @@ interface DoneSummaryModalProps {
 }
 
 export function DoneSummaryModal({
-  data, isFirstTrip, items, fetchAPI, typePennyHome, showToast,
+  data, isFirstTrip, items, fetchAPI, typePennyHome,
   handleCancelTrip, handleClearList, onClose, onFinish, onSnapReceipt,
   hasSwapsToClaim,
 }: DoneSummaryModalProps) {
@@ -69,33 +69,19 @@ export function DoneSummaryModal({
           <div style={{ marginBottom: '16px' }} />
         )}
 
-        {/* Save as list option */}
-        {data.checkedCount > 0 && (
-          <button
-            onClick={async () => {
+        {/* Clear checked items — auto-saves checked items as a saved list */}
+        <button
+          onClick={async () => {
+            // Auto-save checked items before clearing
+            if (data.checkedCount > 0) {
               const listName = `Trip ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
               const res = await fetchAPI('/api/saved-lists', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: listName, items: items.filter(i => i.checked).map(i => ({ name: i.name, brand: i.brand, department: i.department, quantity: i.quantity, size: i.size, notes: i.notes })) }),
               })
-              if (res) typePennyHome(`Saved as "${listName}" — you can load it anytime!`)
-              else showToast('Could not save list', 'error')
-            }}
-            style={{
-              width: '100%', padding: '12px', borderRadius: '10px',
-              border: '1px solid var(--border)', backgroundColor: 'var(--bg)',
-              fontFamily: FONT, fontSize: '14px', color: 'var(--text)', cursor: 'pointer',
-              marginBottom: '8px',
-            }}
-          >
-            Save this list for next time
-          </button>
-        )}
-
-        {/* Clear checked items */}
-        <button
-          onClick={async () => {
+              if (res) typePennyHome(`Auto-saved as "${listName}" — ask me to load it anytime!`)
+            }
             await handleCancelTrip()
             if (data.checkedCount > 0) {
               await handleClearList()
