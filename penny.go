@@ -424,7 +424,12 @@ Respond with a JSON object:
   "message": "A short, friendly Penny response about what you did (1 sentence). Focus on the food/logistics, not the app."
 }
 
+IMPORTANT: When the user simply names grocery items (even a single word like "flour", "rigatoni", "bananas", "butter"), the action is ALWAYS "add". Do NOT treat food/ingredient names as search queries.
+
 Examples:
+- "flour" → {"action":"add","items":[{"name":"All-Purpose Flour","department":"Pantry & Dry Goods","quantity":1}],"message":"Flour's on the list!"}
+- "rigatoni" → {"action":"add","items":[{"name":"Rigatoni","department":"Pantry & Dry Goods","quantity":1}],"message":"Added rigatoni!"}
+- "bananas" → {"action":"add","items":[{"name":"Bananas","department":"Produce","quantity":1}],"message":"Bananas added!"}
 - "add milk and eggs" → {"action":"add","items":[{"name":"Milk",...},{"name":"Eggs",...}],"message":"Added milk and eggs to your list!"}
 - "remove the bread" → {"action":"remove","items":[{"name":"Sourdough Bread"}],"message":"Took bread off the list!"}
 - "change eggs to a dozen" → {"action":"update","items":[{"name":"Eggs","quantity":12}],"message":"Updated eggs to 12!"}
