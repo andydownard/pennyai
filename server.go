@@ -249,6 +249,7 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/admin/swap-predictions", server.handleSwapPredictions)
 	http.HandleFunc("/api/admin/swap-propagations", server.handleSwapPropagations)
 	http.HandleFunc("/api/admin/store-stats", server.handleAdminStoreStats)
+	http.HandleFunc("/api/admin/category-alerts", server.handleCategoryAlerts)
 	http.HandleFunc("/api/admin/backup", server.handleAdminBackup)
 	http.HandleFunc("/api/wrapped", server.handleWrapped)
 	http.HandleFunc("/api/milestones/check", server.handleMilestoneCheck)
@@ -286,6 +287,9 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/brand/stripe-webhook", server.handleStripeWebhook)
 	http.HandleFunc("/brand/unsubscribe", server.handleBrandUnsubscribe)
 	http.HandleFunc("/brand/competitive-intel", server.handleCompetitiveIntel)
+	http.HandleFunc("/brand/category-alerts", server.handleCategoryAlerts)
+	http.HandleFunc("/brand/category-report/", server.handleCategoryReport)
+	http.HandleFunc("/brand/subscription", server.handleBrandSubscription)
 
 	http.HandleFunc("/api/avatar", server.handleAvatar)
 	http.HandleFunc("/api/avatar/", server.handleAvatar)

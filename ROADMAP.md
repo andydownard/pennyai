@@ -742,10 +742,10 @@ Break-even math:
 
 ### Tier 2: Medium-term bets (significant revenue within 90 days)
 
-- [ ] **Competitive Swap Intel panel** — live in brand portal (basic free, premium paid)
+- [x] **Competitive Swap Intel panel** — `GET /brand/competitive-intel` with per-deal acceptance rate, category rank, competing deals, category summary
 - [x] **User preference predictor** — per-user acceptance rate by category+brand, confidence-weighted blending, auto-suppression of low-probability swaps
-- [ ] **Organic swap propagation tracking** — detect when household members adopt swapped brands unprompted
-- [ ] **Store data schema** — `stores` table, parse store info from receipts
+- [x] **Organic swap propagation tracking** — `swap_propagations` table, daily detection of household brand adoption, admin endpoint
+- [x] **Store data schema** — `stores` + `store_prices` tables, search/filter API, admin stats, linked to receipts + trips
 
 ### Tier 3: Long-term moats (transformative revenue within 12 months)
 

@@ -307,6 +307,7 @@ func (s *Server) runDailyMetricsLoop() {
 	s.processUserCohorts()
 	s.processMarketplaceHealth()
 	s.processSegmentAnalysis()
+	s.processCategoryAlerts()
 
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
@@ -317,6 +318,7 @@ func (s *Server) runDailyMetricsLoop() {
 		s.processUserCohorts()
 		s.processMarketplaceHealth()
 		s.processSegmentAnalysis()
+		s.processCategoryAlerts()
 	}
 }
 
@@ -1345,4 +1347,239 @@ func (s *Server) handleCategoryInsights(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"categories": results,
 	})
+}
+
+// =============================================================================
+// PREDICTIVE CATEGORY ALERTS
+// =============================================================================
+
+// processCategoryAlerts detects disruption signals in swap data:
+// 1. Rising stars: brands with rapidly increasing acceptance rates
+// 2. Declining incumbents: brands losing acceptance share
+// 3. Category heating: categories with sharply increasing swap volume
+// Writes alerts to category_alerts table for brand portal and admin consumption.
+func (s *Server) processCategoryAlerts() {
+	// Step 1: Collect per-brand acceptance rates for recent vs prior periods
+	// Recent = last 7 days, Prior = 8-30 days ago
+	type brandMetric struct {
+		brand       string
+		categoryID  int
+		recentRate  float64
+		recentCount int
+		priorRate   float64
+		priorCount  int
+	}
+
+	rows, err := s.db.Query(`
+		SELECT bd.offer_brand, COALESCE(bd.category_id, 0),
+			SUM(CASE WHEN se.created_at >= datetime('now', '-7 days') AND se.action = 'offered' THEN 1 ELSE 0 END) as recent_offered,
+			SUM(CASE WHEN se.created_at >= datetime('now', '-7 days') AND se.action = 'accepted' THEN 1 ELSE 0 END) as recent_accepted,
+			SUM(CASE WHEN se.created_at < datetime('now', '-7 days') AND se.created_at >= datetime('now', '-30 days') AND se.action = 'offered' THEN 1 ELSE 0 END) as prior_offered,
+			SUM(CASE WHEN se.created_at < datetime('now', '-7 days') AND se.created_at >= datetime('now', '-30 days') AND se.action = 'accepted' THEN 1 ELSE 0 END) as prior_accepted
+		FROM swap_events se
+		JOIN brand_deals bd ON bd.id = se.deal_id
+		WHERE se.created_at >= datetime('now', '-30 days')
+		GROUP BY bd.offer_brand, bd.category_id
+		HAVING recent_offered + prior_offered >= 5
+	`)
+	if err != nil {
+		log.Printf("[alerts] failed to query brand metrics: %v", err)
+		return
+	}
+
+	var metrics []brandMetric
+	for rows.Next() {
+		var m brandMetric
+		var recentOff, recentAcc, priorOff, priorAcc int
+		if err := rows.Scan(&m.brand, &m.categoryID, &recentOff, &recentAcc, &priorOff, &priorAcc); err != nil {
+			continue
+		}
+		m.recentCount = recentOff
+		m.priorCount = priorOff
+		if recentOff > 0 {
+			m.recentRate = float64(recentAcc) / float64(recentOff)
+		}
+		if priorOff > 0 {
+			m.priorRate = float64(priorAcc) / float64(priorOff)
+		}
+		metrics = append(metrics, m)
+	}
+	rows.Close()
+
+	// Step 2: Detect alerts
+	type alert struct {
+		alertType  string // "rising_star", "declining", "category_heating"
+		brand      string
+		categoryID int
+		severity   string // "high", "medium", "low"
+		message    string
+		dataJSON   string
+	}
+	var alerts []alert
+
+	for _, m := range metrics {
+		rateDelta := m.recentRate - m.priorRate
+
+		// Rising star: acceptance rate increased by 20%+ with decent volume
+		if rateDelta >= 0.20 && m.recentCount >= 5 && m.priorCount >= 3 {
+			severity := "medium"
+			if rateDelta >= 0.40 {
+				severity = "high"
+			}
+			alerts = append(alerts, alert{
+				alertType:  "rising_star",
+				brand:      m.brand,
+				categoryID: m.categoryID,
+				severity:   severity,
+				message:    fmt.Sprintf("%s acceptance rate surged %.0f%% → %.0f%% (Δ+%.0f%%)", m.brand, m.priorRate*100, m.recentRate*100, rateDelta*100),
+				dataJSON:   fmt.Sprintf(`{"prior_rate":%.3f,"recent_rate":%.3f,"delta":%.3f,"recent_count":%d}`, m.priorRate, m.recentRate, rateDelta, m.recentCount),
+			})
+		}
+
+		// Declining: acceptance rate dropped 20%+ with decent volume
+		if rateDelta <= -0.20 && m.priorCount >= 5 {
+			severity := "medium"
+			if rateDelta <= -0.40 {
+				severity = "high"
+			}
+			alerts = append(alerts, alert{
+				alertType:  "declining",
+				brand:      m.brand,
+				categoryID: m.categoryID,
+				severity:   severity,
+				message:    fmt.Sprintf("%s acceptance rate dropped %.0f%% → %.0f%% (Δ%.0f%%)", m.brand, m.priorRate*100, m.recentRate*100, rateDelta*100),
+				dataJSON:   fmt.Sprintf(`{"prior_rate":%.3f,"recent_rate":%.3f,"delta":%.3f,"prior_count":%d}`, m.priorRate, m.recentRate, rateDelta, m.priorCount),
+			})
+		}
+	}
+
+	// Step 3: Check for category heating (volume surge)
+	catRows, err := s.db.Query(`
+		SELECT COALESCE(bd.category_id, 0),
+			SUM(CASE WHEN se.created_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as recent_vol,
+			SUM(CASE WHEN se.created_at < datetime('now', '-7 days') AND se.created_at >= datetime('now', '-30 days') THEN 1 ELSE 0 END) as prior_vol
+		FROM swap_events se
+		JOIN brand_deals bd ON bd.id = se.deal_id
+		WHERE se.created_at >= datetime('now', '-30 days')
+		GROUP BY bd.category_id
+		HAVING recent_vol >= 10
+	`)
+	if err == nil {
+		for catRows.Next() {
+			var catID, recentVol, priorVol int
+			catRows.Scan(&catID, &recentVol, &priorVol)
+			if priorVol > 0 {
+				// Normalize prior to 7-day equivalent (it covers 23 days)
+				priorWeekly := float64(priorVol) * 7.0 / 23.0
+				if priorWeekly > 0 {
+					growthRatio := float64(recentVol) / priorWeekly
+					if growthRatio >= 2.0 {
+						severity := "medium"
+						if growthRatio >= 3.0 {
+							severity = "high"
+						}
+						alerts = append(alerts, alert{
+							alertType:  "category_heating",
+							brand:      "",
+							categoryID: catID,
+							severity:   severity,
+							message:    fmt.Sprintf("Category swap volume surged %.0fx (weekly: %.0f → %d)", growthRatio, priorWeekly, recentVol),
+							dataJSON:   fmt.Sprintf(`{"prior_weekly":%.1f,"recent_weekly":%d,"growth_ratio":%.2f}`, priorWeekly, recentVol, growthRatio),
+						})
+					}
+				}
+			}
+		}
+		catRows.Close()
+	}
+
+	// Step 4: Write alerts
+	if len(alerts) == 0 {
+		return
+	}
+
+	for _, a := range alerts {
+		if _, err := s.db.Exec(`INSERT INTO category_alerts (alert_type, brand, category_id, severity, message, data_json)
+			VALUES (?, ?, ?, ?, ?, ?)`,
+			a.alertType, a.brand, a.categoryID, a.severity, a.message, a.dataJSON); err != nil {
+			log.Printf("[alerts] failed to insert alert: %v", err)
+		}
+	}
+
+	log.Printf("[alerts] generated %d category alerts", len(alerts))
+}
+
+// handleCategoryAlerts returns recent category alerts.
+// GET /api/admin/category-alerts — admin only.
+// Also available as GET /brand/category-alerts — brand portal (shows only their categories).
+func (s *Server) handleCategoryAlerts(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+
+	// Determine if admin or brand request
+	isBrandRequest := strings.HasPrefix(r.URL.Path, "/brand/")
+	var brandUserID int
+
+	if isBrandRequest {
+		bs, ok := s.requireBrandSession(w, r)
+		if !ok {
+			return
+		}
+		brandUserID = bs.BrandUserID
+	} else {
+		if _, ok := s.requireAdmin(w, r); !ok {
+			return
+		}
+	}
+
+	var queryArgs []interface{}
+	query := `
+		SELECT ca.id, ca.alert_type, ca.brand, ca.category_id,
+		       COALESCE(c.name, ''), COALESCE(c.parent_category, ''),
+		       ca.severity, ca.message, ca.data_json, ca.created_at
+		FROM category_alerts ca
+		LEFT JOIN categories c ON c.id = ca.category_id
+	`
+
+	if isBrandRequest && brandUserID > 0 {
+		// Filter to categories where this brand has deals
+		query += ` WHERE ca.category_id IN (SELECT DISTINCT category_id FROM brand_deals WHERE brand_user_id = ?)`
+		queryArgs = append(queryArgs, brandUserID)
+	}
+
+	query += ` ORDER BY ca.created_at DESC LIMIT 50`
+
+	rows, err := s.db.Query(query, queryArgs...)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load alerts"})
+		return
+	}
+
+	type alertRow struct {
+		ID             int    `json:"id"`
+		AlertType      string `json:"alert_type"`
+		Brand          string `json:"brand"`
+		CategoryID     int    `json:"category_id"`
+		CategoryName   string `json:"category_name"`
+		ParentCategory string `json:"parent_category"`
+		Severity       string `json:"severity"`
+		Message        string `json:"message"`
+		DataJSON       string `json:"data_json"`
+		CreatedAt      string `json:"created_at"`
+	}
+	var results []alertRow
+	for rows.Next() {
+		var a alertRow
+		if err := rows.Scan(&a.ID, &a.AlertType, &a.Brand, &a.CategoryID, &a.CategoryName, &a.ParentCategory, &a.Severity, &a.Message, &a.DataJSON, &a.CreatedAt); err != nil {
+			continue
+		}
+		results = append(results, a)
+	}
+	rows.Close()
+
+	if results == nil {
+		results = []alertRow{}
+	}
+	writeJSON(w, http.StatusOK, results)
 }

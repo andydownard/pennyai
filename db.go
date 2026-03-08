@@ -1322,6 +1322,39 @@ func initDB(path string) (*sql.DB, error) {
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_swap_propagations_deal ON swap_propagations(deal_id)")
 
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS brand_subscriptions (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			brand_user_id  INTEGER NOT NULL,
+			tier           TEXT NOT NULL DEFAULT 'free',
+			started_at     TEXT NOT NULL DEFAULT (datetime('now')),
+			expires_at     TEXT,
+			UNIQUE(brand_user_id)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating brand_subscriptions table: %w", err)
+	}
+
+	// --- Category alerts (disruption signals) ---
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS category_alerts (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			alert_type  TEXT NOT NULL,
+			brand       TEXT NOT NULL DEFAULT '',
+			category_id INTEGER NOT NULL DEFAULT 0,
+			severity    TEXT NOT NULL DEFAULT 'low',
+			message     TEXT NOT NULL,
+			data_json   TEXT NOT NULL DEFAULT '{}',
+			created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating category_alerts table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_category_alerts_type ON category_alerts(alert_type)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_category_alerts_category ON category_alerts(category_id)")
+
 	return db, nil
 }
 

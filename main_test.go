@@ -18049,3 +18049,99 @@ func TestReceipts_StoreIDColumn(t *testing.T) {
 	}
 }
 
+// --- Category Alerts Tests ---
+
+func TestCategoryAlerts_TableExists(t *testing.T) {
+	db, err := initDB(":memory:")
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM category_alerts").Scan(&count)
+	if err != nil {
+		t.Errorf("category_alerts table doesn't exist: %v", err)
+	}
+}
+
+func TestProcessCategoryAlerts_NoData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// Should not panic with no swap events
+	server.processCategoryAlerts()
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM category_alerts").Scan(&count)
+	if count != 0 {
+		t.Errorf("expected 0 alerts with no data, got %d", count)
+	}
+}
+
+func TestCategoryAlerts_AdminEndpoint(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Non-admin gets 403
+	cookie, _ := loginUser(t, server, "5559999999")
+	rr := doRequest(server.handleCategoryAlerts, "GET", "/api/admin/category-alerts", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+
+	// Admin gets 200
+	adminCookie, _ := loginUser(t, server, "3104861833")
+	rr = doRequest(server.handleCategoryAlerts, "GET", "/api/admin/category-alerts", nil, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for admin, got %d", rr.Code)
+	}
+}
+
+func TestCategoryAlerts_BrandEndpoint(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "alerts@brand.com", "password1234", "AlertsCo")
+
+	rr := doRequest(server.handleCategoryAlerts, "GET", "/brand/category-alerts", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for brand, got %d", rr.Code)
+	}
+}
+
+func TestProcessCategoryAlerts_DetectsRisingStar(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, uid := loginUser(t, server, "5551234567")
+
+	// Create a deal
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, status, category_id)
+		VALUES (200, 'OldBrand Widget', 'RisingStar', 'RisingStar Widget', 150, 'active', 1)`)
+
+	// Prior period (8-30 days ago): 10 offered, 2 accepted = 20% rate
+	for i := 0; i < 10; i++ {
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 200, 'offered', datetime('now', '-15 days'))", uid)
+	}
+	for i := 0; i < 2; i++ {
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 200, 'accepted', datetime('now', '-15 days'))", uid)
+	}
+
+	// Recent period (last 7 days): 10 offered, 7 accepted = 70% rate (+50% delta)
+	for i := 0; i < 10; i++ {
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 200, 'offered', datetime('now', '-2 days'))", uid)
+	}
+	for i := 0; i < 7; i++ {
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 200, 'accepted', datetime('now', '-2 days'))", uid)
+	}
+
+	server.processCategoryAlerts()
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM category_alerts WHERE alert_type = 'rising_star' AND brand = 'RisingStar'").Scan(&count)
+	if count != 1 {
+		t.Errorf("expected 1 rising_star alert, got %d", count)
+	}
+
+	// Verify severity is high (delta > 40%)
+	var severity string
+	server.db.QueryRow("SELECT severity FROM category_alerts WHERE alert_type = 'rising_star' AND brand = 'RisingStar'").Scan(&severity)
+	if severity != "high" {
+		t.Errorf("expected 'high' severity for 50%% delta, got %q", severity)
+	}
+}
+

@@ -1532,3 +1532,262 @@ func (s *Server) handleCompetitiveIntel(w http.ResponseWriter, r *http.Request) 
 		"category_summary": categorySummary,
 	})
 }
+
+// =============================================================================
+// CATEGORY INTELLIGENCE SUBSCRIPTIONS
+// =============================================================================
+
+// handleCategoryReport serves tiered category intelligence.
+// GET /brand/category-report/{parent_category}
+func (s *Server) handleCategoryReport(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	bs, ok := s.requireBrandSession(w, r)
+	if !ok {
+		return
+	}
+
+	parentCategory := strings.TrimPrefix(r.URL.Path, "/brand/category-report/")
+	if parentCategory == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Category required"})
+		return
+	}
+
+	// Determine subscription tier (default to free)
+	var tier string
+	err := s.db.QueryRow(
+		"SELECT tier FROM brand_subscriptions WHERE brand_user_id = ?", bs.BrandUserID,
+	).Scan(&tier)
+	if err != nil {
+		tier = "free"
+	}
+
+	// --- Basic counts (free + premium) ---
+	var totalDeals int
+	err = s.db.QueryRow(`
+		SELECT COUNT(*) FROM brand_deals bd
+		JOIN categories c ON c.id = bd.category_id
+		WHERE c.parent_category = ? AND bd.status != 'deleted'
+	`, parentCategory).Scan(&totalDeals)
+	if err != nil {
+		dbError(w, err, "Failed to count deals")
+		return
+	}
+
+	var totalSwaps int
+	err = s.db.QueryRow(`
+		SELECT COUNT(*) FROM swap_events se
+		JOIN brand_deals bd ON bd.id = se.deal_id
+		JOIN categories c ON c.id = bd.category_id
+		WHERE c.parent_category = ?
+	`, parentCategory).Scan(&totalSwaps)
+	if err != nil {
+		dbError(w, err, "Failed to count swaps")
+		return
+	}
+
+	// Free tier: return basic counts only
+	if tier != "premium" {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"category":       parentCategory,
+			"tier":           "free",
+			"total_deals":    totalDeals,
+			"total_swaps":    totalSwaps,
+			"upgrade_prompt": "Upgrade to premium for acceptance rates, decline analysis, and price intelligence",
+		})
+		return
+	}
+
+	// --- Premium tier: full report ---
+
+	// Acceptance rate
+	var totalOffered, totalAccepted int
+	err = s.db.QueryRow(`
+		SELECT
+			COUNT(*) as offered,
+			COUNT(CASE WHEN se.action = 'accepted' THEN 1 END) as accepted
+		FROM swap_events se
+		JOIN brand_deals bd ON bd.id = se.deal_id
+		JOIN categories c ON c.id = bd.category_id
+		WHERE c.parent_category = ?
+	`, parentCategory).Scan(&totalOffered, &totalAccepted)
+	if err != nil {
+		dbError(w, err, "Failed to compute acceptance rate")
+		return
+	}
+	var avgAcceptanceRate float64
+	if totalOffered > 0 {
+		avgAcceptanceRate = float64(totalAccepted) / float64(totalOffered)
+	}
+
+	// Top decline reasons
+	type declineReason struct {
+		Reason string `json:"reason"`
+		Count  int    `json:"count"`
+	}
+	declineRows, err := s.db.Query(`
+		SELECT se.decline_reason, COUNT(*) as cnt
+		FROM swap_events se
+		JOIN brand_deals bd ON bd.id = se.deal_id
+		JOIN categories c ON c.id = bd.category_id
+		WHERE c.parent_category = ? AND se.action = 'declined' AND se.decline_reason != ''
+		GROUP BY se.decline_reason
+		ORDER BY cnt DESC
+		LIMIT 10
+	`, parentCategory)
+	if err != nil {
+		dbError(w, err, "Failed to query decline reasons")
+		return
+	}
+	defer declineRows.Close()
+	topDeclineReasons := []declineReason{}
+	for declineRows.Next() {
+		var dr declineReason
+		declineRows.Scan(&dr.Reason, &dr.Count)
+		topDeclineReasons = append(topDeclineReasons, dr)
+	}
+
+	// Average discount
+	var avgDiscountCents float64
+	err = s.db.QueryRow(`
+		SELECT COALESCE(AVG(bd.discount_cents), 0)
+		FROM brand_deals bd
+		JOIN categories c ON c.id = bd.category_id
+		WHERE c.parent_category = ? AND bd.status != 'deleted'
+	`, parentCategory).Scan(&avgDiscountCents)
+	if err != nil {
+		dbError(w, err, "Failed to compute avg discount")
+		return
+	}
+
+	// Average time to action
+	var avgTimeToActionMs float64
+	err = s.db.QueryRow(`
+		SELECT COALESCE(AVG(se.time_to_action_ms), 0)
+		FROM swap_events se
+		JOIN brand_deals bd ON bd.id = se.deal_id
+		JOIN categories c ON c.id = bd.category_id
+		WHERE c.parent_category = ? AND se.time_to_action_ms > 0
+	`, parentCategory).Scan(&avgTimeToActionMs)
+	if err != nil {
+		dbError(w, err, "Failed to compute time to action")
+		return
+	}
+
+	// Propagation rate
+	var propagationCount int
+	err = s.db.QueryRow(`
+		SELECT COUNT(*) FROM swap_propagations sp
+		JOIN brand_deals bd ON bd.id = sp.deal_id
+		JOIN categories c ON c.id = bd.category_id
+		WHERE c.parent_category = ?
+	`, parentCategory).Scan(&propagationCount)
+	if err != nil {
+		dbError(w, err, "Failed to compute propagation rate")
+		return
+	}
+	var propagationRate float64
+	if totalSwaps > 0 {
+		propagationRate = float64(propagationCount) / float64(totalSwaps)
+	}
+
+	// Subcategory breakdown
+	type subcategory struct {
+		Name           string  `json:"name"`
+		Deals          int     `json:"deals"`
+		AcceptanceRate float64 `json:"acceptance_rate"`
+	}
+	subRows, err := s.db.Query(`
+		SELECT c.name,
+			COUNT(DISTINCT bd.id) as deals,
+			COUNT(CASE WHEN se.action = 'accepted' THEN 1 END) as accepted,
+			COUNT(se.id) as total
+		FROM categories c
+		JOIN brand_deals bd ON bd.category_id = c.id
+		LEFT JOIN swap_events se ON se.deal_id = bd.id
+		WHERE c.parent_category = ? AND bd.status != 'deleted'
+		GROUP BY c.name
+		ORDER BY deals DESC
+	`, parentCategory)
+	if err != nil {
+		dbError(w, err, "Failed to query subcategories")
+		return
+	}
+	defer subRows.Close()
+	subcategories := []subcategory{}
+	for subRows.Next() {
+		var sc subcategory
+		var accepted, total int
+		subRows.Scan(&sc.Name, &sc.Deals, &accepted, &total)
+		if total > 0 {
+			sc.AcceptanceRate = float64(accepted) / float64(total)
+		}
+		subcategories = append(subcategories, sc)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"category":              parentCategory,
+		"tier":                  "premium",
+		"total_deals":           totalDeals,
+		"total_swaps":           totalSwaps,
+		"avg_acceptance_rate":   avgAcceptanceRate,
+		"top_decline_reasons":   topDeclineReasons,
+		"avg_discount_cents":    avgDiscountCents,
+		"avg_time_to_action_ms": avgTimeToActionMs,
+		"propagation_rate":      propagationRate,
+		"subcategories":         subcategories,
+	})
+}
+
+// handleBrandSubscription manages subscription tier.
+// GET  /brand/subscription — returns current tier
+// POST /brand/subscription — set tier (body: {"tier": "premium"})
+func (s *Server) handleBrandSubscription(w http.ResponseWriter, r *http.Request) {
+	bs, ok := s.requireBrandSession(w, r)
+	if !ok {
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		var tier string
+		err := s.db.QueryRow(
+			"SELECT tier FROM brand_subscriptions WHERE brand_user_id = ?", bs.BrandUserID,
+		).Scan(&tier)
+		if err != nil {
+			tier = "free"
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"brand_user_id": bs.BrandUserID,
+			"tier":          tier,
+		})
+
+	case http.MethodPost:
+		var req struct {
+			Tier string `json:"tier"`
+		}
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		if req.Tier != "free" && req.Tier != "premium" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Tier must be 'free' or 'premium'"})
+			return
+		}
+		_, err := s.db.Exec(`
+			INSERT INTO brand_subscriptions (brand_user_id, tier) VALUES (?, ?)
+			ON CONFLICT(brand_user_id) DO UPDATE SET tier = excluded.tier
+		`, bs.BrandUserID, req.Tier)
+		if err != nil {
+			dbError(w, err, "Failed to update subscription")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"brand_user_id": bs.BrandUserID,
+			"tier":          req.Tier,
+		})
+
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
+	}
+}
