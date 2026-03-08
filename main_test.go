@@ -15490,6 +15490,81 @@ func TestAllergenHardFilter_BlocksSwap(t *testing.T) {
 	}
 }
 
+func TestGetHouseholdAllergens_Union(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create 2 users in the same household
+	server.db.Exec("INSERT INTO users (id, phone_number, name, household_id) VALUES (100, '+15551111111', 'Alice', 1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, name, household_id) VALUES (101, '+15552222222', 'Bob', 1)")
+	server.db.Exec("INSERT INTO households (id, name) VALUES (1, 'Test Family')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 100)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 101)")
+
+	// Alice has peanut allergy, Bob has dairy allergy
+	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (100, '["peanuts"]', '[]')`)
+	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (101, '["dairy"]', '[]')`)
+
+	// Alice's household allergens should include both peanuts and dairy
+	allergens := server.getHouseholdAllergens(100)
+	if len(allergens) != 2 {
+		t.Fatalf("Expected 2 household allergens, got %d: %v", len(allergens), allergens)
+	}
+	has := map[string]bool{}
+	for _, a := range allergens {
+		has[a] = true
+	}
+	if !has["peanuts"] || !has["dairy"] {
+		t.Errorf("Expected peanuts and dairy, got %v", allergens)
+	}
+}
+
+func TestGetHouseholdAllergens_NoHousehold(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
+	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (100, '["gluten"]', '[]')`)
+
+	allergens := server.getHouseholdAllergens(100)
+	if len(allergens) != 1 || allergens[0] != "gluten" {
+		t.Errorf("Expected [gluten] for solo user, got %v", allergens)
+	}
+}
+
+func TestHouseholdDietary_Endpoint(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create household
+	server.db.Exec("INSERT INTO users (id, phone_number, name, household_id) VALUES (100, '+15551111111', 'Alice', 1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, name, household_id) VALUES (101, '+15552222222', 'Bob', 1)")
+	server.db.Exec("INSERT INTO households (id, name) VALUES (1, 'Family')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 100)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 101)")
+	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (100, '["peanuts"]', '["vegan"]')`)
+
+	token, _ := server.sessions.CreateSession(100, "+15551111111", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(server.handleHouseholdDietary, "GET", "/api/household/dietary", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["household"] != true {
+		t.Error("Expected household: true")
+	}
+	allergens := body["all_allergens"].([]interface{})
+	if len(allergens) != 1 || allergens[0] != "peanuts" {
+		t.Errorf("Expected [peanuts], got %v", allergens)
+	}
+}
+
+func TestHouseholdDietary_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleHouseholdDietary, "GET", "/api/household/dietary", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401, got %d", rr.Code)
+	}
+}
+
 func TestHouseholdDuplicateDetection(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 

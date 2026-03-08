@@ -364,12 +364,8 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 		}
 	}
 
-	// Load user allergens for safety filtering
-	var userAllergens []string
-	var allergensJSON string
-	if err := s.db.QueryRow("SELECT COALESCE(allergens, '[]') FROM user_dietary_profiles WHERE user_id = ?", userID).Scan(&allergensJSON); err == nil {
-		json.Unmarshal([]byte(allergensJSON), &userAllergens)
-	}
+	// Load household allergens for safety filtering (union of all members' allergens)
+	userAllergens := s.getHouseholdAllergens(userID)
 
 	for _, item := range addedItems {
 		itemKey := strings.ToLower(item.Brand + " " + item.Name)

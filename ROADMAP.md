@@ -681,13 +681,13 @@ Break-even math:
 - [x] **Preference reset** — DELETE /api/preferences/reset (right to forget)
 - [x] **Structured decline reasons** — decline_reason column on swap_events, captured on decline
 - [x] **Repurchase cycle detection** — "You buy milk every 7 days" from list + modification patterns
-- [ ] **"Penny Knows" insights card** — show learned preferences in Penny chat, tappable to correct
+- [x] **"Penny Knows" insights card** — shows learned preferences in Penny settings, with close button
 
 ### L2: Household Learning
 
 - [x] Household coordination score (high/medium/low)
 - [x] Active member tracking
-- [ ] **Household dietary union** — merged allergens across all members
+- [x] **Household dietary union** — merged allergens across all members, GET /api/household/dietary
 - [x] **Duplicate purchase prevention** — alert when 2 members add same item within 4 hours
 - [ ] **Repurchase nudge** — "Your household usually buys paper towels every 3 weeks"
 - [ ] **Shopping role detection** — primary shopper, list builder, etc.

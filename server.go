@@ -240,6 +240,8 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/admin/deals/", server.handleAdminDeals)
 	http.HandleFunc("/api/admin/payouts", server.handleAdminPayouts)
 	http.HandleFunc("/api/admin/business-metrics", server.handleBusinessMetrics)
+	http.HandleFunc("/api/admin/churn-risk", server.handleChurnRisk)
+	http.HandleFunc("/api/admin/cohort-analysis", server.handleCohortAnalysis)
 	http.HandleFunc("/api/admin/backup", server.handleAdminBackup)
 	http.HandleFunc("/api/wrapped", server.handleWrapped)
 	http.HandleFunc("/api/milestones/check", server.handleMilestoneCheck)
@@ -247,6 +249,7 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/penny/insights", server.handlePennyInsights)
 	http.HandleFunc("/api/preferences", server.handleDietaryPreferences)
 	http.HandleFunc("/api/preferences/reset", server.handlePreferenceReset)
+	http.HandleFunc("/api/household/dietary", server.handleHouseholdDietary)
 
 	// --- A/B Testing ---
 	http.HandleFunc("GET /api/ab/variant", handleGetVariant(server))

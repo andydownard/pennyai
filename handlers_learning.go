@@ -563,6 +563,128 @@ func parseFloat(s string) float64 {
 	return f
 }
 
+// getHouseholdAllergens returns the union of all allergens across all members
+// of the user's household. Used for safety filtering — no swap should suggest
+// a product containing any household member's allergen.
+func (s *Server) getHouseholdAllergens(userID int) []string {
+	var hhID int
+	s.db.QueryRow("SELECT COALESCE(household_id, 0) FROM users WHERE id = ?", userID).Scan(&hhID)
+	if hhID == 0 {
+		// No household — just return this user's allergens
+		var allergensJSON string
+		if err := s.db.QueryRow("SELECT COALESCE(allergens, '[]') FROM user_dietary_profiles WHERE user_id = ?", userID).Scan(&allergensJSON); err == nil {
+			var allergens []string
+			json.Unmarshal([]byte(allergensJSON), &allergens)
+			return allergens
+		}
+		return nil
+	}
+
+	// Union all household members' allergens
+	allergenSet := map[string]bool{}
+	rows, err := s.db.Query(`
+		SELECT COALESCE(dp.allergens, '[]')
+		FROM household_members hm
+		LEFT JOIN user_dietary_profiles dp ON dp.user_id = hm.user_id
+		WHERE hm.household_id = ?
+	`, hhID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var aJSON string
+		rows.Scan(&aJSON)
+		var memberAllergens []string
+		json.Unmarshal([]byte(aJSON), &memberAllergens)
+		for _, a := range memberAllergens {
+			allergenSet[strings.ToLower(a)] = true
+		}
+	}
+
+	result := make([]string, 0, len(allergenSet))
+	for a := range allergenSet {
+		result = append(result, a)
+	}
+	return result
+}
+
+// handleHouseholdDietary returns the merged dietary profile for the user's household.
+// GET /api/household/dietary
+func (s *Server) handleHouseholdDietary(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	var hhID int
+	s.db.QueryRow("SELECT COALESCE(household_id, 0) FROM users WHERE id = ?", session.UserID).Scan(&hhID)
+	if hhID == 0 {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"household":    false,
+			"all_allergens": []string{},
+			"all_diets":    []string{},
+			"members":      []interface{}{},
+		})
+		return
+	}
+
+	// Collect each member's dietary profile
+	type memberDiet struct {
+		Name      string   `json:"name"`
+		Allergens []string `json:"allergens"`
+		Diets     []string `json:"diets"`
+	}
+	var members []memberDiet
+	allergenSet := map[string]bool{}
+	dietSet := map[string]bool{}
+
+	rows, err := s.db.Query(`
+		SELECT COALESCE(u.name, 'Member'), COALESCE(dp.allergens, '[]'), COALESCE(dp.diets, '[]')
+		FROM household_members hm
+		JOIN users u ON u.id = hm.user_id
+		LEFT JOIN user_dietary_profiles dp ON dp.user_id = hm.user_id
+		WHERE hm.household_id = ?
+	`, hhID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var name, aJSON, dJSON string
+			rows.Scan(&name, &aJSON, &dJSON)
+			var allergens, diets []string
+			json.Unmarshal([]byte(aJSON), &allergens)
+			json.Unmarshal([]byte(dJSON), &diets)
+			firstName := strings.Split(strings.TrimSpace(name), " ")[0]
+			members = append(members, memberDiet{Name: firstName, Allergens: allergens, Diets: diets})
+			for _, a := range allergens {
+				allergenSet[a] = true
+			}
+			for _, d := range diets {
+				dietSet[d] = true
+			}
+		}
+	}
+
+	allAllergens := make([]string, 0, len(allergenSet))
+	for a := range allergenSet {
+		allAllergens = append(allAllergens, a)
+	}
+	allDiets := make([]string, 0, len(dietSet))
+	for d := range dietSet {
+		allDiets = append(allDiets, d)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"household":     true,
+		"all_allergens": allAllergens,
+		"all_diets":     allDiets,
+		"members":       members,
+	})
+}
+
 // checkHouseholdDuplicates checks if another household member added the same
 // items within the last 4 hours. Returns warnings for the frontend.
 func (s *Server) checkHouseholdDuplicates(userID int, addedItems []ListItem) []DuplicateWarning {
