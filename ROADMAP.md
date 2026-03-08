@@ -505,6 +505,8 @@ Playwright E2E tests covering critical user flows: login, add items, check items
 | 16 | **M9. Brand Dashboard v2** | S→M | 3 | P2 | **Scope reduced** — Metabase handles most reporting. Only Competitive Intel + purchase verification funnel need custom code. Was M, now S-M. | Planned |
 | 17 | **R2. Trip Planner Discoverability** | S | — | P3 | Quality of life, quick win. Do when there's a spare afternoon. | **Done** (Sprint 4) |
 | — | ~~R4. SSE Real-Time Updates~~ | — | — | — | **Replaced by Pusher/Ably** (Buy-vs-Build: BUY NOW). No longer a build item. | Replaced |
+| 18 | **R6. Codebase Refactor** | L | — | P2 | Split monolithic files (App.tsx, handlers), extract middleware, shared styles, API layer. Do incrementally between sprints. | Planned |
+| 19 | **R7. UX Overhaul** | L | — | P1 | Design system, dark mode, bottom tabs, screen transitions, optimistic updates, offline support. Dedicated sprint after revenue stabilizes. | Planned |
 
 ### What changed (March 2026 groom)
 - **M3 moved to #1** — deals must exist before swap code ships. M1 depends on M3, not the other way around.
@@ -632,6 +634,72 @@ Break-even math:
 Databricks is enterprise data lakehouse tooling ($10K+/yr, requires a data engineer). PostHog + Metabase covers all analytics and reporting needs through $5M ARR for $0-5/mo.
 
 ### Total scope reclaimed: ~5-7 weeks of build time + ongoing maintenance
+
+---
+
+## R6. Codebase Refactor
+
+> **Goal:** Improve maintainability, reduce cognitive load, and prepare the codebase for scale — without changing any user-facing behavior or API contracts.
+
+### Backend Refactor
+- **Split monolithic Go files** — `handlers_list.go` (~600 lines), `handlers_auth.go` (~500 lines), and `handlers_brand.go` (~800 lines) are large. Extract into focused files by domain (e.g., `handlers_logo.go`, `handlers_swap.go`, `handlers_receipt.go`).
+- **Extract middleware** — Rate limiting, auth gating, and panic recovery are inline. Extract into composable middleware functions.
+- **Introduce request/response types** — Many handlers use anonymous `struct{}` for JSON parsing. Define named types in `models.go` for readability and reuse.
+- **Database query consolidation** — Several handlers have near-identical SQL queries with slight variations. Extract common queries into typed helper functions.
+- **Error handling consistency** — Standardize error responses (some use `writeJSON`, some use `http.Error`, some use raw `w.Write`). Single pattern throughout.
+
+### Frontend Refactor
+- **Break up App.tsx** — Currently ~4800 lines with all screens inline. Extract each screen into its own component file (`HomeScreen.tsx`, `ProfileScreen.tsx`, `AdminScreen.tsx`, etc.).
+- **Extract inline styles** — All styles are inline objects defined in the component. Move to a shared styles system (CSS modules, styled-components, or at minimum a `styles/` directory).
+- **State management** — App.tsx has 50+ useState hooks. Extract related state into custom hooks (`useAuth`, `useList`, `useSwaps`, `useTrips`, etc.).
+- **API layer** — Fetch calls are scattered throughout components. Extract into an `api/` module with typed request/response functions.
+- **Component library** — Buttons, inputs, cards, and modals are re-implemented with inline styles in multiple places. Extract shared UI primitives.
+
+### Testing Refactor
+- **Test helpers** — Reduce boilerplate in `main_test.go` (~10K lines). Extract common setup (create user, create session, add items) into reusable test helpers.
+- **Test organization** — Split `main_test.go` into domain-specific test files (`auth_test.go`, `list_test.go`, `swap_test.go`, etc.).
+
+### Priority & Timing
+This is a **P2** initiative — do incrementally between feature sprints, not as a dedicated sprint. Each refactor PR should be small, tested, and shippable independently.
+
+---
+
+## R7. UX Overhaul
+
+> **Goal:** Elevate the user experience from functional MVP to polished consumer app. Address rough edges, inconsistencies, and missing polish identified through user testing and founder feedback.
+
+### Visual Design
+- **Design system** — Establish a formal design system: color palette, typography scale, spacing scale, shadow/elevation levels, border radii. Currently ad-hoc across components.
+- **Dark mode** — User-togglable dark mode. Panel consensus: 5/7 want it, especially for late-night grocery planning.
+- **Loading states** — Skeleton loaders exist for list but not for profile, settings, admin, share pages. Add consistent loading states everywhere.
+- **Empty states** — Several screens have bare "no items" text. Design proper empty state illustrations with clear CTAs.
+- **Error states** — Network errors, API failures, and edge cases show generic messages. Design helpful error states with retry actions.
+
+### Navigation & Information Architecture
+- **Bottom tab bar** — Replace hamburger menu with persistent bottom tabs (List, Penny, Share, Profile). Reduce tap-to-reach for core actions.
+- **Screen transitions** — Add slide/fade transitions between screens for spatial orientation.
+- **Deep linking** — Support direct URLs to specific screens (`/list`, `/penny`, `/profile`, `/share`) for bookmarking and sharing.
+
+### Interaction Polish
+- **Pull-to-refresh** — Exists on list; add to all data screens.
+- **Swipe gestures** — Swipe-to-delete on list items, swipe-to-dismiss on swap cards.
+- **Keyboard shortcuts** — Desktop users: Enter to add item, Escape to close sheets, Tab to navigate.
+- **Optimistic updates** — Toggle, delete, and edit operations should update UI instantly, then sync to server. Currently waits for server response.
+- **Offline support** — Cache list locally, queue mutations, sync when back online. Service worker already registered via PWA manifest.
+
+### Penny Personality
+- **Richer animations** — Penny avatar expressions (happy, thinking, excited) based on context.
+- **Contextual suggestions** — Penny proactively suggests based on time of day, season, past purchases.
+- **Celebration moments** — Confetti on first swap, first shared list, completing a trip, reaching savings milestones.
+
+### Accessibility
+- **Screen reader audit** — Full VoiceOver/TalkBack walkthrough of every screen. Fix any missing labels or confusing navigation order.
+- **Reduced motion** — Respect `prefers-reduced-motion` for all animations (typewriter, confetti, transitions).
+- **Font scaling** — Ensure all text respects system font size preferences without layout breakage.
+- **Color contrast** — WCAG AAA compliance for all text (currently AA).
+
+### Priority & Timing
+This is a **P1** initiative — should be planned as a dedicated sprint (or spread across 2 sprints) after core revenue features stabilize. The bottom tab bar and design system are highest-impact items.
 
 ---
 
