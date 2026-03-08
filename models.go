@@ -150,6 +150,10 @@ type Server struct {
 	emailLoginIPLimiter sync.Map
 	// Per-user earnings upload rate limiter: userID -> *rateBucket (5 uploads/hour)
 	earningsUploadLimiter sync.Map
+
+	// googleTokenInfoURL overrides the Google tokeninfo endpoint (for testing).
+	// When empty, defaults to "https://oauth2.googleapis.com/tokeninfo".
+	googleTokenInfoURL string
 }
 
 // BrandDeal represents an active swap deal from the brand_deals table.

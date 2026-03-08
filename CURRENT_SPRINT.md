@@ -1,49 +1,59 @@
-# PennyAI — Current Sprint (March 7-14, 2026)
+# PennyAI — Sprint 7 (March 7-14, 2026)
 
 > This file is read by Claude at the start of every session. Keep it updated.
 
 ## Sprint Goal
 
-Ship real-priced brand swaps with Walmart/BlueCart pricing, add Sentry + PostHog observability, begin conversational onboarding.
-
-## Product Team Convene Summary
-
-- **PM:** Real pricing is the #1 gap. Without accurate store prices, savings claims are meaningless. BlueCart API (Walmart data) gives us real shelf prices by zip code.
-- **Engineer:** BlueCart is simple GET + api_key. Cache prices 6h. Use user's zip from address setting.
-- **UX Designer:** Graceful degradation critical — show discount-only when price unavailable. "Prices from Walmart" attribution. Unit price must be prominent.
-- **QA:** Mock BlueCart in tests. Existing swap tests must still pass.
-- **Security:** API key server-side only. Rate limit our calls to stay under 10K/day.
-
-## Focus Group Consensus
-
-- Real pricing from a named source (Walmart) is a trust builder (Linda, Marcus)
-- Unit price ($/oz) must be shown (Priya, Devon)
-- "Prices at Walmart near [zip]" attribution required (Marcus)
-- Brand-level swaps > item-level swaps (Devon)
-- Graceful degradation when price unavailable — discount only (Tamika)
-- Keep savings amount prominent, price comparison is secondary (Nadia)
+Ship receipt scanning frontend so users can verify swap purchases, and complete Google OAuth profile auto-population so auth feels polished.
 
 ## Sprint Backlog
 
 | # | Item | Size | Priority | Status | Owner |
 |---|------|------|----------|--------|-------|
-| S1 | BlueCart API + Real-Priced Brand Swaps + Seed $20 | M | P0 | Planned | Claude |
-| S2 | Sentry Integration | XS | P0 | Planned | Claude |
-| S3 | PostHog Integration | S | P0 | Planned | Claude |
-| S4 | R1 Conversational Onboarding (start) | S | P1 | Planned | Claude |
+| S1 | M7 Receipt Frontend UI | M | P1 | **Done** | Claude |
+| S2 | Google Profile Auto-Population | S | P0 | **Done** | Claude |
+| S3 | Receipt processing Penny feedback | XS | P0 | **Done** | Claude |
+| S4 | Receipt + cross-user Go tests | S | P1 | **Done** | Claude |
 
-## What's Done (Previous Sprint)
+## What Was Built
 
-| Item | Notes |
-|------|-------|
-| M1 Penny Swaps v0 | Consumer swap cards, matching, suppression |
-| M2 Sharing & Invite Flow | SMS notify inviter, Penny welcome, editable list name, referral source |
-| M3 Swap Admin Tooling | CRUD for brand_deals, admin dashboard |
-| B11-B18 all fixed | Budget race, rebate farming, FK delete, unit_label, budget rename, PennyBar timing |
-| Swap persistence on reload | GET /api/list/swaps endpoint |
-| ItemEditSheet scroll fix | min-height: 0 + overscroll-behavior |
-| Header cleanup | Share button removed from home header |
-| UX Designer role | Added to product team in CLAUDE.md |
+### S1: Receipt Frontend UI
+- **ReceiptScreen component** (`frontend/src/components/ReceiptScreen.tsx`): receipt history list, receipt detail with line items, low-confidence item confirmation UI with yes/no buttons, "Help Penny learn" flow
+- **Types** added to `types.ts`: `ReceiptSummary`, `ReceiptLineItem`
+- **Screen routing**: `receipts` screen added to App.tsx Screen type, SCREEN_PATHS, PATH_TO_SCREEN, NavigationMenu
+- **EarningsScreen → Receipts**: "View receipts" button linking to receipt history
+- **Empty state**: Penny avatar + prompt to snap first receipt
+- **Swap verification badges**: green "X verified" badges on receipts with verified swap purchases
+
+### S3: Receipt Processing Penny Feedback
+- When receipt is submitted, Penny types "Reading your receipt..." via typewriter effect
+- On success: "Found N items on your receipt — checked them off!"
+- On failure: "Hmm, I couldn't read that receipt. Try a clearer photo?"
+- On connection error: "Connection hiccup — try again in a moment."
+
+### S4: Receipt Tests
+- `TestGetReceipts_CrossUserIsolation` — user 2 can't see user 1's receipts
+- `TestGetReceiptItems_CrossUser` — user 2 can't access user 1's line items (404)
+- `TestGetReceipts_MultipleReturned` — multiple receipts returned correctly
+- `TestReceiptConfirm_FeedsAbbreviationDB` — confirmation saves to retailer_abbreviations table
+
+## What's Done (Previous Sprints)
+
+| Item | Status |
+|------|--------|
+| M1 Penny Swaps v0 | Done |
+| M2 Sharing & Invite Flow | Done |
+| M3 Swap Admin Tooling | Done |
+| M4 Brand Portal v0 | Done |
+| M5 Stripe Payment | Done |
+| M7 Receipt Backend | Done |
+| R1 Conversational Onboarding | Done |
+| R2 Trip Planner Discoverability | Done |
+| R3 Done Shopping Flow | Done |
+| R5 E2E Tests (partial) | In Progress |
+| B11-B18 all fixed | Done |
+| Sentry + PostHog | Done |
+| BlueCart pricing | Done |
 
 ## Where I Left Off
 
@@ -51,22 +61,18 @@ Ship real-priced brand swaps with Walmart/BlueCart pricing, add Sentry + PostHog
 
 _Last updated: March 7, 2026_
 
-- Sprint spec complete, ready to execute
-- Next step: S2 (Sentry) → S3 (PostHog) → S1 (BlueCart + seed deals)
-- Blockers: Need `BLUECART_API_KEY` env var (user must sign up at app.bluecartapi.com/signup)
+- S1 (Receipt Frontend) complete — ReceiptScreen with history, detail, confirmation
+- S3 (Penny receipt feedback) complete — typewriter messages during receipt processing
+- S4 (Receipt tests) complete — 4 new tests, all passing
+- S2 (Google Profile Auto-Pop) **done** — merged from worktree, 4 new tests passing
+- Sprint 8 plan **ready** — Unified Auth Linking, Bottom Tab Bar, App.tsx Refactor
+- **All Go tests passing** (`go test -count=1 ./...` → OK, 8.7s)
+- **Frontend builds clean** (tsc + vite build)
+- **Sprint 7 complete.** Starting Sprint 8 now.
 
-## Key Metrics to Watch
+## Next Sprint Preview (Sprint 8)
 
-| Metric | Current | Target | How to Check |
-|--------|---------|--------|-------------|
-| Swap acceptance rate | N/A | >= 8% at week 4 | PostHog funnel |
-| Swaps offered/day | ~5 (test) | 50 at week 4 | PostHog event count |
-| Real pricing coverage | 0% | >= 80% of deals | `SELECT COUNT(*) FROM price_cache WHERE fetched_at > datetime('now', '-6 hours')` |
-| Error rate | Unknown | < 1% | Sentry dashboard |
-
-## Next Sprint Preview
-
-- M4 Brand Portal v0 (brands.thrift.ly)
-- M5 Stripe Payment
-- R5 E2E Tests
-- R1 Onboarding (continued)
+- M9 Brand Dashboard v2 (Competitive Intel + purchase verification funnel)
+- R7 UX Overhaul (design system + bottom tabs — first increment)
+- Unified Auth: Multi-Method Linking (Penny prompts to add missing auth)
+- 10% tech debt: R6 incremental refactor

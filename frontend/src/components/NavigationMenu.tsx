@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { PennyAvatar } from './PennyAvatar'
 import { BRAND, TEXT, WHITE, FONT, BORDER } from '../styles'
 
-export type Screen = 'phone' | 'code' | 'home' | 'penny' | 'profile' | 'settings-share' | 'admin' | 'email-login' | 'email-register' | 'forgot-password' | 'reset-password' | 'shared-list' | 'help' | 'earnings'
+export type Screen = 'phone' | 'code' | 'home' | 'penny' | 'profile' | 'settings-share' | 'admin' | 'email-login' | 'email-register' | 'forgot-password' | 'reset-password' | 'shared-list' | 'help' | 'earnings' | 'receipts'
 
 interface NavigationMenuProps {
   active: Screen

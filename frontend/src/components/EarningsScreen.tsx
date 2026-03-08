@@ -25,11 +25,12 @@ interface EarningsData {
 interface EarningsScreenProps {
   onBack: () => void
   fetchAPI: (url: string, options?: RequestInit) => Promise<Record<string, unknown> | unknown[] | null>
+  onViewReceipts?: () => void
 }
 
 type DaysFilter = 0 | 7 | 30 | 90
 
-export function EarningsScreen({ fetchAPI }: EarningsScreenProps) {
+export function EarningsScreen({ fetchAPI, onViewReceipts }: EarningsScreenProps) {
   const [data, setData] = useState<EarningsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [daysFilter, setDaysFilter] = useState<DaysFilter>(0)
@@ -268,6 +269,27 @@ export function EarningsScreen({ fetchAPI }: EarningsScreenProps) {
         }}>
           Brands pay to reach you — we share the revenue. No other grocery app does this. Payouts sent monthly via Venmo.
         </div>
+      )}
+
+      {/* View receipts link */}
+      {onViewReceipts && (
+        <button
+          onClick={onViewReceipts}
+          style={{
+            width: '100%', marginTop: '8px', padding: '12px', borderRadius: '10px',
+            border: `1px solid ${BORDER}`, backgroundColor: WHITE,
+            fontFamily: FONT, fontSize: '14px', fontWeight: 500, color: TEXT,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+          View receipts
+        </button>
       )}
     </div>
   )

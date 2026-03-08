@@ -50,7 +50,7 @@ const btnStyle: React.CSSProperties = {
 const chatBarStyle: React.CSSProperties = {
   flexShrink: 0,
   padding: '8px 8px 8px 4px',
-  paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
+  paddingBottom: '8px',
   backgroundColor: WHITE,
   borderTop: '1.5px solid #D4CFC7',
   boxShadow: '0 -2px 12px rgba(0,0,0,0.06)',

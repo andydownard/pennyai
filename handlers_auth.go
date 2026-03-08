@@ -34,7 +34,11 @@ func (s *Server) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify Google ID token via tokeninfo endpoint
-	resp, err := http.Get("https://oauth2.googleapis.com/tokeninfo?id_token=" + url.QueryEscape(req.Credential))
+	tokenInfoURL := "https://oauth2.googleapis.com/tokeninfo"
+	if s.googleTokenInfoURL != "" {
+		tokenInfoURL = s.googleTokenInfoURL
+	}
+	resp, err := http.Get(tokenInfoURL + "?id_token=" + url.QueryEscape(req.Credential))
 	if err != nil {
 		log.Printf("[google-auth] token verification request failed: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to verify Google token"})
@@ -55,6 +59,7 @@ func (s *Server) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 		EmailVerified string `json:"email_verified"`
 		Name          string `json:"name"`
 		Aud           string `json:"aud"`
+		Picture       string `json:"picture"`
 	}
 	if err := json.Unmarshal(body, &tokenInfo); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to parse token info"})
@@ -84,6 +89,11 @@ func (s *Server) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 		s.db.Exec("UPDATE users SET email = ? WHERE id = ? AND (email IS NULL OR email = '')", tokenInfo.Email, user.ID)
 	}
 
+	// Auto-populate profile photo from Google if user doesn't already have one
+	if tokenInfo.Picture != "" {
+		s.maybeStoreGooglePhoto(user.ID, tokenInfo.Picture)
+	}
+
 	token, err := s.sessions.CreateSession(user.ID, user.PhoneNumber, "google")
 	if err != nil {
 		dbError(w, err, "Failed to create session")
@@ -97,6 +107,82 @@ func (s *Server) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"user_id": user.ID,
 	})
+}
+
+// maybeStoreGooglePhoto fetches and stores a Google profile photo if the user
+// doesn't already have one. Errors are logged but never fail the auth flow.
+func (s *Server) maybeStoreGooglePhoto(userID int, pictureURL string) {
+	// Validate HTTPS URL
+	parsed, err := url.Parse(pictureURL)
+	if err != nil || parsed.Scheme != "https" {
+		log.Printf("[google-auth] ignoring invalid picture URL for user %d: %s", userID, pictureURL)
+		return
+	}
+
+	// Check if user already has a profile photo — don't overwrite
+	var count int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM profile_photos WHERE user_id = ?", userID).Scan(&count); err != nil {
+		log.Printf("[google-auth] failed to check existing photo for user %d: %v", userID, err)
+		return
+	}
+	if count > 0 {
+		log.Printf("[google-auth] user %d already has a profile photo, skipping Google photo", userID)
+		return
+	}
+
+	// Fetch the image with a short timeout
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(pictureURL)
+	if err != nil {
+		log.Printf("[google-auth] failed to fetch Google photo for user %d: %v", userID, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[google-auth] Google photo returned %d for user %d", resp.StatusCode, userID)
+		return
+	}
+
+	// Read up to 512KB + 1 byte to detect oversized images
+	const maxGooglePhotoBytes = 512 * 1024
+	photoData, err := io.ReadAll(io.LimitReader(resp.Body, maxGooglePhotoBytes+1))
+	if err != nil {
+		log.Printf("[google-auth] failed to read Google photo for user %d: %v", userID, err)
+		return
+	}
+	if len(photoData) > maxGooglePhotoBytes {
+		log.Printf("[google-auth] Google photo too large for user %d (%d bytes)", userID, len(photoData))
+		return
+	}
+	if len(photoData) == 0 {
+		log.Printf("[google-auth] Google photo empty for user %d", userID)
+		return
+	}
+
+	// Validate magic bytes: JPEG (FF D8 FF) or PNG (89 50 4E 47)
+	var contentType string
+	if len(photoData) >= 3 && photoData[0] == 0xFF && photoData[1] == 0xD8 && photoData[2] == 0xFF {
+		contentType = "image/jpeg"
+	} else if len(photoData) >= 4 && photoData[0] == 0x89 && photoData[1] == 0x50 && photoData[2] == 0x4E && photoData[3] == 0x47 {
+		contentType = "image/png"
+	} else {
+		log.Printf("[google-auth] Google photo for user %d is not JPEG or PNG", userID)
+		return
+	}
+
+	// Store in profile_photos
+	_, err = s.db.Exec(
+		`INSERT INTO profile_photos (user_id, photo_data, content_type, updated_at)
+		 VALUES (?, ?, ?, datetime('now'))
+		 ON CONFLICT(user_id) DO UPDATE SET photo_data = excluded.photo_data, content_type = excluded.content_type, updated_at = datetime('now')`,
+		userID, photoData, contentType,
+	)
+	if err != nil {
+		log.Printf("[google-auth] failed to store Google photo for user %d: %v", userID, err)
+		return
+	}
+	log.Printf("[google-auth] stored Google profile photo for user %d (%d bytes, %s)", userID, len(photoData), contentType)
 }
 
 // handleEmailRegister handles POST /auth/email/register
@@ -757,7 +843,167 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		resp["name"] = userName
 	}
 
+	// Include auth_methods array
+	authMethods := []string{}
+	rows, err := s.db.Query("SELECT DISTINCT provider FROM auth_methods WHERE user_id = ? ORDER BY provider", session.UserID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var provider string
+			if rows.Scan(&provider) == nil {
+				authMethods = append(authMethods, provider)
+			}
+		}
+	}
+	resp["auth_methods"] = authMethods
+
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleAuthLink handles POST /api/auth/link
+// Links an additional auth method (email or phone) to the current user.
+func (s *Server) handleAuthLink(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Provider string `json:"provider"`
+		Email    string `json:"email"`
+		Phone    string `json:"phone"`
+		Code     string `json:"code"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	switch req.Provider {
+	case "email":
+		s.linkEmail(w, session.UserID, req.Email)
+	case "phone":
+		s.linkPhone(w, r, session.UserID, req.Phone, req.Code)
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid provider. Must be 'email' or 'phone'."})
+	}
+}
+
+// linkEmail links an email auth method to an existing user.
+func (s *Server) linkEmail(w http.ResponseWriter, userID int, email string) {
+	email = strings.TrimSpace(strings.ToLower(email))
+	if email == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Email is required"})
+		return
+	}
+	if _, err := mail.ParseAddress(email); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid email address"})
+		return
+	}
+
+	// Check if this email is already linked to a DIFFERENT user
+	var existingUserID int
+	err := s.db.QueryRow(
+		"SELECT user_id FROM auth_methods WHERE provider = 'email' AND provider_id = ?",
+		email,
+	).Scan(&existingUserID)
+	if err == nil && existingUserID != userID {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "This email is already linked to another account"})
+		return
+	}
+
+	// Idempotent: if already linked to this user, return success
+	if err == nil && existingUserID == userID {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+		return
+	}
+
+	// Insert auth method
+	_, err = s.db.Exec(
+		"INSERT OR IGNORE INTO auth_methods (user_id, provider, provider_id) VALUES (?, 'email', ?)",
+		userID, email,
+	)
+	if err != nil {
+		dbError(w, err, "Failed to link email")
+		return
+	}
+
+	// Update users.email
+	s.db.Exec("UPDATE users SET email = ? WHERE id = ? AND (email IS NULL OR email = '')", email, userID)
+
+	log.Printf("[auth-link] user %d linked email %s", userID, email)
+	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+// linkPhone links a phone auth method to an existing user after verifying the SMS code.
+func (s *Server) linkPhone(w http.ResponseWriter, r *http.Request, userID int, phone, code string) {
+	e164, ok := normalizePhone(phone)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid phone number"})
+		return
+	}
+
+	if code == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Verification code is required"})
+		return
+	}
+
+	// Verify the code
+	var approved bool
+	var err error
+	if s.config.TestMode && code == "000000" {
+		approved = true
+	} else {
+		approved, err = s.twilio.CheckVerification(e164, code)
+		if err != nil {
+			dbError(w, err, "Failed to verify code")
+			return
+		}
+	}
+
+	if !approved {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid verification code"})
+		return
+	}
+
+	// Strip +1 prefix for storage (matches existing pattern)
+	digits := strings.TrimPrefix(e164, "+1")
+
+	// Check if this phone is already linked to a DIFFERENT user
+	var existingUserID int
+	err = s.db.QueryRow(
+		"SELECT user_id FROM auth_methods WHERE provider = 'phone' AND provider_id = ?",
+		digits,
+	).Scan(&existingUserID)
+	if err == nil && existingUserID != userID {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "This phone number is already linked to another account"})
+		return
+	}
+
+	// Idempotent: if already linked to this user, return success
+	if err == nil && existingUserID == userID {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+		return
+	}
+
+	// Insert auth method
+	_, err = s.db.Exec(
+		"INSERT OR IGNORE INTO auth_methods (user_id, provider, provider_id) VALUES (?, 'phone', ?)",
+		userID, digits,
+	)
+	if err != nil {
+		dbError(w, err, "Failed to link phone")
+		return
+	}
+
+	// Update users.phone_number
+	s.db.Exec("UPDATE users SET phone_number = ? WHERE id = ? AND (phone_number IS NULL OR phone_number = '')", digits, userID)
+
+	log.Printf("[auth-link] user %d linked phone %s", userID, maskPhone(e164))
+	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
 // listItemColumns is the shared SELECT column list for list_items queries.

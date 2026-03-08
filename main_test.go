@@ -13506,6 +13506,114 @@ func TestReceiptRouting_InvalidPath(t *testing.T) {
 }
 
 // =============================================================================
+// RECEIPT CROSS-USER & MULTI-RECEIPT TESTS
+// =============================================================================
+
+func TestGetReceipts_CrossUserIsolation(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie1, userID1 := loginUser(t, server, "5551111111")
+	cookie2, _ := loginUser(t, server, "5552222222")
+
+	server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status) VALUES (?, 'hash_x', 'processed')`, userID1)
+
+	// User 2 should see 0 receipts
+	rr := doRequest(server.handleReceipts, "GET", "/api/receipts", nil, []*http.Cookie{cookie2})
+	var receipts []interface{}
+	json.Unmarshal(rr.Body.Bytes(), &receipts)
+	if len(receipts) != 0 {
+		t.Errorf("user 2 should see 0 receipts from user 1, got %d", len(receipts))
+	}
+	// User 1 should see 1
+	rr = doRequest(server.handleReceipts, "GET", "/api/receipts", nil, []*http.Cookie{cookie1})
+	json.Unmarshal(rr.Body.Bytes(), &receipts)
+	if len(receipts) != 1 {
+		t.Errorf("user 1 should see 1 receipt, got %d", len(receipts))
+	}
+}
+
+func TestGetReceiptItems_CrossUser(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID1 := loginUser(t, server, "5551111111")
+	cookie2, _ := loginUser(t, server, "5552222222")
+
+	res, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status) VALUES (?, 'hash_cross', 'processed')`, userID1)
+	receiptID, _ := res.LastInsertId()
+
+	// User 2 should not see user 1's receipt items
+	rr := doRequest(server.handleReceiptRouting, "GET",
+		fmt.Sprintf("/api/receipts/%d/items", receiptID), nil, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("cross-user receipt item access: got %d, want 404", rr.Code)
+	}
+}
+
+func TestGetReceipts_MultipleReturned(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	server.db.Exec(`INSERT INTO receipts (user_id, image_hash, items_found, items_matched, store_name, total_cents, status, swaps_verified)
+		VALUES (?, 'hash_a', 5, 3, 'Walmart', 4599, 'processed', 1)`, userID)
+	server.db.Exec(`INSERT INTO receipts (user_id, image_hash, items_found, items_matched, store_name, total_cents, status, swaps_verified)
+		VALUES (?, 'hash_b', 8, 6, 'Kroger', 7250, 'processed', 0)`, userID)
+
+	rr := doRequest(server.handleReceipts, "GET", "/api/receipts", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/receipts status: got %d, want 200", rr.Code)
+	}
+	var receipts []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &receipts)
+	if len(receipts) != 2 {
+		t.Fatalf("expected 2 receipts, got %d", len(receipts))
+	}
+	// Verify both stores present
+	stores := map[string]bool{}
+	for _, r := range receipts {
+		stores[r["store_name"].(string)] = true
+	}
+	if !stores["Walmart"] || !stores["Kroger"] {
+		t.Errorf("expected both Walmart and Kroger in results, got %v", stores)
+	}
+}
+
+func TestReceiptConfirm_FeedsAbbreviationDB(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	res, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status, store_name)
+		VALUES (?, 'hash_abbrev', 'processed', 'Walmart')`, userID)
+	receiptID, _ := res.LastInsertId()
+
+	liRes, _ := server.db.Exec(`INSERT INTO receipt_line_items (receipt_id, raw_text, price_cents, quantity, matched_name, confidence)
+		VALUES (?, 'ORG WHL MLK', 599, 1, 'Organic Whole Milk', 'low')`, receiptID)
+	lineItemID, _ := liRes.LastInsertId()
+
+	body := map[string]interface{}{
+		"confirmations": []map[string]interface{}{
+			{"line_item_id": lineItemID, "confirmed": true, "matched_name": "Organic Whole Milk"},
+		},
+	}
+	rr := doRequest(server.handleReceiptRouting, "POST",
+		fmt.Sprintf("/api/receipts/%d/confirm", receiptID), body, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("confirm status: got %d, want 200", rr.Code)
+	}
+
+	// Verify abbreviation was saved
+	var abbrevName string
+	var confirmations int
+	err := server.db.QueryRow("SELECT full_name, confirmations FROM retailer_abbreviations WHERE abbreviation = 'ORG WHL MLK'").Scan(&abbrevName, &confirmations)
+	if err != nil {
+		t.Fatalf("abbreviation not saved: %v", err)
+	}
+	if abbrevName != "Organic Whole Milk" {
+		t.Errorf("abbreviation full_name: got %s, want Organic Whole Milk", abbrevName)
+	}
+	if confirmations != 1 {
+		t.Errorf("abbreviation confirmations: got %d, want 1", confirmations)
+	}
+}
+
+// =============================================================================
 // SETTINGS PHONE UPDATE TESTS
 // =============================================================================
 
@@ -13895,6 +14003,491 @@ func TestEarningsGet_TransactionDetail(t *testing.T) {
 	}
 	if tx["original_item_name"] != "ketchup" {
 		t.Errorf("original_item_name: got %v, want 'ketchup'", tx["original_item_name"])
+	}
+}
+
+// =============================================================================
+// GOOGLE AUTH PHOTO AUTO-POPULATION TESTS
+// =============================================================================
+
+// newMockGoogleTokenServer creates a mock Google tokeninfo endpoint that returns
+// the provided tokenInfo JSON for any request.
+func newMockGoogleTokenServer(t *testing.T, tokenInfoJSON map[string]string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(tokenInfoJSON)
+	}))
+}
+
+func TestGoogleAuthAutoPopulatesPhoto(t *testing.T) {
+	// Create a mock image server (HTTPS via TLS)
+	jpegData := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xD9}
+	imageServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write(jpegData)
+	}))
+	defer imageServer.Close()
+
+	// Create mock Google tokeninfo server with picture URL
+	testClientID := "test-google-client-id"
+	tokenServer := newMockGoogleTokenServer(t, map[string]string{
+		"sub":            "google-photo-sub-1",
+		"email":          "photouser@example.com",
+		"email_verified": "true",
+		"name":           "Photo User",
+		"aud":            testClientID,
+		"picture":        imageServer.URL + "/photo.jpg",
+	})
+	defer tokenServer.Close()
+
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.GoogleClientID = testClientID
+	server.googleTokenInfoURL = tokenServer.URL
+
+	// Override http.DefaultTransport to trust the TLS test server's certificate
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = imageServer.Client().Transport
+	defer func() { http.DefaultTransport = originalTransport }()
+
+	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+		map[string]string{"credential": "test-token"}, nil)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	userID := int(body["user_id"].(float64))
+
+	// Verify profile photo was stored
+	var photoData []byte
+	var contentType string
+	err := server.db.QueryRow("SELECT photo_data, content_type FROM profile_photos WHERE user_id = ?", userID).Scan(&photoData, &contentType)
+	if err != nil {
+		t.Fatalf("expected profile photo to be stored, got error: %v", err)
+	}
+	if contentType != "image/jpeg" {
+		t.Errorf("content_type: got %s, want image/jpeg", contentType)
+	}
+	if len(photoData) == 0 {
+		t.Error("expected non-empty photo data")
+	}
+	// Verify magic bytes
+	if photoData[0] != 0xFF || photoData[1] != 0xD8 {
+		t.Error("photo data does not start with JPEG magic bytes")
+	}
+}
+
+func TestGoogleAuthDoesNotOverwriteExistingPhoto(t *testing.T) {
+	// Create a mock image server
+	jpegData := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xD9}
+	imageServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write(jpegData)
+	}))
+	defer imageServer.Close()
+
+	testClientID := "test-google-client-id"
+	tokenServer := newMockGoogleTokenServer(t, map[string]string{
+		"sub":            "google-photo-sub-2",
+		"email":          "existingphoto@example.com",
+		"email_verified": "true",
+		"name":           "Existing Photo User",
+		"aud":            testClientID,
+		"picture":        imageServer.URL + "/photo.jpg",
+	})
+	defer tokenServer.Close()
+
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.GoogleClientID = testClientID
+	server.googleTokenInfoURL = tokenServer.URL
+
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = imageServer.Client().Transport
+	defer func() { http.DefaultTransport = originalTransport }()
+
+	// First login to create the user
+	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+		map[string]string{"credential": "test-token"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("first login: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	userID := int(body["user_id"].(float64))
+
+	// Manually set a custom photo (PNG magic bytes)
+	customPhoto := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00}
+	server.db.Exec(
+		`UPDATE profile_photos SET photo_data = ?, content_type = 'image/png', updated_at = datetime('now') WHERE user_id = ?`,
+		customPhoto, userID,
+	)
+
+	// Second login — should NOT overwrite the custom photo
+	rr = doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+		map[string]string{"credential": "test-token"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("second login: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify custom photo is still intact
+	var photoData []byte
+	var contentType string
+	err := server.db.QueryRow("SELECT photo_data, content_type FROM profile_photos WHERE user_id = ?", userID).Scan(&photoData, &contentType)
+	if err != nil {
+		t.Fatalf("expected profile photo to exist: %v", err)
+	}
+	if contentType != "image/png" {
+		t.Errorf("expected custom photo to remain (image/png), got %s", contentType)
+	}
+	if photoData[0] != 0x89 || photoData[1] != 0x50 {
+		t.Error("expected custom PNG photo data to remain unchanged")
+	}
+}
+
+func TestGoogleAuthHandlesMissingPicture(t *testing.T) {
+	testClientID := "test-google-client-id"
+	tokenServer := newMockGoogleTokenServer(t, map[string]string{
+		"sub":            "google-nopic-sub",
+		"email":          "nopic@example.com",
+		"email_verified": "true",
+		"name":           "No Pic User",
+		"aud":            testClientID,
+	})
+	defer tokenServer.Close()
+
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.GoogleClientID = testClientID
+	server.googleTokenInfoURL = tokenServer.URL
+
+	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+		map[string]string{"credential": "test-token"}, nil)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["success"] != true {
+		t.Errorf("expected success=true, got %v", body["success"])
+	}
+	userID := int(body["user_id"].(float64))
+
+	// Verify no profile photo was stored
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM profile_photos WHERE user_id = ?", userID).Scan(&count)
+	if count != 0 {
+		t.Errorf("expected 0 profile photos, got %d", count)
+	}
+}
+
+func TestGoogleAuthHandlesInvalidPictureURL(t *testing.T) {
+	testClientID := "test-google-client-id"
+	tokenServer := newMockGoogleTokenServer(t, map[string]string{
+		"sub":            "google-badurl-sub",
+		"email":          "badurl@example.com",
+		"email_verified": "true",
+		"name":           "Bad URL User",
+		"aud":            testClientID,
+		"picture":        "http://not-https.example.com/photo.jpg",
+	})
+	defer tokenServer.Close()
+
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.GoogleClientID = testClientID
+	server.googleTokenInfoURL = tokenServer.URL
+
+	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+		map[string]string{"credential": "test-token"}, nil)
+
+	// Auth should still succeed despite invalid picture URL
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["success"] != true {
+		t.Errorf("expected success=true, got %v", body["success"])
+	}
+	userID := int(body["user_id"].(float64))
+
+	// Verify no profile photo was stored (HTTP URL was rejected)
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM profile_photos WHERE user_id = ?", userID).Scan(&count)
+	if count != 0 {
+		t.Errorf("expected 0 profile photos (HTTP URL should be rejected), got %d", count)
+	}
+}
+
+// =============================================================================
+// AUTH LINK TESTS (Sprint 8 WS1: Multi-Method Linking)
+// =============================================================================
+
+func TestAuthLink_EmailHappyPath(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Link an email to the phone-authed user
+	rr := doRequest(server.handleAuthLink, "POST", "/api/auth/link",
+		map[string]string{"provider": "email", "email": "test@example.com"},
+		[]*http.Cookie{cookie})
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200", rr.Code)
+	}
+
+	body := parseJSON(rr)
+	if body["success"] != true {
+		t.Error("Expected success=true")
+	}
+
+	// Verify auth_methods table has the email entry
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM auth_methods WHERE user_id = ? AND provider = 'email' AND provider_id = 'test@example.com'", userID).Scan(&count)
+	if count != 1 {
+		t.Errorf("auth_methods email row count: got %d, want 1", count)
+	}
+
+	// Verify users.email was updated
+	var email string
+	server.db.QueryRow("SELECT COALESCE(email,'') FROM users WHERE id = ?", userID).Scan(&email)
+	if email != "test@example.com" {
+		t.Errorf("users.email: got %q, want 'test@example.com'", email)
+	}
+}
+
+func TestAuthLink_PhoneHappyPath(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+
+	// Create user via email auth
+	emailUser, err := resolveOrCreateUser(server.db, "email", "user@example.com", "user@example.com", "Test User")
+	if err != nil {
+		t.Fatalf("resolveOrCreateUser: %v", err)
+	}
+	token, err := server.sessions.CreateSession(emailUser.ID, "", "email")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	// Link a phone number (test mode auto-approves code "000000")
+	server.config.TestMode = true
+	rr := doRequest(server.handleAuthLink, "POST", "/api/auth/link",
+		map[string]interface{}{"provider": "phone", "phone": "+15559876543", "code": "000000"},
+		[]*http.Cookie{cookie})
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200", rr.Code)
+	}
+
+	// Verify auth_methods table has the phone entry
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM auth_methods WHERE user_id = ? AND provider = 'phone' AND provider_id = '5559876543'", emailUser.ID).Scan(&count)
+	if count != 1 {
+		t.Errorf("auth_methods phone row count: got %d, want 1", count)
+	}
+
+	// Verify users.phone_number was updated
+	var phone sql.NullString
+	server.db.QueryRow("SELECT phone_number FROM users WHERE id = ?", emailUser.ID).Scan(&phone)
+	if !phone.Valid || phone.String != "5559876543" {
+		t.Errorf("users.phone_number: got %q, want '5559876543'", phone.String)
+	}
+}
+
+func TestAuthLink_Idempotent(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	body := map[string]string{"provider": "email", "email": "test@example.com"}
+
+	// First link
+	rr := doRequest(server.handleAuthLink, "POST", "/api/auth/link", body, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("First link status: got %d, want 200", rr.Code)
+	}
+
+	// Second link (idempotent)
+	rr = doRequest(server.handleAuthLink, "POST", "/api/auth/link", body, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("Second link status: got %d, want 200", rr.Code)
+	}
+
+	// Verify no duplicate auth_methods row
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM auth_methods WHERE user_id = ? AND provider = 'email' AND provider_id = 'test@example.com'", userID).Scan(&count)
+	if count != 1 {
+		t.Errorf("auth_methods duplicate check: got %d rows, want 1", count)
+	}
+}
+
+func TestAuthLink_InvalidProvider(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleAuthLink, "POST", "/api/auth/link",
+		map[string]string{"provider": "foo"},
+		[]*http.Cookie{cookie})
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Status: got %d, want 400", rr.Code)
+	}
+}
+
+func TestAuthLink_Unauthorized(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleAuthLink, "POST", "/api/auth/link",
+		map[string]string{"provider": "email", "email": "test@example.com"},
+		nil)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestAuthLink_EmailAlreadyTaken(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create another user who already has "taken@example.com"
+	otherUser, err := resolveOrCreateUser(server.db, "email", "taken@example.com", "taken@example.com", "Other User")
+	if err != nil {
+		t.Fatalf("resolveOrCreateUser: %v", err)
+	}
+	server.db.Exec("UPDATE users SET email = ? WHERE id = ?", "taken@example.com", otherUser.ID)
+
+	// Log in as a different user
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Try to link the already-taken email
+	rr := doRequest(server.handleAuthLink, "POST", "/api/auth/link",
+		map[string]string{"provider": "email", "email": "taken@example.com"},
+		[]*http.Cookie{cookie})
+
+	if rr.Code != http.StatusConflict {
+		t.Errorf("Status: got %d, want 409", rr.Code)
+	}
+}
+
+func TestAuthLink_PhoneAlreadyTaken(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server.config.TestMode = true
+
+	// Create another user who already has phone 5559999999
+	_, err := upsertUser(server.db, "5559999999")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+
+	// Create an email-auth user
+	emailUser, err := resolveOrCreateUser(server.db, "email", "user2@example.com", "user2@example.com", "User Two")
+	if err != nil {
+		t.Fatalf("resolveOrCreateUser: %v", err)
+	}
+	token, err := server.sessions.CreateSession(emailUser.ID, "", "email")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	// Try to link the already-taken phone
+	rr := doRequest(server.handleAuthLink, "POST", "/api/auth/link",
+		map[string]interface{}{"provider": "phone", "phone": "+15559999999", "code": "000000"},
+		[]*http.Cookie{cookie})
+
+	if rr.Code != http.StatusConflict {
+		t.Errorf("Status: got %d, want 409", rr.Code)
+	}
+}
+
+func TestAuthLink_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleAuthLink, "GET", "/api/auth/link", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status: got %d, want 405", rr.Code)
+	}
+}
+
+func TestAuthMe_ReturnsAuthMethods(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create user with phone auth
+	user, err := upsertUser(server.db, "5551234567")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+
+	// Also add an email auth method
+	server.db.Exec("INSERT OR IGNORE INTO auth_methods (user_id, provider, provider_id) VALUES (?, 'email', 'user@example.com')", user.ID)
+
+	token, err := server.sessions.CreateSession(user.ID, "5551234567", "phone")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	rr := doRequest(server.handleMe, "GET", "/auth/me", nil,
+		[]*http.Cookie{{Name: "session", Value: token}})
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200", rr.Code)
+	}
+
+	body := parseJSON(rr)
+
+	// Check that auth_methods is present and contains both providers
+	methods, ok := body["auth_methods"].([]interface{})
+	if !ok {
+		t.Fatalf("auth_methods not an array: %v", body["auth_methods"])
+	}
+
+	methodSet := make(map[string]bool)
+	for _, m := range methods {
+		methodSet[m.(string)] = true
+	}
+
+	if !methodSet["phone"] {
+		t.Error("auth_methods missing 'phone'")
+	}
+	if !methodSet["email"] {
+		t.Error("auth_methods missing 'email'")
+	}
+}
+
+func TestAuthMe_ReturnsAuthMethods_SingleMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create user with only phone auth
+	user, err := upsertUser(server.db, "5551234567")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+
+	token, err := server.sessions.CreateSession(user.ID, "5551234567", "phone")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	rr := doRequest(server.handleMe, "GET", "/auth/me", nil,
+		[]*http.Cookie{{Name: "session", Value: token}})
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200", rr.Code)
+	}
+
+	body := parseJSON(rr)
+	methods, ok := body["auth_methods"].([]interface{})
+	if !ok {
+		t.Fatalf("auth_methods not an array: %v", body["auth_methods"])
+	}
+
+	if len(methods) != 1 {
+		t.Errorf("auth_methods length: got %d, want 1", len(methods))
+	}
+	if methods[0] != "phone" {
+		t.Errorf("auth_methods[0]: got %v, want 'phone'", methods[0])
 	}
 }
 

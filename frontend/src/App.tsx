@@ -14,7 +14,6 @@ import { Confetti } from './components/Confetti'
 import { FloatingLabelField } from './components/FloatingLabelField'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { type SwapOffer } from './components/SwapCard'
-import { NavigationMenu } from './components/NavigationMenu'
 import { ItemRow, type ListItem } from './components/ItemRow'
 import { PennyBar } from './components/PennyBar'
 import { NPSSurveyModal } from './components/NPSSurveyModal'
@@ -23,6 +22,8 @@ import { TripPlannerSheet, type ShoppingTrip } from './components/TripPlannerShe
 import { ItemEditSheet } from './components/ItemEditSheet'
 import { ReviewSheet } from './components/ReviewSheet'
 import { EarningsScreen } from './components/EarningsScreen'
+import { ReceiptScreen } from './components/ReceiptScreen'
+import { BottomTabBar, type TabScreen } from './components/BottomTabBar'
 import { type ItemModification } from './types'
 import {
   BRAND, BG, TEXT, TEXT_SECONDARY, BORDER, ERROR_RED, ERROR_RED_BG, ERROR_RED_DARK, ERROR_RED_LIGHT,
@@ -34,7 +35,7 @@ import {
 // =============================================================================
 
 // The screens the app can show
-type Screen = 'phone' | 'code' | 'home' | 'penny' | 'profile' | 'settings-share' | 'admin' | 'email-login' | 'email-register' | 'forgot-password' | 'reset-password' | 'shared-list' | 'help' | 'earnings'
+type Screen = 'phone' | 'code' | 'home' | 'penny' | 'profile' | 'settings-share' | 'admin' | 'email-login' | 'email-register' | 'forgot-password' | 'reset-password' | 'shared-list' | 'help' | 'earnings' | 'receipts'
 
 // Declare gtag for TypeScript
 declare function gtag(...args: unknown[]): void
@@ -58,6 +59,7 @@ const SCREEN_PATHS: Record<Screen, string> = {
   'shared-list': '/shared',
   help: '/help',
   earnings: '/earnings',
+  receipts: '/receipts',
 }
 
 const PATH_TO_SCREEN: Record<string, Screen> = {
@@ -77,6 +79,7 @@ const PATH_TO_SCREEN: Record<string, Screen> = {
   '/reset-password': 'reset-password',
   '/help': 'help',
   '/earnings': 'earnings',
+  '/receipts': 'receipts',
 }
 
 const AUTH_SCREENS: Screen[] = ['phone', 'code', 'email-login', 'email-register', 'forgot-password', 'reset-password']
@@ -1663,6 +1666,7 @@ function AppInner() {
   const handleReceiptSubmit = async (imageData: string[]) => {
     haptic.tap()
     setChatLoading(true)
+    typePennyHome('Reading your receipt...')
     try {
       const res = await fetch('/api/list/parse', {
         method: 'POST',
@@ -1675,12 +1679,19 @@ function AppInner() {
         if (data.checked?.length > 0) {
           const checkedIds = new Set(data.checked.map((i: ListItem) => i.id))
           setItems(prev => sortItems(prev.map(i => checkedIds.has(i.id) ? { ...i, checked: true } : i)))
+          typePennyHome(`Found ${data.checked.length} item${data.checked.length !== 1 ? 's' : ''} on your receipt — checked them off!`)
+        } else {
+          typePennyHome(data.message || 'Receipt processed!')
         }
         showToast(data.message || 'Receipt processed!')
       } else {
+        typePennyHome('Hmm, I couldn\'t read that receipt. Try a clearer photo?')
         showToast('Couldn\'t process receipt — try again', 'error')
       }
-    } catch { showToast('Connection error — try again', 'error') }
+    } catch {
+      typePennyHome('Connection hiccup — try again in a moment.')
+      showToast('Connection error — try again', 'error')
+    }
     finally {
       setChatLoading(false)
       setPendingReceiptMode(false)
@@ -3275,14 +3286,18 @@ const handleCodeChange = (index: number, value: string) => {
   // SHARED HELPERS — menu and toast (extracted to avoid 5x duplication)
   // =========================================================================
 
-  const renderMenu = (active: Screen) => (
-    <NavigationMenu
-      active={active}
-      isAdmin={isAdmin}
-      firstName={settingsFirstName}
-      lastName={settingsLastName}
-      userId={currentUserId}
-      avatarVersion={avatarVersion}
+  const getActiveTab = (s: Screen): TabScreen => {
+    switch (s) {
+      case 'home': case 'earnings': case 'receipts': return 'home'
+      case 'penny': return 'penny'
+      case 'settings-share': return 'settings-share'
+      default: return 'profile'
+    }
+  }
+
+  const renderBottomTabs = () => (
+    <BottomTabBar
+      active={getActiveTab(screen)}
       onNavigate={setScreen}
     />
   )
@@ -3358,41 +3373,57 @@ const handleCodeChange = (index: number, value: string) => {
     'Swaps': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>,
   }
 
-  const renderPageHeader = (pageName: string, active: Screen) => (
-    <div style={{ flexShrink: 0, backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}` }}>
-      <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', position: 'relative' }}>
-        {earningsTotalCents > 0 ? (
-          <span
-            style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1 }}
-            onClick={() => setScreen('earnings')}
-          >
-            <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: BRAND }}>
-              ${(earningsTotalCents / 100).toFixed(2)}
+  const SUB_SCREENS: Screen[] = ['earnings', 'receipts', 'help', 'admin']
+
+  const renderPageHeader = (pageName: string, active: Screen) => {
+    const isSubScreen = SUB_SCREENS.includes(active)
+    return (
+      <div style={{ flexShrink: 0, backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', position: 'relative' }}>
+          {isSubScreen ? (
+            <button
+              onClick={() => setScreen(active === 'earnings' || active === 'receipts' ? 'home' : active === 'admin' ? 'profile' : 'profile')}
+              aria-label="Back"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', minWidth: '44px', minHeight: '44px' }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={TEXT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+            </button>
+          ) : earningsTotalCents > 0 ? (
+            <span
+              style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1 }}
+              onClick={() => setScreen('earnings')}
+            >
+              <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: BRAND }}>
+                ${(earningsTotalCents / 100).toFixed(2)}
+              </span>
+              <span style={{ fontFamily: FONT, fontSize: '10px', color: TEXT_SECONDARY, marginTop: '1px' }}>swaps</span>
             </span>
-            <span style={{ fontFamily: FONT, fontSize: '10px', color: TEXT_SECONDARY, marginTop: '1px' }}>swaps</span>
-          </span>
-        ) : (
-          <span
-            style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: '17px', fontWeight: 700 }}
-            onClick={() => setScreen('home')}
-          >thriftly</span>
-        )}
-        <span style={{
-          position: 'absolute',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          fontFamily: FONT,
-          fontSize: '15px',
-          fontWeight: 600,
-          color: TEXT,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-        }}>{pageIcons[pageName]}{pageName}</span>
-        <div style={{ marginLeft: 'auto' }}>{renderMenu(active)}</div>
+          ) : (
+            <span
+              style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: '17px', fontWeight: 700 }}
+              onClick={() => setScreen('home')}
+            >thriftly</span>
+          )}
+          <span style={{
+            position: 'absolute',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            fontFamily: FONT,
+            fontSize: '15px',
+            fontWeight: 600,
+            color: TEXT,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+          }}>{pageIcons[pageName]}{pageName}</span>
+          {/* Spacer to keep title centered */}
+          <div style={{ marginLeft: 'auto', width: '44px' }} />
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   // =========================================================================
   // PENNY SETTINGS (merged: Penny + Profile + Saved Lists + Sign Out)
@@ -3546,6 +3577,7 @@ const handleCodeChange = (index: number, value: string) => {
           </div>
         </div>
         {renderPennyToast()}
+        {renderBottomTabs()}
       </div>
     )
   }
@@ -3742,6 +3774,21 @@ const handleCodeChange = (index: number, value: string) => {
               Need Help?
             </button>
 
+            {/* Admin dashboard — admin only */}
+            {isAdmin && (
+              <button onClick={() => setScreen('admin')} style={{
+                background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: BRAND,
+                textAlign: 'left' as const,
+                display: 'flex', alignItems: 'center', gap: '8px',
+              }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/>
+                </svg>
+                Dashboard
+              </button>
+            )}
+
             {/* Sign out */}
             <button onClick={handleLogout} style={{
               background: 'none', border: 'none', cursor: 'pointer', padding: 0,
@@ -3752,6 +3799,7 @@ const handleCodeChange = (index: number, value: string) => {
           </div>
         </div>
 
+        {renderBottomTabs()}
       </div>
     )
   }
@@ -3918,6 +3966,7 @@ const handleCodeChange = (index: number, value: string) => {
 
           </div>
         </div>
+        {renderBottomTabs()}
       </div>
     )
   }
@@ -4068,6 +4117,7 @@ const handleCodeChange = (index: number, value: string) => {
           </div>
         </div>
         {renderPennyToast()}
+        {renderBottomTabs()}
       </div>
     )
   }
@@ -4456,6 +4506,7 @@ const handleCodeChange = (index: number, value: string) => {
           )}
         </div>
         {renderPennyToast()}
+        {renderBottomTabs()}
       </div>
     )
   }
@@ -4472,8 +4523,32 @@ const handleCodeChange = (index: number, value: string) => {
           <EarningsScreen
             onBack={() => setScreen('home')}
             fetchAPI={fetchAPI}
+            onViewReceipts={() => setScreen('receipts')}
           />
         </div>
+        {renderBottomTabs()}
+      </div>
+    )
+  }
+
+  // =========================================================================
+  // RECEIPTS SCREEN
+  // =========================================================================
+
+  if (screen === 'receipts') {
+    return (
+      <div style={listStyles.page}>
+        {renderPageHeader('Receipts', 'receipts')}
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          <ReceiptScreen
+            fetchAPI={fetchAPI}
+            onSnapReceipt={() => {
+              setPendingReceiptMode(true)
+              receiptInputRef.current?.click()
+            }}
+          />
+        </div>
+        {renderBottomTabs()}
       </div>
     )
   }
@@ -4568,9 +4643,8 @@ const handleCodeChange = (index: number, value: string) => {
               }}
             >{pageIcons['Shopping List']} {listName || 'Shopping List'}</span>
           )}
-          <div style={{ marginLeft: 'auto' }}>
-            {renderMenu('home')}
-          </div>
+          {/* Spacer to keep title centered */}
+          <div style={{ marginLeft: 'auto', width: '44px' }} />
         </div>
         {/* Progress bar */}
         {items.length > 0 && (() => {
@@ -4958,6 +5032,8 @@ const handleCodeChange = (index: number, value: string) => {
         onAddPhoto={() => fileInputRef.current?.click()}
         chatInputRef={chatInputRef}
       />
+
+      {renderBottomTabs()}
 
       {/* Trip planner bottom sheet */}
       {showTripSheet && (

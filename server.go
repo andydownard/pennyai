@@ -187,6 +187,7 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/auth/email/magic-verify", server.handleMagicLinkVerify)
 	http.HandleFunc("/auth/logout", server.handleLogout)
 	http.HandleFunc("/auth/me", server.handleMe)
+	http.HandleFunc("/api/auth/link", server.handleAuthLink)
 	http.HandleFunc("/api/config", server.handleAPIConfig)
 	http.HandleFunc("/api/list", server.handleList)
 	http.HandleFunc("/api/list/", server.handleList)
