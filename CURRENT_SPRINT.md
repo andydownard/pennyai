@@ -59,17 +59,23 @@ Complete auth linking end-to-end so users can connect all their identity methods
 
 > **Claude: update this section at the end of every session.**
 
-_Last updated: March 8, 2026 (Sprint 10 session 1)_
+_Last updated: March 8, 2026 (Sprint 10 session 2)_
 
-### Sprint 10 Progress
+### Sprint 10 Progress — ALL ITEMS COMPLETE
 
-**Workstream A: Brand Dashboard v2**
+**Workstream A: Brand Dashboard v2** — ALL DONE
 - A1: Competitive Intel API — already existed (`GET /brand/category-intel/:category`)
 - A2: Freemium brand registration — already functional (intel visible to all registered brands)
 - A3: Purchase funnel visualization — **done** — Offered→Accepted→Purchased funnel with accept/purchase rates, pending claims count
 - A4: Dashboard redesign — **done** — Intel preview card above fold (FOMO hook with click-through), purchase funnel, reorganized metrics grid
+- A5: Weekly email digest for brands — **done**
+  - `handlers_brand_digest.go`: hourly background job checks for brand users due for a digest (7-day cadence)
+  - Branded HTML email with metrics: swaps offered/accepted, accept rate, verified purchases, spend, balance
+  - `GET/POST /brand/unsubscribe` opt-out page
+  - `brand_users` gets `digest_opt_out` and `last_digest_at` columns
+  - Idempotent: `last_digest_at` prevents duplicate sends
 
-**Workstream B: Viral Loops**
+**Workstream B: Viral Loops** — ALL DONE
 - B1: "Thriftly Wrapped" monthly savings card — **done**
   - Backend: `GET /api/wrapped` endpoint returns month label, total savings, swaps count, items added, top swap brand, top category, streak days, share text
   - Frontend: `WrappedCard.tsx` component — full-screen modal with savings hero, stats grid, share button (native share API with clipboard fallback)
@@ -77,8 +83,14 @@ _Last updated: March 8, 2026 (Sprint 10 session 1)_
 - B2: Post-swap share prompt — **done** — floating card after swap accept with savings amount, brand name, share/dismiss buttons, 8s auto-dismiss, native share API
 - B3: Enhanced household invite flow — **done** — Penny nudge updated with savings-focused messaging ("Households save 2x more with swaps"), button label changed to "Invite", tracking added
 - B4: Share event tracking (PostHog) — **done** — 7 new tracked events: `post_swap_share_shown`, `post_swap_share_tapped`, `wrapped_viewed`, `wrapped_shared`, `list_shared`, `referral_shared`, `referral_copied`, `invite_shared`, `penny_invite_tapped`
+- B5: Savings milestone celebrations — **done**
+  - `GET /api/milestones/check` returns highest unacknowledged milestone ($10/$25/$50/$100/$250/$500)
+  - `POST /api/milestones/ack` marks milestone as seen
+  - `MilestoneCard.tsx` — celebration modal with tiered emoji, motivational message, share prompt
+  - `savings_milestones` table tracks reached/acked milestones per user
+  - Auto-checks on earnings screen load, PostHog events: `milestone_reached`, `milestone_shared`, `milestone_dismissed`
 
-**Workstream C: Infrastructure**
+**Workstream C: Infrastructure** — ALL DONE
 - C1: Litestream continuous backup — **done**
   - `litestream.yml` config with S3/R2 replication (10s sync interval, 72h retention)
   - Dockerfile updated: installs litestream v0.3.13 + `run.sh` conditional launcher
@@ -92,9 +104,16 @@ _Last updated: March 8, 2026 (Sprint 10 session 1)_
   - Dashboard + analytics handlers switched to use `adminDB()` for all read queries
 
 **Tests**
-- 11 new Go tests: 6 for `/api/wrapped` (auth, method, no activity, with rebates, month param, response shape), 5 for `/api/admin/backup` (auth, forbidden, method, admin trigger, file-based DB)
+- 24 new Go tests total this sprint:
+  - 6 for `/api/wrapped`, 5 for `/api/admin/backup`
+  - 7 for savings milestones (check auth, method, no savings, with savings, ack flow, ack auth, invalid body)
+  - 6 for brand digest (no pending, opted out, no SendGrid, HTML gen, recent skipped, unsubscribe login)
 - All Go tests passing
 - Both frontends build clean (tsc + vite build)
+
+### Remaining Setup
+- Set Litestream env vars in Railway to activate continuous backup:
+  `LITESTREAM_REPLICA_BUCKET`, `LITESTREAM_REPLICA_ENDPOINT`, `LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY`
 
 ### Previous Sprint Work (Sprints 8-9)
 - Auth linking backend + frontend, screen transitions, 12 screen extractions from App.tsx, 14 new E2E tests
