@@ -51,3 +51,10 @@ Don’t take up whole rows with the labels for each section. Save vertical space
 ---
 _Device: Screen: home | Viewport: 403x395 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 26_3_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/145.0.7632.108 Mobile/15E148 Safari/604.1 | Dark: light | Items: 10_
 _Submitted: 2026-03-08 21:57 UTC_
+
+## [NORMAL] 2026-03-08 21:58 UTC
+I should be able to drag whole sections so they match the order I will buy the items in my store
+
+---
+_Device: Screen: home | Viewport: 403x395 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 26_3_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/145.0.7632.108 Mobile/15E148 Safari/604.1 | Dark: light | Items: 10_
+_Submitted: 2026-03-08 21:58 UTC_
