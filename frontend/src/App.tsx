@@ -5,7 +5,7 @@
 // All styles inline. All API calls go to the Go backend.
 // =============================================================================
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import React, { useState, useRef, useEffect, useCallback, Suspense, lazy } from 'react'
 
 import { PennyAvatar } from './components/PennyAvatar'
 import { ActionSheet } from './components/ActionSheet'
@@ -21,29 +21,31 @@ import { trackEvent } from './ab'
 import { TripPlannerSheet, type ShoppingTrip } from './components/TripPlannerSheet'
 import { ItemEditSheet } from './components/ItemEditSheet'
 import { ReviewSheet } from './components/ReviewSheet'
-import { EarningsScreen } from './components/EarningsScreen'
 import { WrappedCard } from './components/WrappedCard'
 import { MilestoneCard } from './components/MilestoneCard'
-import { ReceiptScreen } from './components/ReceiptScreen'
 import { BottomTabBar, type TabScreen } from './components/BottomTabBar'
 import { ScreenTransition, useScreenTransition } from './components/ScreenTransition'
-import { ProfileScreen } from './components/ProfileScreen'
-import { HelpScreen } from './components/HelpScreen'
-import { PennySettingsScreen } from './components/PennySettingsScreen'
 import { PhoneScreen } from './components/PhoneScreen'
 import { CodeScreen } from './components/CodeScreen'
-import { EmailLoginScreen } from './components/EmailLoginScreen'
-import { EmailRegisterScreen } from './components/EmailRegisterScreen'
-import { ForgotPasswordScreen } from './components/ForgotPasswordScreen'
-import { ResetPasswordScreen } from './components/ResetPasswordScreen'
-import { ShareScreen } from './components/ShareScreen'
-import { AdminScreen } from './components/AdminScreen'
-import { SharedListScreen } from './components/SharedListScreen'
 import { FeedbackWidget } from './components/FeedbackWidget'
 import { DoneSummaryModal } from './components/DoneSummaryModal'
 import { JoinPrompt } from './components/JoinPrompt'
 import { PostSwapShareCard } from './components/PostSwapShareCard'
 import { ToggleSwitch } from './components/ToggleSwitch'
+
+// Lazy-loaded screens (code-split for faster initial load)
+const EarningsScreen = lazy(() => import('./components/EarningsScreen').then(m => ({ default: m.EarningsScreen })))
+const ReceiptScreen = lazy(() => import('./components/ReceiptScreen').then(m => ({ default: m.ReceiptScreen })))
+const ProfileScreen = lazy(() => import('./components/ProfileScreen').then(m => ({ default: m.ProfileScreen })))
+const HelpScreen = lazy(() => import('./components/HelpScreen').then(m => ({ default: m.HelpScreen })))
+const PennySettingsScreen = lazy(() => import('./components/PennySettingsScreen').then(m => ({ default: m.PennySettingsScreen })))
+const EmailLoginScreen = lazy(() => import('./components/EmailLoginScreen').then(m => ({ default: m.EmailLoginScreen })))
+const EmailRegisterScreen = lazy(() => import('./components/EmailRegisterScreen').then(m => ({ default: m.EmailRegisterScreen })))
+const ForgotPasswordScreen = lazy(() => import('./components/ForgotPasswordScreen').then(m => ({ default: m.ForgotPasswordScreen })))
+const ResetPasswordScreen = lazy(() => import('./components/ResetPasswordScreen').then(m => ({ default: m.ResetPasswordScreen })))
+const ShareScreen = lazy(() => import('./components/ShareScreen').then(m => ({ default: m.ShareScreen })))
+const AdminScreen = lazy(() => import('./components/AdminScreen').then(m => ({ default: m.AdminScreen })))
+const SharedListScreen = lazy(() => import('./components/SharedListScreen').then(m => ({ default: m.SharedListScreen })))
 import { type ItemModification } from './types'
 import {
   FONT, DEPARTMENTS, DEPT_ICONS,
@@ -3981,7 +3983,17 @@ const handleCodeChange = (index: number, value: string) => {
 }
 
 export default function App() {
-  return <ErrorBoundary><AppInner /></ErrorBoundary>
+  return (
+    <ErrorBoundary>
+      <Suspense fallback={
+        <div style={{ height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg)', fontFamily: FONT }}>
+          <PennyAvatar size={40} />
+        </div>
+      }>
+        <AppInner />
+      </Suspense>
+    </ErrorBoundary>
+  )
 }
 
 // =============================================================================
