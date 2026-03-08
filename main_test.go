@@ -20324,6 +20324,302 @@ func TestAccountMerge_NoOrphan_AuthMethodOnly(t *testing.T) {
 	}
 }
 
+// --- Email Webhook Tests ---
+
+func TestEmailWebhook_ParsesAndAddsItems(t *testing.T) {
+	mock := &MockTwilioClient{}
+	server := newTestServer(t, mock)
+	// Create user with email via loginUser, then set the email
+	_, userID := loginUser(t, server, "+15550001111")
+	server.db.Exec("UPDATE users SET email = 'alice@test.com' WHERE id = ?", userID)
+	// Mock parser
+	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
+		return []ParsedItem{
+			{Name: "Milk", Department: "Dairy"},
+			{Name: "Bread", Department: "Bakery"},
+		}, nil
+	}
+
+	// Build form-encoded request like SendGrid would send
+	body := strings.NewReader("from=alice@test.com&text=milk and bread&subject=groceries")
+	req := httptest.NewRequest("POST", "/api/email", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	server.handleEmailWebhook(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Check items were added
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM list_items WHERE user_id = ?", userID).Scan(&count)
+	if count != 2 {
+		t.Errorf("expected 2 items added, got %d", count)
+	}
+}
+
+func TestEmailWebhook_UnknownSenderReturns200(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	body := strings.NewReader("from=unknown@test.com&text=milk")
+	req := httptest.NewRequest("POST", "/api/email", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	server.handleEmailWebhook(rr, req)
+
+	// Should still return 200 (don't make SendGrid retry)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for unknown sender, got %d", rr.Code)
+	}
+}
+
+func TestEmailWebhook_EmptyBodyNoItems(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "+15550002222")
+	server.db.Exec("UPDATE users SET email = 'alice@test.com' WHERE id = ?", userID)
+
+	body := strings.NewReader("from=alice@test.com&text=")
+	req := httptest.NewRequest("POST", "/api/email", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	server.handleEmailWebhook(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for empty body, got %d", rr.Code)
+	}
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM list_items WHERE user_id = ?", userID).Scan(&count)
+	if count != 0 {
+		t.Errorf("expected 0 items for empty email, got %d", count)
+	}
+}
+
+func TestEmailWebhook_InvalidSecret(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.WebhookBaseURL = "https://example.com"
+	server.config.TwilioAuthToken = "correct-secret"
+
+	body := strings.NewReader("from=alice@test.com&text=milk")
+	req := httptest.NewRequest("POST", "/api/email?secret=wrong-secret", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	server.handleEmailWebhook(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for invalid secret, got %d", rr.Code)
+	}
+}
+
+func TestEmailWebhook_ExtractEmail(t *testing.T) {
+	tests := []struct {
+		input, expected string
+	}{
+		{"alice@test.com", "alice@test.com"},
+		{"Alice <alice@test.com>", "alice@test.com"},
+		{"  Alice Smith <alice@test.com>  ", "alice@test.com"},
+		{"UPPER@TEST.COM", "upper@test.com"},
+	}
+	for _, tc := range tests {
+		got := extractEmail(tc.input)
+		if got != tc.expected {
+			t.Errorf("extractEmail(%q) = %q, want %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+// --- SMS Webhook Tests ---
+
+func TestSMSWebhook_BuffersAndProcesses(t *testing.T) {
+	mock := &MockTwilioClient{}
+	server := newTestServer(t, mock)
+	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
+		return []ParsedItem{
+			{Name: "Eggs", Department: "Dairy", Quantity: 1},
+		}, nil
+	}
+
+	// Use %2B for the + sign so form parsing doesn't convert it to a space
+	body := strings.NewReader("From=%2B15551234567&Body=eggs")
+	req := httptest.NewRequest("POST", "/api/sms", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	server.handleSMSWebhook(rr, req)
+
+	// Should return TwiML
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "<Response>") {
+		t.Error("expected TwiML response")
+	}
+
+	// Wait for the buffer to flush (50ms in test + margin)
+	time.Sleep(200 * time.Millisecond)
+
+	// Item should have been added (user auto-created by upsertUser)
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM list_items WHERE name = 'Eggs'").Scan(&count)
+	if count != 1 {
+		t.Errorf("expected 1 Eggs item, got %d", count)
+	}
+
+	// SMS reply should have been sent
+	to, smsBody := mock.GetLastSMS()
+	if to != "+15551234567" {
+		t.Errorf("expected SMS to +15551234567, got %s", to)
+	}
+	if !strings.Contains(smsBody, "Eggs") {
+		t.Errorf("expected SMS body to contain 'Eggs', got %q", smsBody)
+	}
+}
+
+func TestSMSWebhook_InvalidSignature(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.WebhookBaseURL = "https://example.com"
+	server.config.TwilioAuthToken = "real-token"
+
+	body := strings.NewReader("From=+15551234567&Body=milk")
+	req := httptest.NewRequest("POST", "/api/sms", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Twilio-Signature", "invalid-sig")
+	rr := httptest.NewRecorder()
+	server.handleSMSWebhook(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for invalid Twilio signature, got %d", rr.Code)
+	}
+}
+
+func TestSMSWebhook_EmptyMessage(t *testing.T) {
+	mock := &MockTwilioClient{}
+	server := newTestServer(t, mock)
+
+	body := strings.NewReader("From=+15551234567&Body=&NumMedia=0")
+	req := httptest.NewRequest("POST", "/api/sms", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	server.handleSMSWebhook(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	// Wait for buffer
+	time.Sleep(200 * time.Millisecond)
+
+	// No items should be added, no SMS reply
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM list_items").Scan(&count)
+	if count != 0 {
+		t.Errorf("expected 0 items for empty SMS, got %d", count)
+	}
+}
+
+// --- List Swaps Tests ---
+
+func TestListSwaps_Happy(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "+15550009999")
+
+	// Add a list item
+	server.db.Exec("INSERT INTO list_items (user_id, name, quantity, checked) VALUES (?, 'Heinz Ketchup', 1, 0)", userID)
+	var itemID int
+	server.db.QueryRow("SELECT id FROM list_items WHERE user_id = ? AND name = 'Heinz Ketchup'", userID).Scan(&itemID)
+
+	// Get a deal ID
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE status = 'active' LIMIT 1").Scan(&dealID)
+
+	if dealID > 0 {
+		// Create an offered swap event
+		server.db.Exec(
+			"INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, ?, 'offered')",
+			userID, dealID, itemID,
+		)
+
+		rr := doRequest(server.handleListSwaps, "GET", "/api/list/swaps", nil, []*http.Cookie{cookie})
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+
+		var swaps []map[string]interface{}
+		json.Unmarshal(rr.Body.Bytes(), &swaps)
+		if len(swaps) != 1 {
+			t.Errorf("expected 1 swap, got %d", len(swaps))
+		}
+	}
+}
+
+func TestListSwaps_NoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleListSwaps, "GET", "/api/list/swaps", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestListSwaps_EmptyWhenNoOffers(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "+15550008888")
+
+	rr := doRequest(server.handleListSwaps, "GET", "/api/list/swaps", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var swaps []interface{}
+	json.Unmarshal(rr.Body.Bytes(), &swaps)
+	if len(swaps) != 0 {
+		t.Errorf("expected 0 swaps, got %d", len(swaps))
+	}
+}
+
+// --- Penny Quote Tests ---
+
+func TestPennyQuote_Login_NoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	req := httptest.NewRequest("GET", "/api/penny/quote?context=login", nil)
+	rr := httptest.NewRecorder()
+	server.handlePennyQuote(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for login quote (no auth required), got %d", rr.Code)
+	}
+
+	var result map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &result)
+	if _, ok := result["quote"]; !ok {
+		t.Error("expected 'quote' field in response")
+	}
+}
+
+func TestPennyQuote_NonLogin_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	req := httptest.NewRequest("GET", "/api/penny/quote?context=chime", nil)
+	rr := httptest.NewRecorder()
+	server.handlePennyQuote(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for non-login quote without auth, got %d", rr.Code)
+	}
+}
+
+func TestPennyQuote_DefaultContextIsLogin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	req := httptest.NewRequest("GET", "/api/penny/quote", nil)
+	rr := httptest.NewRecorder()
+	server.handlePennyQuote(rr, req)
+
+	// No context defaults to "login" which doesn't require auth
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for default context, got %d", rr.Code)
+	}
+}
+
 func TestSettingsUpdate_SetsNameSourceManual(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 	cookie, userID := loginUser(t, server, "+15550001234")
