@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { FloatingLabelField } from './FloatingLabelField'
+import { ToggleSwitch } from './ToggleSwitch'
 import { ScreenTransition } from './ScreenTransition'
 import {
   BRAND, TEXT, TEXT_SECONDARY, BORDER, WHITE, ERROR_RED, FONT,
@@ -33,6 +34,9 @@ interface ProfileScreenProps {
   // Address autocomplete
   fetchAPI: (url: string, options?: RequestInit) => Promise<Record<string, unknown> | unknown[] | null>
   placesReady: boolean
+  // Theme
+  darkMode: boolean
+  onToggleDarkMode: () => void
   // Header render prop
   renderHeader: () => React.ReactNode
   // Bottom tabs render prop
@@ -48,6 +52,7 @@ export function ProfileScreen({
   authMethods, onAuthMethodAdded, currentUserId, isAdmin,
   onNavigate, onLogout, showToast, onSessionExpired,
   fetchAPI, placesReady,
+  darkMode, onToggleDarkMode,
   renderHeader, renderBottomTabs, transitionStyle,
 }: ProfileScreenProps) {
   // Avatar state (profile-only)
@@ -429,6 +434,20 @@ export function ProfileScreen({
               Dashboard
             </button>
           )}
+
+          {/* Dark mode toggle */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '4px 0',
+          }}>
+            <div>
+              <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: TEXT }}>Dark mode</div>
+              <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>Easier on the eyes at night</div>
+            </div>
+            <ToggleSwitch value={darkMode} onChange={onToggleDarkMode} />
+          </div>
+
+          <div style={{ height: '1px', backgroundColor: BORDER, margin: '8px 0' }} />
 
           {/* Sign out */}
           <button onClick={onLogout} style={{

@@ -43,6 +43,7 @@ import { type ItemModification } from './types'
 import {
   BRAND, BG, TEXT, TEXT_SECONDARY, BORDER, ERROR_RED, ERROR_RED_DARK, ERROR_RED_LIGHT,
   WHITE, FONT, DEPARTMENTS, DEPT_ICONS, SKELETON, SKELETON_SHIMMER,
+  THEME_CSS, initTheme, getTheme, setTheme,
 } from './styles'
 
 // =============================================================================
@@ -360,6 +361,14 @@ function AppInner() {
     const action = confirmActionRef.current
     closeConfirmModal()
     if (action) action()
+  }
+
+  // --- Theme state ---
+  const [darkMode, setDarkMode] = useState(() => getTheme() === 'dark')
+  const toggleDarkMode = () => {
+    const newTheme = darkMode ? 'light' : 'dark'
+    setDarkMode(!darkMode)
+    setTheme(newTheme)
   }
 
   // --- Onboarding state (persisted via localStorage + server) ---
@@ -2860,6 +2869,8 @@ const handleCodeChange = (index: number, value: string) => {
         onSessionExpired={handleSessionExpired}
         fetchAPI={fetchAPI}
         placesReady={placesReady}
+        darkMode={darkMode}
+        onToggleDarkMode={toggleDarkMode}
         renderHeader={() => renderPageHeader('Profile', 'profile')}
         renderBottomTabs={renderBottomTabs}
         transitionStyle={transitionStyle}
@@ -4052,7 +4063,8 @@ const globalCSS = `
   }
 
   body {
-    background-color: ${BG};
+    background-color: var(--bg, ${BG});
+    color: var(--text, ${TEXT});
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -4153,6 +4165,18 @@ const globalCSS = `
 
   button, a, [role="button"] { -webkit-tap-highlight-color: transparent; }
 
+  /* Dark mode overrides for inline-styled elements */
+  [data-theme="dark"] body { background-color: var(--bg); color: var(--text); }
+  [data-theme="dark"] input, [data-theme="dark"] textarea {
+    background-color: var(--surface) !important;
+    color: var(--text) !important;
+    border-color: var(--border) !important;
+  }
+  [data-theme="dark"] input:focus {
+    border-color: var(--brand) !important;
+    box-shadow: 0 0 0 3px rgba(74, 148, 112, 0.25) !important;
+  }
+
   button:focus-visible { outline: 2px solid ${BRAND}; outline-offset: 2px; }
 
   .sr-only { position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0; }
@@ -4169,5 +4193,8 @@ const globalCSS = `
 // Inject the global styles into the document head.
 // This runs once when the module loads.
 const styleEl = document.createElement('style')
-styleEl.textContent = globalCSS
+styleEl.textContent = THEME_CSS + globalCSS
 document.head.appendChild(styleEl)
+
+// Initialize theme (light/dark) from user preference
+initTheme()

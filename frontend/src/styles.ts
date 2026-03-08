@@ -2,8 +2,13 @@ import type React from 'react'
 
 // =============================================================================
 // DESIGN SYSTEM — colors, typography, and shared style constants
+//
+// Theme support: colors are defined as CSS custom properties via injectThemeVars().
+// The exported constants here are static fallbacks for light mode. Components
+// that need dark mode reactivity should use the CSS var versions directly.
 // =============================================================================
 
+// Light theme values (also used as static fallbacks)
 export const BRAND = '#35644F'
 export const BRAND_LIGHT = '#35644F15'
 export const BG = '#F7F6F3'
@@ -26,6 +31,66 @@ export const SUCCESS_GREEN_LIGHT = '#27674940'
 // Neutral / skeleton
 export const SKELETON = '#E8E6E1'
 export const SKELETON_SHIMMER = '#F2F1ED'
+
+// =============================================================================
+// DARK MODE — CSS custom properties
+// =============================================================================
+
+export const THEME_CSS = `
+  :root {
+    --brand: #35644F;
+    --bg: #F7F6F3;
+    --text: #2A2A2A;
+    --text-secondary: #6B6B6B;
+    --border: #E0DDD6;
+    --surface: #FFFFFF;
+    --error: #C53030;
+    --error-bg: #FEF2F2;
+    --success: #276749;
+    --success-bg: #F0FFF4;
+    --skeleton: #E8E6E1;
+    --skeleton-shimmer: #F2F1ED;
+    color-scheme: light;
+  }
+
+  [data-theme="dark"] {
+    --brand: #4a9470;
+    --bg: #121212;
+    --text: #E8E6E1;
+    --text-secondary: #9CA3AF;
+    --border: #2D2D2D;
+    --surface: #1E1E1E;
+    --error: #F87171;
+    --error-bg: #2D1515;
+    --success: #4ADE80;
+    --success-bg: #14291A;
+    --skeleton: #2D2D2D;
+    --skeleton-shimmer: #3A3A3A;
+    color-scheme: dark;
+  }
+`
+
+export function getTheme(): 'light' | 'dark' {
+  if (typeof window === 'undefined') return 'light'
+  const stored = localStorage.getItem('thriftly_theme')
+  if (stored === 'dark' || stored === 'light') return stored
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+export function setTheme(theme: 'light' | 'dark') {
+  localStorage.setItem('thriftly_theme', theme)
+  document.documentElement.setAttribute('data-theme', theme)
+  // Update meta theme-color for browser chrome
+  const meta = document.querySelector('meta[name="theme-color"]')
+  if (meta) meta.setAttribute('content', theme === 'dark' ? '#121212' : '#35644F')
+}
+
+export function initTheme() {
+  const theme = getTheme()
+  document.documentElement.setAttribute('data-theme', theme)
+  const meta = document.querySelector('meta[name="theme-color"]')
+  if (meta) meta.setAttribute('content', theme === 'dark' ? '#121212' : '#35644F')
+}
 
 // Border radius scale
 export const RADIUS_SM = '8px'
