@@ -879,7 +879,7 @@ This is a **P2** initiative — do incrementally between feature sprints, not as
 > **Goal:** Elevate the user experience from functional MVP to polished consumer app. Address rough edges, inconsistencies, and missing polish identified through user testing and founder feedback.
 
 ### Visual Design
-- **Design system** — Establish a formal design system: color palette, typography scale, spacing scale, shadow/elevation levels, border radii. Currently ad-hoc across components.
+- **Design system** — Establish a formal design system: color palette, typography scale, spacing scale, shadow/elevation levels, border radii. Partially done: CSS variables for all semantic colors (brand, bg, text, border, surface, error, success, warning, info, neutral-bg), light/dark theme, border radius scale, shadow scale, z-index scale, animation durations in styles.ts.
 - [x] **Dark mode** — User-togglable dark mode. Panel consensus: 5/7 want it, especially for late-night grocery planning. ✅ Done: CSS variables, dark/light toggle in profile
 - [x] **Loading states** — Skeleton loaders for list (shimmer animation). ✅ Done: home screen skeleton loaders
 - **Empty states** — Several screens have bare "no items" text. Design proper empty state illustrations with clear CTAs.
@@ -892,7 +892,7 @@ This is a **P2** initiative — do incrementally between feature sprints, not as
 
 ### Interaction Polish
 - [x] **Pull-to-refresh** — On list screen with touch gesture detection. ✅ Done
-- **Swipe gestures** — Swipe-to-delete on list items, swipe-to-dismiss on swap cards.
+- [x] **Swipe gestures** — Swipe-to-delete on list items with red delete reveal, 80px threshold, haptic feedback, optimistic delete with rollback. ✅ Done
 - [x] **Keyboard shortcuts** — Escape closes modals/sheets, Enter to send. ✅ Done
 - [x] **Optimistic updates** — Toggle, delete, edit, claim, urgent, and clear all use optimistic updates with rollback on failure. ✅ Done
 - [x] **Offline detection** — Banner when offline, auto-refresh on reconnect and visibility change. ✅ Done (full offline caching still pending)
