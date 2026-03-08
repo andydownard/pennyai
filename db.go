@@ -986,6 +986,10 @@ func initDB(path string) (*sql.DB, error) {
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_savings_milestones_user ON savings_milestones(user_id)")
 
+	// Brand digest preferences
+	db.Exec("ALTER TABLE brand_users ADD COLUMN digest_opt_out INTEGER NOT NULL DEFAULT 0")
+	db.Exec("ALTER TABLE brand_users ADD COLUMN last_digest_at TEXT DEFAULT NULL")
+
 	return db, nil
 }
 

@@ -14902,3 +14902,120 @@ func TestMilestoneAck_InvalidBody(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// BRAND DIGEST TESTS
+// =============================================================================
+
+func TestBrandDigest_NoPendingDigests(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// No brand users — should not panic
+	server.sendPendingBrandDigests()
+}
+
+func TestBrandDigest_OptedOut(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.SendGridAPIKey = "test-key"
+
+	// Create a brand user who opted out
+	server.db.Exec(`INSERT INTO brand_users (id, email, password_hash, company_name, digest_opt_out)
+		VALUES (1, 'brand@test.com', '$2a$10$test', 'Test Brand', 1)`)
+
+	server.sendPendingBrandDigests()
+
+	// Verify no digest was sent (last_digest_at should still be null)
+	var lastDigest *string
+	server.db.QueryRow("SELECT last_digest_at FROM brand_users WHERE id = 1").Scan(&lastDigest)
+	if lastDigest != nil {
+		t.Errorf("Expected nil last_digest_at for opted-out user, got %v", *lastDigest)
+	}
+}
+
+func TestBrandDigest_NoSendGridKey(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.SendGridAPIKey = "" // no API key
+
+	server.db.Exec(`INSERT INTO brand_users (id, email, password_hash, company_name)
+		VALUES (1, 'brand@test.com', '$2a$10$test', 'Test Brand')`)
+
+	// Should silently skip
+	server.sendPendingBrandDigests()
+
+	var lastDigest *string
+	server.db.QueryRow("SELECT last_digest_at FROM brand_users WHERE id = 1").Scan(&lastDigest)
+	if lastDigest != nil {
+		t.Errorf("Expected nil last_digest_at when no SendGrid key, got %v", *lastDigest)
+	}
+}
+
+func TestBrandDigest_HTMLGeneration(t *testing.T) {
+	data := brandDigestData{
+		CompanyName:        "Hunts",
+		WeekLabel:          "Mar 1 – Mar 8, 2026",
+		TotalOffered:       50,
+		TotalAccepted:      20,
+		AcceptRate:         40,
+		SpentCentsThisWeek: 4000,
+		VerifiedPurchases:  10,
+		PendingClaims:      5,
+		BalanceCents:       100000,
+		ActiveDeals:        3,
+		DashboardURL:       "https://brands.thrift.ly",
+	}
+
+	html := buildBrandDigestHTML(data)
+
+	if !strings.Contains(html, "Hunts") {
+		t.Error("HTML should contain company name")
+	}
+	if !strings.Contains(html, "Mar 1") {
+		t.Error("HTML should contain week label")
+	}
+	if !strings.Contains(html, "50") {
+		t.Error("HTML should contain total offered count")
+	}
+	if !strings.Contains(html, "40%") {
+		t.Error("HTML should contain accept rate")
+	}
+	if !strings.Contains(html, "$40.00") {
+		t.Error("HTML should contain spent amount")
+	}
+	if !strings.Contains(html, "$1000.00") {
+		t.Error("HTML should contain balance")
+	}
+	if !strings.Contains(html, "brands.thrift.ly") {
+		t.Error("HTML should contain dashboard URL")
+	}
+}
+
+func TestBrandDigest_RecentDigestSkipped(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.SendGridAPIKey = "test-key"
+
+	// Create a brand user with recent digest (2 days ago)
+	server.db.Exec(`INSERT INTO brand_users (id, email, password_hash, company_name, last_digest_at)
+		VALUES (1, 'brand@test.com', '$2a$10$test', 'Test Brand', datetime('now', '-2 days'))`)
+
+	server.sendPendingBrandDigests()
+
+	// The last_digest_at should NOT have been updated (still ~2 days ago, not now)
+	var lastDigest string
+	server.db.QueryRow("SELECT last_digest_at FROM brand_users WHERE id = 1").Scan(&lastDigest)
+	// Parse and check — it should be more than 1 day old
+	parsed, _ := time.Parse("2006-01-02 15:04:05", lastDigest)
+	if time.Since(parsed) < 1*24*time.Hour {
+		t.Errorf("Expected old last_digest_at (recent digest should be skipped), got %s", lastDigest)
+	}
+}
+
+func TestBrandUnsubscribe_RequiresLogin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleBrandUnsubscribe, "GET", "/brand/unsubscribe", nil, nil)
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200 (login prompt)", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "log in") {
+		t.Error("Should contain login prompt")
+	}
+}
+

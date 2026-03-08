@@ -265,6 +265,7 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/brand/deposit", server.handleBrandDeposit)
 	http.HandleFunc("/brand/export", server.handleBrandExport)
 	http.HandleFunc("/brand/stripe-webhook", server.handleStripeWebhook)
+	http.HandleFunc("/brand/unsubscribe", server.handleBrandUnsubscribe)
 
 	http.HandleFunc("/api/avatar", server.handleAvatar)
 	http.HandleFunc("/api/avatar/", server.handleAvatar)
@@ -368,6 +369,9 @@ Get these from https://console.twilio.com (see README for full setup).
 			pruneBucketLimiter(&server.earningsUploadLimiter, time.Hour)
 		}
 	}()
+
+	// Weekly brand email digest (checks hourly, sends every 7 days per brand)
+	go server.runBrandDigestLoop()
 
 	log.Printf("thriftly is running on http://localhost:%s", cfg.Port)
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, handler))
