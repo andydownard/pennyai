@@ -15490,6 +15490,38 @@ func TestAllergenHardFilter_BlocksSwap(t *testing.T) {
 	}
 }
 
+func TestHouseholdDuplicateDetection(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create 2 users in the same household
+	server.db.Exec("INSERT INTO users (id, phone_number, name, household_id) VALUES (100, '+15551111111', 'Alice', 1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, name, household_id) VALUES (101, '+15552222222', 'Bob', 1)")
+	server.db.Exec("INSERT INTO households (id, name) VALUES (1, 'Test Family')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 100)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 101)")
+
+	// Alice adds milk
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, checked) VALUES (1, 100, 'Milk', 0)")
+	server.db.Exec("INSERT INTO item_modifications (item_id, user_id, action, source, created_at) VALUES (1, 100, 'added', 'app', datetime('now', '-1 hour'))")
+
+	// Bob adds milk — should trigger duplicate warning
+	bobItems := []ListItem{{ID: 2, Name: "Milk", Brand: "", Department: "Dairy & Eggs"}}
+	warnings := server.checkHouseholdDuplicates(101, bobItems)
+	if len(warnings) != 1 {
+		t.Fatalf("Expected 1 duplicate warning, got %d", len(warnings))
+	}
+	if warnings[0].AddedBy != "Alice" {
+		t.Errorf("Expected added_by 'Alice', got '%s'", warnings[0].AddedBy)
+	}
+
+	// No warning for non-household user
+	server.db.Exec("INSERT INTO users (id, phone_number, name) VALUES (102, '+15553333333', 'Charlie')")
+	noWarnings := server.checkHouseholdDuplicates(102, bobItems)
+	if len(noWarnings) != 0 {
+		t.Errorf("Expected no warnings for non-household user, got %d", len(noWarnings))
+	}
+}
+
 func TestAllergenHardFilter_NoProfile(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 	server.db.Exec("INSERT INTO users (id, phone_number, penny_slider) VALUES (100, '+15551234567', 0)")

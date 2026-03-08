@@ -676,11 +676,11 @@ Break-even math:
 - [x] Shopping frequency pattern (daily/frequent/weekly/occasional)
 - [x] Price sensitivity from swap behavior (high/moderate/low)
 - [x] Preferred shopping day (most active day)
-- [ ] **Dietary profile** — user_dietary_profiles table, GET/PATCH /api/preferences, allergen hard-filter on swaps
-- [ ] **Penny context enrichment** — inject learned preferences into Penny's Claude system prompt
-- [ ] **Preference reset** — DELETE /api/preferences/reset (right to forget)
-- [ ] **Structured decline reasons** — decline_reason column on swap_events, optional quick-tap UI
-- [ ] **Repurchase cycle detection** — "You buy milk every 8 days" from list + receipt patterns
+- [x] **Dietary profile** — user_dietary_profiles table, GET/PATCH /api/preferences, allergen hard-filter on swaps
+- [x] **Penny context enrichment** — inject learned preferences into Penny's Claude system prompt
+- [x] **Preference reset** — DELETE /api/preferences/reset (right to forget)
+- [x] **Structured decline reasons** — decline_reason column on swap_events, captured on decline
+- [x] **Repurchase cycle detection** — "You buy milk every 7 days" from list + modification patterns
 - [ ] **"Penny Knows" insights card** — show learned preferences in Penny chat, tappable to correct
 
 ### L2: Household Learning
@@ -688,7 +688,7 @@ Break-even math:
 - [x] Household coordination score (high/medium/low)
 - [x] Active member tracking
 - [ ] **Household dietary union** — merged allergens across all members
-- [ ] **Duplicate purchase prevention** — alert when 2 members add same item within 4 hours
+- [x] **Duplicate purchase prevention** — alert when 2 members add same item within 4 hours
 - [ ] **Repurchase nudge** — "Your household usually buys paper towels every 3 weeks"
 - [ ] **Shopping role detection** — primary shopper, list builder, etc.
 
@@ -696,7 +696,7 @@ Break-even math:
 
 - [x] Brand accept rate tracking
 - [x] Brand performance classification (strong/average/weak)
-- [ ] **Deal performance daily** — daily aggregation of impressions/accepts/declines per deal
+- [x] **Deal performance daily** — daily aggregation of impressions/accepts/declines per deal
 - [ ] **Segment analysis** — which user segments respond best to which deals
 - [ ] **Category-level insights** — avg acceptance rate, best discount, top decline reason per category
 - [ ] **"Optimize This Deal" recommendations** — AI suggestions for improving deal performance
@@ -712,7 +712,7 @@ Break-even math:
 
 ### L5: Business Learning
 
-- [ ] **Daily business metrics snapshot** — DAU/WAU/MAU, swap funnel, revenue, brand health
+- [x] **Daily business metrics snapshot** — DAU/WAU/MAU, swap funnel, revenue, brand health
 - [ ] **Cohort retention analysis** — weekly cohorts, retention matrix
 - [ ] **Churn prediction signals** — days inactive, decline streak, swap fatigue
 - [ ] **Marketplace health index** — supply/demand balance, revenue concentration

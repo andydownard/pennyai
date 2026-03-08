@@ -562,3 +562,42 @@ func parseFloat(s string) float64 {
 	fmt.Sscanf(s, "%f", &f)
 	return f
 }
+
+// checkHouseholdDuplicates checks if another household member added the same
+// items within the last 4 hours. Returns warnings for the frontend.
+func (s *Server) checkHouseholdDuplicates(userID int, addedItems []ListItem) []DuplicateWarning {
+	var hhID int
+	s.db.QueryRow("SELECT COALESCE(household_id, 0) FROM users WHERE id = ?", userID).Scan(&hhID)
+	if hhID == 0 {
+		return nil
+	}
+
+	var warnings []DuplicateWarning
+	for _, item := range addedItems {
+		var otherName string
+		var hoursAgo int
+		err := s.db.QueryRow(`
+			SELECT COALESCE(u.name, 'Someone'),
+				CAST((julianday('now') - julianday(im.created_at)) * 24 AS INTEGER) as hours_ago
+			FROM item_modifications im
+			JOIN list_items li ON li.id = im.item_id
+			JOIN users u ON u.id = im.user_id
+			JOIN household_members hm ON hm.user_id = im.user_id
+			WHERE hm.household_id = ?
+				AND im.user_id != ?
+				AND im.action = 'added'
+				AND LOWER(li.name) = LOWER(?)
+				AND im.created_at >= datetime('now', '-4 hours')
+			ORDER BY im.created_at DESC LIMIT 1
+		`, hhID, userID, item.Name).Scan(&otherName, &hoursAgo)
+		if err == nil {
+			firstName := strings.Split(strings.TrimSpace(otherName), " ")[0]
+			warnings = append(warnings, DuplicateWarning{
+				ItemName: item.Name,
+				AddedBy:  firstName,
+				HoursAgo: hoursAgo,
+			})
+		}
+	}
+	return warnings
+}

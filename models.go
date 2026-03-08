@@ -101,6 +101,14 @@ type ParseResponse struct {
 	SavedLists           []SavedListSummary    `json:"saved_lists,omitempty"`
 	PendingSwap          *PendingSwap          `json:"pending_swap,omitempty"`
 	SwapCreditsCents     int                   `json:"swap_credits_cents,omitempty"`
+	DuplicateWarnings    []DuplicateWarning    `json:"duplicate_warnings,omitempty"`
+}
+
+// DuplicateWarning indicates another household member recently added the same item.
+type DuplicateWarning struct {
+	ItemName  string `json:"item_name"`
+	AddedBy   string `json:"added_by"`   // first name of the other member
+	HoursAgo int    `json:"hours_ago"`   // how many hours ago they added it
 }
 
 // BrandDisambiguation represents a brand choice the user needs to make.

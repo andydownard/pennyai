@@ -1275,6 +1275,11 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 			if swap := s.checkDealsForItems(session.UserID, added); swap != nil {
 				resp.PendingSwap = swap
 			}
+
+			// Check household duplicate items
+			if dupes := s.checkHouseholdDuplicates(session.UserID, added); len(dupes) > 0 {
+				resp.DuplicateWarnings = dupes
+			}
 		}
 
 		if resp.Items == nil {
@@ -1314,6 +1319,11 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 	// Check for matching swap deals on newly added items
 	if swap := s.checkDealsForItems(session.UserID, added); swap != nil {
 		resp.PendingSwap = swap
+	}
+
+	// Check household duplicate items
+	if dupes := s.checkHouseholdDuplicates(session.UserID, added); len(dupes) > 0 {
+		resp.DuplicateWarnings = dupes
 	}
 
 	if resp.Items == nil {
