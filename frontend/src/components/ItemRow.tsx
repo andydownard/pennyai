@@ -1,6 +1,6 @@
 import { BrandLogo } from './BrandLogo'
 import { SwapCard, type SwapOffer } from './SwapCard'
-import { FONT } from '../styles'
+import { FONT, DEPT_ICONS } from '../styles'
 
 export type ListItem = {
   id: number
@@ -124,7 +124,18 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onS
           </span>
         </button>
         <div style={{ marginRight: '8px' }}>
-          <BrandLogo brand={item.brand} size={36} opacity={item.checked ? 0.4 : 1} />
+          {item.brand ? (
+            <BrandLogo brand={item.brand} size={36} opacity={item.checked ? 0.4 : 1} />
+          ) : (
+            <div style={{
+              width: 36, height: 36, borderRadius: '8px', flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '20px', opacity: item.checked ? 0.4 : 1,
+              transition: 'opacity 0.15s',
+            }}>
+              {DEPT_ICONS[item.department] || '🛒'}
+            </div>
+          )}
         </div>
         <div style={styles.center} onClick={() => onTap(item)} role="button" tabIndex={0} aria-label={`Edit ${item.brand && !item.name.toLowerCase().includes(item.brand.toLowerCase()) ? item.brand + ' ' : ''}${item.name}`} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTap(item) } }}>
           <span style={styles.name(item.checked)}>
