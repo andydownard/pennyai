@@ -325,6 +325,9 @@ func handleTrackABEvent(s *Server) http.HandlerFunc {
 // POST /api/admin/ab-tests
 func handleCreateABTest(s *Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := s.requireAdmin(w, r); !ok {
+			return
+		}
 		var req struct {
 			Name            string   `json:"name"`
 			Description     string   `json:"description"`
@@ -374,6 +377,9 @@ func handleCreateABTest(s *Server) http.HandlerFunc {
 // GET /api/admin/ab-tests/:name/results
 func handleABTestResults(s *Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := s.requireAdmin(w, r); !ok {
+			return
+		}
 		testName := r.PathValue("name")
 		if testName == "" {
 			http.Error(w, "test name required", http.StatusBadRequest)
@@ -394,6 +400,9 @@ func handleABTestResults(s *Server) http.HandlerFunc {
 // POST /api/admin/ab-tests/:name/resolve  { "winner": "variant" }
 func handleResolveABTest(s *Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := s.requireAdmin(w, r); !ok {
+			return
+		}
 		testName := r.PathValue("name")
 		var req struct {
 			Winner string `json:"winner"`
@@ -420,6 +429,9 @@ func handleResolveABTest(s *Server) http.HandlerFunc {
 // GET /api/admin/ab-tests
 func handleListABTests(s *Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := s.requireAdmin(w, r); !ok {
+			return
+		}
 		status := r.URL.Query().Get("status")
 		query := `SELECT id, name, COALESCE(description,''), variants, key_metric,
 				  min_sample_per_variant, measurement_days, traffic_pct, status,

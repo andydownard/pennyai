@@ -21733,3 +21733,256 @@ func TestBrandExport_MethodNotAllowed(t *testing.T) {
 		t.Errorf("expected 405 for POST, got %d", rr.Code)
 	}
 }
+
+// =============================================================================
+// A/B Testing Endpoint Tests
+// =============================================================================
+
+func TestABGetVariant_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(handleGetVariant(server), "GET", "/api/ab/variant?test=onboarding_v2", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without session, got %d", rr.Code)
+	}
+}
+
+func TestABGetVariant_MissingTestParam(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	user, _ := upsertUser(server.db, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(handleGetVariant(server), "GET", "/api/ab/variant", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 without test param, got %d", rr.Code)
+	}
+}
+
+func TestABGetVariant_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create a test first
+	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct)
+		VALUES ('test_ab', 'desc', '["control","variant"]', 'conversion', 100, 7, 100)`)
+
+	user, _ := upsertUser(server.db, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(handleGetVariant(server), "GET", "/api/ab/variant?test=test_ab", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+	result := parseJSON(rr)
+	variant, ok := result["variant"].(string)
+	if !ok || (variant != "control" && variant != "variant") {
+		t.Errorf("expected control or variant, got %v", result["variant"])
+	}
+}
+
+func TestABGetVariant_Deterministic(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct)
+		VALUES ('det_test', 'desc', '["control","variant"]', 'conversion', 100, 7, 100)`)
+
+	user, _ := upsertUser(server.db, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	// Same user, same test should return same variant
+	rr1 := doRequest(handleGetVariant(server), "GET", "/api/ab/variant?test=det_test", nil, []*http.Cookie{cookie})
+	rr2 := doRequest(handleGetVariant(server), "GET", "/api/ab/variant?test=det_test", nil, []*http.Cookie{cookie})
+
+	r1 := parseJSON(rr1)
+	r2 := parseJSON(rr2)
+	if r1["variant"] != r2["variant"] {
+		t.Errorf("variant assignment not deterministic: %v vs %v", r1["variant"], r2["variant"])
+	}
+}
+
+func TestABTrackEvent_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(handleTrackABEvent(server), "POST", "/api/ab/event",
+		map[string]interface{}{"test": "t", "event": "e"}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without session, got %d", rr.Code)
+	}
+}
+
+func TestABTrackEvent_MissingFields(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	user, _ := upsertUser(server.db, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(handleTrackABEvent(server), "POST", "/api/ab/event",
+		map[string]interface{}{"test": "", "event": ""}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing fields, got %d", rr.Code)
+	}
+}
+
+func TestABTrackEvent_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	user, _ := upsertUser(server.db, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(handleTrackABEvent(server), "POST", "/api/ab/event",
+		map[string]interface{}{"test": "my_test", "event": "conversion", "value": 1.0}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestABTrackEvent_DefaultValue(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	user, _ := upsertUser(server.db, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	// Value 0 should default to 1.0
+	rr := doRequest(handleTrackABEvent(server), "POST", "/api/ab/event",
+		map[string]interface{}{"test": "my_test", "event": "click"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 with default value, got %d", rr.Code)
+	}
+}
+
+func TestABCreateTest_RequiresAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// No auth
+	rr := doRequest(handleCreateABTest(server), "POST", "/api/admin/ab-tests",
+		map[string]interface{}{"name": "test", "key_metric": "m"}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without session, got %d", rr.Code)
+	}
+
+	// Non-admin user
+	user, _ := upsertUser(server.db, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr = doRequest(handleCreateABTest(server), "POST", "/api/admin/ab-tests",
+		map[string]interface{}{"name": "test", "key_metric": "m"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+
+func TestABCreateTest_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	admin, _ := upsertUser(server.db, "3104861833")
+	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(handleCreateABTest(server), "POST", "/api/admin/ab-tests",
+		map[string]interface{}{
+			"name":       "onboarding_test",
+			"key_metric": "items_added",
+			"variants":   []string{"control", "v1", "v2"},
+		}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Errorf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	result := parseJSON(rr)
+	if result["name"] != "onboarding_test" {
+		t.Errorf("expected name in response, got %v", result)
+	}
+}
+
+func TestABCreateTest_MissingFields(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	admin, _ := upsertUser(server.db, "3104861833")
+	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(handleCreateABTest(server), "POST", "/api/admin/ab-tests",
+		map[string]interface{}{"name": ""}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing name, got %d", rr.Code)
+	}
+}
+
+func TestABCreateTest_DefaultVariants(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	admin, _ := upsertUser(server.db, "3104861833")
+	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	// No variants provided — should default to ["control", "variant"]
+	rr := doRequest(handleCreateABTest(server), "POST", "/api/admin/ab-tests",
+		map[string]interface{}{"name": "default_test", "key_metric": "m"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Errorf("expected 201, got %d", rr.Code)
+	}
+}
+
+func TestABListTests_RequiresAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// No auth
+	rr := doRequest(handleListABTests(server), "GET", "/api/admin/ab-tests", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without session, got %d", rr.Code)
+	}
+
+	// Non-admin
+	user, _ := upsertUser(server.db, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr = doRequest(handleListABTests(server), "GET", "/api/admin/ab-tests", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+
+func TestABListTests_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	admin, _ := upsertUser(server.db, "3104861833")
+	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	// Create a test
+	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct)
+		VALUES ('list_test', 'desc', '["a","b"]', 'metric', 100, 7, 50)`)
+
+	rr := doRequest(handleListABTests(server), "GET", "/api/admin/ab-tests", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestABResolveTest_RequiresAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(handleResolveABTest(server), "POST", "/api/admin/ab-tests/test/resolve",
+		map[string]interface{}{"winner": "control"}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestABResolveTest_MissingWinner(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	admin, _ := upsertUser(server.db, "3104861833")
+	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(handleResolveABTest(server), "POST", "/api/admin/ab-tests/test/resolve",
+		map[string]interface{}{"winner": ""}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty winner, got %d", rr.Code)
+	}
+}
+
+func TestABResults_RequiresAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(handleABTestResults(server), "GET", "/api/admin/ab-tests/test/results", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
