@@ -23,3 +23,10 @@ I wonder what would happen if you said, “I’d like the experience to be more 
 ---
 _Device: Screen: home | Viewport: 394x374 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1 | Dark: dark | Items: 4_
 _Submitted: 2026-03-08 21:50 UTC_
+
+## [NORMAL] 2026-03-08 21:55 UTC
+You don’t recognize the words “flour” or “rigatoni” as items to purchase
+
+---
+_Device: Screen: home | Viewport: 403x395 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 26_3_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/145.0.7632.108 Mobile/15E148 Safari/604.1 | Dark: light | Items: 10_
+_Submitted: 2026-03-08 21:55 UTC_
