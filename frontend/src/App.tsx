@@ -337,6 +337,7 @@ function AppInner() {
   // --- Shopping trip planner state ---
   const [trips, setTrips] = useState<ShoppingTrip[]>([])
   const [showTripSheet, setShowTripSheet] = useState(false)
+  const [tripSuggestionDismissed, setTripSuggestionDismissed] = useState(() => sessionStorage.getItem('thriftly_trip_dismissed') === '1')
 
   // --- Saved lists state ---
   const [showSaveSheet, setShowSaveSheet] = useState(false)
@@ -3297,8 +3298,38 @@ const handleCodeChange = (index: number, value: string) => {
       </div>
 
 
-      {/* Trip planner suggestion banner — once per session, 5+ unchecked items */}
-      {/* Trip suggestion moved to Penny chime-in — no banner */}
+      {/* Trip planner suggestion — once per session, 5+ unchecked items, no active trip */}
+      {!tripSuggestionDismissed && activeTrips.length === 0 && items.filter(i => !i.checked).length >= 5 && (
+        <div style={{
+          flexShrink: 0, padding: '8px 16px', backgroundColor: WHITE,
+          borderTop: `1px solid ${BORDER}`,
+          display: 'flex', alignItems: 'center', gap: '10px',
+        }}>
+          <span style={{ flex: 1, fontFamily: FONT, fontSize: '14px', color: TEXT }}>
+            Ready to shop? <button
+              onClick={() => { pushModalState(); setShowTripSheet(true) }}
+              style={{
+                background: 'none', border: 'none', color: BRAND, fontFamily: FONT,
+                fontSize: '14px', fontWeight: 600, cursor: 'pointer', padding: 0,
+                textDecoration: 'underline', textUnderlineOffset: '2px',
+              }}
+            >Plan a trip</button>
+          </span>
+          <button
+            onClick={() => { setTripSuggestionDismissed(true); sessionStorage.setItem('thriftly_trip_dismissed', '1') }}
+            aria-label="Dismiss trip suggestion"
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: '4px',
+              color: TEXT_SECONDARY, display: 'flex', minWidth: '44px', minHeight: '44px',
+              alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
+      )}
 
       {/* Confetti on list completion */}
       {showFireworks && <Confetti onComplete={() => setShowFireworks(false)} />}
