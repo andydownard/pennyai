@@ -123,10 +123,13 @@ func (s *Server) handleLogoProxy(w http.ResponseWriter, r *http.Request) {
 // The public token is accepted as a fallback in case the secret is unset but the
 // token alone is configured (e.g. a plan that doesn't issue a secret key).
 func fetchBrandLogo(domain, secretKey, publicToken string) ([]byte, string) {
-	// Use public token (secret key may expire); fall back to secret key.
-	token := publicToken
+	// Prefer secret key for server-side use (bypasses Referer validation).
+	// Fall back to public token with Referer header as a best-effort.
+	token := secretKey
+	useReferer := false
 	if token == "" {
-		token = secretKey
+		token = publicToken
+		useReferer = true
 	}
 	if token == "" {
 		return nil, ""
@@ -136,6 +139,9 @@ func fetchBrandLogo(domain, secretKey, publicToken string) ([]byte, string) {
 	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, ""
+	}
+	if useReferer {
+		req.Header.Set("Referer", "https://app.thrift.ly/")
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -169,7 +175,8 @@ func (s *Server) servePlaceholderLogo(w http.ResponseWriter, name string) {
         font-family="system-ui,sans-serif" font-weight="600" font-size="48" fill="white">%s</text>
 </svg>`, color, safeInitials)
 	w.Header().Set("Content-Type", "image/svg+xml")
-	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", logoCacheMaxAge))
+	// Short cache for placeholders so real logos replace them on next fetch
+	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.Write([]byte(svg))
 }
 
