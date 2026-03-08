@@ -3422,7 +3422,7 @@ const handleCodeChange = (index: number, value: string) => {
                   aria-expanded={isOpen}
                   aria-label={`${dept}, ${deptChecked} of ${deptTotal} items checked`}
                 >
-                  <span style={{ width: '52px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, paddingLeft: '9px', boxSizing: 'border-box' }} aria-hidden="true">
+                  <span style={{ width: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, paddingLeft: '8px', boxSizing: 'border-box' }} aria-hidden="true">
                     {deptDone ? <span style={{ color: 'var(--brand)', fontSize: '15px' }}>✓</span> : <DeptIcon dept={dept} />}
                   </span>
                   <span style={deptDone ? { textDecoration: 'line-through', opacity: 0.5 } : undefined}>{dept}</span>
@@ -3869,8 +3869,8 @@ const listStyles = {
     display: 'flex',
     alignItems: 'center',
     width: '100%',
-    padding: '10px 20px 10px 0',
-    marginTop: isFirst ? 0 : '8px',
+    padding: '6px 14px 6px 0',
+    marginTop: isFirst ? 0 : '2px',
     background: open ? 'color-mix(in srgb, var(--brand) 9%, transparent)' : '#F4F2EE',
     border: 'none',
     borderTop: isFirst ? 'none' : '1px solid var(--border)',
@@ -3880,7 +3880,7 @@ const listStyles = {
     textAlign: 'left' as const,
     gap: '0px',
     fontFamily: FONT,
-    fontSize: '13px',
+    fontSize: '12px',
     fontWeight: 700,
     color: open ? 'var(--brand)' : '#4A4A4A',
     textTransform: 'uppercase' as const,
@@ -4073,6 +4073,15 @@ const globalCSS = `
     color: var(--text);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  /* Allow text selection in inputs and textareas */
+  input, textarea, [contenteditable] {
+    -webkit-user-select: text;
+    user-select: text;
   }
 
   input:focus {

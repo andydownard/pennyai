@@ -47,8 +47,8 @@ const btnStyle: React.CSSProperties = {
 
 const chatBarStyle: React.CSSProperties = {
   flexShrink: 0,
-  padding: '8px 8px 8px 4px',
-  paddingBottom: '8px',
+  padding: '6px 6px 6px 2px',
+  paddingBottom: '6px',
   backgroundColor: 'var(--surface)',
   borderTop: '1.5px solid var(--border)',
   boxShadow: '0 -2px 12px rgba(0,0,0,0.06)',
@@ -61,7 +61,7 @@ const chatPillStyle: React.CSSProperties = {
 }
 
 const chatInputStyle: React.CSSProperties = {
-  flex: 1, padding: '10px 14px', fontSize: '16px', fontFamily: FONT,
+  flex: 1, padding: '8px 12px', fontSize: '16px', fontFamily: FONT,
   color: 'var(--text)', backgroundColor: 'transparent', border: 'none', outline: 'none', minWidth: 0,
 }
 
@@ -90,15 +90,15 @@ export function PennyBar({
     <>
       {/* Penny text + brand disambiguation */}
       <div style={{ flexShrink: 0, backgroundColor: bgColor, borderTop: '1px solid var(--border)', overflow: 'hidden' }}>
-        <div style={{ padding: keyboardOpen ? '6px 12px' : '12px 16px', transition: 'padding 200ms ease' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: keyboardOpen ? '8px' : '10px' }}>
-            <PennyAvatar size={keyboardOpen ? 28 : 36} />
+        <div style={{ padding: keyboardOpen ? '4px 12px' : '8px 14px', transition: 'padding 200ms ease' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <PennyAvatar size={keyboardOpen ? 24 : 28} />
             <span style={{
-              flex: 1, fontFamily: FONT, fontSize: keyboardOpen ? '13px' : '14px',
+              flex: 1, fontFamily: FONT, fontSize: keyboardOpen ? '12px' : '13px',
               color: textColor, fontWeight: 500,
-              display: '-webkit-box' as const, WebkitLineClamp: 3,
+              display: '-webkit-box' as const, WebkitLineClamp: 2,
               WebkitBoxOrient: 'vertical' as const, overflow: 'hidden',
-              minHeight: keyboardOpen ? undefined : '20px', transition: 'font-size 200ms ease',
+              transition: 'font-size 200ms ease',
             }}>
               {hasDisambig
                 ? (() => { const d = disambig[disambigIndex]; return d.auto_assigned ? `I picked ${d.current_brand} for ${d.product_category}` : d.current_brand ? `${d.product_category} (${d.current_brand}) — which brand?` : `${d.product_category} — which brand?` })()

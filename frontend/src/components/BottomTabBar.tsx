@@ -10,8 +10,8 @@ interface BottomTabBarProps {
   swapCount?: number
 }
 
-const TAB_HEIGHT = 56
-const ICON_SIZE = 22
+const TAB_HEIGHT = 48
+const ICON_SIZE = 20
 
 const icons = {
   list: (color: string) => (
