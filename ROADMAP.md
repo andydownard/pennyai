@@ -713,8 +713,8 @@ Break-even math:
 ### L5: Business Learning
 
 - [x] **Daily business metrics snapshot** — DAU/WAU/MAU, swap funnel, revenue, brand health
-- [ ] **Cohort retention analysis** — weekly cohorts, retention matrix
-- [ ] **Churn prediction signals** — days inactive, decline streak, swap fatigue
+- [x] **Cohort retention analysis** — weekly cohorts, GET /api/admin/cohort-analysis
+- [x] **Churn prediction signals** — days_inactive, decline_streak, swap_fatigue, list_abandonment
 - [ ] **Marketplace health index** — supply/demand balance, revenue concentration
 - [ ] **Enhanced admin dashboard** — time-series charts, cohort table, churn risk list
 

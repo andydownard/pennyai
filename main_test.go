@@ -15904,3 +15904,65 @@ func TestDealPerformance_InvalidID(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// CHURN PREDICTION + COHORT TESTS
+// =============================================================================
+
+func TestProcessChurnSignals(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create user with old session (inactive)
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
+	server.db.Exec("INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES ('tok1', 100, datetime('now', '-20 days'), datetime('now', '+10 days'))")
+
+	server.processChurnSignals()
+
+	// Verify days_inactive signal was created
+	var signalType string
+	var riskScore float64
+	err := server.db.QueryRow("SELECT signal_type, risk_score FROM churn_signals WHERE user_id = 100 AND signal_type = 'days_inactive'").Scan(&signalType, &riskScore)
+	if err != nil {
+		t.Fatalf("Expected days_inactive signal, got error: %v", err)
+	}
+	if riskScore <= 0 {
+		t.Errorf("Expected positive risk score for inactive user, got %.2f", riskScore)
+	}
+}
+
+func TestProcessUserCohorts(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	server.db.Exec("INSERT INTO users (id, phone_number, created_at) VALUES (100, '+15551234567', '2026-03-01 10:00:00')")
+
+	server.processUserCohorts()
+
+	var cohortWeek string
+	err := server.db.QueryRow("SELECT cohort_week FROM user_cohorts WHERE user_id = 100").Scan(&cohortWeek)
+	if err != nil {
+		t.Fatalf("Expected cohort entry, got error: %v", err)
+	}
+	if cohortWeek == "" {
+		t.Error("Expected non-empty cohort_week")
+	}
+}
+
+func TestChurnRisk_AdminOnly(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleChurnRisk, "GET", "/api/admin/churn-risk", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+
+func TestCohortAnalysis_AdminOnly(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleCohortAnalysis, "GET", "/api/admin/cohort-analysis", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+

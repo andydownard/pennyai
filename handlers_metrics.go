@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -263,12 +264,16 @@ func (s *Server) runDailyMetricsLoop() {
 
 	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 	s.processDailyMetrics(yesterday)
+	s.processChurnSignals()
+	s.processUserCohorts()
 
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
 	for range ticker.C {
 		yesterday = time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 		s.processDailyMetrics(yesterday)
+		s.processChurnSignals()
+		s.processUserCohorts()
 	}
 }
 
@@ -422,5 +427,508 @@ func (s *Server) handleBrandDealPerformance(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"deal_id":     dealID,
 		"performance": results,
+	})
+}
+
+// =============================================================================
+// CHURN PREDICTION SIGNALS
+// =============================================================================
+
+// processChurnSignals computes churn risk signals for all users and upserts
+// them into the churn_signals table. Uses collect-then-write pattern.
+func (s *Server) processChurnSignals() {
+	start := time.Now()
+
+	// --- Signal 1: days_inactive (days since last session activity) ---
+	type churnSignal struct {
+		userID      int
+		signalType  string
+		signalValue float64
+		riskScore   float64
+	}
+	var signals []churnSignal
+
+	rows, err := s.db.Query(`
+		SELECT u.id,
+			COALESCE(
+				JULIANDAY('now') - JULIANDAY(MAX(s.created_at)),
+				999
+			) as days_inactive
+		FROM users u
+		LEFT JOIN sessions s ON s.user_id = u.id
+		GROUP BY u.id
+	`)
+	if err != nil {
+		log.Printf("[churn] failed to query days_inactive: %v", err)
+	} else {
+		for rows.Next() {
+			var userID int
+			var daysInactive float64
+			if err := rows.Scan(&userID, &daysInactive); err != nil {
+				log.Printf("[churn] scan days_inactive: %v", err)
+				continue
+			}
+			risk := daysInactive / 30.0
+			if risk > 1.0 {
+				risk = 1.0
+			}
+			signals = append(signals, churnSignal{
+				userID:      userID,
+				signalType:  "days_inactive",
+				signalValue: daysInactive,
+				riskScore:   risk,
+			})
+		}
+		rows.Close()
+	}
+
+	// --- Signal 2: decline_streak (consecutive declines without an accept) ---
+	rows, err = s.db.Query(`
+		SELECT user_id, action FROM swap_events
+		ORDER BY user_id, created_at DESC
+	`)
+	if err != nil {
+		log.Printf("[churn] failed to query decline_streak: %v", err)
+	} else {
+		streakMap := map[int]int{}
+		currentUser := -1
+		counting := true
+		for rows.Next() {
+			var userID int
+			var action string
+			if err := rows.Scan(&userID, &action); err != nil {
+				continue
+			}
+			if userID != currentUser {
+				currentUser = userID
+				counting = true
+				streakMap[userID] = 0
+			}
+			if !counting {
+				continue
+			}
+			if action == "declined" {
+				streakMap[userID]++
+			} else if action == "accepted" {
+				counting = false
+			}
+		}
+		rows.Close()
+		for userID, streak := range streakMap {
+			risk := float64(streak) / 5.0
+			if risk > 1.0 {
+				risk = 1.0
+			}
+			signals = append(signals, churnSignal{
+				userID:      userID,
+				signalType:  "decline_streak",
+				signalValue: float64(streak),
+				riskScore:   risk,
+			})
+		}
+	}
+
+	// --- Signal 3: swap_fatigue (decline ratio if > 10 total offers) ---
+	rows, err = s.db.Query(`
+		SELECT user_id,
+			COUNT(CASE WHEN action = 'offered' THEN 1 END) as total_offers,
+			COUNT(CASE WHEN action = 'declined' THEN 1 END) as total_declines
+		FROM swap_events
+		GROUP BY user_id
+		HAVING total_offers > 10
+	`)
+	if err != nil {
+		log.Printf("[churn] failed to query swap_fatigue: %v", err)
+	} else {
+		for rows.Next() {
+			var userID, totalOffers, totalDeclines int
+			if err := rows.Scan(&userID, &totalOffers, &totalDeclines); err != nil {
+				continue
+			}
+			ratio := float64(totalDeclines) / float64(totalOffers)
+			risk := 0.0
+			if ratio > 0.8 {
+				risk = ratio
+				if risk > 1.0 {
+					risk = 1.0
+				}
+			}
+			signals = append(signals, churnSignal{
+				userID:      userID,
+				signalType:  "swap_fatigue",
+				signalValue: ratio,
+				riskScore:   risk,
+			})
+		}
+		rows.Close()
+	}
+
+	// --- Signal 4: list_abandonment (days since last item added) ---
+	rows, err = s.db.Query(`
+		SELECT u.id,
+			COALESCE(
+				JULIANDAY('now') - JULIANDAY(MAX(li.created_at)),
+				999
+			) as days_since_add
+		FROM users u
+		LEFT JOIN list_items li ON li.user_id = u.id
+		GROUP BY u.id
+	`)
+	if err != nil {
+		log.Printf("[churn] failed to query list_abandonment: %v", err)
+	} else {
+		for rows.Next() {
+			var userID int
+			var daysSinceAdd float64
+			if err := rows.Scan(&userID, &daysSinceAdd); err != nil {
+				continue
+			}
+			risk := daysSinceAdd / 14.0
+			if risk > 1.0 {
+				risk = 1.0
+			}
+			signals = append(signals, churnSignal{
+				userID:      userID,
+				signalType:  "list_abandonment",
+				signalValue: daysSinceAdd,
+				riskScore:   risk,
+			})
+		}
+		rows.Close()
+	}
+
+	// --- Write all signals ---
+	for _, sig := range signals {
+		_, err := s.db.Exec(`
+			INSERT INTO churn_signals (user_id, signal_type, signal_value, risk_score, computed_at)
+			VALUES (?, ?, ?, ?, datetime('now'))
+			ON CONFLICT(user_id, signal_type) DO UPDATE SET
+				signal_value = excluded.signal_value,
+				risk_score = excluded.risk_score,
+				computed_at = datetime('now')
+		`, sig.userID, sig.signalType, sig.signalValue, sig.riskScore)
+		if err != nil {
+			log.Printf("[churn] failed to upsert churn_signal for user %d type %s: %v", sig.userID, sig.signalType, err)
+		}
+	}
+
+	elapsed := time.Since(start)
+	log.Printf("[churn] processed %d churn signals in %v", len(signals), elapsed)
+}
+
+// =============================================================================
+// USER COHORT RETENTION
+// =============================================================================
+
+// processUserCohorts computes cohort data for all users and upserts into
+// user_cohorts. Uses collect-then-write pattern.
+func (s *Server) processUserCohorts() {
+	start := time.Now()
+
+	type cohortRow struct {
+		userID          int
+		cohortWeek      string
+		signupSource    string
+		firstSwapAt     sql.NullString
+		totalSwaps      int
+		totalSavings    int
+		lastActive      sql.NullString
+		isChurned       int
+	}
+	var cohorts []cohortRow
+
+	// Gather user data with cohort week derived from created_at
+	rows, err := s.db.Query(`
+		SELECT
+			u.id,
+			CAST(strftime('%Y', u.created_at) AS TEXT) || '-W' ||
+				CASE WHEN LENGTH(CAST(strftime('%W', u.created_at) AS TEXT)) = 1
+					THEN '0' || CAST(strftime('%W', u.created_at) AS TEXT)
+					ELSE CAST(strftime('%W', u.created_at) AS TEXT)
+				END as cohort_week,
+			COALESCE(am.provider, '') as signup_source
+		FROM users u
+		LEFT JOIN auth_methods am ON am.user_id = u.id
+		GROUP BY u.id
+	`)
+	if err != nil {
+		log.Printf("[cohorts] failed to query users: %v", err)
+		return
+	}
+	type userBase struct {
+		userID       int
+		cohortWeek   string
+		signupSource string
+	}
+	var users []userBase
+	for rows.Next() {
+		var ub userBase
+		if err := rows.Scan(&ub.userID, &ub.cohortWeek, &ub.signupSource); err != nil {
+			log.Printf("[cohorts] scan user base: %v", err)
+			continue
+		}
+		users = append(users, ub)
+	}
+	rows.Close()
+
+	// Gather first swap and total swaps per user
+	type swapStats struct {
+		firstSwapAt sql.NullString
+		totalSwaps  int
+	}
+	swapMap := map[int]swapStats{}
+	rows, err = s.db.Query(`
+		SELECT user_id, MIN(created_at) as first_swap, COUNT(*) as total
+		FROM swap_events
+		WHERE action = 'accepted'
+		GROUP BY user_id
+	`)
+	if err != nil {
+		log.Printf("[cohorts] failed to query swap stats: %v", err)
+	} else {
+		for rows.Next() {
+			var userID int
+			var ss swapStats
+			if err := rows.Scan(&userID, &ss.firstSwapAt, &ss.totalSwaps); err != nil {
+				continue
+			}
+			swapMap[userID] = ss
+		}
+		rows.Close()
+	}
+
+	// Gather total savings per user from swap_rebates
+	savingsMap := map[int]int{}
+	rows, err = s.db.Query(`
+		SELECT user_id, COALESCE(SUM(amount_cents), 0) as total_savings
+		FROM swap_rebates
+		GROUP BY user_id
+	`)
+	if err != nil {
+		log.Printf("[cohorts] failed to query savings: %v", err)
+	} else {
+		for rows.Next() {
+			var userID, savings int
+			if err := rows.Scan(&userID, &savings); err != nil {
+				continue
+			}
+			savingsMap[userID] = savings
+		}
+		rows.Close()
+	}
+
+	// Gather last session activity per user
+	lastActiveMap := map[int]sql.NullString{}
+	rows, err = s.db.Query(`
+		SELECT user_id, MAX(created_at) as last_active
+		FROM sessions
+		GROUP BY user_id
+	`)
+	if err != nil {
+		log.Printf("[cohorts] failed to query last active: %v", err)
+	} else {
+		for rows.Next() {
+			var userID int
+			var la sql.NullString
+			if err := rows.Scan(&userID, &la); err != nil {
+				continue
+			}
+			lastActiveMap[userID] = la
+		}
+		rows.Close()
+	}
+
+	// Assemble cohort rows
+	for _, ub := range users {
+		cr := cohortRow{
+			userID:       ub.userID,
+			cohortWeek:   ub.cohortWeek,
+			signupSource: ub.signupSource,
+			totalSwaps:   swapMap[ub.userID].totalSwaps,
+			firstSwapAt:  swapMap[ub.userID].firstSwapAt,
+			totalSavings: savingsMap[ub.userID],
+			lastActive:   lastActiveMap[ub.userID],
+		}
+		// Churned if no activity in 30 days
+		if cr.lastActive.Valid {
+			lastActiveTime, parseErr := time.Parse("2006-01-02 15:04:05", cr.lastActive.String)
+			if parseErr == nil && time.Since(lastActiveTime).Hours() > 30*24 {
+				cr.isChurned = 1
+			}
+		} else {
+			cr.isChurned = 1 // No sessions at all = churned
+		}
+		cohorts = append(cohorts, cr)
+	}
+
+	// Write all cohort rows
+	for _, cr := range cohorts {
+		_, err := s.db.Exec(`
+			INSERT INTO user_cohorts (user_id, cohort_week, signup_source, first_swap_at, total_swaps, total_savings_cents, last_active, is_churned)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(user_id) DO UPDATE SET
+				cohort_week = excluded.cohort_week,
+				signup_source = excluded.signup_source,
+				first_swap_at = excluded.first_swap_at,
+				total_swaps = excluded.total_swaps,
+				total_savings_cents = excluded.total_savings_cents,
+				last_active = excluded.last_active,
+				is_churned = excluded.is_churned
+		`, cr.userID, cr.cohortWeek, cr.signupSource, cr.firstSwapAt, cr.totalSwaps, cr.totalSavings, cr.lastActive, cr.isChurned)
+		if err != nil {
+			log.Printf("[cohorts] failed to upsert user_cohort for user %d: %v", cr.userID, err)
+		}
+	}
+
+	elapsed := time.Since(start)
+	log.Printf("[cohorts] processed %d user cohorts in %v", len(cohorts), elapsed)
+}
+
+// =============================================================================
+// CHURN RISK HANDLER
+// =============================================================================
+
+// handleChurnRisk handles GET /api/admin/churn-risk
+// Returns users with risk_score > 0.5 on any signal, grouped by user.
+// Requires admin auth.
+func (s *Server) handleChurnRisk(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	if _, ok := s.requireAdmin(w, r); !ok {
+		return
+	}
+
+	type signalInfo struct {
+		SignalType  string  `json:"signal_type"`
+		SignalValue float64 `json:"signal_value"`
+		RiskScore   float64 `json:"risk_score"`
+		ComputedAt  string  `json:"computed_at"`
+	}
+	type userRisk struct {
+		UserID         int          `json:"user_id"`
+		Name           string       `json:"name"`
+		Phone          string       `json:"phone"`
+		Email          string       `json:"email"`
+		CompositeRisk  float64      `json:"composite_risk"`
+		Signals        []signalInfo `json:"signals"`
+	}
+
+	rows, err := s.db.Query(`
+		SELECT cs.user_id, COALESCE(u.name, ''), COALESCE(u.phone_number, ''), COALESCE(u.email, ''),
+			cs.signal_type, cs.signal_value, cs.risk_score, cs.computed_at
+		FROM churn_signals cs
+		JOIN users u ON u.id = cs.user_id
+		WHERE cs.risk_score > 0.5
+		ORDER BY cs.user_id, cs.risk_score DESC
+	`)
+	if err != nil {
+		dbError(w, err, "Failed to query churn signals")
+		return
+	}
+
+	userMap := map[int]*userRisk{}
+	var order []int
+	for rows.Next() {
+		var userID int
+		var name, phone, email string
+		var si signalInfo
+		if err := rows.Scan(&userID, &name, &phone, &email, &si.SignalType, &si.SignalValue, &si.RiskScore, &si.ComputedAt); err != nil {
+			log.Printf("[churn-risk] scan: %v", err)
+			continue
+		}
+		ur, exists := userMap[userID]
+		if !exists {
+			ur = &userRisk{
+				UserID: userID,
+				Name:   name,
+				Phone:  phone,
+				Email:  email,
+			}
+			userMap[userID] = ur
+			order = append(order, userID)
+		}
+		ur.Signals = append(ur.Signals, si)
+	}
+	rows.Close()
+
+	// Compute composite risk: average of all signal risk scores per user
+	var results []userRisk
+	for _, uid := range order {
+		ur := userMap[uid]
+		total := 0.0
+		for _, sig := range ur.Signals {
+			total += sig.RiskScore
+		}
+		ur.CompositeRisk = total / float64(len(ur.Signals))
+		results = append(results, *ur)
+	}
+
+	if results == nil {
+		results = []userRisk{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"at_risk_users": results,
+		"count":         len(results),
+	})
+}
+
+// =============================================================================
+// COHORT ANALYSIS HANDLER
+// =============================================================================
+
+// handleCohortAnalysis handles GET /api/admin/cohort-analysis
+// Returns cohort retention data grouped by signup week.
+// Requires admin auth.
+func (s *Server) handleCohortAnalysis(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	if _, ok := s.requireAdmin(w, r); !ok {
+		return
+	}
+
+	type cohortSummary struct {
+		CohortWeek    string  `json:"cohort_week"`
+		UserCount     int     `json:"user_count"`
+		RetainedCount int     `json:"retained_count"`
+		AvgSwaps      float64 `json:"avg_swaps"`
+		AvgSavings    float64 `json:"avg_savings_cents"`
+	}
+
+	rows, err := s.db.Query(`
+		SELECT
+			cohort_week,
+			COUNT(*) as user_count,
+			SUM(CASE WHEN last_active >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as retained_count,
+			AVG(total_swaps) as avg_swaps,
+			AVG(total_savings_cents) as avg_savings
+		FROM user_cohorts
+		GROUP BY cohort_week
+		ORDER BY cohort_week DESC
+	`)
+	if err != nil {
+		dbError(w, err, "Failed to query cohort analysis")
+		return
+	}
+
+	var results []cohortSummary
+	for rows.Next() {
+		var cs cohortSummary
+		if err := rows.Scan(&cs.CohortWeek, &cs.UserCount, &cs.RetainedCount, &cs.AvgSwaps, &cs.AvgSavings); err != nil {
+			log.Printf("[cohort-analysis] scan: %v", err)
+			continue
+		}
+		results = append(results, cs)
+	}
+	rows.Close()
+
+	if results == nil {
+		results = []cohortSummary{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"cohorts": results,
 	})
 }

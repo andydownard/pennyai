@@ -1147,6 +1147,43 @@ func initDB(path string) (*sql.DB, error) {
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_business_metrics_date ON business_metrics_daily(date)")
 
+	// Churn prediction signals
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS churn_signals (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id      INTEGER NOT NULL REFERENCES users(id),
+			signal_type  TEXT NOT NULL,
+			signal_value REAL NOT NULL,
+			risk_score   REAL NOT NULL DEFAULT 0.0,
+			computed_at  TEXT NOT NULL DEFAULT (datetime('now')),
+			UNIQUE(user_id, signal_type)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating churn_signals table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_churn_signals_user ON churn_signals(user_id, signal_type)")
+
+	// User cohort retention tracking
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS user_cohorts (
+			id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id             INTEGER NOT NULL UNIQUE REFERENCES users(id),
+			cohort_week         TEXT NOT NULL,
+			signup_source       TEXT NOT NULL DEFAULT '',
+			first_swap_at       TEXT DEFAULT NULL,
+			first_receipt_at    TEXT DEFAULT NULL,
+			total_swaps         INTEGER NOT NULL DEFAULT 0,
+			total_savings_cents INTEGER NOT NULL DEFAULT 0,
+			last_active         TEXT DEFAULT NULL,
+			is_churned          INTEGER NOT NULL DEFAULT 0
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating user_cohorts table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_user_cohorts_week ON user_cohorts(cohort_week)")
+
 	return db, nil
 }
 
