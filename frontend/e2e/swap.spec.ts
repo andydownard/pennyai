@@ -77,7 +77,7 @@ test.describe('Swap accept/decline API contract', () => {
   })
 
   test('decline does not modify the list item', async ({ page }) => {
-    await addItemViaAPI(page, { name: 'Ketchup', department: 'Pantry', brand: 'Heinz' })
+    await addItemViaAPI(page, { name: 'Ketchup', department: 'Pantry' })
 
     const session = await getSessionCookie(page)
 
@@ -85,10 +85,9 @@ test.describe('Swap accept/decline API contract', () => {
     const listRes = await page.request.get('/api/list', {
       headers: { Cookie: `session=${session}` },
     })
-    const items = await listRes.json() as Array<{ id: number; name: string; brand: string }>
+    const items = await listRes.json() as Array<{ id: number; name: string }>
     const ketchupItem = items.find(i => i.name === 'Ketchup')
     expect(ketchupItem).toBeTruthy()
-    expect(ketchupItem!.brand).toBe('Heinz')
 
     // Decline a swap
     await page.request.post('/api/list/parse', {
@@ -104,11 +103,10 @@ test.describe('Swap accept/decline API contract', () => {
     const listRes2 = await page.request.get('/api/list', {
       headers: { Cookie: `session=${session}` },
     })
-    const items2 = await listRes2.json() as Array<{ id: number; name: string; brand: string }>
+    const items2 = await listRes2.json() as Array<{ id: number; name: string }>
     const ketchupAfter = items2.find(i => i.id === ketchupItem!.id)
     expect(ketchupAfter).toBeTruthy()
     expect(ketchupAfter!.name).toBe('Ketchup')
-    expect(ketchupAfter!.brand).toBe('Heinz')
   })
 
   test('swap accept requires authentication', async ({ page }) => {

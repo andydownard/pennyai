@@ -14491,3 +14491,289 @@ func TestAuthMe_ReturnsAuthMethods_SingleMethod(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// WRAPPED ENDPOINT TESTS
+// =============================================================================
+
+func TestWrapped_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleWrapped, "GET", "/api/wrapped", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestWrapped_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleWrapped, "POST", "/api/wrapped", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status: got %d, want 405", rr.Code)
+	}
+}
+
+func TestWrapped_NoActivity(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleWrapped, "GET", "/api/wrapped", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	body := parseJSON(rr)
+
+	// All counts should be zero
+	if savings, ok := body["total_savings_cents"].(float64); !ok || savings != 0 {
+		t.Errorf("total_savings_cents: got %v, want 0", body["total_savings_cents"])
+	}
+	if swaps, ok := body["swaps_count"].(float64); !ok || swaps != 0 {
+		t.Errorf("swaps_count: got %v, want 0", body["swaps_count"])
+	}
+	if items, ok := body["items_added"].(float64); !ok || items != 0 {
+		t.Errorf("items_added: got %v, want 0", body["items_added"])
+	}
+	if streak, ok := body["streak_days"].(float64); !ok || streak != 0 {
+		t.Errorf("streak_days: got %v, want 0", body["streak_days"])
+	}
+
+	// top_swap_brand and top_category should be empty strings
+	if brand, ok := body["top_swap_brand"].(string); ok && brand != "" {
+		t.Errorf("top_swap_brand: got %q, want empty", brand)
+	}
+
+	// month should be present
+	if _, ok := body["month"].(string); !ok {
+		t.Errorf("month: expected a string, got %v", body["month"])
+	}
+
+	// share_text should be present
+	if _, ok := body["share_text"].(string); !ok {
+		t.Errorf("share_text: expected a string, got %v", body["share_text"])
+	}
+}
+
+func TestWrapped_WithSwapRebates(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create user directly
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
+	token, _ := server.sessions.CreateSession(100, "+15551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	// Insert a brand deal with high ID to avoid conflict with seeded deals
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status)
+		VALUES (900, 'heinz ketchup', 'Hunts', 'Tomato Ketchup', 200, 10000, 'active')`)
+
+	// Insert accepted swap events (this month)
+	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (900, 100, 900, 'accepted')")
+	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (901, 100, 900, 'accepted')")
+
+	// Insert swap rebates (this month)
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (100, 900, 900, 150, 'pending')")
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (100, 901, 900, 250, 'pending')")
+
+	rr := doRequest(server.handleWrapped, "GET", "/api/wrapped", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	body := parseJSON(rr)
+
+	// Total savings: 150 + 250 = 400 cents
+	if savings, ok := body["total_savings_cents"].(float64); !ok || savings != 400 {
+		t.Errorf("total_savings_cents: got %v, want 400", body["total_savings_cents"])
+	}
+
+	// Swaps accepted: 2
+	if swaps, ok := body["swaps_count"].(float64); !ok || swaps != 2 {
+		t.Errorf("swaps_count: got %v, want 2", body["swaps_count"])
+	}
+
+	// Top swap brand should be Hunts
+	if brand, ok := body["top_swap_brand"].(string); !ok || brand != "Hunts" {
+		t.Errorf("top_swap_brand: got %v, want 'Hunts'", body["top_swap_brand"])
+	}
+
+	// share_text should mention savings
+	shareText, _ := body["share_text"].(string)
+	if !strings.Contains(shareText, "$4.00") {
+		t.Errorf("share_text should contain '$4.00', got %q", shareText)
+	}
+	if !strings.Contains(shareText, "2 smart swaps") {
+		t.Errorf("share_text should contain '2 smart swaps', got %q", shareText)
+	}
+}
+
+func TestWrapped_WithMonthParam(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Query a specific month
+	rr := doRequest(server.handleWrapped, "GET", "/api/wrapped?month=2025-12", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	body := parseJSON(rr)
+
+	// Month label should reflect the queried month
+	if month, ok := body["month"].(string); !ok || month != "December 2025" {
+		t.Errorf("month: got %v, want 'December 2025'", body["month"])
+	}
+}
+
+func TestWrapped_ResponseShape(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleWrapped, "GET", "/api/wrapped", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	body := parseJSON(rr)
+
+	// Verify all expected keys exist
+	expectedKeys := []string{
+		"month", "total_savings_cents", "swaps_count", "items_added",
+		"top_swap_brand", "top_category", "streak_days", "share_text", "user_name",
+	}
+	for _, key := range expectedKeys {
+		if _, exists := body[key]; !exists {
+			t.Errorf("Response missing key %q", key)
+		}
+	}
+}
+
+// =============================================================================
+// ADMIN BACKUP ENDPOINT TESTS
+// =============================================================================
+
+func TestAdminBackup_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleAdminBackup, "POST", "/api/admin/backup", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestAdminBackup_ForbiddenForNonAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create a non-admin user session
+	user, _ := upsertUser(server.db, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(server.handleAdminBackup, "POST", "/api/admin/backup", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Status: got %d, want 403", rr.Code)
+	}
+}
+
+func TestAdminBackup_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleAdminBackup, "GET", "/api/admin/backup", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status: got %d, want 405", rr.Code)
+	}
+}
+
+func TestAdminBackup_AdminCanTrigger(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create admin user (phone matches AdminPhone "3104861833")
+	user, _ := upsertUser(server.db, "3104861833")
+	token, _ := server.sessions.CreateSession(user.ID, "3104861833", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	// For in-memory DB, VACUUM INTO will fail because it requires a file path.
+	// The endpoint should return 500 with an error message.
+	rr := doRequest(server.handleAdminBackup, "POST", "/api/admin/backup", nil, []*http.Cookie{cookie})
+
+	// With in-memory DB, VACUUM INTO to a file path will fail, so we expect 500
+	// but the important thing is the admin auth check passed (not 401 or 403).
+	if rr.Code == http.StatusUnauthorized || rr.Code == http.StatusForbidden {
+		t.Errorf("Admin auth should have passed, got %d", rr.Code)
+	}
+
+	body := parseJSON(rr)
+
+	if rr.Code == http.StatusOK {
+		// If it somehow succeeded (unlikely with in-memory DB), verify response shape
+		if _, ok := body["success"]; !ok {
+			t.Error("Response missing 'success' key")
+		}
+		if _, ok := body["elapsed_ms"]; !ok {
+			t.Error("Response missing 'elapsed_ms' key")
+		}
+	} else if rr.Code == http.StatusInternalServerError {
+		// Expected for in-memory DB — verify error response shape
+		if _, ok := body["error"]; !ok {
+			t.Error("Error response missing 'error' key")
+		}
+	} else {
+		t.Errorf("Unexpected status code: got %d, want 200 or 500", rr.Code)
+	}
+}
+
+func TestAdminBackup_WithFileDB(t *testing.T) {
+	// Use a temp file-based SQLite DB so VACUUM INTO can actually work
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test.db"
+
+	db, err := initDB(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create file-based test database: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	server := &Server{
+		config:   Config{Port: "8080", AnthropicAPIKey: "test-key", TwilioPhoneNumber: "+10000000000", AdminPhone: "3104861833", DBPath: dbPath},
+		db:       db,
+		sessions: NewSessionStore(db),
+		twilio:   &MockTwilioClient{},
+		parseItems: func(apiKey, text string, images []string) ([]ParsedItem, error) {
+			return nil, nil
+		},
+		smsBuffer: newMessageBuffer(50 * time.Millisecond),
+	}
+	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+		parsed, err := server.parseItems(apiKey, text, nil)
+		if err != nil {
+			return nil, err
+		}
+		return &ParsedCommand{Action: "add", Items: parsed}, nil
+	}
+
+	// Create admin user
+	user, _ := upsertUser(db, "3104861833")
+	token, _ := server.sessions.CreateSession(user.ID, "3104861833", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(server.handleAdminBackup, "POST", "/api/admin/backup", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+
+	if success, ok := body["success"].(bool); !ok || !success {
+		t.Errorf("success: got %v, want true", body["success"])
+	}
+	if _, ok := body["path"].(string); !ok {
+		t.Error("Response missing 'path' key")
+	}
+	if _, ok := body["elapsed_ms"].(float64); !ok {
+		t.Error("Response missing 'elapsed_ms' key")
+	}
+	if _, ok := body["report_db"]; !ok {
+		t.Error("Response missing 'report_db' key")
+	}
+}
+

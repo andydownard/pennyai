@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { PennyAvatar } from './PennyAvatar'
+import { BrandLogo } from './BrandLogo'
 import { BRAND, TEXT, TEXT_SECONDARY, BORDER, WHITE, FONT } from '../styles'
 
 interface EarningTransaction {
@@ -202,8 +203,9 @@ export function EarningsScreen({ fetchAPI, onViewReceipts }: EarningsScreenProps
               backgroundColor: WHITE, borderRadius: '10px', padding: '14px 16px',
               border: `1px solid ${BORDER}`,
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                <BrandLogo brand={tx.offer_brand} size={44} />
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT }}>
                     {tx.offer_brand} {tx.offer_product}
                   </div>
@@ -216,7 +218,7 @@ export function EarningsScreen({ fetchAPI, onViewReceipts }: EarningsScreenProps
                     {formatDate(tx.created_at)}
                   </div>
                 </div>
-                <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '12px' }}>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
                   <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 700, color: BRAND }}>
                     ${(tx.amount_cents / 100).toFixed(2)}
                   </div>

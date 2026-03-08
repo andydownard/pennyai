@@ -41,7 +41,7 @@ function formatPrice(cents: number): string {
 }
 
 export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
-  const [whyExpanded, setWhyExpanded] = useState(false)
+  const [whyExpanded, setWhyExpanded] = useState(true)
   const [animState, setAnimState] = useState<'idle' | 'accepting' | 'dismissing'>('idle')
 
   const dealType = swap.deal_type || 'sku_swap'
@@ -175,7 +175,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
       <div style={{ padding: '8px 12px 12px 12px' }}>
         {/* Product row: logo + info */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-          <BrandLogo brand={swap.offer_brand} size={40} />
+          <BrandLogo brand={swap.offer_brand} size={52} />
           <div style={{ flex: 1, minWidth: 0 }}>
             {/* Product name */}
             <div style={{
@@ -329,30 +329,39 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
               padding: '6px 12px',
             }}
           >
-            <span>{isTrial ? 'Add Free Trial' : isBogo ? 'Get BOGO' : 'Swap'}</span>
-            <span style={{ fontSize: '12px', fontWeight: 400, opacity: 0.9 }}>
-              Save {formatPrice(swap.discount_cents)}
-              {swap.savings_percent > 0 && ` (${swap.savings_percent}%)`}
-            </span>
+            <span>{isTrial ? 'Add Free Trial' : isBogo ? 'Get BOGO' : `Try it — save ${formatPrice(swap.discount_cents)}`}</span>
+            {!isTrial && !isBogo && swap.savings_percent > 0 && (
+              <span style={{ fontSize: '12px', fontWeight: 400, opacity: 0.9 }}>
+                {swap.savings_percent}% less than {swap.original_size || 'yours'}
+              </span>
+            )}
+            {(isTrial || isBogo) && (
+              <span style={{ fontSize: '12px', fontWeight: 400, opacity: 0.9 }}>
+                Save {formatPrice(swap.discount_cents)}
+              </span>
+            )}
           </button>
           <button
             onClick={handleDecline}
             aria-label={`Decline swap for ${swap.offer_brand} ${swap.offer_product}`}
             style={{
-              flex: 1,
+              flexShrink: 0,
+              width: '44px',
               minHeight: '44px',
               backgroundColor: 'transparent',
               color: TEXT_SECONDARY,
               border: `1px solid ${BORDER}`,
               borderRadius: '10px',
               fontFamily: FONT,
-              fontSize: '14px',
-              fontWeight: 500,
+              fontSize: '18px',
               cursor: 'pointer',
-              padding: '6px 12px',
+              padding: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
-            No thanks
+            ✕
           </button>
         </div>
       </div>

@@ -14,7 +14,7 @@ test.describe('Penny settings screen', () => {
 
   test('shows text with Penny toggle', async ({ page }) => {
     await page.goto('/penny')
-    await expect(page.getByText('I want to text with Penny')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('I want to SMS with Penny')).toBeVisible({ timeout: 10_000 })
   })
 
   test('shows Penny contact section', async ({ page }) => {

@@ -1,17 +1,18 @@
 import { test, expect } from '@playwright/test'
-import { login, navigateTo, openMenu } from './helpers'
+import { login, navigateTo } from './helpers'
 
 test.describe('Navigation', () => {
   test.beforeEach(async ({ page }) => {
     await login(page)
   })
 
-  test('hamburger menu opens and shows all nav items', async ({ page }) => {
-    await openMenu(page)
-    await expect(page.getByRole('button', { name: 'Shopping List' })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Share/ })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Penny' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Profile' })).toBeVisible()
+  test('bottom tab bar shows all tabs', async ({ page }) => {
+    const nav = page.getByRole('navigation', { name: 'Main navigation' })
+    await expect(nav).toBeVisible()
+    await expect(nav.getByRole('button', { name: 'List' })).toBeVisible()
+    await expect(nav.getByRole('button', { name: 'Penny' })).toBeVisible()
+    await expect(nav.getByRole('button', { name: 'Share' })).toBeVisible()
+    await expect(nav.getByRole('button', { name: 'Profile' })).toBeVisible()
   })
 
   test('navigate to Penny settings', async ({ page }) => {
@@ -66,5 +67,16 @@ test.describe('Navigation', () => {
     // Click the "thriftly" wordmark
     await page.getByText('thriftly').click()
     await expect(page.locator('textarea[placeholder*="Tell Penny"]')).toBeVisible()
+  })
+
+  test('active tab is highlighted', async ({ page }) => {
+    const nav = page.getByRole('navigation', { name: 'Main navigation' })
+    const listTab = nav.getByRole('button', { name: 'List' })
+    await expect(listTab).toHaveAttribute('aria-current', 'page')
+
+    await navigateTo(page, 'Profile')
+    const profileTab = nav.getByRole('button', { name: 'Profile' })
+    await expect(profileTab).toHaveAttribute('aria-current', 'page')
+    await expect(listTab).not.toHaveAttribute('aria-current', 'page')
   })
 })

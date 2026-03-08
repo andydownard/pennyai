@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
 	"os"
@@ -95,6 +96,7 @@ func loadConfig() Config {
 		GoogleClientID:      os.Getenv("GOOGLE_CLIENT_ID"),
 		SendGridAPIKey:      os.Getenv("SENDGRID_API_KEY"),
 		BlueCartAPIKey:      os.Getenv("BLUECART_API_KEY"),
+		ReportingDBPath:     os.Getenv("REPORTING_DB_PATH"),
 	}
 }
 
@@ -148,9 +150,24 @@ Get these from https://console.twilio.com (see README for full setup).
 	}
 	defer db.Close()
 
+	// Open reporting DB clone if it exists (for admin analytics isolation)
+	var reportDB *sql.DB
+	if cfg.ReportingDBPath != "" {
+		if _, err := os.Stat(cfg.ReportingDBPath); err == nil {
+			rdb, err := openReportDB(cfg.ReportingDBPath)
+			if err != nil {
+				log.Printf("[startup] failed to open reporting DB at %s: %v", cfg.ReportingDBPath, err)
+			} else {
+				reportDB = rdb
+				log.Printf("[startup] reporting DB opened at %s", cfg.ReportingDBPath)
+			}
+		}
+	}
+
 	server := &Server{
 		config:   cfg,
 		db:       db,
+		reportDB: reportDB,
 		sessions: NewSessionStore(db),
 		twilio: &RealTwilioClient{
 			AccountSID:    cfg.TwilioAccountSID,
@@ -222,6 +239,8 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/admin/deals", server.handleAdminDeals)
 	http.HandleFunc("/api/admin/deals/", server.handleAdminDeals)
 	http.HandleFunc("/api/admin/payouts", server.handleAdminPayouts)
+	http.HandleFunc("/api/admin/backup", server.handleAdminBackup)
+	http.HandleFunc("/api/wrapped", server.handleWrapped)
 
 	// --- A/B Testing ---
 	http.HandleFunc("GET /api/ab/variant", handleGetVariant(server))
@@ -260,20 +279,41 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/privacy", handlePrivacyPolicy)
 	http.HandleFunc("/terms", handleTerms)
 
-	// Serve the React frontend. The custom handler supports SPA routing:
-	// known files are served directly, everything else gets index.html.
+	// Serve the React frontends. Two separate SPAs:
+	// - Consumer app (static/) at app.thrift.ly
+	// - Brand portal (static-brand/) at brands.thrift.ly
+	// Known files are served directly, everything else gets index.html for SPA routing.
 	// /r/{code} referral links and /join/:code inject dynamic OG tags for social previews.
-	fs := http.FileServer(http.Dir("static"))
+	consumerFS := http.FileServer(http.Dir("static"))
+	brandFS := http.FileServer(http.Dir("static-brand"))
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Return 404 JSON for unknown /api/ paths (don't fall through to SPA)
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Not found"})
 			return
 		}
-		// Use path.Clean to prevent path traversal
+
+		// Brand portal: serve from static-brand/ for brands.* subdomain
+		host := r.Host
+		if strings.HasPrefix(host, "brands.") || strings.HasPrefix(host, "brands-") {
+			// Skip /brand/ API routes (handled by registered handlers)
+			if strings.HasPrefix(r.URL.Path, "/brand/") {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "Not found"})
+				return
+			}
+			cleanPath := path.Clean(r.URL.Path)
+			if _, err := os.Stat("static-brand" + cleanPath); err == nil && !strings.Contains(cleanPath, "..") {
+				brandFS.ServeHTTP(w, r)
+				return
+			}
+			http.ServeFile(w, r, "static-brand/index.html")
+			return
+		}
+
+		// Consumer app: serve from static/
 		cleanPath := path.Clean(r.URL.Path)
 		if _, err := os.Stat("static" + cleanPath); err == nil && !strings.Contains(cleanPath, "..") {
-			fs.ServeHTTP(w, r)
+			consumerFS.ServeHTTP(w, r)
 			return
 		}
 		// B2: Inject dynamic OG tags for referral and invite links

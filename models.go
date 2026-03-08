@@ -29,6 +29,7 @@ type Config struct {
 	GoogleClientID      string
 	SendGridAPIKey      string
 	BlueCartAPIKey      string
+	ReportingDBPath     string
 }
 
 // =============================================================================
@@ -126,6 +127,7 @@ type rateBucket struct {
 type Server struct {
 	config       Config
 	db           *sql.DB
+	reportDB     *sql.DB // read-only clone for admin analytics (nil if unavailable)
 	sessions     *SessionStore
 	twilio       TwilioClient
 	parseItems   func(apiKey, text string, images []string) ([]ParsedItem, error)

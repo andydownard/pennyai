@@ -2,6 +2,10 @@ import { useRef, useEffect, useState, type ReactNode, type CSSProperties } from 
 
 // =============================================================================
 // SCREEN TRANSITION — smooth fade / slide animations between screens
+//
+// Exports:
+//   useScreenTransition(screen) — hook that returns transition CSSProperties
+//   ScreenTransition — wrapper component that applies the style
 // =============================================================================
 
 type Screen = 'phone' | 'code' | 'home' | 'penny' | 'profile' | 'settings-share'
@@ -27,19 +31,19 @@ function getTransitionType(prev: Screen | null, next: Screen): TransitionType {
   const prevParent = SUB_SCREEN_PARENTS[prev]
   const nextParent = SUB_SCREEN_PARENTS[next]
 
-  // Drill down: tab → its sub-screen (e.g. home → earnings)
+  // Drill down: tab -> its sub-screen (e.g. home -> earnings)
   if (nextParent === prev) return 'slide-in'
 
-  // Back: sub-screen → its parent tab (e.g. earnings → home)
+  // Back: sub-screen -> its parent tab (e.g. earnings -> home)
   if (prevParent === next) return 'slide-out'
 
-  // Drill deeper within same parent: treat as slide-in (e.g. earnings → receipts)
+  // Drill deeper within same parent: treat as slide-in (e.g. earnings -> receipts)
   if (nextParent && prevParent && nextParent === prevParent) return 'slide-in'
 
   // Tab-to-tab navigation
   if (TAB_SCREENS.has(prev) && TAB_SCREENS.has(next)) return 'fade'
 
-  // Sub-screen back to a different tab (e.g. help → home): fade
+  // Sub-screen back to a different tab (e.g. help -> home): fade
   if (prevParent && TAB_SCREENS.has(next)) return 'fade'
 
   // Any other navigation: fade
@@ -54,15 +58,49 @@ const DURATIONS: Record<TransitionType, number> = {
   none: 0,
 }
 
-interface ScreenTransitionProps {
-  screen: Screen
-  children: ReactNode
+function buildStyle(transitionType: TransitionType, isEntering: boolean): CSSProperties {
+  if (transitionType === 'none') {
+    return { opacity: 1, transform: 'translate3d(0, 0, 0)' }
+  }
+
+  const duration = DURATIONS[transitionType]
+
+  if (transitionType === 'fade') {
+    return {
+      opacity: isEntering ? 0 : 1,
+      transform: 'translate3d(0, 0, 0)',
+      transition: `opacity ${duration}ms ease-out`,
+      willChange: 'opacity',
+    }
+  }
+
+  if (transitionType === 'slide-in') {
+    return {
+      opacity: isEntering ? 0 : 1,
+      transform: isEntering ? 'translate3d(30%, 0, 0)' : 'translate3d(0, 0, 0)',
+      transition: `transform ${duration}ms ease-out, opacity ${duration}ms ease-out`,
+      willChange: 'transform, opacity',
+    }
+  }
+
+  // slide-out: new screen slides in from the left
+  return {
+    opacity: isEntering ? 0 : 1,
+    transform: isEntering ? 'translate3d(-30%, 0, 0)' : 'translate3d(0, 0, 0)',
+    transition: `transform ${duration}ms ease-out, opacity ${duration}ms ease-out`,
+    willChange: 'transform, opacity',
+  }
 }
 
-export function ScreenTransition({ screen, children }: ScreenTransitionProps) {
+/**
+ * Hook that tracks screen changes and returns a CSS style object
+ * for animating transitions. Must be called once in the parent component
+ * (not inside conditional branches).
+ */
+export function useScreenTransition(screen: Screen): CSSProperties {
   const prevScreenRef = useRef<Screen | null>(null)
   const [phase, setPhase] = useState<'idle' | 'entering'>('idle')
-  const [transitionType, setTransitionType] = useState<TransitionType>('none')
+  const [activeTransition, setActiveTransition] = useState<TransitionType>('none')
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Check reduced-motion preference
@@ -85,30 +123,29 @@ export function ScreenTransition({ screen, children }: ScreenTransitionProps) {
     if (timerRef.current) clearTimeout(timerRef.current)
 
     if (prefersReducedMotion.current) {
-      // Skip animation entirely
-      setTransitionType('none')
+      setActiveTransition('none')
       setPhase('idle')
       return
     }
 
     const type = getTransitionType(prev, screen)
-    setTransitionType(type)
+    setActiveTransition(type)
 
     if (type === 'none') {
       setPhase('idle')
       return
     }
 
-    // Start at the "from" position, then transition to "to" position on next frame
+    // Start at the "from" position
     setPhase('entering')
 
-    // Use rAF to ensure the browser renders the "from" state first
+    // Double rAF ensures browser paints the "from" state before transitioning
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         setPhase('idle')
-        // Clean up transition type after animation completes
+        // Reset after animation completes to remove willChange
         timerRef.current = setTimeout(() => {
-          setTransitionType('none')
+          setActiveTransition('none')
         }, DURATIONS[type])
       })
     })
@@ -118,51 +155,23 @@ export function ScreenTransition({ screen, children }: ScreenTransitionProps) {
     }
   }, [screen])
 
-  const getStyles = (): CSSProperties => {
-    const duration = DURATIONS[transitionType]
+  return buildStyle(activeTransition, phase === 'entering')
+}
 
-    if (transitionType === 'none') {
-      return { opacity: 1, transform: 'translate3d(0, 0, 0)' }
-    }
+/**
+ * Wrapper component that applies screen transition styles.
+ * Uses a style prop computed by the parent via useScreenTransition.
+ */
+interface ScreenTransitionProps {
+  style: CSSProperties
+  children: ReactNode
+}
 
-    const isEntering = phase === 'entering'
-
-    if (transitionType === 'fade') {
-      return {
-        opacity: isEntering ? 0 : 1,
-        transform: 'translate3d(0, 0, 0)',
-        transition: `opacity ${duration}ms ease-out`,
-        willChange: 'opacity',
-      }
-    }
-
-    if (transitionType === 'slide-in') {
-      return {
-        opacity: isEntering ? 0 : 1,
-        transform: isEntering ? 'translate3d(30%, 0, 0)' : 'translate3d(0, 0, 0)',
-        transition: `transform ${duration}ms ease-out, opacity ${duration}ms ease-out`,
-        willChange: 'transform, opacity',
-      }
-    }
-
-    // slide-out: content slides out to right, but since we're showing the NEW screen,
-    // we animate the new content sliding in from the left
-    if (transitionType === 'slide-out') {
-      return {
-        opacity: isEntering ? 0 : 1,
-        transform: isEntering ? 'translate3d(-30%, 0, 0)' : 'translate3d(0, 0, 0)',
-        transition: `transform ${duration}ms ease-out, opacity ${duration}ms ease-out`,
-        willChange: 'transform, opacity',
-      }
-    }
-
-    return {}
-  }
-
+export function ScreenTransition({ style, children }: ScreenTransitionProps) {
   return (
     <div
       style={{
-        ...getStyles(),
+        ...style,
         height: '100%',
         width: '100%',
       }}

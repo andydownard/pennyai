@@ -1,3 +1,5 @@
+import type React from 'react'
+
 // =============================================================================
 // DESIGN SYSTEM — colors, typography, and shared style constants
 // =============================================================================
@@ -88,6 +90,68 @@ export const CONFETTI_COLORS = [
   '#35644F', '#4a9470', '#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#FF6F91',
 ]
 
+// Utility: format phone digits as (555) 123-4567
+export function formatPhone(digits: string): string {
+  if (digits.length === 0) return ''
+  if (digits.length <= 3) return `(${digits}`
+  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`
+}
+
+// Page-level layout styles shared across screens
+export const pageStyles = {
+  page: {
+    height: '100dvh',
+    display: 'flex',
+    flexDirection: 'column',
+    backgroundColor: BG,
+    fontFamily: FONT,
+    overflow: 'hidden',
+  } as React.CSSProperties,
+
+  listArea: {
+    flex: 1,
+    overflowY: 'auto' as const,
+    position: 'relative' as const,
+  } as React.CSSProperties,
+
+  headerWordmark: {
+    fontFamily: FONT,
+    fontSize: '22px',
+    fontWeight: 700,
+    color: BRAND,
+    letterSpacing: '-0.5px',
+  } as React.CSSProperties,
+
+  floatingInput: {
+    width: '100%',
+    padding: '12px 16px',
+    fontSize: '16px',
+    fontFamily: FONT,
+    color: TEXT,
+    backgroundColor: WHITE,
+    border: `1.5px solid ${BORDER}`,
+    borderRadius: '12px',
+    outline: 'none',
+    boxSizing: 'border-box' as const,
+  } as React.CSSProperties,
+
+  divider: {
+    height: '1px',
+    backgroundColor: BORDER,
+  } as React.CSSProperties,
+
+  settingsCard: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '12px 16px',
+    backgroundColor: BG,
+    borderRadius: '12px',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+}
+
 // Shared style objects used across multiple screens
 export const listStyles = {
   overlay: {
@@ -119,4 +183,110 @@ export const listStyles = {
     textAlign: 'center' as const,
     flexShrink: 0,
   },
+  sheetButton: {
+    width: '100%',
+    padding: '15px',
+    fontSize: '16px',
+    fontFamily: FONT,
+    fontWeight: 600,
+    color: WHITE,
+    backgroundColor: BRAND,
+    border: 'none',
+    borderRadius: '12px',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+}
+
+// Auth screen shared styles
+export const authStyles = {
+  error: {
+    fontFamily: FONT,
+    fontSize: '15px',
+    color: ERROR_RED,
+    margin: '0 0 12px 0',
+    fontWeight: 500,
+  } as React.CSSProperties,
+
+  subtleLink: {
+    fontFamily: FONT,
+    fontSize: '13px',
+    color: TEXT_SECONDARY,
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    padding: '4px 0',
+    textDecoration: 'none',
+  } as React.CSSProperties,
+
+  page: {
+    backgroundColor: BG,
+    fontFamily: FONT,
+    minHeight: '100%',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    padding: '32px 20px 40px',
+    boxSizing: 'border-box' as const,
+  } as React.CSSProperties,
+
+  pageCenter: {
+    backgroundColor: BG,
+    fontFamily: FONT,
+    minHeight: '100%',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '32px 20px 40px',
+    boxSizing: 'border-box' as const,
+  } as React.CSSProperties,
+
+  inner: {
+    width: '100%',
+    maxWidth: '400px',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+  } as React.CSSProperties,
+
+  innerFlex: {
+    width: '100%',
+    maxWidth: '400px',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    flex: 1,
+  } as React.CSSProperties,
+
+  primaryButton: {
+    width: '100%',
+    padding: '17px',
+    fontSize: '16px',
+    fontFamily: FONT,
+    fontWeight: 700,
+    color: WHITE,
+    backgroundColor: BRAND,
+    border: 'none',
+    borderRadius: '14px',
+    marginBottom: '16px',
+  } as React.CSSProperties,
+
+  dividerRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    width: '100%',
+  } as React.CSSProperties,
+
+  dividerLine: {
+    flex: 1,
+    height: '1px',
+    backgroundColor: BORDER,
+  } as React.CSSProperties,
+
+  dividerText: {
+    fontFamily: FONT,
+    fontSize: '13px',
+    color: TEXT_SECONDARY,
+  } as React.CSSProperties,
 }

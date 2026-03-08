@@ -58,19 +58,22 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 
 	modifier := fmt.Sprintf("-%d days", days)
 
+	// Use reporting DB if available to avoid hitting production
+	db := s.adminDB()
+
 	var activeUsers, totalUsers, newUsers int
-	if err := s.db.QueryRow("SELECT COUNT(DISTINCT id) FROM users WHERE last_active >= datetime('now', ?)", modifier).Scan(&activeUsers); err != nil {
+	if err := db.QueryRow("SELECT COUNT(DISTINCT id) FROM users WHERE last_active >= datetime('now', ?)", modifier).Scan(&activeUsers); err != nil {
 		log.Printf("[admin] failed to count active users: %v", err)
 	}
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&totalUsers); err != nil {
+	if err := db.QueryRow("SELECT COUNT(*) FROM users").Scan(&totalUsers); err != nil {
 		log.Printf("[admin] failed to count total users: %v", err)
 	}
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM users WHERE created_at >= datetime('now', ?)", modifier).Scan(&newUsers); err != nil {
+	if err := db.QueryRow("SELECT COUNT(*) FROM users WHERE created_at >= datetime('now', ?)", modifier).Scan(&newUsers); err != nil {
 		log.Printf("[admin] failed to count new users: %v", err)
 	}
 
 	var referralsInPeriod int
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM referrals WHERE created_at >= datetime('now', ?)", modifier).Scan(&referralsInPeriod); err != nil {
+	if err := db.QueryRow("SELECT COUNT(*) FROM referrals WHERE created_at >= datetime('now', ?)", modifier).Scan(&referralsInPeriod); err != nil {
 		log.Printf("[admin] failed to count referrals: %v", err)
 	}
 
@@ -86,7 +89,7 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		Referrals int   `json:"referrals"`
 	}
 
-	rows, err := s.db.Query(`
+	rows, err := db.Query(`
 		SELECT COALESCE(u.phone_number,''), COALESCE(u.name,''), COALESCE(u.referral_points,0), COUNT(r.id) as ref_count
 		FROM users u
 		JOIN referrals r ON r.referrer_id = u.id
@@ -123,7 +126,7 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 
 	var npsScore float64
 	var npsTotal, npsPromoters, npsDetractors int
-	npsRow := s.db.QueryRow(`
+	npsRow := db.QueryRow(`
 		SELECT COUNT(*),
 			SUM(CASE WHEN score >= 9 THEN 1 ELSE 0 END),
 			SUM(CASE WHEN score <= 6 THEN 1 ELSE 0 END)
@@ -135,7 +138,7 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		npsScore = (float64(npsPromoters) - float64(npsDetractors)) / float64(npsTotal) * 100
 	}
 
-	npsRows, err := s.db.Query(`
+	npsRows, err := db.Query(`
 		SELECT n.score, n.comment, COALESCE(u.name,''), COALESCE(u.phone_number,''), n.created_at
 		FROM nps_responses n
 		JOIN users u ON u.id = n.user_id
@@ -163,9 +166,9 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 
 	// Swap deal stats
 	var swapOffered, swapAccepted, swapDeclined int
-	s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'offered' AND created_at >= datetime('now', ?)", modifier).Scan(&swapOffered)
-	s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'accepted' AND created_at >= datetime('now', ?)", modifier).Scan(&swapAccepted)
-	s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'declined' AND created_at >= datetime('now', ?)", modifier).Scan(&swapDeclined)
+	db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'offered' AND created_at >= datetime('now', ?)", modifier).Scan(&swapOffered)
+	db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'accepted' AND created_at >= datetime('now', ?)", modifier).Scan(&swapAccepted)
+	db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'declined' AND created_at >= datetime('now', ?)", modifier).Scan(&swapDeclined)
 	var swapAcceptRate float64
 	if swapOffered > 0 {
 		swapAcceptRate = float64(swapAccepted) / float64(swapOffered) * 100
@@ -173,8 +176,8 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 
 	// Rebate ledger stats
 	var rebatesPendingCents, rebatesIssuedCents int
-	s.db.QueryRow("SELECT COALESCE(SUM(amount_cents),0) FROM swap_rebates WHERE status = 'pending'").Scan(&rebatesPendingCents)
-	s.db.QueryRow("SELECT COALESCE(SUM(amount_cents),0) FROM swap_rebates WHERE status IN ('issued','paid')").Scan(&rebatesIssuedCents)
+	db.QueryRow("SELECT COALESCE(SUM(amount_cents),0) FROM swap_rebates WHERE status = 'pending'").Scan(&rebatesPendingCents)
+	db.QueryRow("SELECT COALESCE(SUM(amount_cents),0) FROM swap_rebates WHERE status IN ('issued','paid')").Scan(&rebatesIssuedCents)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"active_users":           activeUsers,
@@ -215,13 +218,16 @@ func (s *Server) handleAdminAnalytics(w http.ResponseWriter, r *http.Request) {
 	}
 	modifier := fmt.Sprintf("-%d days", days)
 
+	// Use reporting DB if available
+	db := s.adminDB()
+
 	// 1. Items created
 	var itemsCreated int
-	s.db.QueryRow("SELECT COUNT(*) FROM item_modifications WHERE action = 'added' AND created_at >= datetime('now', ?)", modifier).Scan(&itemsCreated)
+	db.QueryRow("SELECT COUNT(*) FROM item_modifications WHERE action = 'added' AND created_at >= datetime('now', ?)", modifier).Scan(&itemsCreated)
 
 	// 2. Items by source (only 'added' actions)
 	itemsBySource := map[string]int{}
-	srcRows, err := s.db.Query("SELECT COALESCE(source,'unknown'), COUNT(*) FROM item_modifications WHERE action = 'added' AND created_at >= datetime('now', ?) GROUP BY COALESCE(source,'unknown')", modifier)
+	srcRows, err := db.Query("SELECT COALESCE(source,'unknown'), COUNT(*) FROM item_modifications WHERE action = 'added' AND created_at >= datetime('now', ?) GROUP BY COALESCE(source,'unknown')", modifier)
 	if err == nil {
 		defer srcRows.Close()
 		for srcRows.Next() {
@@ -235,7 +241,7 @@ func (s *Server) handleAdminAnalytics(w http.ResponseWriter, r *http.Request) {
 
 	// 3. Items by department (only 'added' actions)
 	itemsByDept := map[string]int{}
-	deptRows, err := s.db.Query(`
+	deptRows, err := db.Query(`
 		SELECT COALESCE(li.department,'Other'), COUNT(*)
 		FROM item_modifications im
 		JOIN list_items li ON li.id = im.item_id
@@ -256,7 +262,7 @@ func (s *Server) handleAdminAnalytics(w http.ResponseWriter, r *http.Request) {
 
 	// 4. Events by action (all actions)
 	eventsByAction := map[string]int{}
-	actRows, err := s.db.Query("SELECT action, COUNT(*) FROM item_modifications WHERE created_at >= datetime('now', ?) GROUP BY action", modifier)
+	actRows, err := db.Query("SELECT action, COUNT(*) FROM item_modifications WHERE created_at >= datetime('now', ?) GROUP BY action", modifier)
 	if err == nil {
 		defer actRows.Close()
 		for actRows.Next() {
@@ -274,7 +280,7 @@ func (s *Server) handleAdminAnalytics(w http.ResponseWriter, r *http.Request) {
 		Count int    `json:"count"`
 	}
 	var eventsByDay []dayCount
-	dayRows, err := s.db.Query("SELECT date(created_at), COUNT(*) FROM item_modifications WHERE created_at >= datetime('now', ?) GROUP BY date(created_at) ORDER BY date(created_at)", modifier)
+	dayRows, err := db.Query("SELECT date(created_at), COUNT(*) FROM item_modifications WHERE created_at >= datetime('now', ?) GROUP BY date(created_at) ORDER BY date(created_at)", modifier)
 	if err == nil {
 		defer dayRows.Close()
 		for dayRows.Next() {

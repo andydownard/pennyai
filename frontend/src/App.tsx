@@ -11,7 +11,6 @@ import { PennyAvatar } from './components/PennyAvatar'
 import { ActionSheet } from './components/ActionSheet'
 import { ConfirmModal } from './components/ConfirmModal'
 import { Confetti } from './components/Confetti'
-import { FloatingLabelField } from './components/FloatingLabelField'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { type SwapOffer } from './components/SwapCard'
 import { ItemRow, type ListItem } from './components/ItemRow'
@@ -22,12 +21,26 @@ import { TripPlannerSheet, type ShoppingTrip } from './components/TripPlannerShe
 import { ItemEditSheet } from './components/ItemEditSheet'
 import { ReviewSheet } from './components/ReviewSheet'
 import { EarningsScreen } from './components/EarningsScreen'
+import { WrappedCard } from './components/WrappedCard'
 import { ReceiptScreen } from './components/ReceiptScreen'
 import { BottomTabBar, type TabScreen } from './components/BottomTabBar'
-import { ScreenTransition } from './components/ScreenTransition'
+import { ScreenTransition, useScreenTransition } from './components/ScreenTransition'
+import { ProfileScreen } from './components/ProfileScreen'
+import { HelpScreen } from './components/HelpScreen'
+import { PennySettingsScreen } from './components/PennySettingsScreen'
+import { PhoneScreen } from './components/PhoneScreen'
+import { CodeScreen } from './components/CodeScreen'
+import { EmailLoginScreen } from './components/EmailLoginScreen'
+import { EmailRegisterScreen } from './components/EmailRegisterScreen'
+import { ForgotPasswordScreen } from './components/ForgotPasswordScreen'
+import { ResetPasswordScreen } from './components/ResetPasswordScreen'
+import { ShareScreen } from './components/ShareScreen'
+import { AdminScreen } from './components/AdminScreen'
+import { SharedListScreen } from './components/SharedListScreen'
+import { ToggleSwitch } from './components/ToggleSwitch'
 import { type ItemModification } from './types'
 import {
-  BRAND, BG, TEXT, TEXT_SECONDARY, BORDER, ERROR_RED, ERROR_RED_BG, ERROR_RED_DARK, ERROR_RED_LIGHT,
+  BRAND, BG, TEXT, TEXT_SECONDARY, BORDER, ERROR_RED, ERROR_RED_DARK, ERROR_RED_LIGHT,
   WHITE, FONT, DEPARTMENTS, DEPT_ICONS, SKELETON, SKELETON_SHIMMER,
 } from './styles'
 
@@ -99,17 +112,6 @@ function DeptIcon({ dept }: { dept: string }) {
 
 
 // =============================================================================
-// HELPER: format 10 raw digits as (555) 123-4567
-// =============================================================================
-
-function formatPhone(digits: string): string {
-  if (digits.length === 0) return ''
-  if (digits.length <= 3) return `(${digits}`
-  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
-  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`
-}
-
-// =============================================================================
 // LOGO COMPONENT
 //
 // An SVG that conveys "AI building a shopping list":
@@ -174,34 +176,7 @@ function Logo() {
 
 
 // Toggle switch — used for urgent and claim toggles
-function ToggleSwitch({ value, onChange, label }: { value: boolean; onChange: () => void; label?: string }) {
-  return (
-    <button
-      role="switch"
-      aria-checked={value}
-      aria-label={label}
-      onClick={onChange}
-      style={{
-        width: '44px', height: '24px', borderRadius: '12px', border: 'none', cursor: 'pointer',
-        backgroundColor: value ? BRAND : '#CBD5E0', position: 'relative', transition: 'background-color 0.2s',
-        padding: 0, flexShrink: 0,
-      }}
-    >
-      <span style={{
-        position: 'absolute', top: '2px', left: value ? '22px' : '2px',
-        width: '20px', height: '20px', borderRadius: '50%', backgroundColor: WHITE,
-        transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-      }} />
-    </button>
-  )
-}
-
 // Avatar circle for household members and friends
-const avatarCircleStyle = (size = 32): React.CSSProperties => ({
-  width: `${size}px`, height: `${size}px`, borderRadius: '50%', backgroundColor: BRAND, color: WHITE,
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  fontFamily: FONT, fontSize: '15px', fontWeight: 600, flexShrink: 0,
-})
 
 // =============================================================================
 // PENNY LOADING MESSAGES
@@ -236,25 +211,7 @@ function QuantityControl({ value, onChange }: {
   )
 }
 
-function LegalLinks() {
-  return (
-    <>
-      <a
-        href="https://thrift.ly"
-        target="_blank"
-        rel="noopener noreferrer"
-        style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, textDecoration: 'none', marginTop: '48px', opacity: 0.7 }}
-      >
-        powered by <span style={{ fontWeight: 600 }}>thriftly</span>
-      </a>
-      <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '12px', opacity: 0.6 }}>
-        <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: TEXT_SECONDARY, textDecoration: 'none' }}>Privacy</a>
-        {' · '}
-        <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: TEXT_SECONDARY, textDecoration: 'none' }}>Terms</a>
-      </div>
-    </>
-  )
-}
+// LegalLinks extracted to ./components/LegalLinks.tsx
 
 // =============================================================================
 // HAPTIC FEEDBACK
@@ -294,6 +251,10 @@ function AppInner() {
       gtag('event', 'page_view', { page_title: s, page_location: path })
     }
   }
+
+  // Screen transition animation styles (must be called before any conditional returns)
+  const transitionStyle = useScreenTransition(screen)
+
   const [phone, setPhone] = useState('')           // raw digits: "5551234567"
   const [code, setCode] = useState(['', '', '', '', '', '']) // 6 digits
   const [error, setError] = useState('')
@@ -337,7 +298,7 @@ function AppInner() {
   const [selectedItem, setSelectedItem] = useState<ListItem | null>(null)
   const [editForm, setEditForm] = useState({ name: '', brand: '', dept: '', qty: 1, size: '', notes: '' })
   const [displayBrand, setDisplayBrand] = useState('')
-  const [editLoading, setEditLoading] = useState(false)
+  const [editLoading] = useState(false)
   const [itemHistory, setItemHistory] = useState<ItemModification[]>([])
   const deptRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
@@ -345,7 +306,6 @@ function AppInner() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; action?: { label: string; onClick: () => void } } | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const settingsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const sliderSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // --- Review state (items from last parse) ---
   const [lastAdded, setLastAdded] = useState<ListItem[]>([])
@@ -427,9 +387,6 @@ function AppInner() {
   const [settingsEmail, setSettingsEmail] = useState('')
   const [settingsAddress, setSettingsAddress] = useState('')
   const [placesReady, setPlacesReady] = useState(false)
-  const [addressSuggestions, setAddressSuggestions] = useState<{ description: string; placeId: string }[]>([])
-  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
-  const addressSuggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [settingsMembers, setSettingsMembers] = useState<{ name: string; phone: string }[]>([])
   const [listName, setListName] = useState('')
   const [editingListName, setEditingListName] = useState(false)
@@ -437,10 +394,6 @@ function AppInner() {
   const [settingsPennyPhone, setSettingsPennyPhone] = useState('')
   const [settingsUserPhone, setSettingsUserPhone] = useState('')
   const [inviteLoading, setInviteLoading] = useState(false)
-  const [avatarVersion, setAvatarVersion] = useState(0)
-  const [avatarUploading, setAvatarUploading] = useState(false)
-  const [avatarError, setAvatarError] = useState(false)
-
   // --- Referral state ---
   const [referralCode, setReferralCode] = useState('')
   const [referralFriends, setReferralFriends] = useState<{ name: string; created_at: string }[]>([])
@@ -449,72 +402,10 @@ function AppInner() {
   const [swapsByItemId, setSwapsByItemId] = useState<Record<number, SwapOffer>>({})
   const [pendingReceiptMode, setPendingReceiptMode] = useState(false)
 
-  // --- Help / FAQ state ---
-  const [openFaq, setOpenFaq] = useState<number | null>(null)
-  const [bugDescription, setBugDescription] = useState('')
-  const [bugSubmitting, setBugSubmitting] = useState(false)
-  const [bugSubmitted, setBugSubmitted] = useState(false)
-
   // --- Admin state ---
   const [isAdmin, setIsAdmin] = useState(false)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [authMethods, setAuthMethods] = useState<string[]>([])
-  const [linkingProvider, setLinkingProvider] = useState<'email' | 'phone' | null>(null)
-  const [linkEmail, setLinkEmail] = useState('')
-  const [linkPhone, setLinkPhone] = useState('')
-  const [linkCode, setLinkCode] = useState('')
-  const [linkStep, setLinkStep] = useState<'input' | 'verify'>('input')
-  const [linkLoading, setLinkLoading] = useState(false)
-  const [linkError, setLinkError] = useState('')
-  const [adminDeals, setAdminDeals] = useState<{
-    id: number; competitor_product: string; offer_brand: string; offer_product: string;
-    discount_cents: number; daily_budget_cents: number; budget_spent_cents: number;
-    status: string; starts_at: string; ends_at: string; created_at: string;
-    offer_price_cents: number; competitor_price_cents: number;
-    offer_size: string; competitor_size: string;
-    offer_unit_price: string; competitor_unit_price: string;
-    why_bullets: string; allergen_notes: string;
-    deal_type: string; quantity_offered: number;
-    trial_product_name: string; trial_size: string; campaign_tag: string;
-  }[]>([])
-  const [showDealForm, setShowDealForm] = useState(false)
-  const [dealForm, setDealForm] = useState({
-    competitor_product: '', offer_brand: '', offer_product: '',
-    discount_cents: 0, daily_budget_cents: 0, status: 'active', ends_at: '',
-    offer_price_cents: 0, competitor_price_cents: 0,
-    offer_size: '', competitor_size: '',
-    offer_unit_price: '', competitor_unit_price: '',
-    why_bullets: '[]', allergen_notes: '',
-    deal_type: 'sku_swap', quantity_offered: 1,
-    trial_product_name: '', trial_size: '', campaign_tag: '',
-  })
-  const [editingDealId, setEditingDealId] = useState<number | null>(null)
-  const [adminData, setAdminData] = useState<{
-    active_users: number; total_users: number; new_users: number;
-    k_factor: number; leaderboard: { phone: string; name: string; points: number; referrals: number }[];
-    days: number;
-    nps_responses: { score: number; comment: string; user_name: string; user_phone: string; created_at: string }[];
-    nps_score: number;
-    nps_total: number;
-    nps_promoters: number;
-    nps_detractors: number;
-    swap_offered?: number;
-    swap_accepted?: number;
-    swap_declined?: number;
-    swap_accept_rate?: number;
-  } | null>(null)
-  const [adminDays, setAdminDays] = useState(30)
-  const [analyticsData, setAnalyticsData] = useState<{
-    days: number; items_created: number;
-    items_by_source: Record<string, number>;
-    items_by_department: Record<string, number>;
-    events_by_action: Record<string, number>;
-    events_by_day: { date: string; count: number }[];
-  } | null>(null)
-  const [adminPayouts, setAdminPayouts] = useState<{
-    user_id: number; name: string; email: string; phone: string;
-    total_cents: number; swap_count: number; oldest_swap: string;
-  }[]>([])
 
   // --- NPS state ---
   const [showNPS, setShowNPS] = useState(false)
@@ -526,7 +417,6 @@ function AppInner() {
   const [emailInput, setEmailInput] = useState('')
   const [passwordInput, setPasswordInput] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
   const [nameInput, setNameInput] = useState('')
   const [lastNameInput, setLastNameInput] = useState('')
   const [googleClientId, setGoogleClientId] = useState('')
@@ -550,16 +440,13 @@ function AppInner() {
   const [pennyAutotune, setPennyAutotune] = useState(true)
   const [pennyDeals, setPennyDeals] = useState(false)
 
-  // --- Savings/rebate state ---
-  const [swapCreditsCents, setSwapCreditsCents] = useState(0)
-  const [showSavingsSheet, setShowSavingsSheet] = useState(false)
-  const [rebateHistory, setRebateHistory] = useState<{
-    id: number; offer_brand: string; offer_product: string;
-    amount_cents: number; status: string; created_at: string;
-  }[]>([])
-  const [rebateSummary, setRebateSummary] = useState<{ total_cents: number; pending_cents: number; paid_cents: number }>({ total_cents: 0, pending_cents: 0, paid_cents: 0 })
+  // --- Earnings state ---
   const [earningsTotalCents, setEarningsTotalCents] = useState(0)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
+
+  // --- Post-swap share prompt ---
+  const [postSwapShare, setPostSwapShare] = useState<{ brand: string; savings: number } | null>(null)
+  const [showWrapped, setShowWrapped] = useState(false)
 
   // --- Penny chime-in state ---
   const [pennyChimeIn, setPennyChimeIn] = useState<string | null>(null)
@@ -1322,7 +1209,6 @@ function AppInner() {
           if (data.penny_autotune != null) setPennyAutotune(data.penny_autotune as boolean)
           if (data.penny_deals != null) setPennyDeals(data.penny_deals as boolean)
           if (data.swap_credits_cents != null) {
-            setSwapCreditsCents(data.swap_credits_cents as number)
             setEarningsTotalCents(data.swap_credits_cents as number)
           }
           if (data.list_name != null) setListName(data.list_name as string)
@@ -1339,45 +1225,6 @@ function AppInner() {
         }
       })
       .catch(e => console.warn('[load] settings failed:', e))
-  }
-
-  const fetchAddressSuggestions = async (input: string) => {
-    if (!placesReady || input.length < 3) {
-      setAddressSuggestions([])
-      setShowAddressSuggestions(false)
-      return
-    }
-    try {
-      const data = await fetchAPI(`/api/places/autocomplete?input=${encodeURIComponent(input)}`)
-      const items = (data as { description: string; placeId: string }[]) || []
-      setAddressSuggestions(items)
-      setShowAddressSuggestions(items.length > 0)
-    } catch {
-      setAddressSuggestions([])
-      setShowAddressSuggestions(false)
-    }
-  }
-
-  const selectAddressSuggestion = async (placeId: string) => {
-    setShowAddressSuggestions(false)
-    try {
-      const data = await fetchAPI(`/api/places/detail?place_id=${encodeURIComponent(placeId)}`)
-      const address = (data as { address: string })?.address
-      if (address) {
-        setSettingsAddress(address)
-        // Auto-save after selecting address
-        if (settingsSaveTimer.current) clearTimeout(settingsSaveTimer.current)
-        settingsSaveTimer.current = setTimeout(async () => {
-          try {
-            await fetchAPI('/api/settings', {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name: [settingsFirstName.trim(), settingsLastName.trim()].filter(Boolean).join(' '), email: settingsEmail.trim(), address: address.trim() }),
-            })
-          } catch { /* silent */ }
-        }, 300)
-      }
-    } catch { /* silent */ }
   }
 
   useEffect(() => {
@@ -1402,17 +1249,6 @@ function AppInner() {
     loadReferralData()
   }, [screen])
 
-  useEffect(() => {
-    if (screen !== 'admin') return
-    fetchAPI(`/api/admin/dashboard?days=${adminDays}`)
-      .then(data => { if (data) setAdminData(data as typeof adminData) })
-      .catch(e => console.warn('[load] admin dashboard failed:', e))
-    fetchAPI(`/api/admin/analytics?days=${adminDays}`)
-      .then(data => { if (data) setAnalyticsData(data as typeof analyticsData) })
-      .catch(e => console.warn('[load] admin analytics failed:', e))
-    fetch('/api/admin/deals').then(r => r.ok ? r.json() : []).then(setAdminDeals).catch(() => {})
-    fetch('/api/admin/payouts').then(r => r.ok ? r.json() : []).then(setAdminPayouts).catch(() => {})
-  }, [screen, adminDays])
 
   const showToast = (message: string, type: 'success' | 'error' = 'success', action?: { label: string; onClick: () => void }) => {
     if (type === 'error') haptic.error()
@@ -1537,13 +1373,13 @@ function AppInner() {
       localStorage.setItem('penny_invite_prompt_count', String(promptCount + 1))
       const messages = [
         "Shopping's better together — invite someone to share this list!",
-        "Still flying solo? Invite someone to share this list in real time.",
+        "Households that share lists save 2x more with swaps. Invite someone!",
         "One more nudge — sharing your list takes about 10 seconds.",
         "Last time I'll ask — want to share your list with someone?",
       ]
       typePennyHome(messages[Math.min(promptCount, messages.length - 1)], [{
-        label: 'Share',
-        onClick: () => setScreen('settings-share'),
+        label: 'Invite',
+        onClick: () => { setScreen('settings-share'); track('penny_invite_tapped', { prompt_count: promptCount }) },
       }])
     }, 12000)
 
@@ -1630,6 +1466,14 @@ function AppInner() {
   // --- Swap accept/decline ---
   const handleSwapAccept = async (dealId: number, itemId: number) => {
     haptic.success()
+    // Capture offer brand for share prompt
+    const swap = swapsByItemId[itemId]
+    const offerBrand = swap?.offer_brand || ''
+    const discountCents = swap?.discount_cents || 0
+    // Optimistic: remove swap card immediately
+    const oldSwaps = { ...swapsByItemId }
+    setSwapsByItemId(prev => { const next = { ...prev }; delete next[itemId]; return next })
+    showToast('Swapped!')
     try {
       const res = await fetch('/api/list/parse', {
         method: 'POST',
@@ -1646,17 +1490,25 @@ function AppInner() {
             return sortItems(Array.from(map.values()))
           })
         }
-        setSwapsByItemId(prev => { const next = { ...prev }; delete next[itemId]; return next })
         if (data.swap_credits_cents != null) {
-          setSwapCreditsCents(data.swap_credits_cents)
           setEarningsTotalCents(data.swap_credits_cents)
         }
-        showToast(data.message || 'Swapped!')
+        // Post-swap share prompt — show after successful swap
+        if (discountCents > 0) {
+          setPostSwapShare({ brand: offerBrand, savings: discountCents })
+          track('post_swap_share_shown', { deal_id: dealId, offer_brand: offerBrand })
+          setTimeout(() => setPostSwapShare(null), 8000) // auto-dismiss after 8s
+        }
       } else {
+        // Rollback swap card on failure
+        setSwapsByItemId(oldSwaps)
         const err = await res.json().catch(() => null)
         showToast(err?.error || 'Couldn\'t accept the swap', 'error')
       }
-    } catch { showToast('Connection error — try again', 'error') }
+    } catch {
+      setSwapsByItemId(oldSwaps)
+      showToast('Connection error — try again', 'error')
+    }
   }
 
   const handleSwapDecline = async (dealId: number, itemId: number) => {
@@ -2208,35 +2060,48 @@ function AppInner() {
   const handleEditSave = async () => {
     if (!selectedItem || !editForm.name.trim() || editLoading) return
     setDisplayBrand(editForm.brand)
-    setEditLoading(true)
+    const optimistic: Partial<ListItem> = { name: editForm.name.trim(), brand: editForm.brand.trim(), department: editForm.dept, quantity: editForm.qty, size: editForm.size.trim(), notes: editForm.notes.trim() }
+    const oldItem = { ...selectedItem }
+    // Optimistic: update UI and close sheet immediately
+    setItems(prev => sortItems(prev.map(item => item.id === selectedItem.id ? { ...item, ...optimistic } : item)))
+    closeEditSheet(undefined, { ...selectedItem, ...optimistic })
     try {
       const data = await fetchAPI(`/api/list/${selectedItem.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: editForm.name.trim(), brand: editForm.brand.trim(), department: editForm.dept, quantity: editForm.qty, size: editForm.size.trim(), notes: editForm.notes.trim() }),
+        body: JSON.stringify(optimistic),
       })
       if (data) {
         const updated = data as ListItem
         setItems(prev => sortItems(prev.map(item => item.id === updated.id ? updated : item)))
-        closeEditSheet(undefined, updated)
       } else {
+        // Rollback
+        setItems(prev => sortItems(prev.map(item => item.id === oldItem.id ? oldItem : item)))
         showToast('Couldn\'t save changes — please try again', 'error')
       }
-    } catch { showToast('Couldn\'t save changes — please try again', 'error') }
-    finally { setEditLoading(false) }
+    } catch {
+      setItems(prev => sortItems(prev.map(item => item.id === oldItem.id ? oldItem : item)))
+      showToast('Couldn\'t save changes — please try again', 'error')
+    }
   }
 
   const handleEditDelete = async () => {
     if (!selectedItem || editLoading) return
     const deletingId = selectedItem.id
-    setEditLoading(true)
+    const oldItems = items
+    // Optimistic: remove from UI and close sheet immediately
+    setItems(prev => prev.filter(item => item.id !== deletingId))
+    closeEditSheet(deletingId)
     try {
       const result = await fetchAction(`/api/list/${deletingId}`, { method: 'DELETE' })
-      if (result.ok) {
-        setItems(prev => prev.filter(item => item.id !== deletingId))
-        closeEditSheet(deletingId)
-      } else if (result.status !== 401) { showToast('Couldn\'t delete that item — please try again', 'error') }
-    } finally { setEditLoading(false) }
+      if (!result.ok && result.status !== 401) {
+        setItems(oldItems) // Rollback
+        showToast('Couldn\'t delete that item — please try again', 'error')
+      }
+    } catch {
+      setItems(oldItems) // Rollback
+      showToast('Couldn\'t delete that item — please try again', 'error')
+    }
   }
 
   const handleClearList = async (all?: boolean) => {
@@ -2603,7 +2468,9 @@ const handleCodeChange = (index: number, value: string) => {
 
   const handleTextInviteLink = () => withInviteLink(async link => {
     const message = `Join our household shopping list on Thriftly! ${link}`
-    if (/Mobi|Android/i.test(navigator.userAgent)) {
+    const isMobile = /Mobi|Android/i.test(navigator.userAgent)
+    track('invite_shared', { method: isMobile ? 'sms' : 'clipboard' })
+    if (isMobile) {
       // Mobile: open Messages app with pre-filled invite text
       window.location.href = `sms:?&body=${encodeURIComponent(message)}`
     } else {
@@ -2638,124 +2505,15 @@ const handleCodeChange = (index: number, value: string) => {
   // =========================================================================
 
   if (sharedCode) {
-    const timeLeft = sharedData ? (() => {
-      const ms = new Date(sharedData.expires_at).getTime() - Date.now()
-      if (ms <= 0) return 'expired'
-      const hours = Math.floor(ms / 3600000)
-      if (hours > 0) return `${hours} hour${hours !== 1 ? 's' : ''}`
-      const mins = Math.floor(ms / 60000)
-      return `${mins} minute${mins !== 1 ? 's' : ''}`
-    })() : null
-
+    const navigateToSignUp = () => { setSharedCode(null); setSharedError(null); window.history.replaceState({}, '', '/login/email/register'); setScreen('email-register', true) }
     return (
-      <div style={{ minHeight: '100vh', backgroundColor: BG, display: 'flex', flexDirection: 'column' }}>
-        {/* Header */}
-        <div style={{ backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}`, padding: '20px', textAlign: 'center' }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px' }}>
-            <PennyAvatar size={48} />
-          </div>
-          <div style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: TEXT }}>
-            {sharedData ? `${sharedData.sharer_name || 'Someone'}'s Shopping List` : 'Shared Shopping List'}
-          </div>
-          <div style={{ fontFamily: FONT, fontSize: '13px', color: BRAND, fontWeight: 600, letterSpacing: '-0.3px', marginTop: '4px' }}>thriftly</div>
-        </div>
-
-        {/* Expiry banner */}
-        {sharedData && timeLeft && timeLeft !== 'expired' && (
-          <div style={{ backgroundColor: '#FEF3C7', padding: '10px 20px', fontFamily: FONT, fontSize: '13px', color: '#92400E', textAlign: 'center' }}>
-            This link expires in {timeLeft}
-          </div>
-        )}
-
-        {/* Content */}
-        <div style={{ flex: 1, padding: '16px 20px', overflowY: 'auto' }}>
-          {sharedLoading && (
-            <div style={{ textAlign: 'center', padding: '40px 0' }}>
-              <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY }}>Loading list...</p>
-            </div>
-          )}
-
-          {sharedError === 'expired' && (
-            <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-              <div style={{ fontSize: '48px', marginBottom: '16px' }}>⏰</div>
-              <h2 style={{ fontFamily: FONT, fontSize: '20px', color: TEXT, margin: '0 0 8px' }}>This link has expired</h2>
-              <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: '0 0 24px' }}>
-                Share links are valid for 48 hours. Ask the sender to share again.
-              </p>
-              <button
-                onClick={() => { setSharedCode(null); setSharedError(null); window.history.replaceState({}, '', '/login/email/register'); setScreen('email-register', true) }}
-                style={{ backgroundColor: BRAND, color: WHITE, border: 'none', borderRadius: '10px', padding: '14px 28px', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer' }}
-              >
-                Sign up for Thriftly
-              </button>
-            </div>
-          )}
-
-          {sharedError === 'not_found' && (
-            <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-              <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔗</div>
-              <h2 style={{ fontFamily: FONT, fontSize: '20px', color: TEXT, margin: '0 0 8px' }}>Link not found</h2>
-              <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: '0 0 24px' }}>
-                This share link doesn't exist. Check the URL and try again.
-              </p>
-              <button
-                onClick={() => { setSharedCode(null); setSharedError(null); window.history.replaceState({}, '', '/login/email/register'); setScreen('email-register', true) }}
-                style={{ backgroundColor: BRAND, color: WHITE, border: 'none', borderRadius: '10px', padding: '14px 28px', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer' }}
-              >
-                Sign up for Thriftly
-              </button>
-            </div>
-          )}
-
-          {sharedData && !sharedError && (
-            <>
-              {sharedData.items.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                  <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY }}>This list is empty</p>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  {sharedData.items.map((item, i) => (
-                    <div key={i} style={{
-                      display: 'flex', alignItems: 'center', gap: '12px',
-                      padding: '14px 16px', backgroundColor: WHITE, borderRadius: '10px',
-                      opacity: item.checked ? 0.5 : 1,
-                    }}>
-                      <div style={{
-                        width: '22px', height: '22px', borderRadius: '6px', flexShrink: 0,
-                        border: item.checked ? 'none' : `2px solid ${BORDER}`,
-                        backgroundColor: item.checked ? BRAND : 'transparent',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}>
-                        {item.checked && <span style={{ color: WHITE, fontSize: '14px', fontWeight: 700 }}>✓</span>}
-                      </div>
-                      <span style={{
-                        fontFamily: FONT, fontSize: '15px', color: TEXT, flex: 1,
-                        textDecoration: item.checked ? 'line-through' : 'none',
-                      }}>
-                        {item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Sign-up CTA */}
-        <div style={{ padding: '20px', backgroundColor: WHITE, borderTop: `1px solid ${BORDER}`, textAlign: 'center' }}>
-          <p style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, margin: '0 0 12px' }}>
-            Sign up for Thriftly to make your own list and earn rebates
-          </p>
-          <button
-            onClick={() => { setSharedCode(null); window.history.replaceState({}, '', '/login/email/register'); setScreen('email-register', true) }}
-            style={{ backgroundColor: BRAND, color: WHITE, border: 'none', borderRadius: '10px', padding: '14px 28px', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer', width: '100%', maxWidth: '320px' }}
-          >
-            Get Started
-          </button>
-        </div>
-      </div>
+      <SharedListScreen
+        sharedData={sharedData}
+        sharedLoading={sharedLoading}
+        sharedError={sharedError}
+        onSignUp={navigateToSignUp}
+        onSignUpClear={() => { setSharedCode(null); window.history.replaceState({}, '', '/login/email/register'); setScreen('email-register', true) }}
+      />
     )
   }
 
@@ -2775,114 +2533,17 @@ const handleCodeChange = (index: number, value: string) => {
   // =========================================================================
 
   if (screen === 'phone') {
-    const isValid = phone.length === 10
-
     return (
-      <div style={{
-        backgroundColor: BG,
-        fontFamily: FONT,
-        minHeight: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        padding: '32px 20px 40px',
-        boxSizing: 'border-box',
-      }}>
-        <div style={{
-          width: '100%',
-          maxWidth: '400px',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          flex: 1,
-        }}>
-
-          {/* Penny hero */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '28px', width: '100%' }}>
-            <PennyAvatar size={130} />
-            <div style={{
-              fontFamily: FONT, fontSize: '18px', fontWeight: 500,
-              color: TEXT, lineHeight: 1.5, fontStyle: 'italic',
-              textAlign: 'left', marginTop: '16px',
-              minHeight: '54px', maxWidth: '320px', width: '100%',
-            }}>{loginPennyText}<span style={{ opacity: 0.4 }} className="cursor-blink">|</span></div>
-          </div>
-
-          {/* ── Phone input ── */}
-          <div style={{ width: '100%', marginBottom: '12px' }}>
-            <FloatingLabelField label="Your mobile number">
-              <input
-                ref={phoneInputRef}
-                type="tel"
-                inputMode="numeric"
-                autoComplete="tel-national"
-                placeholder="(555) 123-4567"
-                value={formatPhone(phone)}
-                onChange={handlePhoneChange}
-                onKeyDown={e => { if (e.key === 'Enter' && isValid && smsOptIn) handleSendCode() }}
-                style={{ ...listStyles.floatingInput, fontSize: '20px', fontWeight: 500, letterSpacing: '0.5px' }}
-                autoFocus
-              />
-            </FloatingLabelField>
-          </div>
-
-          {/* SMS opt-in */}
-          <label style={{
-            display: 'flex', alignItems: 'flex-start', gap: '8px',
-            width: '100%', marginBottom: '20px',
-            cursor: 'pointer', userSelect: 'none' as const,
-          }}>
-            <input
-              type="checkbox"
-              checked={smsOptIn}
-              onChange={e => setSmsOptIn(e.target.checked)}
-              style={{ accentColor: BRAND, width: '16px', height: '16px', flexShrink: 0, marginTop: '1px' }}
-            />
-            <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, lineHeight: 1.5, whiteSpace: 'nowrap' }}>
-              I agree to receive a one-time login code via text
-            </span>
-          </label>
-
-          {error && <p role="alert" style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
-
-          <button
-            onClick={() => handleSendCode()}
-            disabled={!isValid || !smsOptIn || loading}
-            style={{
-              width: '100%', padding: '17px', fontSize: '16px',
-              fontFamily: FONT, fontWeight: 700, color: WHITE,
-              backgroundColor: BRAND, border: 'none', borderRadius: '14px',
-              cursor: isValid && smsOptIn && !loading ? 'pointer' : 'default',
-              transition: 'opacity 0.2s, transform 0.1s',
-              letterSpacing: '0.2px',
-              opacity: isValid && smsOptIn && !loading ? 1 : 0.35,
-              marginBottom: '4px',
-            }}
-          >
-            {loading ? 'Sending…' : 'Continue →'}
-          </button>
-
-          {/* Divider + alternative auth */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', margin: '20px 0 16px' }}>
-            <div style={{ flex: 1, height: '1px', backgroundColor: BORDER }} />
-            <span style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY }}>or</span>
-            <div style={{ flex: 1, height: '1px', backgroundColor: BORDER }} />
-          </div>
-
-          {googleClientId && (
-            <div id="google-signin-btn" style={{ width: '100%', display: 'flex', justifyContent: 'center', marginBottom: '12px' }} />
-          )}
-
-          <button
-            onClick={() => { setError(''); setScreen('email-login') }}
-            style={listStyles.subtleLink}
-          >Use email instead</button>
-
-          <div style={{ marginTop: 'auto', paddingTop: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <LegalLinks />
-          </div>
-        </div>
-      </div>
+      <PhoneScreen
+        phone={phone} smsOptIn={smsOptIn} loading={loading} error={error}
+        loginPennyText={loginPennyText} googleClientId={googleClientId}
+        phoneInputRef={phoneInputRef}
+        onPhoneChange={handlePhoneChange}
+        onSmsOptInChange={v => setSmsOptIn(v)}
+        onSendCode={() => handleSendCode()}
+        onNavigate={s => setScreen(s as Screen)}
+        setError={setError}
+      />
     )
   }
 
@@ -2892,92 +2553,15 @@ const handleCodeChange = (index: number, value: string) => {
 
   if (screen === 'email-login') {
     return (
-      <div style={{
-        backgroundColor: BG, fontFamily: FONT, minHeight: '100%',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        padding: '32px 20px 40px', boxSizing: 'border-box',
-      }}>
-        <div style={{ width: '100%', maxWidth: '400px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          {/* Penny hero */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '24px', width: '100%' }}>
-            <PennyAvatar size={80} />
-            <div style={{
-              fontFamily: FONT, fontSize: '15px', fontWeight: 500,
-              color: TEXT, lineHeight: 1.5, fontStyle: 'italic',
-              textAlign: 'left', marginTop: '12px',
-              minHeight: '44px', maxWidth: '320px', width: '100%',
-            }}>{loginPennyText}<span style={{ opacity: 0.4 }} className="cursor-blink">|</span></div>
-          </div>
-
-          <div style={{ width: '100%', marginBottom: '12px' }}>
-            <FloatingLabelField label="Email">
-              <input
-                type="email"
-                autoComplete="email"
-                value={emailInput}
-                onChange={e => setEmailInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleEmailLogin() }}
-                style={listStyles.floatingInput}
-                autoFocus
-              />
-            </FloatingLabelField>
-          </div>
-
-          <div style={{ width: '100%', marginBottom: '12px', position: 'relative' }}>
-            <FloatingLabelField label="Password">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                autoComplete="current-password"
-                value={passwordInput}
-                onChange={e => setPasswordInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleEmailLogin() }}
-                style={{ ...listStyles.floatingInput, paddingRight: '44px' }}
-              />
-            </FloatingLabelField>
-            <button type="button" onClick={() => setShowPassword(p => !p)} aria-label={showPassword ? 'Hide password' : 'Show password'} style={{ position: 'absolute', right: '12px', bottom: '12px', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: TEXT_SECONDARY }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{showPassword ? <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></> : <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>}</svg>
-            </button>
-          </div>
-
-          {error && <p role="alert" style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
-          {magicLinkSent && <p style={{ fontFamily: FONT, fontSize: '14px', color: BRAND, fontWeight: 500, width: '100%', textAlign: 'left' as const, marginBottom: '12px' }}>We sent a sign-in link to your email — check your inbox!</p>}
-
-          <button
-            onClick={handleEmailLogin}
-            disabled={loading}
-            style={{
-              width: '100%', padding: '17px', fontSize: '16px',
-              fontFamily: FONT, fontWeight: 700, color: WHITE,
-              backgroundColor: BRAND, border: 'none', borderRadius: '14px',
-              cursor: loading ? 'default' : 'pointer',
-              opacity: loading ? 0.5 : 1, marginBottom: '16px',
-            }}
-          >
-            {loading ? 'Signing in…' : 'Sign in'}
-          </button>
-
-          <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
-            <button onClick={() => { setError(''); setMagicLinkSent(false); setScreen('forgot-password') }} style={listStyles.subtleLink}>Forgot password?</button>
-            <button onClick={handleMagicLink} disabled={loading} style={{ ...listStyles.subtleLink, opacity: loading ? 0.5 : 1 }}>Email me a sign-in link</button>
-            <button onClick={() => { setError(''); setMagicLinkSent(false); setScreen('email-register') }} style={listStyles.subtleLink}>Create an account</button>
-          </div>
-
-          {/* Divider + alternative auth */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', margin: '8px 0 16px' }}>
-            <div style={{ flex: 1, height: '1px', backgroundColor: BORDER }} />
-            <span style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY }}>or</span>
-            <div style={{ flex: 1, height: '1px', backgroundColor: BORDER }} />
-          </div>
-
-          {googleClientId && (
-            <div id="google-signin-btn" style={{ width: '100%', display: 'flex', justifyContent: 'center', marginBottom: '12px' }} />
-          )}
-
-          <button onClick={() => { setError(''); setScreen('phone') }} style={listStyles.subtleLink}>Use phone number instead</button>
-
-          <div style={{ marginTop: '12px' }}><LegalLinks /></div>
-        </div>
-      </div>
+      <EmailLoginScreen
+        emailInput={emailInput} passwordInput={passwordInput}
+        loading={loading} error={error} magicLinkSent={magicLinkSent}
+        loginPennyText={loginPennyText} googleClientId={googleClientId}
+        onEmailChange={v => setEmailInput(v)} onPasswordChange={v => setPasswordInput(v)}
+        onLogin={handleEmailLogin} onMagicLink={handleMagicLink}
+        onNavigate={s => setScreen(s as Screen)}
+        setError={setError} setMagicLinkSent={setMagicLinkSent}
+      />
     )
   }
 
@@ -2987,86 +2571,17 @@ const handleCodeChange = (index: number, value: string) => {
 
   if (screen === 'email-register') {
     return (
-      <div style={{
-        backgroundColor: BG, fontFamily: FONT, minHeight: '100%',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        padding: '32px 20px 40px', boxSizing: 'border-box',
-      }}>
-        <div style={{ width: '100%', maxWidth: '400px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          {/* Penny hero */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '24px', width: '100%' }}>
-            <PennyAvatar size={80} />
-            <div style={{
-              fontFamily: FONT, fontSize: '15px', fontWeight: 500,
-              color: TEXT, lineHeight: 1.5, fontStyle: 'italic',
-              textAlign: 'left', marginTop: '12px',
-              minHeight: '44px', maxWidth: '320px', width: '100%',
-            }}>{loginPennyText}<span style={{ opacity: 0.4 }} className="cursor-blink">|</span></div>
-          </div>
-
-          <div style={{ display: 'flex', gap: '12px', width: '100%', marginBottom: '12px' }}>
-            <div style={{ flex: 1 }}>
-              <FloatingLabelField label="First name">
-                <input type="text" autoComplete="given-name" value={nameInput} onChange={e => setNameInput(e.target.value)} style={listStyles.floatingInput} autoFocus />
-              </FloatingLabelField>
-            </div>
-            <div style={{ flex: 1 }}>
-              <FloatingLabelField label="Last name">
-                <input type="text" autoComplete="family-name" value={lastNameInput} onChange={e => setLastNameInput(e.target.value)} style={listStyles.floatingInput} />
-              </FloatingLabelField>
-            </div>
-          </div>
-
-          <div style={{ width: '100%', marginBottom: '12px' }}>
-            <FloatingLabelField label="Email">
-              <input type="email" autoComplete="email" value={emailInput} onChange={e => setEmailInput(e.target.value)} style={listStyles.floatingInput} />
-            </FloatingLabelField>
-          </div>
-
-          <div style={{ width: '100%', marginBottom: '4px', position: 'relative' }}>
-            <FloatingLabelField label="Password">
-              <input type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={passwordInput} onChange={e => setPasswordInput(e.target.value)} style={{ ...listStyles.floatingInput, paddingRight: '44px' }} />
-            </FloatingLabelField>
-            <button type="button" onClick={() => setShowPassword(p => !p)} aria-label={showPassword ? 'Hide password' : 'Show password'} style={{ position: 'absolute', right: '12px', bottom: '12px', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: TEXT_SECONDARY }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{showPassword ? <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></> : <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>}</svg>
-            </button>
-          </div>
-          <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '12px', paddingLeft: '4px' }}>At least 8 characters</p>
-
-          <div style={{ width: '100%', marginBottom: '12px', position: 'relative' }}>
-            <FloatingLabelField label="Confirm password">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={e => setConfirmPassword(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleEmailRegister() }}
-                style={{ ...listStyles.floatingInput, paddingRight: '44px' }}
-              />
-            </FloatingLabelField>
-          </div>
-
-          {error && <p role="alert" style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
-
-          <button
-            onClick={handleEmailRegister}
-            disabled={loading}
-            style={{
-              width: '100%', padding: '17px', fontSize: '16px',
-              fontFamily: FONT, fontWeight: 700, color: WHITE,
-              backgroundColor: BRAND, border: 'none', borderRadius: '14px',
-              cursor: loading ? 'default' : 'pointer',
-              opacity: loading ? 0.5 : 1, marginBottom: '16px',
-            }}
-          >
-            {loading ? 'Creating account…' : 'Create account'}
-          </button>
-
-          <button onClick={() => { setError(''); setScreen('email-login') }} style={listStyles.subtleLink}>Already have an account? Sign in</button>
-
-          <div style={{ marginTop: '12px' }}><LegalLinks /></div>
-        </div>
-      </div>
+      <EmailRegisterScreen
+        nameInput={nameInput} lastNameInput={lastNameInput}
+        emailInput={emailInput} passwordInput={passwordInput} confirmPassword={confirmPassword}
+        loading={loading} error={error} loginPennyText={loginPennyText}
+        onNameChange={v => setNameInput(v)} onLastNameChange={v => setLastNameInput(v)}
+        onEmailChange={v => setEmailInput(v)} onPasswordChange={v => setPasswordInput(v)}
+        onConfirmPasswordChange={v => setConfirmPassword(v)}
+        onRegister={handleEmailRegister}
+        onNavigate={s => setScreen(s as Screen)}
+        setError={setError}
+      />
     )
   }
 
@@ -3076,58 +2591,12 @@ const handleCodeChange = (index: number, value: string) => {
 
   if (screen === 'forgot-password') {
     return (
-      <div style={{
-        backgroundColor: BG, fontFamily: FONT, minHeight: '100%',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        padding: '32px 20px 40px', boxSizing: 'border-box',
-      }}>
-        <div style={{ width: '100%', maxWidth: '400px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <div style={{ width: '100%', marginBottom: '24px', textAlign: 'center' }}>
-            <div style={{ fontFamily: FONT, fontSize: '22px', fontWeight: 700, color: TEXT, letterSpacing: '-0.5px', marginBottom: '6px' }}>
-              Reset your password
-            </div>
-            <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY }}>
-              {resetSent ? "If an account exists with that email, we've sent a reset link." : "Enter your email and we'll send you a reset link."}
-            </div>
-          </div>
-
-          {!resetSent && (
-            <>
-              <div style={{ width: '100%', marginBottom: '12px' }}>
-                <FloatingLabelField label="Email">
-                  <input
-                    type="email"
-                    autoComplete="email"
-                    value={emailInput}
-                    onChange={e => setEmailInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') handleForgotPassword() }}
-                    style={listStyles.floatingInput}
-                    autoFocus
-                  />
-                </FloatingLabelField>
-              </div>
-
-              {error && <p role="alert" style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
-
-              <button
-                onClick={handleForgotPassword}
-                disabled={loading}
-                style={{
-                  width: '100%', padding: '17px', fontSize: '16px',
-                  fontFamily: FONT, fontWeight: 700, color: WHITE,
-                  backgroundColor: BRAND, border: 'none', borderRadius: '14px',
-                  cursor: loading ? 'default' : 'pointer',
-                  opacity: loading ? 0.5 : 1, marginBottom: '16px',
-                }}
-              >
-                {loading ? 'Sending…' : 'Send reset link'}
-              </button>
-            </>
-          )}
-
-          <button onClick={() => { setError(''); setResetSent(false); setScreen('email-login') }} style={listStyles.subtleLink}>Back to sign in</button>
-        </div>
-      </div>
+      <ForgotPasswordScreen
+        emailInput={emailInput} loading={loading} error={error} resetSent={resetSent}
+        onEmailChange={v => setEmailInput(v)} onSubmit={handleForgotPassword}
+        onNavigate={s => setScreen(s as Screen)}
+        setError={setError} setResetSent={setResetSent}
+      />
     )
   }
 
@@ -3137,59 +2606,14 @@ const handleCodeChange = (index: number, value: string) => {
 
   if (screen === 'reset-password') {
     return (
-      <div style={{
-        backgroundColor: BG, fontFamily: FONT, minHeight: '100%',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        padding: '32px 20px 40px', boxSizing: 'border-box',
-      }}>
-        <div style={{ width: '100%', maxWidth: '400px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <div style={{ width: '100%', marginBottom: '24px', textAlign: 'center' }}>
-            <div style={{ fontFamily: FONT, fontSize: '22px', fontWeight: 700, color: TEXT, letterSpacing: '-0.5px', marginBottom: '6px' }}>
-              Set a new password
-            </div>
-          </div>
-
-          <div style={{ width: '100%', marginBottom: '12px', position: 'relative' }}>
-            <FloatingLabelField label="New password">
-              <input type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={passwordInput} onChange={e => setPasswordInput(e.target.value)} style={{ ...listStyles.floatingInput, paddingRight: '44px' }} autoFocus />
-            </FloatingLabelField>
-            <button type="button" onClick={() => setShowPassword(p => !p)} aria-label={showPassword ? 'Hide password' : 'Show password'} style={{ position: 'absolute', right: '12px', bottom: '12px', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: TEXT_SECONDARY }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{showPassword ? <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></> : <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>}</svg>
-            </button>
-          </div>
-
-          <div style={{ width: '100%', marginBottom: '12px' }}>
-            <FloatingLabelField label="Confirm password">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={e => setConfirmPassword(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleResetPassword() }}
-                style={listStyles.floatingInput}
-              />
-            </FloatingLabelField>
-          </div>
-
-          {error && <p role="alert" style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
-
-          <button
-            onClick={handleResetPassword}
-            disabled={loading}
-            style={{
-              width: '100%', padding: '17px', fontSize: '16px',
-              fontFamily: FONT, fontWeight: 700, color: WHITE,
-              backgroundColor: BRAND, border: 'none', borderRadius: '14px',
-              cursor: loading ? 'default' : 'pointer',
-              opacity: loading ? 0.5 : 1, marginBottom: '16px',
-            }}
-          >
-            {loading ? 'Resetting…' : 'Reset password'}
-          </button>
-
-          <button onClick={() => { setError(''); setScreen('email-login') }} style={listStyles.subtleLink}>Back to sign in</button>
-        </div>
-      </div>
+      <ResetPasswordScreen
+        passwordInput={passwordInput} confirmPassword={confirmPassword}
+        loading={loading} error={error}
+        onPasswordChange={v => setPasswordInput(v)} onConfirmPasswordChange={v => setConfirmPassword(v)}
+        onSubmit={handleResetPassword}
+        onNavigate={s => setScreen(s as Screen)}
+        setError={setError}
+      />
     )
   }
 
@@ -3199,97 +2623,14 @@ const handleCodeChange = (index: number, value: string) => {
 
   if (screen === 'code') {
     return (
-      <div style={{
-        backgroundColor: BG,
-        fontFamily: FONT,
-        minHeight: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        padding: '32px 20px 40px',
-        boxSizing: 'border-box',
-      }}>
-        <div style={{
-          width: '100%',
-          maxWidth: '400px',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          flex: 1,
-        }}>
-
-          {/* Headline */}
-          <div style={{ width: '100%', marginBottom: '24px', textAlign: 'center' }}>
-            <div style={{
-              fontFamily: FONT, fontSize: '22px', fontWeight: 700,
-              color: TEXT, letterSpacing: '-0.5px', lineHeight: 1.2,
-              marginBottom: '6px',
-            }}>Check your texts</div>
-            <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, lineHeight: 1.5 }}>
-              Enter the code sent to {formatPhone(phone)}
-            </div>
-          </div>
-
-          {/* ── Code boxes ── */}
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', width: '100%', justifyContent: 'center' }}>
-            {code.map((digit, i) => (
-              <input
-                key={i}
-                ref={el => { codeInputRefs.current[i] = el }}
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                autoComplete={i === 0 ? 'one-time-code' : 'off'}
-                maxLength={1}
-                value={digit}
-                aria-label={`Verification code digit ${i + 1} of 6`}
-                onChange={e => handleCodeChange(i, e.target.value)}
-                onKeyDown={e => handleCodeKeyDown(i, e)}
-                onPaste={handleCodePaste}
-                disabled={loading}
-                style={{
-                  width: '48px', height: '60px',
-                  fontSize: '26px', fontFamily: FONT, fontWeight: 700,
-                  color: TEXT, textAlign: 'center' as const,
-                  backgroundColor: WHITE,
-                  border: `2px solid ${digit ? BRAND : BORDER}`,
-                  borderRadius: '12px', outline: 'none', caretColor: BRAND,
-                  transition: 'border-color 0.15s, box-shadow 0.15s',
-                  boxShadow: digit ? `0 0 0 3px ${BRAND}20` : 'none',
-                  WebkitTextSizeAdjust: '100%',
-                  opacity: loading ? 0.5 : 1,
-                  boxSizing: 'border-box',
-                }}
-              />
-            ))}
-          </div>
-
-          {loading && (
-            <p style={{ fontFamily: FONT, fontSize: '15px', color: BRAND, fontWeight: 500, margin: '0 0 12px 0' }}>
-              Signing you in…
-            </p>
-          )}
-
-          {error && <p role="alert" style={{ ...styles.error, width: '100%', textAlign: 'center' as const }}>{error}</p>}
-
-          {/* Subtle helper links */}
-          <div style={{ display: 'flex', gap: '16px', marginTop: '8px' }}>
-            <button
-              onClick={() => { handleSendCode(phone) }}
-              disabled={loading}
-              style={{ ...listStyles.subtleLink, opacity: loading ? 0.5 : 1 }}
-            >Resend code</button>
-            <button
-              onClick={() => { setScreen('phone'); setError('') }}
-              style={listStyles.subtleLink}
-            >Use a different number</button>
-          </div>
-
-          <div style={{ marginTop: 'auto', paddingTop: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <LegalLinks />
-          </div>
-        </div>
-      </div>
+      <CodeScreen
+        phone={phone} code={code} loading={loading} error={error}
+        codeInputRefs={codeInputRefs}
+        onCodeChange={handleCodeChange} onCodeKeyDown={handleCodeKeyDown} onCodePaste={handleCodePaste}
+        onResendCode={(p) => handleSendCode(p)}
+        onNavigate={s => setScreen(s as Screen)}
+        setError={setError}
+      />
     )
   }
 
@@ -3310,28 +2651,10 @@ const handleCodeChange = (index: number, value: string) => {
     <BottomTabBar
       active={getActiveTab(screen)}
       onNavigate={setScreen}
+      swapCount={Object.keys(swapsByItemId).length}
     />
   )
 
-  const renderMemberList = () => settingsMembers.map((m, i) => (
-    <div key={i} style={{
-      display: 'flex',
-      alignItems: 'center',
-      padding: '10px 0',
-      borderBottom: `1px solid ${BORDER}`,
-      gap: '10px',
-    }}>
-      <div style={avatarCircleStyle()}>
-        {(m.name || m.phone || '?')[0].toUpperCase()}
-      </div>
-      <div>
-        <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>
-          {m.name || formatPhone(m.phone)}
-        </div>
-        {m.name && <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>{formatPhone(m.phone)}</div>}
-      </div>
-    </div>
-  ))
 
   const pennyBarStyle = {
     position: 'fixed' as const,
@@ -3401,16 +2724,6 @@ const handleCodeChange = (index: number, value: string) => {
                 <polyline points="15 18 9 12 15 6"/>
               </svg>
             </button>
-          ) : earningsTotalCents > 0 ? (
-            <span
-              style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1 }}
-              onClick={() => setScreen('earnings')}
-            >
-              <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: BRAND }}>
-                ${(earningsTotalCents / 100).toFixed(2)}
-              </span>
-              <span style={{ fontFamily: FONT, fontSize: '10px', color: TEXT_SECONDARY, marginTop: '1px' }}>swaps</span>
-            </span>
           ) : (
             <span
               style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: '17px', fontWeight: 700 }}
@@ -3429,8 +2742,16 @@ const handleCodeChange = (index: number, value: string) => {
             alignItems: 'center',
             gap: '6px',
           }}>{pageIcons[pageName]}{pageName}</span>
-          {/* Spacer to keep title centered */}
-          <div style={{ marginLeft: 'auto', width: '44px' }} />
+          {/* Swaps total — upper right */}
+          <span
+            style={{ marginLeft: 'auto', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1 }}
+            onClick={() => setScreen('earnings')}
+          >
+            <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: BRAND }}>
+              ${(earningsTotalCents / 100).toFixed(2)}
+            </span>
+            <span style={{ fontFamily: FONT, fontSize: '10px', color: TEXT_SECONDARY, marginTop: '1px' }}>swaps</span>
+          </span>
         </div>
       </div>
     )
@@ -3441,17 +2762,6 @@ const handleCodeChange = (index: number, value: string) => {
   // =========================================================================
 
   if (screen === 'penny') {
-    const saveSlider = (val: number) => {
-      setPennySlider(val)
-      if (sliderSaveTimeout.current) clearTimeout(sliderSaveTimeout.current)
-      sliderSaveTimeout.current = setTimeout(() => {
-        fetchAPI('/api/settings', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ penny_slider: val }),
-        })
-      }, 400)
-    }
     const toggleAutotune = () => {
       const next = !pennyAutotune
       setPennyAutotune(next)
@@ -3470,128 +2780,21 @@ const handleCodeChange = (index: number, value: string) => {
         body: JSON.stringify({ penny_deals: next }),
       })
     }
-    const pennyPhoneFormatted = settingsPennyPhone ? formatPhone(settingsPennyPhone.replace('+1', '')) : ''
     return (
-      <ScreenTransition screen={screen}>
-      <div style={listStyles.page}>
-        <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
-        {renderPageHeader('Penny', 'penny')}
-        <div style={listStyles.listArea}>
-          <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
-            {/* ── Contact Penny (top) ── */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              <PennyAvatar size={52} />
-              <div>
-                <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT }}>Penny</div>
-                <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, marginTop: '2px' }}>Your household's AI shopping assistant</div>
-              </div>
-              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                {pennyPhoneFormatted && (
-                  <a href={`sms:${settingsPennyPhone}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', borderRadius: '50%', backgroundColor: BG, textDecoration: 'none' }} aria-label="Text Penny">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                  </a>
-                )}
-                <a href="mailto:penny@list.thrift.ly" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', borderRadius: '50%', backgroundColor: BG, textDecoration: 'none' }} aria-label="Email Penny">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-                </a>
-                <a href="/api/penny.vcf" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', borderRadius: '50%', backgroundColor: BG, textDecoration: 'none' }} aria-label="Add Penny to contacts">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
-                </a>
-              </div>
-            </div>
-
-            {/* ── Divider ── */}
-            <div style={{ height: '1px', backgroundColor: BORDER, margin: '4px 0' }} />
-
-            {/* ── Settings ── */}
-
-            {/* Deals toggle — only show if user has messaging (phone) */}
-            {settingsPennyPhone && (
-              <div onClick={toggleDeals} style={listStyles.settingsCard}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>
-                </svg>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>I want to SMS with Penny</div>
-                  <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginTop: '1px' }}>Penny texts you about deals and savings she finds</div>
-                </div>
-                <ToggleSwitch value={pennyDeals} onChange={toggleDeals} />
-              </div>
-            )}
-
-            {/* Learn from my choices toggle */}
-            <div onClick={toggleAutotune} style={listStyles.settingsCard}>
-              {/* Brain/learning icon */}
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><path d="M9 21h6"/><path d="M10 17v-2.5"/><path d="M14 17v-2.5"/>
-              </svg>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>Learn from my choices</div>
-                <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginTop: '1px' }}>Penny remembers your brand preferences over time</div>
-              </div>
-              <ToggleSwitch value={pennyAutotune} onChange={toggleAutotune} />
-            </div>
-
-            {/* Slider — only visible when autotune is OFF, at bottom so it doesn't shift content above */}
-            <div style={{
-              maxHeight: pennyAutotune ? 0 : '200px',
-              opacity: pennyAutotune ? 0 : 1,
-              overflow: pennyAutotune ? 'hidden' : 'visible',
-              transition: 'max-height 0.3s ease, opacity 0.25s ease',
-              pointerEvents: pennyAutotune ? 'none' : 'auto',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  {/* Repeat/loop arrow — convenience */}
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
-                  </svg>
-                  <div>
-                    <div style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: TEXT }}>Convenience</div>
-                    <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY }}>Just grab my usual</div>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: TEXT }}>Savings</div>
-                    <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY }}>Help me save</div>
-                  </div>
-                  {/* Price tag with % — savings */}
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/><text x="13" y="11" fontSize="7" fontWeight="bold" fill={TEXT} stroke="none" fontFamily="sans-serif">%</text>
-                  </svg>
-                </div>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={pennySlider}
-                aria-label="Convenience versus savings preference"
-                onChange={e => saveSlider(Number(e.target.value))}
-                style={{
-                  width: '100%', height: '6px', appearance: 'none', WebkitAppearance: 'none',
-                  background: `linear-gradient(to right, ${BRAND} 0%, ${BRAND} ${pennySlider}%, ${BORDER} ${pennySlider}%, ${BORDER} 100%)`,
-                  borderRadius: '3px', outline: 'none', cursor: 'pointer',
-                  padding: '10px 0', margin: 0,
-                }}
-              />
-              <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '8px', textAlign: 'center' as const }}>
-                {pennySlider <= 30
-                  ? 'Penny sticks to your usual picks'
-                  : pennySlider <= 60
-                    ? 'Penny suggests a mix of favorites and new finds'
-                    : 'Penny loves trying new brands and products'}
-              </p>
-            </div>
-
-          </div>
-        </div>
-        {renderPennyToast()}
-        {renderBottomTabs()}
-      </div>
-      </ScreenTransition>
+      <PennySettingsScreen
+        pennyPhone={settingsPennyPhone}
+        pennySlider={pennySlider}
+        pennyAutotune={pennyAutotune}
+        pennyDeals={pennyDeals}
+        onSliderChange={setPennySlider}
+        onAutotuneToggle={toggleAutotune}
+        onDealsToggle={toggleDeals}
+        fetchAPI={fetchAPI}
+        renderHeader={() => renderPageHeader('Penny', 'penny')}
+        renderToast={renderPennyToast}
+        renderBottomTabs={renderBottomTabs}
+        transitionStyle={transitionStyle}
+      />
     )
   }
 
@@ -3600,349 +2803,33 @@ const handleCodeChange = (index: number, value: string) => {
   // =========================================================================
 
   if (screen === 'profile') {
-    const initials = [settingsFirstName, settingsLastName].map(n => (n || '')[0]?.toUpperCase() || '').filter(Boolean).join('')
-
-    const avatarUrl = currentUserId ? `/api/avatar/${currentUserId}?v=${avatarVersion}` : null
-
-    const handleAvatarPick = () => {
-      const input = document.createElement('input')
-      input.type = 'file'
-      input.accept = 'image/*'
-      input.onchange = async () => {
-        const file = input.files?.[0]
-        if (!file) return
-        setAvatarUploading(true)
-        try {
-          // Load image and resize to 256x256 JPEG
-          const bitmap = await createImageBitmap(file)
-          const canvas = document.createElement('canvas')
-          canvas.width = 256
-          canvas.height = 256
-          const ctx = canvas.getContext('2d')!
-          // Scale to cover, center crop
-          const scale = Math.max(256 / bitmap.width, 256 / bitmap.height)
-          const sw = 256 / scale, sh = 256 / scale
-          const sx = (bitmap.width - sw) / 2, sy = (bitmap.height - sh) / 2
-          ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, 256, 256)
-          const blob = await new Promise<Blob>((resolve) => canvas.toBlob(b => resolve(b!), 'image/jpeg', 0.85))
-          const buf = await blob.arrayBuffer()
-          const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
-          const res = await fetch('/api/avatar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ photo: base64 }) })
-          if (res.status === 401) { handleSessionExpired(); return }
-          if (res.ok) {
-            setAvatarVersion(v => v + 1)
-            showToast('Photo updated!')
-          } else {
-            const data = await res.json().catch(() => ({}))
-            showToast(data?.error || 'Upload failed', 'error')
-          }
-        } catch {
-          showToast('Could not process image', 'error')
-        } finally {
-          setAvatarUploading(false)
-        }
-      }
-      input.click()
-    }
-
     return (
-      <ScreenTransition screen={screen}>
-      <div style={listStyles.page}>
-        <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
-        {renderPageHeader('Profile', 'profile')}
-        <div style={listStyles.listArea}>
-          <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-
-            {/* Avatar + display info */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-              <div
-                onClick={handleAvatarPick}
-                role="button"
-                tabIndex={0}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleAvatarPick() } }}
-                style={{
-                  width: 80, height: 80, borderRadius: '50%',
-                  backgroundColor: BRAND, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontFamily: FONT, fontSize: '28px', fontWeight: 700, color: WHITE,
-                  cursor: 'pointer', position: 'relative', overflow: 'hidden',
-                }}
-                aria-label="Change profile photo"
-                title="Tap to change photo"
-              >
-                {avatarUrl && !avatarError ? (
-                  <img
-                    key={avatarVersion}
-                    src={avatarUrl}
-                    alt="Profile"
-                    onError={() => setAvatarError(true)}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                ) : (
-                  initials || '?'
-                )}
-                {avatarUploading && (
-                  <div style={{
-                    position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <div style={{ width: 24, height: 24, border: '3px solid rgba(255,255,255,0.3)', borderTopColor: WHITE, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-                  </div>
-                )}
-                {!avatarUploading && (
-                  <div style={{
-                    position: 'absolute', bottom: 0, left: 0, right: 0,
-                    backgroundColor: 'rgba(0,0,0,0.5)', padding: '2px 0',
-                    display: 'flex', justifyContent: 'center',
-                  }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                      <circle cx="12" cy="13" r="4"/>
-                    </svg>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* ── Profile fields ── */}
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <div style={{ flex: 1 }}>
-                <FloatingLabelField label="First name">
-                  <input type="text" value={settingsFirstName} onChange={e => setSettingsFirstName(e.target.value)} onBlur={handleSettingsAutoSave} placeholder="First" style={listStyles.floatingInput} />
-                </FloatingLabelField>
-              </div>
-              <div style={{ flex: 1 }}>
-                <FloatingLabelField label="Last name">
-                  <input type="text" value={settingsLastName} onChange={e => setSettingsLastName(e.target.value)} onBlur={handleSettingsAutoSave} placeholder="Last" style={listStyles.floatingInput} />
-                </FloatingLabelField>
-              </div>
-            </div>
-            <div>
-              <FloatingLabelField label="Email">
-                <input type="email" value={settingsEmail} onChange={e => setSettingsEmail(e.target.value)} onBlur={handleSettingsAutoSave} placeholder="your@email.com" style={listStyles.floatingInput} />
-              </FloatingLabelField>
-              <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px', paddingLeft: '4px' }}>
-                Once set, forward any recipe or list to penny@list.thrift.ly and Penny will add it for you.
-              </p>
-            </div>
-            <div>
-              <FloatingLabelField label="Cell phone">
-                <input
-                  type="tel"
-                  value={settingsUserPhone ? formatPhone(settingsUserPhone.replace('+1', '')) : ''}
-                  onChange={e => {
-                    const digits = e.target.value.replace(/\D/g, '').slice(0, 10)
-                    setSettingsUserPhone(digits ? `+1${digits}` : '')
-                  }}
-                  onBlur={handleSettingsAutoSave}
-                  placeholder="(555) 123-4567"
-                  style={listStyles.floatingInput}
-                />
-              </FloatingLabelField>
-              <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px', paddingLeft: '4px' }}>
-                Text Penny your grocery list anytime.
-              </p>
-            </div>
-            <div style={{ position: 'relative' }}>
-              <FloatingLabelField label="Address">
-                <input
-                  type="text" value={settingsAddress}
-                  onChange={e => {
-                    setSettingsAddress(e.target.value)
-                    if (addressSuggestTimer.current) clearTimeout(addressSuggestTimer.current)
-                    addressSuggestTimer.current = setTimeout(() => fetchAddressSuggestions(e.target.value), 300)
-                  }}
-                  onBlur={() => { setTimeout(() => setShowAddressSuggestions(false), 200); handleSettingsAutoSave() }}
-                  onFocus={() => { if (addressSuggestions.length > 0) setShowAddressSuggestions(true) }}
-                  placeholder="Start typing your address…" style={listStyles.floatingInput} autoComplete="off"
-                />
-              </FloatingLabelField>
-              {showAddressSuggestions && addressSuggestions.length > 0 && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1000, backgroundColor: '#fff', borderRadius: '10px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', border: `1px solid ${BORDER}`, marginTop: '4px', overflow: 'hidden' }}>
-                  {addressSuggestions.map((s, i) => (
-                    <button key={s.placeId} onMouseDown={e => { e.preventDefault(); selectAddressSuggestion(s.placeId) }}
-                      style={{ display: 'block', width: '100%', padding: '12px 16px', fontFamily: FONT, fontSize: '14px', color: TEXT, backgroundColor: 'transparent', border: 'none', borderTop: i > 0 ? `1px solid ${BORDER}` : 'none', textAlign: 'left', cursor: 'pointer', lineHeight: 1.4 }}
-                    >{s.description}</button>
-                  ))}
-                </div>
-              )}
-              <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px', paddingLeft: '4px' }}>
-                Used to find nearby stores
-              </p>
-            </div>
-
-            {/* ── Sign-in methods ── */}
-            {authMethods.length > 0 && (
-              <div>
-                <div style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: TEXT_SECONDARY, textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '12px' }}>Sign-in methods</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {/* Google */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', backgroundColor: WHITE, borderRadius: '10px', border: `1px solid ${BORDER}` }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-                    <span style={{ fontFamily: FONT, fontSize: '14px', color: TEXT, flex: 1 }}>Google</span>
-                    {authMethods.includes('google') ? (
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                    ) : (
-                      <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>Not linked</span>
-                    )}
-                  </div>
-                  {/* Email */}
-                  <div style={{ backgroundColor: WHITE, borderRadius: '10px', border: `1px solid ${BORDER}`, overflow: 'hidden' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px' }}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-                      <span style={{ fontFamily: FONT, fontSize: '14px', color: TEXT, flex: 1 }}>Email</span>
-                      {authMethods.includes('email') ? (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                      ) : (
-                        <button onClick={() => { setLinkingProvider('email'); setLinkEmail(''); setLinkError('') }} style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: BRAND, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px' }}>Add</button>
-                      )}
-                    </div>
-                    {linkingProvider === 'email' && (
-                      <div style={{ padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <input type="email" value={linkEmail} onChange={e => setLinkEmail(e.target.value)} placeholder="your@email.com" autoFocus style={{ ...listStyles.floatingInput, fontSize: '14px' }} />
-                        {linkError && <p style={{ fontFamily: FONT, fontSize: '12px', color: ERROR_RED, margin: 0 }}>{linkError}</p>}
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <button onClick={() => setLinkingProvider(null)} style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, background: 'none', border: 'none', cursor: 'pointer', padding: '6px 12px' }}>Cancel</button>
-                          <button
-                            disabled={!linkEmail.trim() || linkLoading}
-                            onClick={async () => {
-                              setLinkLoading(true); setLinkError('')
-                              try {
-                                const res = await fetch('/api/auth/link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: 'email', email: linkEmail.trim() }) })
-                                const data = await res.json().catch(() => ({}))
-                                if (res.ok) {
-                                  setAuthMethods(prev => prev.includes('email') ? prev : [...prev, 'email'])
-                                  setLinkingProvider(null)
-                                  if (!settingsEmail) setSettingsEmail(linkEmail.trim())
-                                  showToast('Email linked!')
-                                } else {
-                                  setLinkError(data.error || 'Failed to link email')
-                                }
-                              } catch { setLinkError('Connection error') }
-                              finally { setLinkLoading(false) }
-                            }}
-                            style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: WHITE, backgroundColor: BRAND, border: 'none', borderRadius: '8px', cursor: 'pointer', padding: '6px 16px', opacity: !linkEmail.trim() || linkLoading ? 0.4 : 1 }}
-                          >{linkLoading ? '...' : 'Link'}</button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  {/* Phone */}
-                  <div style={{ backgroundColor: WHITE, borderRadius: '10px', border: `1px solid ${BORDER}`, overflow: 'hidden' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px' }}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                      <span style={{ fontFamily: FONT, fontSize: '14px', color: TEXT, flex: 1 }}>Phone / SMS</span>
-                      {authMethods.includes('phone') ? (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                      ) : (
-                        <button onClick={() => { setLinkingProvider('phone'); setLinkPhone(''); setLinkCode(''); setLinkStep('input'); setLinkError('') }} style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: BRAND, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px' }}>Add</button>
-                      )}
-                    </div>
-                    {linkingProvider === 'phone' && (
-                      <div style={{ padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {linkStep === 'input' ? (
-                          <>
-                            <input type="tel" value={formatPhone(linkPhone)} onChange={e => setLinkPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="(555) 123-4567" autoFocus style={{ ...listStyles.floatingInput, fontSize: '14px' }} />
-                            {linkError && <p style={{ fontFamily: FONT, fontSize: '12px', color: ERROR_RED, margin: 0 }}>{linkError}</p>}
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                              <button onClick={() => setLinkingProvider(null)} style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, background: 'none', border: 'none', cursor: 'pointer', padding: '6px 12px' }}>Cancel</button>
-                              <button
-                                disabled={linkPhone.length !== 10 || linkLoading}
-                                onClick={async () => {
-                                  setLinkLoading(true); setLinkError('')
-                                  try {
-                                    const res = await fetch('/auth/send-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone_number: `+1${linkPhone}` }) })
-                                    if (res.ok) { setLinkStep('verify') }
-                                    else { const d = await res.json().catch(() => ({})); setLinkError(d.error || 'Failed to send code') }
-                                  } catch { setLinkError('Connection error') }
-                                  finally { setLinkLoading(false) }
-                                }}
-                                style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: WHITE, backgroundColor: BRAND, border: 'none', borderRadius: '8px', cursor: 'pointer', padding: '6px 16px', opacity: linkPhone.length !== 10 || linkLoading ? 0.4 : 1 }}
-                              >{linkLoading ? '...' : 'Send Code'}</button>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <p style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, margin: 0 }}>Enter the code sent to {formatPhone(linkPhone)}</p>
-                            <input type="text" inputMode="numeric" value={linkCode} onChange={e => setLinkCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" autoFocus maxLength={6} style={{ ...listStyles.floatingInput, fontSize: '14px', letterSpacing: '4px', textAlign: 'center' as const }} />
-                            {linkError && <p style={{ fontFamily: FONT, fontSize: '12px', color: ERROR_RED, margin: 0 }}>{linkError}</p>}
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                              <button onClick={() => { setLinkStep('input'); setLinkCode(''); setLinkError('') }} style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, background: 'none', border: 'none', cursor: 'pointer', padding: '6px 12px' }}>Back</button>
-                              <button
-                                disabled={linkCode.length !== 6 || linkLoading}
-                                onClick={async () => {
-                                  setLinkLoading(true); setLinkError('')
-                                  try {
-                                    const res = await fetch('/api/auth/link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: 'phone', phone: `+1${linkPhone}`, code: linkCode }) })
-                                    const data = await res.json().catch(() => ({}))
-                                    if (res.ok) {
-                                      setAuthMethods(prev => prev.includes('phone') ? prev : [...prev, 'phone'])
-                                      setLinkingProvider(null)
-                                      if (!settingsUserPhone) setSettingsUserPhone(`+1${linkPhone}`)
-                                      showToast('Phone linked!')
-                                    } else {
-                                      setLinkError(data.error || 'Invalid code')
-                                    }
-                                  } catch { setLinkError('Connection error') }
-                                  finally { setLinkLoading(false) }
-                                }}
-                                style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: WHITE, backgroundColor: BRAND, border: 'none', borderRadius: '8px', cursor: 'pointer', padding: '6px 16px', opacity: linkCode.length !== 6 || linkLoading ? 0.4 : 1 }}
-                              >{linkLoading ? '...' : 'Verify & Link'}</button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── Divider ── */}
-            <div style={listStyles.divider} />
-
-            {/* Need Help? */}
-            <button onClick={() => setScreen('help')} style={{
-              background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-              fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: BRAND,
-              textAlign: 'left' as const,
-              display: 'flex', alignItems: 'center', gap: '8px',
-            }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-                <line x1="12" y1="17" x2="12.01" y2="17"/>
-              </svg>
-              Need Help?
-            </button>
-
-            {/* Admin dashboard — admin only */}
-            {isAdmin && (
-              <button onClick={() => setScreen('admin')} style={{
-                background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-                fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: BRAND,
-                textAlign: 'left' as const,
-                display: 'flex', alignItems: 'center', gap: '8px',
-              }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/>
-                </svg>
-                Dashboard
-              </button>
-            )}
-
-            {/* Sign out */}
-            <button onClick={handleLogout} style={{
-              background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-              fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: ERROR_RED,
-              textAlign: 'left' as const,
-            }}>Sign Out</button>
-
-          </div>
-        </div>
-
-        {renderBottomTabs()}
-      </div>
-      </ScreenTransition>
+      <ProfileScreen
+        firstName={settingsFirstName}
+        lastName={settingsLastName}
+        email={settingsEmail}
+        phone={settingsUserPhone}
+        address={settingsAddress}
+        onFirstNameChange={setSettingsFirstName}
+        onLastNameChange={setSettingsLastName}
+        onEmailChange={setSettingsEmail}
+        onPhoneChange={setSettingsUserPhone}
+        onAddressChange={setSettingsAddress}
+        onAutoSave={handleSettingsAutoSave}
+        authMethods={authMethods}
+        onAuthMethodAdded={(method: string) => setAuthMethods(prev => prev.includes(method) ? prev : [...prev, method])}
+        currentUserId={currentUserId}
+        isAdmin={isAdmin}
+        onNavigate={(s: string) => setScreen(s as Screen)}
+        onLogout={handleLogout}
+        showToast={showToast}
+        onSessionExpired={handleSessionExpired}
+        fetchAPI={fetchAPI}
+        placesReady={placesReady}
+        renderHeader={() => renderPageHeader('Profile', 'profile')}
+        renderBottomTabs={renderBottomTabs}
+        transitionStyle={transitionStyle}
+      />
     )
   }
 
@@ -3951,320 +2838,84 @@ const handleCodeChange = (index: number, value: string) => {
   // =========================================================================
 
   if (screen === 'help') {
-    const faqs = [
-      { q: 'How do I share my list with someone?', a: 'Go to Share & Earn from the menu. Tap "Invite to Household" to generate an invite link. Anyone who opens it can join your shared list.' },
-      { q: 'How do Penny\'s swaps work?', a: 'When you add an item, Penny may suggest a swap from a brand partner. If you accept, the brand covers part of the cost. You can always decline — no pressure!' },
-      { q: 'How do I add items via text message?', a: 'Text your grocery items to Penny\'s number (you can find it in the Penny settings screen). She\'ll parse your message and add them to your list automatically.' },
-      { q: 'How do I save a list for later?', a: 'Just ask Penny! Say something like "save this as my weekly groceries" in the Penny chat. You can load saved lists later by asking Penny "what lists do I have?"' },
-      { q: 'How do I delete my account?', a: 'Email us at support@thrift.ly and we\'ll take care of it within 48 hours. We\'ll delete all your data permanently.' },
-    ]
-
-    const handleBugSubmit = async () => {
-      if (!bugDescription.trim() || bugSubmitting) return
-      setBugSubmitting(true)
-      try {
-        const res = await fetch('/api/bug-report', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ description: bugDescription.trim() }),
-        })
-        if (res.status === 401) { handleSessionExpired(); return }
-        if (res.ok) {
-          setBugSubmitted(true)
-          setBugDescription('')
-          showToast('Bug report submitted — thank you!')
-        } else {
-          const data = await res.json().catch(() => ({}))
-          showToast(data?.error || 'Failed to submit report', 'error')
-        }
-      } catch {
-        showToast('Something went wrong', 'error')
-      } finally {
-        setBugSubmitting(false)
-      }
-    }
-
     return (
-      <ScreenTransition screen={screen}>
-      <div style={listStyles.page}>
-        {renderPageHeader('Help', 'help')}
-        <div style={listStyles.listArea}>
-          <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-
-            {/* FAQ Section */}
-            <div>
-              <h2 style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 700, color: TEXT, marginBottom: '16px' }}>
-                Frequently Asked Questions
-              </h2>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0px', borderRadius: '12px', overflow: 'hidden', border: `1px solid ${BORDER}` }}>
-                {faqs.map((faq, i) => (
-                  <div key={i}>
-                    {i > 0 && <div style={{ height: '1px', backgroundColor: BORDER }} />}
-                    <button
-                      onClick={() => setOpenFaq(openFaq === i ? null : i)}
-                      style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        width: '100%', padding: '14px 16px',
-                        backgroundColor: openFaq === i ? `${BRAND}08` : WHITE,
-                        border: 'none', cursor: 'pointer', textAlign: 'left',
-                        fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: TEXT,
-                        gap: '12px',
-                      }}
-                    >
-                      <span style={{ flex: 1 }}>{faq.q}</span>
-                      <span style={{
-                        fontSize: '18px', color: TEXT_SECONDARY, flexShrink: 0,
-                        transform: openFaq === i ? 'rotate(180deg)' : 'none',
-                        transition: 'transform 0.2s ease',
-                      }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="6 9 12 15 18 9"/>
-                        </svg>
-                      </span>
-                    </button>
-                    <div style={{
-                      maxHeight: openFaq === i ? '200px' : '0px',
-                      opacity: openFaq === i ? 1 : 0,
-                      overflow: 'hidden',
-                      transition: 'max-height 0.3s ease, opacity 0.25s ease',
-                    }}>
-                      <div style={{
-                        padding: '0 16px 14px 16px',
-                        fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, lineHeight: 1.5,
-                        backgroundColor: openFaq === i ? `${BRAND}08` : WHITE,
-                      }}>
-                        {faq.a}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Divider */}
-            <div style={listStyles.divider} />
-
-            {/* Bug Report Section */}
-            <div>
-              <h2 style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 700, color: TEXT, marginBottom: '4px' }}>
-                Report a Bug
-              </h2>
-              <p style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, marginBottom: '16px' }}>
-                Found something that doesn't look right? Let us know and we'll fix it.
-              </p>
-              {bugSubmitted ? (
-                <div style={{
-                  padding: '20px', borderRadius: '12px',
-                  backgroundColor: `${BRAND}10`, textAlign: 'center',
-                }}>
-                  <p style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: BRAND }}>
-                    Thanks for your report! We'll look into it.
-                  </p>
-                  <button
-                    onClick={() => setBugSubmitted(false)}
-                    style={{
-                      marginTop: '12px', background: 'none', border: 'none', cursor: 'pointer',
-                      fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, textDecoration: 'underline',
-                    }}
-                  >
-                    Submit another report
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <textarea
-                    value={bugDescription}
-                    onChange={e => setBugDescription(e.target.value)}
-                    placeholder="Describe the issue you encountered..."
-                    maxLength={2000}
-                    rows={5}
-                    style={{
-                      width: '100%', padding: '13px 16px',
-                      fontSize: '16px', fontFamily: FONT, color: TEXT,
-                      backgroundColor: WHITE, border: `1.5px solid ${BORDER}`,
-                      borderRadius: '12px', outline: 'none',
-                      boxSizing: 'border-box', resize: 'vertical',
-                      lineHeight: 1.5,
-                    }}
-                    onFocus={e => { e.target.style.borderColor = BRAND }}
-                    onBlur={e => { e.target.style.borderColor = BORDER }}
-                  />
-                  <button
-                    onClick={handleBugSubmit}
-                    disabled={!bugDescription.trim() || bugSubmitting}
-                    style={{
-                      marginTop: '12px', width: '100%', padding: '14px',
-                      backgroundColor: (!bugDescription.trim() || bugSubmitting) ? `${BRAND}60` : BRAND,
-                      color: WHITE, border: 'none', borderRadius: '12px',
-                      fontFamily: FONT, fontSize: '16px', fontWeight: 600,
-                      cursor: (!bugDescription.trim() || bugSubmitting) ? 'not-allowed' : 'pointer',
-                      transition: 'background-color 0.2s',
-                    }}
-                  >
-                    {bugSubmitting ? 'Submitting...' : 'Submit Report'}
-                  </button>
-                </>
-              )}
-            </div>
-
-          </div>
-        </div>
-        {renderBottomTabs()}
-      </div>
-      </ScreenTransition>
+      <HelpScreen
+        showToast={showToast}
+        onSessionExpired={handleSessionExpired}
+        renderHeader={() => renderPageHeader('Help', 'help')}
+        renderBottomTabs={renderBottomTabs}
+        transitionStyle={transitionStyle}
+      />
     )
   }
 
   if (screen === 'settings-share') {
-    const handleShare = () => {
-      const url = `https://app.thrift.ly/r/${referralCode}`
-      const text = `Try Thriftly — Penny AI helps your household organize the grocery list. Just text, email, or snap a photo and she handles the rest! ${url}`
-      if (navigator.share) {
-        navigator.share({ title: 'Thriftly', text }).catch(() => {})
-      } else {
-        window.open(`sms:?&body=${encodeURIComponent(text)}`, '_self')
-      }
-    }
-
     return (
-      <ScreenTransition screen={screen}>
-      <div style={listStyles.page}>
-        <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
-        {renderPageHeader('Share & Earn', 'settings-share')}
-        <div style={listStyles.listArea}>
-          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '40px' }}>
-
-            {/* ── Your Household section ── */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 700, color: TEXT, textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>Shared List</span>
-              </div>
-              {settingsMembers.length > 0 && renderMemberList()}
-              <button
-                onClick={handleTextInviteLink}
-                disabled={inviteLoading}
-                style={{
-                  ...listStyles.sheetButton,
-                  marginTop: '12px',
-                  opacity: inviteLoading ? 0.5 : 1,
-                }}
-              >
-                {inviteLoading ? 'Creating link…' : 'Invite someone to share'}
-              </button>
-              <p style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, marginTop: '8px', lineHeight: 1.5 }}>
-                Everyone on your list shops together in real time
-              </p>
-              {settingsMembers.length > 0 && (<>
-                <button
-                  onClick={() => openConfirmModal({
-                    title: 'Leave shared list?',
-                    message: "You'll keep your own list but will no longer share with this group.",
-                    confirmLabel: 'Leave',
-                    destructive: true,
-                    onConfirm: () => {
-                      fetch('/api/settings/leave-household', { method: 'POST' })
-                        .then(res => {
-                          if (res.status === 401) { handleSessionExpired(); return }
-                          if (res.ok) {
-                            showToast('You left the shared list')
-                            loadSettings()
-                          } else {
-                            res.json().then(d => showToast(d?.error || 'Something went wrong — please try again', 'error')).catch(() => showToast('Something went wrong — please try again', 'error'))
-                          }
-                        })
-                        .catch(() => showToast('Couldn\'t connect — check your connection and try again', 'error'))
-                    },
-                  })}
-                  style={{
-                    marginTop: '8px',
-                    padding: 0,
-                    fontFamily: FONT,
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    color: ERROR_RED,
-                    backgroundColor: 'transparent',
-                    border: 'none',
-                    cursor: 'pointer',
-                    textAlign: 'left' as const,
-                  }}
-                >Leave shared list</button>
-                <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '4px' }}>You'll still have your own list — you'll just stop sharing with this group.</div>
-              </>)}
-            </div>
-
-            {/* ── Share a List (read-only, 7-day link) ── */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-                <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 700, color: TEXT, textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>Share a List</span>
-              </div>
-              <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, margin: '0 0 16px 0', lineHeight: 1.6 }}>
-                Send a read-only snapshot of your list to anyone — no account needed. Link expires in 7 days.
-              </p>
-              <button
-                onClick={async () => {
-                  try {
-                    const res = await fetch('/api/list/share', { method: 'POST' })
-                    if (res.status === 401) { handleSessionExpired(); return }
-                    if (res.ok) {
-                      const data = await res.json()
-                      const url = `${window.location.origin}${data.url}`
-                      if (navigator.share) {
-                        navigator.share({ title: 'My grocery list', url }).catch(() => {})
-                      } else {
-                        navigator.clipboard.writeText(url).then(() => showToast('Share link copied!')).catch(() => showToast('Could not copy', 'error'))
-                      }
-                    } else {
-                      showToast('Could not create share link', 'error')
-                    }
-                  } catch { showToast('Connection error', 'error') }
-                }}
-                style={listStyles.sheetButton}
-              >
-                Share my list for 7 days
-              </button>
-            </div>
-
-            {/* ── Refer a Friend ── */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
-                <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 700, color: TEXT, textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>Refer a Friend</span>
-              </div>
-
-              <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, margin: '0 0 16px 0', lineHeight: 1.6 }}>
-                Introduce your friends to Penny — they'll get their own list, and you'll both benefit as more people join.
-              </p>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', backgroundColor: BG, borderRadius: '10px', border: `1px solid ${BORDER}`, marginBottom: '12px' }}>
-                <span style={{ flex: 1, fontFamily: FONT, fontSize: '13px', color: TEXT, wordBreak: 'break-all' as const }}>{`https://app.thrift.ly/r/${referralCode}`}</span>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(`https://app.thrift.ly/r/${referralCode}`).then(() => showToast('Link copied!')).catch(() => showToast('Could not copy', 'error'))
-                  }}
-                  style={{ padding: '6px 12px', fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: BRAND, backgroundColor: 'transparent', border: `1px solid ${BRAND}`, borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
-                >Copy</button>
-              </div>
-
-              <button onClick={handleShare} style={listStyles.sheetButton}>
-                Introduce your friends to Penny
-              </button>
-
-              {referralFriends.length > 0 && (
-                <p style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, marginTop: '8px' }}>
-                  {referralFriends.length} {referralFriends.length === 1 ? 'friend' : 'friends'} joined
-                </p>
-              )}
-            </div>
-
-
-          </div>
-        </div>
-        {renderPennyToast()}
-        {renderBottomTabs()}
-      </div>
-      </ScreenTransition>
+      <ShareScreen
+        referralCode={referralCode}
+        referralFriends={referralFriends}
+        settingsMembers={settingsMembers}
+        inviteLoading={inviteLoading}
+        confirmModal={confirmModal}
+        onInvite={handleTextInviteLink}
+        onLeaveHousehold={() => openConfirmModal({
+          title: 'Leave shared list?',
+          message: "You'll keep your own list but will no longer share with this group.",
+          confirmLabel: 'Leave',
+          destructive: true,
+          onConfirm: () => {
+            fetch('/api/settings/leave-household', { method: 'POST' })
+              .then(res => {
+                if (res.status === 401) { handleSessionExpired(); return }
+                if (res.ok) {
+                  showToast('You left the shared list')
+                  loadSettings()
+                } else {
+                  res.json().then(d => showToast(d?.error || 'Something went wrong — please try again', 'error')).catch(() => showToast('Something went wrong — please try again', 'error'))
+                }
+              })
+              .catch(() => showToast('Couldn\'t connect — check your connection and try again', 'error'))
+          },
+        })}
+        onShareList={async () => {
+          try {
+            const res = await fetch('/api/list/share', { method: 'POST' })
+            if (res.status === 401) { handleSessionExpired(); return }
+            if (res.ok) {
+              const data = await res.json()
+              const url = `${window.location.origin}${data.url}`
+              track('list_shared', { method: 'share' in navigator ? 'native' : 'clipboard' })
+              if (navigator.share) {
+                navigator.share({ title: 'My grocery list', url }).catch(() => {})
+              } else {
+                navigator.clipboard.writeText(url).then(() => showToast('Share link copied!')).catch(() => showToast('Could not copy', 'error'))
+              }
+            } else {
+              showToast('Could not create share link', 'error')
+            }
+          } catch { showToast('Connection error', 'error') }
+        }}
+        onShareReferral={() => {
+          const url = `https://app.thrift.ly/r/${referralCode}`
+          const text = `Try Thriftly — Penny AI helps your household organize the grocery list. Just text, email, or snap a photo and she handles the rest! ${url}`
+          track('referral_shared', { method: 'share' in navigator ? 'native' : 'sms' })
+          if (navigator.share) {
+            navigator.share({ title: 'Thriftly', text }).catch(() => {})
+          } else {
+            window.open(`sms:?&body=${encodeURIComponent(text)}`, '_self')
+          }
+        }}
+        onCopyReferral={() => {
+          track('referral_copied')
+          navigator.clipboard.writeText(`https://app.thrift.ly/r/${referralCode}`).then(() => showToast('Link copied!')).catch(() => showToast('Could not copy', 'error'))
+        }}
+        runConfirmAction={runConfirmAction}
+        closeConfirmModal={closeConfirmModal}
+        renderHeader={() => renderPageHeader('Share & Earn', 'settings-share')}
+        renderToast={renderPennyToast}
+        renderBottomTabs={renderBottomTabs}
+        transitionStyle={transitionStyle}
+      />
     )
   }
 
@@ -4274,388 +2925,15 @@ const handleCodeChange = (index: number, value: string) => {
   // =========================================================================
 
   if (screen === 'admin') {
-    const dayOptions = [7, 30, 90]
     return (
-      <ScreenTransition screen={screen}>
-      <div style={listStyles.page}>
-        {renderPageHeader('Dashboard', 'admin')}
-        <div style={{ ...listStyles.listArea, padding: '20px' }}>
-          {/* Time period selector */}
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
-            {dayOptions.map(d => (
-              <button key={d} onClick={() => setAdminDays(d)} style={{
-                flex: 1, padding: '8px', borderRadius: '8px', border: `1px solid ${BORDER}`,
-                backgroundColor: adminDays === d ? BRAND : WHITE, color: adminDays === d ? WHITE : TEXT,
-                fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer',
-              }}>{d}d</button>
-            ))}
-          </div>
-
-          {adminData ? (
-            <>
-              {/* Metric cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '32px' }}>
-                {[
-                  { label: 'Active Users', value: adminData.active_users },
-                  { label: 'Total Users', value: adminData.total_users },
-                  { label: 'New Users', value: adminData.new_users },
-                  { label: 'K-Factor', value: adminData.k_factor.toFixed(2) },
-                ].map(m => (
-                  <div key={m.label} style={{
-                    backgroundColor: WHITE, borderRadius: '12px', padding: '16px',
-                    border: `1px solid ${BORDER}`,
-                  }}>
-                    <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '4px' }}>{m.label}</div>
-                    <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>{m.value}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Leaderboard */}
-              <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginBottom: '12px' }}>Referral Leaderboard</div>
-              {adminData.leaderboard.length === 0 ? (
-                <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY }}>No referrals yet.</div>
-              ) : (
-                adminData.leaderboard.map((entry, i) => (
-                  <div key={i} style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '12px 0', borderBottom: `1px solid ${BORDER}`,
-                  }}>
-                    <div>
-                      <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>
-                        {entry.name || entry.phone}
-                      </div>
-                      {entry.name && <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>{entry.phone}</div>}
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: BRAND }}>{entry.points} pts</div>
-                      <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>{entry.referrals} referrals</div>
-                    </div>
-                  </div>
-                ))
-              )}
-
-              {/* NPS Responses */}
-              <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '28px', marginBottom: '12px' }}>
-                NPS: {adminData.nps_score.toFixed(0)} ({adminData.nps_total} responses, {adminData.nps_promoters} promoters, {adminData.nps_detractors} detractors)
-              </div>
-              {adminData.nps_responses.length === 0 ? (
-                <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY }}>No NPS responses yet.</div>
-              ) : (
-                adminData.nps_responses.map((resp, i) => (
-                  <div key={i} style={{
-                    padding: '12px 0', borderBottom: `1px solid ${BORDER}`,
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT }}>
-                        Score: {resp.score}
-                      </div>
-                      <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>
-                        {new Date(resp.created_at).toLocaleDateString()}
-                      </div>
-                    </div>
-                    {resp.comment && (
-                      <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, marginTop: '4px' }}>
-                        {resp.comment}
-                      </div>
-                    )}
-                    <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>
-                      {resp.user_name || resp.user_phone}
-                    </div>
-                  </div>
-                ))
-              )}
-
-              {/* Swap Stats */}
-              {(adminData.swap_offered != null && adminData.swap_offered > 0) && (
-                <>
-                  <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '28px', marginBottom: '12px' }}>
-                    Swap Deals
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
-                    {[
-                      { label: 'Offered', value: adminData.swap_offered },
-                      { label: 'Accepted', value: adminData.swap_accepted },
-                      { label: 'Declined', value: adminData.swap_declined },
-                      { label: 'Accept Rate', value: `${(adminData.swap_accept_rate || 0).toFixed(1)}%` },
-                    ].map(m => (
-                      <div key={m.label} style={{
-                        backgroundColor: WHITE, borderRadius: '12px', padding: '16px',
-                        border: `1px solid ${BORDER}`,
-                      }}>
-                        <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '4px' }}>{m.label}</div>
-                        <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>{m.value}</div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-
-              {/* Payout Checklist */}
-              {adminPayouts.length > 0 && (
-                <>
-                  <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '28px', marginBottom: '12px' }}>
-                    Pending Payouts
-                  </div>
-                  {adminPayouts.map(p => (
-                    <div key={p.user_id} style={{
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                      padding: '12px 0', borderBottom: `1px solid ${BORDER}`,
-                    }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT, fontWeight: 500 }}>
-                          {p.name || 'No name'} — ${(p.total_cents / 100).toFixed(2)}
-                        </div>
-                        <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>
-                          {p.phone || p.email || 'No contact'} · {p.swap_count} swap{p.swap_count !== 1 ? 's' : ''} · since {new Date(p.oldest_swap).toLocaleDateString()}
-                        </div>
-                      </div>
-                      <button
-                        onClick={async () => {
-                          const res = await fetch('/api/admin/payouts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: p.user_id }) })
-                          if (res.ok) {
-                            setAdminPayouts(prev => prev.filter(x => x.user_id !== p.user_id))
-                            showToast(`Marked $${(p.total_cents / 100).toFixed(2)} as paid for ${p.name || 'user'}`)
-                          } else { showToast('Failed to mark as paid', 'error') }
-                        }}
-                        style={{ fontSize: '12px', padding: '6px 12px', borderRadius: '6px', border: `1px solid ${BRAND}`, backgroundColor: WHITE, cursor: 'pointer', fontFamily: FONT, color: BRAND, fontWeight: 600, flexShrink: 0 }}
-                      >Mark Paid</button>
-                    </div>
-                  ))}
-                </>
-              )}
-
-              {/* Deal Management */}
-              <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '28px', marginBottom: '12px' }}>
-                Manage Deals
-                <button
-                  onClick={() => { setShowDealForm(true); setEditingDealId(null); setDealForm({ competitor_product: '', offer_brand: '', offer_product: '', discount_cents: 0, daily_budget_cents: 0, status: 'active', ends_at: '', offer_price_cents: 0, competitor_price_cents: 0, offer_size: '', competitor_size: '', offer_unit_price: '', competitor_unit_price: '', why_bullets: '[]', allergen_notes: '', deal_type: 'sku_swap', quantity_offered: 1, trial_product_name: '', trial_size: '', campaign_tag: '' }) }}
-                  style={{ marginLeft: '12px', backgroundColor: BRAND, color: WHITE, border: 'none', borderRadius: '6px', padding: '4px 12px', fontFamily: FONT, fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
-                >+ Add</button>
-              </div>
-
-              {showDealForm && (
-                <div style={{ backgroundColor: WHITE, borderRadius: '12px', padding: '16px', border: `1px solid ${BORDER}`, marginBottom: '16px' }}>
-                  {/* Deal Type selector */}
-                  <div style={{ marginBottom: '8px' }}>
-                    <label style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, display: 'block', marginBottom: '2px' }}>Deal Type</label>
-                    <select
-                      value={dealForm.deal_type}
-                      onChange={e => setDealForm(prev => ({ ...prev, deal_type: e.target.value, quantity_offered: e.target.value === 'bogo' ? 2 : 1 }))}
-                      style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '14px' }}
-                    >
-                      <option value="sku_swap">SKU Swap</option>
-                      <option value="bogo">BOGO (Buy One Get One)</option>
-                      <option value="trial">Trial (Free Sample)</option>
-                      <option value="seasonal">Seasonal / Limited-Time</option>
-                    </select>
-                  </div>
-                  {[
-                    { label: 'Competitor Product', key: 'competitor_product' as const, type: 'text' },
-                    { label: 'Offer Brand', key: 'offer_brand' as const, type: 'text' },
-                    { label: 'Offer Product', key: 'offer_product' as const, type: 'text' },
-                    { label: 'Discount (cents)', key: 'discount_cents' as const, type: 'number' },
-                    { label: 'Total Budget (cents)', key: 'daily_budget_cents' as const, type: 'number' },
-                    { label: 'Offer Price (cents)', key: 'offer_price_cents' as const, type: 'number' },
-                    { label: 'Competitor Price (cents)', key: 'competitor_price_cents' as const, type: 'number' },
-                    { label: 'Offer Size', key: 'offer_size' as const, type: 'text' },
-                    { label: 'Competitor Size', key: 'competitor_size' as const, type: 'text' },
-                    { label: 'Offer Unit Price', key: 'offer_unit_price' as const, type: 'text' },
-                    { label: 'Competitor Unit Price', key: 'competitor_unit_price' as const, type: 'text' },
-                    { label: 'Why Bullets (JSON array)', key: 'why_bullets' as const, type: 'text' },
-                    { label: 'Allergen Notes', key: 'allergen_notes' as const, type: 'text' },
-                  ].map(f => (
-                    <div key={f.key} style={{ marginBottom: '8px' }}>
-                      <label style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, display: 'block', marginBottom: '2px' }}>{f.label}</label>
-                      <input
-                        type={f.type}
-                        value={dealForm[f.key]}
-                        onChange={e => setDealForm(prev => ({ ...prev, [f.key]: f.type === 'number' ? parseInt(e.target.value) || 0 : e.target.value }))}
-                        style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '14px' }}
-                      />
-                    </div>
-                  ))}
-                  {/* Conditional fields by deal type */}
-                  {dealForm.deal_type === 'bogo' && (
-                    <div style={{ marginBottom: '8px' }}>
-                      <label style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, display: 'block', marginBottom: '2px' }}>Quantity Offered</label>
-                      <input type="number" value={dealForm.quantity_offered} onChange={e => setDealForm(prev => ({ ...prev, quantity_offered: parseInt(e.target.value) || 2 }))}
-                        style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '14px' }} />
-                    </div>
-                  )}
-                  {dealForm.deal_type === 'trial' && (
-                    <>
-                      <div style={{ marginBottom: '8px' }}>
-                        <label style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, display: 'block', marginBottom: '2px' }}>Trial Product Name</label>
-                        <input type="text" value={dealForm.trial_product_name} onChange={e => setDealForm(prev => ({ ...prev, trial_product_name: e.target.value }))}
-                          style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '14px' }} />
-                      </div>
-                      <div style={{ marginBottom: '8px' }}>
-                        <label style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, display: 'block', marginBottom: '2px' }}>Trial Size</label>
-                        <input type="text" value={dealForm.trial_size} onChange={e => setDealForm(prev => ({ ...prev, trial_size: e.target.value }))}
-                          style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '14px' }} />
-                      </div>
-                    </>
-                  )}
-                  {dealForm.deal_type === 'seasonal' && (
-                    <div style={{ marginBottom: '8px' }}>
-                      <label style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, display: 'block', marginBottom: '2px' }}>Campaign Tag</label>
-                      <input type="text" value={dealForm.campaign_tag} onChange={e => setDealForm(prev => ({ ...prev, campaign_tag: e.target.value }))}
-                        placeholder="e.g. holiday_2026"
-                        style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '14px' }} />
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                    <button
-                      onClick={async () => {
-                        const method = editingDealId ? 'PUT' : 'POST'
-                        const body = editingDealId ? { ...dealForm, id: editingDealId } : dealForm
-                        const res = await fetch('/api/admin/deals', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-                        if (res.ok) {
-                          const dealsRes = await fetch('/api/admin/deals')
-                          if (dealsRes.ok) setAdminDeals(await dealsRes.json())
-                          setShowDealForm(false)
-                          showToast(editingDealId ? 'Deal updated' : 'Deal created')
-                        } else { showToast('Failed to save deal', 'error') }
-                      }}
-                      style={{ flex: 1, backgroundColor: BRAND, color: WHITE, border: 'none', borderRadius: '8px', padding: '10px', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer' }}
-                    >{editingDealId ? 'Update' : 'Create'}</button>
-                    <button
-                      onClick={() => setShowDealForm(false)}
-                      style={{ padding: '10px 16px', borderRadius: '8px', border: `1px solid ${BORDER}`, backgroundColor: WHITE, fontFamily: FONT, fontSize: '15px', cursor: 'pointer', color: TEXT }}
-                    >Cancel</button>
-                  </div>
-                </div>
-              )}
-
-              {adminDeals.map(deal => (
-                <div key={deal.id} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '12px 0', borderBottom: `1px solid ${BORDER}`,
-                }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT, fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {deal.competitor_product} → {deal.offer_brand} {deal.offer_product}
-                      {deal.deal_type && deal.deal_type !== 'sku_swap' && (
-                        <span style={{ fontSize: '10px', fontWeight: 700, color: WHITE, backgroundColor: deal.deal_type === 'bogo' ? '#E67E22' : deal.deal_type === 'trial' ? '#27AE60' : '#E74C3C', padding: '1px 5px', borderRadius: '3px', textTransform: 'uppercase' as const }}>{deal.deal_type}</span>
-                      )}
-                    </div>
-                    <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>
-                      ${(deal.discount_cents / 100).toFixed(2)} off · Budget: ${(deal.daily_budget_cents / 100).toFixed(2)} · Spent: ${(deal.budget_spent_cents / 100).toFixed(2)} · {deal.status}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                    <button
-                      onClick={async () => {
-                        const newStatus = deal.status === 'active' ? 'paused' : 'active'
-                        await fetch('/api/admin/deals', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...deal, status: newStatus }) })
-                        const res = await fetch('/api/admin/deals')
-                        if (res.ok) setAdminDeals(await res.json())
-                      }}
-                      style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: `1px solid ${BORDER}`, backgroundColor: WHITE, cursor: 'pointer', fontFamily: FONT, color: TEXT }}
-                    >{deal.status === 'active' ? 'Pause' : 'Resume'}</button>
-                    <button
-                      onClick={() => {
-                        setEditingDealId(deal.id)
-                        setDealForm({ competitor_product: deal.competitor_product, offer_brand: deal.offer_brand, offer_product: deal.offer_product, discount_cents: deal.discount_cents, daily_budget_cents: deal.daily_budget_cents, status: deal.status, ends_at: deal.ends_at, offer_price_cents: deal.offer_price_cents, competitor_price_cents: deal.competitor_price_cents, offer_size: deal.offer_size, competitor_size: deal.competitor_size, offer_unit_price: deal.offer_unit_price, competitor_unit_price: deal.competitor_unit_price, why_bullets: deal.why_bullets, allergen_notes: deal.allergen_notes, deal_type: deal.deal_type || 'sku_swap', quantity_offered: deal.quantity_offered || 1, trial_product_name: deal.trial_product_name || '', trial_size: deal.trial_size || '', campaign_tag: deal.campaign_tag || '' })
-                        setShowDealForm(true)
-                      }}
-                      style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: `1px solid ${BORDER}`, backgroundColor: WHITE, cursor: 'pointer', fontFamily: FONT, color: TEXT }}
-                    >Edit</button>
-                    <button
-                      onClick={async () => {
-                        await fetch('/api/admin/deals', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: deal.id }) })
-                        const res = await fetch('/api/admin/deals')
-                        if (res.ok) setAdminDeals(await res.json())
-                      }}
-                      style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: `1px solid ${ERROR_RED}40`, backgroundColor: ERROR_RED_BG, cursor: 'pointer', fontFamily: FONT, color: ERROR_RED }}
-                    >Del</button>
-                  </div>
-                </div>
-              ))}
-
-              {/* Item Analytics */}
-              {analyticsData && (
-                <>
-                  <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '28px', marginBottom: '12px' }}>
-                    Item Analytics
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
-                    <div style={{ backgroundColor: WHITE, borderRadius: '12px', padding: '16px', border: `1px solid ${BORDER}` }}>
-                      <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '4px' }}>Items Created</div>
-                      <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>{analyticsData.items_created}</div>
-                    </div>
-                    <div style={{ backgroundColor: WHITE, borderRadius: '12px', padding: '16px', border: `1px solid ${BORDER}` }}>
-                      <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '4px' }}>Total Events</div>
-                      <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>{Object.values(analyticsData.events_by_action).reduce((a, b) => a + b, 0)}</div>
-                    </div>
-                  </div>
-
-                  {/* By Source */}
-                  {Object.keys(analyticsData.items_by_source).length > 0 && (
-                    <>
-                      <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT, marginBottom: '8px' }}>By Source</div>
-                      {Object.entries(analyticsData.items_by_source).sort((a, b) => b[1] - a[1]).map(([src, cnt]) => (
-                        <div key={src} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: `1px solid ${BORDER}` }}>
-                          <span style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>{src}</span>
-                          <span style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT }}>{cnt}</span>
-                        </div>
-                      ))}
-                    </>
-                  )}
-
-                  {/* By Department */}
-                  {Object.keys(analyticsData.items_by_department).length > 0 && (
-                    <>
-                      <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT, marginTop: '16px', marginBottom: '8px' }}>Top Departments</div>
-                      {Object.entries(analyticsData.items_by_department).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([dept, cnt]) => (
-                        <div key={dept} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: `1px solid ${BORDER}` }}>
-                          <span style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>{dept}</span>
-                          <span style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT }}>{cnt}</span>
-                        </div>
-                      ))}
-                    </>
-                  )}
-
-                  {/* Events by Action */}
-                  {Object.keys(analyticsData.events_by_action).length > 0 && (
-                    <>
-                      <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT, marginTop: '16px', marginBottom: '8px' }}>Events by Action</div>
-                      {Object.entries(analyticsData.events_by_action).sort((a, b) => b[1] - a[1]).map(([action, cnt]) => (
-                        <div key={action} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: `1px solid ${BORDER}` }}>
-                          <span style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>{action}</span>
-                          <span style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT }}>{cnt}</span>
-                        </div>
-                      ))}
-                    </>
-                  )}
-
-                  {/* Daily Activity */}
-                  {analyticsData.events_by_day.length > 0 && (
-                    <>
-                      <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT, marginTop: '16px', marginBottom: '8px' }}>Daily Activity</div>
-                      {analyticsData.events_by_day.slice(-14).map(d => (
-                        <div key={d.date} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
-                          <span style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY }}>{d.date}</span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <div style={{ width: `${Math.min(120, Math.max(4, d.count * 3))}px`, height: '8px', backgroundColor: BRAND, borderRadius: '4px' }} />
-                            <span style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: TEXT, minWidth: '24px', textAlign: 'right' }}>{d.count}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </>
-              )}
-            </>
-          ) : (
-            <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, textAlign: 'center', padding: '40px 0' }}>Loading...</div>
-          )}
-        </div>
-        {renderPennyToast()}
-        {renderBottomTabs()}
-      </div>
-      </ScreenTransition>
+      <AdminScreen
+        fetchAPI={fetchAPI}
+        showToast={showToast}
+        renderHeader={() => renderPageHeader('Dashboard', 'admin')}
+        renderToast={renderPennyToast}
+        renderBottomTabs={renderBottomTabs}
+        transitionStyle={transitionStyle}
+      />
     )
   }
 
@@ -4665,10 +2943,26 @@ const handleCodeChange = (index: number, value: string) => {
 
   if (screen === 'earnings') {
     return (
-      <ScreenTransition screen={screen}>
+      <ScreenTransition style={transitionStyle}>
       <div style={listStyles.page}>
         {renderPageHeader('Swaps', 'earnings')}
         <div style={{ flex: 1, overflowY: 'auto' }}>
+          {/* Thriftly Wrapped CTA */}
+          <div
+            onClick={() => setShowWrapped(true)}
+            style={{
+              margin: '12px 16px', padding: '14px 16px', borderRadius: '12px', cursor: 'pointer',
+              background: 'linear-gradient(135deg, #35644F 0%, #2D8B5E 100%)',
+              display: 'flex', alignItems: 'center', gap: '12px',
+            }}
+          >
+            <span style={{ fontSize: '24px' }}>🎁</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: '#FFF' }}>Your Monthly Wrapped</div>
+              <div style={{ fontFamily: FONT, fontSize: '12px', color: 'rgba(255,255,255,0.8)' }}>See your savings recap — share it!</div>
+            </div>
+            <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '20px' }}>→</span>
+          </div>
           <EarningsScreen
             onBack={() => setScreen('home')}
             fetchAPI={fetchAPI}
@@ -4677,6 +2971,7 @@ const handleCodeChange = (index: number, value: string) => {
         </div>
         {renderBottomTabs()}
       </div>
+      {showWrapped && <WrappedCard fetchAPI={fetchAPI} onClose={() => setShowWrapped(false)} />}
       </ScreenTransition>
     )
   }
@@ -4687,7 +2982,7 @@ const handleCodeChange = (index: number, value: string) => {
 
   if (screen === 'receipts') {
     return (
-      <ScreenTransition screen={screen}>
+      <ScreenTransition style={transitionStyle}>
       <div style={listStyles.page}>
         {renderPageHeader('Receipts', 'receipts')}
         <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -4730,28 +3025,16 @@ const handleCodeChange = (index: number, value: string) => {
   if (extraDepts.length > 0) activeDepts.push(...extraDepts)
 
   return (
-    <ScreenTransition screen={screen}>
+    <ScreenTransition style={transitionStyle}>
     <div style={listStyles.page}>
       <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
       {/* Fixed header — compact */}
       <div style={{ flexShrink: 0, backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}` }}>
         <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', position: 'relative' }}>
-          {earningsTotalCents > 0 ? (
-            <span
-              style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1 }}
-              onClick={() => setScreen('earnings')}
-            >
-              <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: BRAND }}>
-                ${(earningsTotalCents / 100).toFixed(2)}
-              </span>
-              <span style={{ fontFamily: FONT, fontSize: '10px', color: TEXT_SECONDARY, marginTop: '1px' }}>swaps</span>
-            </span>
-          ) : (
-            <span
-              style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: '17px', fontWeight: 700 }}
-              onClick={() => setScreen('home')}
-            >thriftly</span>
-          )}
+          <span
+            style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: '17px', fontWeight: 700 }}
+            onClick={() => setScreen('home')}
+          >thriftly</span>
           {editingListName ? (
             <input
               autoFocus
@@ -4796,8 +3079,16 @@ const handleCodeChange = (index: number, value: string) => {
               }}
             >{pageIcons['Shopping List']} {listName || 'Shopping List'}</span>
           )}
-          {/* Spacer to keep title centered */}
-          <div style={{ marginLeft: 'auto', width: '44px' }} />
+          {/* Swaps total — upper right */}
+          <span
+            style={{ marginLeft: 'auto', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1 }}
+            onClick={() => setScreen('earnings')}
+          >
+            <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: BRAND }}>
+              ${(earningsTotalCents / 100).toFixed(2)}
+            </span>
+            <span style={{ fontFamily: FONT, fontSize: '10px', color: TEXT_SECONDARY, marginTop: '1px' }}>swaps</span>
+          </span>
         </div>
         {/* Progress bar */}
         {items.length > 0 && (() => {
@@ -4866,33 +3157,6 @@ const handleCodeChange = (index: number, value: string) => {
               )}
             </div>
           ))}
-        </div>
-      )}
-
-      {/* Savings banner — tappable to see rebate history */}
-      {swapCreditsCents > 0 && (
-        <div
-          onClick={() => {
-            fetchAPI('/api/rebates').then(data => {
-              const d = data as Record<string, unknown> | null
-              if (d?.rebates) {
-                setRebateHistory(d.rebates as typeof rebateHistory)
-                setRebateSummary({ total_cents: (d.total_cents as number) || 0, pending_cents: (d.pending_cents as number) || 0, paid_cents: (d.paid_cents as number) || 0 })
-              }
-            }).catch(() => {})
-            pushModalState()
-            setShowSavingsSheet(true)
-          }}
-          style={{
-            flexShrink: 0, padding: '10px 20px', backgroundColor: '#F0F7F4',
-            borderBottom: `1px solid ${BORDER}`, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          }}
-        >
-          <span style={{ fontFamily: FONT, fontSize: '14px', color: BRAND, fontWeight: 600 }}>
-            ${(swapCreditsCents / 100).toFixed(2)} earned from swaps — brands pay, you benefit
-          </span>
-          <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>View details ›</span>
         </div>
       )}
 
@@ -5163,6 +3427,44 @@ const handleCodeChange = (index: number, value: string) => {
         aria-label="Capture receipt"
       />
 
+      {/* Post-swap share prompt — floating card after swap accept */}
+      {postSwapShare && (
+        <div style={{
+          padding: '12px 16px', margin: '8px 16px', borderRadius: '12px',
+          backgroundColor: '#F0FFF0', border: '1px solid #C8E6C9',
+          display: 'flex', alignItems: 'center', gap: '12px',
+          animation: 'fadeInUp 0.3s ease',
+        }}>
+          <div style={{ fontSize: '24px' }}>🎉</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT }}>
+              You saved ${(postSwapShare.savings / 100).toFixed(2)}!
+            </div>
+            <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>
+              Share your smart swap with friends
+            </div>
+          </div>
+          <button onClick={() => {
+            const text = `I just saved $${(postSwapShare.savings / 100).toFixed(2)} by swapping to ${postSwapShare.brand} on Thriftly! 🔄`
+            track('post_swap_share_tapped', { brand: postSwapShare.brand, savings: postSwapShare.savings })
+            if (navigator.share) {
+              navigator.share({ text }).catch(() => {})
+            } else {
+              navigator.clipboard?.writeText(text)
+              showToast('Copied to clipboard!')
+            }
+            setPostSwapShare(null)
+          }} style={{
+            backgroundColor: BRAND, color: '#FFF', border: 'none', borderRadius: '8px',
+            fontFamily: FONT, fontSize: '13px', fontWeight: 600, padding: '8px 14px', cursor: 'pointer',
+          }}>Share</button>
+          <button onClick={() => setPostSwapShare(null)} style={{
+            background: 'none', border: 'none', color: TEXT_SECONDARY, fontSize: '18px',
+            cursor: 'pointer', padding: '4px', lineHeight: 1,
+          }}>×</button>
+        </div>
+      )}
+
       {/* Penny text + disambiguation + chat input */}
       <PennyBar
         pennyText={homePennyText}
@@ -5332,76 +3634,6 @@ const handleCodeChange = (index: number, value: string) => {
           onOpenDetail={openDetailFromReview}
           listStyles={listStyles}
         />
-      )}
-
-      {/* Savings detail sheet */}
-      {showSavingsSheet && (
-        <ActionSheet isOpen={true} onClose={() => { popModalState(); setShowSavingsSheet(false) }} title="Your Swaps" maxHeight="70dvh">
-          <div style={{ padding: '0 4px' }}>
-            {/* Summary cards — hide Paid Out when $0 */}
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-              {[
-                { label: 'Total Earned', cents: rebateSummary.total_cents, color: BRAND, show: true },
-                { label: 'Pending Payout', cents: rebateSummary.pending_cents, color: '#D97706', show: true },
-                { label: 'Paid Out', cents: rebateSummary.paid_cents, color: '#059669', show: rebateSummary.paid_cents > 0 },
-              ].filter(c => c.show).map(card => (
-                <div key={card.label} style={{
-                  flex: 1, padding: '12px 8px', borderRadius: '8px', backgroundColor: BG,
-                  textAlign: 'center' as const,
-                }}>
-                  <div style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 700, color: card.color }}>
-                    ${(card.cents / 100).toFixed(2)}
-                  </div>
-                  <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginTop: '2px' }}>
-                    {card.label}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Rebate history */}
-            {rebateHistory.length === 0 ? (
-              <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, textAlign: 'center' as const, padding: '20px 0' }}>
-                Accept a swap to start earning!
-              </div>
-            ) : (
-              rebateHistory.map(r => (
-                <div key={r.id} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '10px 0', borderBottom: `1px solid ${BORDER}`,
-                }}>
-                  <div>
-                    <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT, fontWeight: 500 }}>
-                      {r.offer_brand} {r.offer_product}
-                    </div>
-                    <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>
-                      {new Date(r.created_at + 'Z').toLocaleDateString()}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right' as const }}>
-                    <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: BRAND }}>
-                      ${(r.amount_cents / 100).toFixed(2)}
-                    </div>
-                    <div style={{
-                      fontFamily: FONT, fontSize: '11px', marginTop: '2px',
-                      color: r.status === 'paid' ? '#059669' : r.status === 'issued' ? '#2563EB' : '#D97706',
-                    }}>
-                      {r.status === 'pending' ? 'Ready to cash out' : r.status === 'issued' ? 'Payout sent' : 'Paid'}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-
-            {/* Info note */}
-            <div style={{
-              fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, textAlign: 'center' as const,
-              padding: '16px 0 8px', lineHeight: '1.4',
-            }}>
-              Brands pay to reach you — we share the revenue. No other grocery app pays you like this. Payouts sent monthly via Venmo.
-            </div>
-          </div>
-        </ActionSheet>
       )}
 
       {/* Save list sheet */}

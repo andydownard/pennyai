@@ -7,6 +7,7 @@ interface BottomTabBarProps {
   active: TabScreen
   onNavigate: (screen: TabScreen) => void
   pennyUnread?: boolean
+  swapCount?: number
 }
 
 const TAB_HEIGHT = 56
@@ -39,7 +40,7 @@ const tabs: { key: TabScreen; label: string; icon: (color: string) => JSX.Elemen
   { key: 'profile', label: 'Profile', icon: icons.profile },
 ]
 
-export function BottomTabBar({ active, onNavigate, pennyUnread }: BottomTabBarProps) {
+export function BottomTabBar({ active, onNavigate, pennyUnread, swapCount }: BottomTabBarProps) {
   return (
     <nav
       style={{
@@ -90,6 +91,24 @@ export function BottomTabBar({ active, onNavigate, pennyUnread }: BottomTabBarPr
                 borderRadius: '50%',
                 backgroundColor: '#EF4444',
               }} />
+            )}
+            {tab.key === 'home' && !!swapCount && swapCount > 0 && active !== 'home' && (
+              <span style={{
+                position: 'absolute',
+                top: '2px',
+                right: '6px',
+                minWidth: '16px',
+                height: '16px',
+                borderRadius: '8px',
+                backgroundColor: BRAND,
+                color: '#fff',
+                fontSize: '10px',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0 4px',
+              }}>{swapCount}</span>
             )}
             <span style={{
               fontSize: '10px',

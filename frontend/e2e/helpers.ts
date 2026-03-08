@@ -1,13 +1,13 @@
 import { type Page, expect } from '@playwright/test'
 
-let phoneCounter = 0
-
 /**
  * Generate a unique 10-digit phone number for each test to avoid session conflicts.
+ * Uses timestamp + random suffix to prevent collisions across test runs.
  */
 export function uniquePhone(): string {
-  phoneCounter++
-  return `555${String(phoneCounter).padStart(7, '0')}`
+  const ts = Date.now() % 10_000_000 // last 7 digits of epoch ms
+  const rand = Math.floor(Math.random() * 1000)
+  return `${ts}${String(rand).padStart(3, '0')}`
 }
 
 /**
@@ -77,33 +77,26 @@ export async function loginWithEmail(page: Page, email: string, password: string
 }
 
 /**
- * Open the hamburger/avatar menu.
- * The menu button can be intercepted by the Penny chime-in overlay or loading state.
- * We wait for stability, dismiss any chime-in, then force-click.
+ * Navigate to a specific screen via the bottom tab bar.
+ * Maps common menu item names to tab labels.
  */
-export async function openMenu(page: Page): Promise<void> {
-  // Wait for any animations/loading to settle
-  await page.waitForTimeout(1000)
-
-  // Dismiss any Penny chime-in overlay by clicking it if present
-  const chimeIn = page.locator('[data-testid="penny-chime"]')
-  if (await chimeIn.isVisible({ timeout: 200 }).catch(() => false)) {
-    await chimeIn.click()
-    await page.waitForTimeout(300)
+export async function navigateTo(page: Page, menuItemText: string | RegExp): Promise<void> {
+  // Map old menu names to bottom tab labels
+  const labelMap: Record<string, string> = {
+    'Shopping List': 'List',
+    'Penny': 'Penny',
+    'Profile': 'Profile',
   }
 
-  const menuBtn = page.getByLabel('Navigation menu')
-  await menuBtn.waitFor({ state: 'visible', timeout: 10_000 })
-  // Use dispatchEvent to bypass pointer interception issues
-  await menuBtn.dispatchEvent('click')
-}
+  const text = typeof menuItemText === 'string' ? menuItemText : ''
+  // Handle Share & Earn / Share tab
+  if (typeof menuItemText !== 'string' || menuItemText.includes('Share')) {
+    await page.getByRole('button', { name: 'Share' }).click()
+    return
+  }
 
-/**
- * Navigate to a specific screen via the hamburger menu.
- */
-export async function navigateTo(page: Page, menuItemText: string): Promise<void> {
-  await openMenu(page)
-  await page.getByRole('button', { name: menuItemText }).click()
+  const tabLabel = labelMap[text] || text
+  await page.getByRole('button', { name: tabLabel }).click()
 }
 
 /**
