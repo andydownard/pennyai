@@ -120,7 +120,7 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onS
         } : {}),
         ...(!item.checked && item.urgent ? { backgroundColor: ERROR_RED_BG } : {}),
       }}>
-        <button onClick={() => onToggle(item.id)} style={styles.checkBtn} aria-label={`${item.checked ? 'Uncheck' : 'Check off'} ${item.brand ? item.brand + ' ' : ''}${item.name}`}>
+        <button onClick={() => onToggle(item.id)} style={styles.checkBtn} aria-label={`${item.checked ? 'Uncheck' : 'Check off'} ${item.brand && !item.name.toLowerCase().includes(item.brand.toLowerCase()) ? item.brand + ' ' : ''}${item.name}`}>
           <span style={styles.check(item.checked)} aria-hidden="true">
             {item.checked && '✓'}
           </span>
@@ -128,9 +128,9 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onS
         <div style={{ marginRight: '10px' }}>
           <BrandLogo brand={item.brand} size={52} opacity={item.checked ? 0.4 : 1} />
         </div>
-        <div style={styles.center} onClick={() => onTap(item)} role="button" tabIndex={0} aria-label={`Edit ${item.brand ? item.brand + ' ' : ''}${item.name}`} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTap(item) } }}>
+        <div style={styles.center} onClick={() => onTap(item)} role="button" tabIndex={0} aria-label={`Edit ${item.brand && !item.name.toLowerCase().includes(item.brand.toLowerCase()) ? item.brand + ' ' : ''}${item.name}`} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTap(item) } }}>
           <span style={styles.name(item.checked)}>
-            {item.brand ? `${item.brand} ` : ''}{item.name}
+            {item.brand && !item.name.toLowerCase().includes(item.brand.toLowerCase()) ? `${item.brand} ` : ''}{item.name}
           </span>
           {(item.quantity > 1 || item.size || item.notes) && (
             <span style={styles.meta}>
