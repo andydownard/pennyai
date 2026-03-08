@@ -309,14 +309,14 @@ Add any new bugs found to the "Bugs" section in ROADMAP.md with the same format 
 ### Penny Settings Page Layout (top to bottom)
 1. **Contact section** — Penny avatar + name, icon-only action buttons (text, email, add to contacts) on the right
 2. **Divider line** — subtle 1px separator between contact and settings
-3. **"I want to text with Penny" toggle** (only visible if user has phone/SMS)
+3. **"I want to SMS with Penny" toggle** (only visible if user has phone/SMS)
 4. **"Learn from my choices" toggle**
 5. **Convenience/savings slider** — at the bottom (only visible when autotune OFF), so expanding it doesn't shift anything above
 
 ### Conditional UI Behavior
 - When "Learn from my choices" is ON → the convenience/savings slider is hidden (Penny auto-tunes)
 - When "Learn from my choices" is OFF → the slider smoothly appears (CSS transition: max-height 0.3s + opacity 0.25s)
-- "I want to text with Penny" toggle only appears if user has a phone number (opted in to messaging)
+- "I want to SMS with Penny" toggle only appears if user has a phone number (opted in to messaging)
 - Transitions must be smooth — no janky layout jumps. Use max-height + opacity transitions, never display:none toggling
 
 ### Auth Screens (Phone, Email Login, Email Register)

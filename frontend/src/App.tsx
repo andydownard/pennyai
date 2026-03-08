@@ -24,8 +24,8 @@ import { ItemEditSheet } from './components/ItemEditSheet'
 import { ReviewSheet } from './components/ReviewSheet'
 import { type ItemModification } from './types'
 import {
-  BRAND, BRAND_LIGHT, BG, TEXT, TEXT_SECONDARY, BORDER, ERROR_RED, ERROR_RED_BG, ERROR_RED_DARK, ERROR_RED_LIGHT,
-  WHITE, FONT, RADIUS_MD, DEPARTMENTS, DEPT_ICONS, SKELETON, SKELETON_SHIMMER,
+  BRAND, BG, TEXT, TEXT_SECONDARY, BORDER, ERROR_RED, ERROR_RED_BG, ERROR_RED_DARK, ERROR_RED_LIGHT,
+  WHITE, FONT, DEPARTMENTS, DEPT_ICONS, SKELETON, SKELETON_SHIMMER,
 } from './styles'
 
 // =============================================================================
@@ -250,6 +250,20 @@ function LegalLinks() {
 }
 
 // =============================================================================
+// HAPTIC FEEDBACK
+// =============================================================================
+
+const haptic = {
+  light:   () => navigator.vibrate?.([5]),
+  tap:     () => navigator.vibrate?.([10]),
+  medium:  () => navigator.vibrate?.([15]),
+  heavy:   () => navigator.vibrate?.([20]),
+  success: () => navigator.vibrate?.([10, 50, 5, 50, 15]),
+  error:   () => navigator.vibrate?.([20, 40, 20]),
+  double:  () => navigator.vibrate?.([5, 30, 5]),
+}
+
+// =============================================================================
 // MAIN APP COMPONENT
 // =============================================================================
 
@@ -355,7 +369,6 @@ function AppInner() {
   // --- Shopping trip planner state ---
   const [trips, setTrips] = useState<ShoppingTrip[]>([])
   const [showTripSheet, setShowTripSheet] = useState(false)
-  const [tripSuggestionDismissed, setTripSuggestionDismissed] = useState(() => sessionStorage.getItem('penny_trip_suggested') === 'true')
 
   // --- Saved lists state ---
   const [showSaveSheet, setShowSaveSheet] = useState(false)
@@ -1382,6 +1395,7 @@ function AppInner() {
   }, [screen, adminDays])
 
   const showToast = (message: string, type: 'success' | 'error' = 'success', action?: { label: string; onClick: () => void }) => {
+    if (type === 'error') haptic.error()
     if (toastTimer.current) clearTimeout(toastTimer.current)
     setToast({ message, type, action })
     toastTimer.current = setTimeout(() => setToast(null), action ? 10000 : 6250)
@@ -1595,6 +1609,7 @@ function AppInner() {
 
   // --- Swap accept/decline ---
   const handleSwapAccept = async (dealId: number, itemId: number) => {
+    haptic.success()
     try {
       const res = await fetch('/api/list/parse', {
         method: 'POST',
@@ -1622,6 +1637,7 @@ function AppInner() {
   }
 
   const handleSwapDecline = async (dealId: number, itemId: number) => {
+    haptic.double()
     track('swap_declined', { deal_id: dealId })
     setSwapsByItemId(prev => { const next = { ...prev }; delete next[itemId]; return next })
     try {
@@ -1635,6 +1651,7 @@ function AppInner() {
 
   // --- Receipt submit ---
   const handleReceiptSubmit = async (imageData: string[]) => {
+    haptic.tap()
     setChatLoading(true)
     try {
       const res = await fetch('/api/list/parse', {
@@ -1661,7 +1678,7 @@ function AppInner() {
   }
 
   const handleToggle = async (id: number) => {
-    navigator.vibrate?.(10)
+    haptic.tap()
     // Capture current checked state before optimistic update
     const oldChecked = items.find(i => i.id === id)?.checked
     setItems(prev => prev.map(item => item.id === id ? { ...item, checked: !item.checked } : item))
@@ -2172,6 +2189,7 @@ function AppInner() {
   }
 
   const handleClearList = async (all?: boolean) => {
+    haptic.heavy()
     const url = all ? '/api/list/clear?all=true' : '/api/list/clear'
     const result = await fetchAction(url, { method: 'POST' })
     if (result.ok) {
@@ -3409,7 +3427,7 @@ const handleCodeChange = (index: number, value: string) => {
                   <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>
                 </svg>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>I want to text with Penny</div>
+                  <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>I want to SMS with Penny</div>
                   <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginTop: '1px' }}>Penny texts you about deals and savings she finds</div>
                 </div>
                 <ToggleSwitch value={pennyDeals} onChange={toggleDeals} />
@@ -3945,7 +3963,40 @@ const handleCodeChange = (index: number, value: string) => {
               </>)}
             </div>
 
-            {/* ── Friends who live elsewhere section ── */}
+            {/* ── Share a List (read-only, 7-day link) ── */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 700, color: TEXT, textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>Share a List</span>
+              </div>
+              <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT, margin: '0 0 16px 0', lineHeight: 1.6 }}>
+                Send a read-only snapshot of your list to anyone — no account needed. Link expires in 7 days.
+              </p>
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await fetch('/api/list/share', { method: 'POST' })
+                    if (res.status === 401) { handleSessionExpired(); return }
+                    if (res.ok) {
+                      const data = await res.json()
+                      const url = `${window.location.origin}${data.url}`
+                      if (navigator.share) {
+                        navigator.share({ title: 'My grocery list', url }).catch(() => {})
+                      } else {
+                        navigator.clipboard.writeText(url).then(() => showToast('Share link copied!')).catch(() => showToast('Could not copy', 'error'))
+                      }
+                    } else {
+                      showToast('Could not create share link', 'error')
+                    }
+                  } catch { showToast('Connection error', 'error') }
+                }}
+                style={listStyles.sheetButton}
+              >
+                Share my list for 7 days
+              </button>
+            </div>
+
+            {/* ── Refer a Friend ── */}
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
@@ -4656,45 +4707,7 @@ const handleCodeChange = (index: number, value: string) => {
 
 
       {/* Trip planner suggestion banner — once per session, 5+ unchecked items */}
-      {screen === 'home' && !tripSuggestionDismissed && !showTripSheet && items.filter(i => !i.checked).length >= 5 && (
-        <div style={{
-          margin: '0 16px 8px',
-          padding: '10px 14px',
-          backgroundColor: BRAND_LIGHT,
-          borderRadius: RADIUS_MD,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '8px',
-        }}>
-          <button
-            onClick={() => {
-              sessionStorage.setItem('penny_trip_suggested', 'true')
-              setTripSuggestionDismissed(true)
-              pushModalState()
-              setShowTripSheet(true)
-            }}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-              fontFamily: FONT, fontSize: '14px', fontWeight: 500, color: BRAND,
-              textAlign: 'left' as const, flex: 1,
-            }}
-          >
-            Ready to shop? Plan a trip &rarr;
-          </button>
-          <button
-            onClick={() => {
-              sessionStorage.setItem('penny_trip_suggested', 'true')
-              setTripSuggestionDismissed(true)
-            }}
-            aria-label="Dismiss trip suggestion"
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer', padding: '4px',
-              color: TEXT_SECONDARY, fontSize: '18px', lineHeight: 1, flexShrink: 0,
-            }}
-          >&times;</button>
-        </div>
-      )}
+      {/* Trip suggestion moved to Penny chime-in — no banner */}
 
       {/* Confetti on list completion */}
       {showFireworks && <Confetti onComplete={() => setShowFireworks(false)} />}
@@ -4779,15 +4792,25 @@ const handleCodeChange = (index: number, value: string) => {
               Keep shopping
             </button>
 
-            {/* Future: receipt scan placeholder */}
-            <div style={{
-              marginTop: '16px', padding: '10px', borderRadius: '8px',
-              backgroundColor: `${BRAND}08`, border: `1px dashed ${BRAND}30`,
-            }}>
-              <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>
-                Receipt scanning coming soon
-              </div>
-            </div>
+            {/* Receipt scan button */}
+            <button
+              onClick={() => {
+                setPendingReceiptMode(true)
+                receiptInputRef.current?.click()
+              }}
+              style={{
+                width: '100%', marginTop: '16px', padding: '12px', borderRadius: '10px',
+                border: `1px solid ${BRAND}`, backgroundColor: `${BRAND}08`,
+                fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: BRAND,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                <circle cx="12" cy="13" r="4"/>
+              </svg>
+              Snap your receipt
+            </button>
           </div>
         </div>
       )}

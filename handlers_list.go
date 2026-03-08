@@ -1905,8 +1905,8 @@ func (s *Server) handleShareList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Insert shared link with 48-hour expiry
-	expiresAt := time.Now().Add(48 * time.Hour)
+	// Insert shared link with 7-day expiry
+	expiresAt := time.Now().Add(7 * 24 * time.Hour)
 	_, err := s.db.Exec(
 		"INSERT INTO shared_links (code, user_id, household_id, invite_code, expires_at) VALUES (?, ?, ?, ?, ?)",
 		code, session.UserID, householdID, inviteCode, expiresAt,

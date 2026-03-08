@@ -13299,3 +13299,268 @@ func TestBrandPortal_FoundingBadge(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// RECEIPT ENDPOINT TESTS
+// =============================================================================
+
+func TestGetReceipts_Empty(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleReceipts, "GET", "/api/receipts", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/receipts status: got %d, want 200", rr.Code)
+	}
+	var receipts []interface{}
+	json.Unmarshal(rr.Body.Bytes(), &receipts)
+	if len(receipts) != 0 {
+		t.Errorf("expected 0 receipts, got %d", len(receipts))
+	}
+}
+
+func TestGetReceipts_ReturnsUserReceipts(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Insert a receipt directly (receipts table has no raw_text column)
+	_, err := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status, store_name, items_found, items_matched)
+		VALUES (?, 'testhash123', 'processed', 'Test Store', 3, 2)`, userID)
+	if err != nil {
+		t.Fatalf("insert receipt: %v", err)
+	}
+
+	rr := doRequest(server.handleReceipts, "GET", "/api/receipts", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/receipts status: got %d, want 200", rr.Code)
+	}
+	var receipts []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &receipts)
+	if len(receipts) != 1 {
+		t.Fatalf("expected 1 receipt, got %d", len(receipts))
+	}
+	if receipts[0]["status"] != "processed" {
+		t.Errorf("status: got %v, want processed", receipts[0]["status"])
+	}
+	if receipts[0]["store_name"] != "Test Store" {
+		t.Errorf("store_name: got %v, want Test Store", receipts[0]["store_name"])
+	}
+}
+
+func TestGetReceipts_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleReceipts, "GET", "/api/receipts", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without auth, got %d", rr.Code)
+	}
+}
+
+func TestGetReceiptItems(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Insert receipt and line items
+	res, err := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status)
+		VALUES (?, 'hash1', 'processed')`, userID)
+	if err != nil {
+		t.Fatalf("insert receipt: %v", err)
+	}
+	receiptID, _ := res.LastInsertId()
+
+	server.db.Exec(`INSERT INTO receipt_line_items (receipt_id, raw_text, price_cents, quantity, matched_name, confidence)
+		VALUES (?, 'MILK 2%', 399, 1, 'Milk', 'high')`, receiptID)
+	server.db.Exec(`INSERT INTO receipt_line_items (receipt_id, raw_text, price_cents, quantity, matched_name, confidence)
+		VALUES (?, 'EGGS LG 12CT', 349, 2, 'Eggs', 'medium')`, receiptID)
+
+	rr := doRequest(server.handleReceiptRouting, "GET",
+		fmt.Sprintf("/api/receipts/%d/items", receiptID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET receipt items status: got %d, want 200", rr.Code)
+	}
+	var items []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &items)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	if items[0]["raw_text"] != "MILK 2%" {
+		t.Errorf("first item raw_text: got %v, want MILK 2%%", items[0]["raw_text"])
+	}
+	if items[0]["confidence"] != "high" {
+		t.Errorf("first item confidence: got %v, want high", items[0]["confidence"])
+	}
+	// Check price_cents (JSON numbers come back as float64)
+	if pc, ok := items[0]["price_cents"].(float64); !ok || int(pc) != 399 {
+		t.Errorf("first item price_cents: got %v, want 399", items[0]["price_cents"])
+	}
+}
+
+func TestGetReceiptItems_OtherUserCantAccess(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID1 := loginUser(t, server, "5551234567")
+	cookie2, _ := loginUser(t, server, "5559876543")
+
+	// Insert receipt owned by user1
+	res, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status)
+		VALUES (?, 'hash1', 'processed')`, userID1)
+	receiptID, _ := res.LastInsertId()
+
+	// User2 tries to access user1's receipt items
+	rr := doRequest(server.handleReceiptRouting, "GET",
+		fmt.Sprintf("/api/receipts/%d/items", receiptID), nil, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for other user's receipt, got %d", rr.Code)
+	}
+}
+
+func TestReceiptConfirm(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Insert receipt and line item
+	res, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status)
+		VALUES (?, 'hash2', 'processed')`, userID)
+	receiptID, _ := res.LastInsertId()
+
+	liRes, _ := server.db.Exec(`INSERT INTO receipt_line_items (receipt_id, raw_text, price_cents, quantity, matched_name, confidence)
+		VALUES (?, 'ORG MILK', 599, 1, 'Organic Milk', 'low')`, receiptID)
+	lineItemID, _ := liRes.LastInsertId()
+
+	// Confirm the line item
+	body := map[string]interface{}{
+		"confirmations": []map[string]interface{}{
+			{"line_item_id": lineItemID, "confirmed": true, "matched_name": "Organic Milk"},
+		},
+	}
+	rr := doRequest(server.handleReceiptRouting, "POST",
+		fmt.Sprintf("/api/receipts/%d/confirm", receiptID), body, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST confirm status: got %d, want 200", rr.Code)
+	}
+	result := parseJSON(rr)
+	if c, ok := result["confirmed"].(float64); !ok || int(c) != 1 {
+		t.Errorf("confirmed count: got %v, want 1", result["confirmed"])
+	}
+
+	// Verify the line item's confidence was updated
+	var conf string
+	server.db.QueryRow("SELECT confidence FROM receipt_line_items WHERE id = ?", lineItemID).Scan(&conf)
+	if conf != "high" {
+		t.Errorf("line item confidence after confirm: got %s, want high", conf)
+	}
+}
+
+func TestReceiptConfirm_Reject(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	res, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status)
+		VALUES (?, 'hash3', 'processed')`, userID)
+	receiptID, _ := res.LastInsertId()
+
+	liRes, _ := server.db.Exec(`INSERT INTO receipt_line_items (receipt_id, raw_text, price_cents, quantity, matched_name, confidence)
+		VALUES (?, 'MISC ITEM', 199, 1, 'Something', 'low')`, receiptID)
+	lineItemID, _ := liRes.LastInsertId()
+
+	body := map[string]interface{}{
+		"confirmations": []map[string]interface{}{
+			{"line_item_id": lineItemID, "confirmed": false},
+		},
+	}
+	rr := doRequest(server.handleReceiptRouting, "POST",
+		fmt.Sprintf("/api/receipts/%d/confirm", receiptID), body, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST confirm (reject) status: got %d, want 200", rr.Code)
+	}
+
+	// Verify the line item was marked as rejected
+	var conf string
+	server.db.QueryRow("SELECT confidence FROM receipt_line_items WHERE id = ?", lineItemID).Scan(&conf)
+	if conf != "rejected" {
+		t.Errorf("line item confidence after reject: got %s, want rejected", conf)
+	}
+}
+
+func TestGetSwapClaims_Empty(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleReceiptRouting, "GET", "/api/receipts/claims", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/receipts/claims status: got %d, want 200", rr.Code)
+	}
+	var claims []interface{}
+	json.Unmarshal(rr.Body.Bytes(), &claims)
+	if len(claims) != 0 {
+		t.Errorf("expected 0 claims, got %d", len(claims))
+	}
+}
+
+func TestReceiptRouting_InvalidPath(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleReceiptRouting, "GET", "/api/receipts/999/unknown", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for unknown subroute, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// SETTINGS PHONE UPDATE TESTS
+// =============================================================================
+
+func TestSettingsPhoneUpdate_Valid(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]string{"phone": "+15559998888"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH phone status: got %d, want 200", rr.Code)
+	}
+
+	// Verify phone was updated
+	rr = doRequest(server.handleSettings, "GET", "/api/settings", nil, []*http.Cookie{cookie})
+	body := parseJSON(rr)
+	if body["phone"] != "+15559998888" {
+		t.Errorf("phone after update: got %v, want +15559998888", body["phone"])
+	}
+}
+
+func TestSettingsPhoneUpdate_InvalidTooShort(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]string{"phone": "+1555"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("PATCH short phone: got %d, want 400", rr.Code)
+	}
+}
+
+func TestSettingsPhoneUpdate_ClearPhone(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// First set a phone number via settings
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]string{"phone": "+15559998888"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH phone setup: got %d, want 200", rr.Code)
+	}
+
+	// Clear the phone
+	rr = doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]string{"phone": ""}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH clear phone: got %d, want 200", rr.Code)
+	}
+
+	// Verify phone was cleared
+	rr = doRequest(server.handleSettings, "GET", "/api/settings", nil, []*http.Cookie{cookie})
+	body := parseJSON(rr)
+	if body["phone"] != "" {
+		t.Errorf("phone after clear: got %v, want empty string", body["phone"])
+	}
+}
+
