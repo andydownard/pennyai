@@ -40,6 +40,7 @@ import { ShareScreen } from './components/ShareScreen'
 import { AdminScreen } from './components/AdminScreen'
 import { SharedListScreen } from './components/SharedListScreen'
 import { FeedbackWidget } from './components/FeedbackWidget'
+import { DoneSummaryModal } from './components/DoneSummaryModal'
 import { ToggleSwitch } from './components/ToggleSwitch'
 import { type ItemModification } from './types'
 import {
@@ -3465,122 +3466,27 @@ const handleCodeChange = (index: number, value: string) => {
 
       {/* Done Shopping Summary */}
       {showDoneSummary && doneSummaryData && (
-        <div role="presentation" style={{
-          position: 'fixed', inset: 0, zIndex: 9999,
-          display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center',
-          backgroundColor: 'rgba(0,0,0,0.6)',
-          padding: '24px',
-        }}>
-          <div role="dialog" aria-modal="true" aria-label="Trip summary" style={{
-            backgroundColor: 'var(--surface)', borderRadius: '20px', padding: '32px 24px',
-            maxWidth: '360px', width: '100%', textAlign: 'center' as const,
-          }}>
-            <div style={{ fontSize: '48px', marginBottom: '12px' }}>
-              {isFirstTrip ? '🎉' : '✓'}
-            </div>
-            <div style={{ fontFamily: FONT, fontSize: '22px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
-              {isFirstTrip ? 'First trip complete!' : 'Nice work!'}
-            </div>
-            <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
-              {doneSummaryData.checkedCount} of {doneSummaryData.totalCount} item{doneSummaryData.totalCount !== 1 ? 's' : ''} checked off
-            </div>
-            {/* Trip duration */}
-            {doneSummaryData.tripStartedAt && (() => {
-              const startTime = new Date(doneSummaryData.tripStartedAt)
-              const mins = Math.round((Date.now() - startTime.getTime()) / 60000)
-              if (mins < 1 || mins > 480) return null
-              const hrs = Math.floor(mins / 60)
-              const remMins = mins % 60
-              const durationText = hrs > 0 ? `${hrs}h ${remMins}m` : `${mins} min${mins !== 1 ? 's' : ''}`
-              return (
-                <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-                  {doneSummaryData.checkedCount >= doneSummaryData.totalCount
-                    ? `Everything in ${durationText}!`
-                    : `${durationText} in the store`}
-                </div>
-              )
-            })()}
-            {!doneSummaryData.tripStartedAt && <div style={{ marginBottom: '16px' }} />}
-
-            {/* Save as list option */}
-            {doneSummaryData.checkedCount > 0 && (
-              <button
-                onClick={async () => {
-                  const listName = `Trip ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-                  const res = await fetchAPI('/api/saved-lists', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: listName, items: items.filter(i => i.checked).map(i => ({ name: i.name, brand: i.brand, department: i.department, quantity: i.quantity, size: i.size, notes: i.notes })) }),
-                  })
-                  if (res) typePennyHome(`Saved as "${listName}" — you can load it anytime!`)
-                  else showToast('Could not save list', 'error')
-                }}
-                style={{
-                  width: '100%', padding: '12px', borderRadius: '10px',
-                  border: '1px solid var(--border)', backgroundColor: 'var(--bg)',
-                  fontFamily: FONT, fontSize: '14px', color: 'var(--text)', cursor: 'pointer',
-                  marginBottom: '8px',
-                }}
-              >
-                Save this list for next time
-              </button>
-            )}
-
-            {/* Clear checked items */}
-            <button
-              onClick={async () => {
-                await handleCancelTrip()
-                if (doneSummaryData.checkedCount > 0) {
-                  await handleClearList()
-                }
-                setShowDoneSummary(false)
-                setDoneSummaryData(null)
-                if (isFirstTrip) {
-                  setShowFireworks(true)
-                }
-                typePennyHome('Trip complete — great job!')
-              }}
-              style={{
-                width: '100%', padding: '14px', borderRadius: '10px',
-                backgroundColor: 'var(--brand)', color: '#fff', border: 'none',
-                fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer',
-                marginBottom: '8px',
-              }}
-            >
-              {doneSummaryData.checkedCount > 0 ? 'Clear checked & finish' : 'Finish trip'}
-            </button>
-
-            <button
-              onClick={() => { setShowDoneSummary(false); setDoneSummaryData(null) }}
-              style={{
-                width: '100%', padding: '10px', background: 'none', border: 'none',
-                fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', cursor: 'pointer',
-              }}
-            >
-              Keep shopping
-            </button>
-
-            {/* Receipt scan button */}
-            <button
-              onClick={() => {
-                setPendingReceiptMode(true)
-                receiptInputRef.current?.click()
-              }}
-              style={{
-                width: '100%', marginTop: '16px', padding: '12px', borderRadius: '10px',
-                border: '1px solid var(--brand)', backgroundColor: 'color-mix(in srgb, var(--brand) 3%, transparent)',
-                fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: 'var(--brand)',
-                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                <circle cx="12" cy="13" r="4"/>
-              </svg>
-              Snap your receipt
-            </button>
-          </div>
-        </div>
+        <DoneSummaryModal
+          data={doneSummaryData}
+          isFirstTrip={isFirstTrip}
+          items={items}
+          fetchAPI={fetchAPI}
+          typePennyHome={typePennyHome}
+          showToast={showToast}
+          handleCancelTrip={handleCancelTrip}
+          handleClearList={handleClearList}
+          onClose={() => { setShowDoneSummary(false); setDoneSummaryData(null) }}
+          onFinish={(firstTrip) => {
+            setShowDoneSummary(false)
+            setDoneSummaryData(null)
+            if (firstTrip) setShowFireworks(true)
+            typePennyHome('Trip complete — great job!')
+          }}
+          onSnapReceipt={() => {
+            setPendingReceiptMode(true)
+            receiptInputRef.current?.click()
+          }}
+        />
       )}
 
       {/* "You're done!" overlay */}
