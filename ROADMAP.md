@@ -700,7 +700,7 @@ Break-even math:
 - [x] **Segment analysis** — processSegmentAnalysis() + GET /api/admin/segment-analysis
 - [x] **Category-level insights** — GET /api/admin/category-insights with top decline reasons per category
 - [x] **"Optimize This Deal" recommendations** — GET /brand/optimize/{id} rule-based actionable recommendations
-- [ ] **Brand portal deep dive UI** — daily chart, segment breakdown, decline reasons
+- [x] **Brand portal deep dive UI** — BrandDealDeepDive component with performance chart, decline reasons, optimization recommendations
 
 ### L4: Location Learning (Phase 3 — Requires Receipt Scale)
 
@@ -716,7 +716,7 @@ Break-even math:
 - [x] **Cohort retention analysis** — weekly cohorts, GET /api/admin/cohort-analysis
 - [x] **Churn prediction signals** — days_inactive, decline_streak, swap_fatigue, list_abandonment
 - [x] **Marketplace health index** — daily supply/demand/balance/concentration scoring, GET /api/admin/marketplace-health
-- [ ] **Enhanced admin dashboard** — time-series charts, cohort table, churn risk list
+- [x] **Enhanced admin dashboard** — business metrics sparkline, churn risk list, cohort retention table, marketplace health display
 
 ### Privacy & Safety Requirements
 
