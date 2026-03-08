@@ -395,3 +395,105 @@ func clampConfidence(a, b float64) float64 {
 	}
 	return b
 }
+
+// buildLearningContext constructs a structured string of Penny's learned
+// preferences for a given user, suitable for injection into Penny's system prompt.
+// Returns "" if no learnings exist or "Learn from my choices" is off.
+func (s *Server) buildLearningContext(userID int) string {
+	// Check if user has autotune enabled (learn from my choices)
+	var autotune int
+	s.db.QueryRow("SELECT COALESCE(penny_autotune, 0) FROM users WHERE id = ?", userID).Scan(&autotune)
+	if autotune == 0 {
+		return ""
+	}
+
+	var parts []string
+
+	// User-level learnings from penny_learnings
+	rows, err := s.db.Query(`SELECT key, value, confidence FROM penny_learnings
+		WHERE scope = 'user' AND scope_id = ? AND confidence >= 0.3
+		ORDER BY confidence DESC`, userID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var k, v string
+			var conf float64
+			rows.Scan(&k, &v, &conf)
+			switch k {
+			case "shopping_frequency":
+				parts = append(parts, fmt.Sprintf("- Shopping frequency: %s (confidence %.0f%%)", v, conf*100))
+			case "price_sensitivity":
+				parts = append(parts, fmt.Sprintf("- Price sensitivity: %s", v))
+			case "preferred_shopping_day":
+				parts = append(parts, fmt.Sprintf("- Usually shops on: %s", v))
+			case "items_per_month":
+				parts = append(parts, fmt.Sprintf("- Adds ~%s items/month", v))
+			case "avg_accepted_discount_cents":
+				parts = append(parts, fmt.Sprintf("- Typical accepted discount: $%.2f", parseFloat(v)/100))
+			}
+		}
+	}
+
+	// Brand preferences (top 5 by pick count)
+	bpRows, err := s.db.Query(`SELECT product_category, brand, pick_count
+		FROM brand_preferences WHERE user_id = ?
+		ORDER BY pick_count DESC LIMIT 5`, userID)
+	if err == nil {
+		defer bpRows.Close()
+		var brandPrefs []string
+		for bpRows.Next() {
+			var cat, brand string
+			var picks int
+			bpRows.Scan(&cat, &brand, &picks)
+			if picks >= 2 {
+				brandPrefs = append(brandPrefs, fmt.Sprintf("%s for %s", brand, cat))
+			}
+		}
+		if len(brandPrefs) > 0 {
+			parts = append(parts, "- Preferred brands: "+strings.Join(brandPrefs, ", "))
+		}
+	}
+
+	// Dietary profile if it exists
+	var allergens, diets string
+	s.db.QueryRow("SELECT COALESCE(allergens, '[]'), COALESCE(diets, '[]') FROM user_dietary_profiles WHERE user_id = ?", userID).Scan(&allergens, &diets)
+	if allergens != "[]" && allergens != "" {
+		parts = append(parts, fmt.Sprintf("- Allergens: %s — NEVER suggest products containing these", allergens))
+	}
+	if diets != "[]" && diets != "" {
+		parts = append(parts, fmt.Sprintf("- Dietary preferences: %s", diets))
+	}
+
+	// Penny slider position
+	var slider int
+	s.db.QueryRow("SELECT COALESCE(penny_slider, 15) FROM users WHERE id = ?", userID).Scan(&slider)
+	if slider <= 8 {
+		parts = append(parts, "- Strongly prefers savings over convenience — suggest budget options")
+	} else if slider >= 22 {
+		parts = append(parts, "- Strongly prefers convenience over savings — suggest premium/quality options")
+	}
+
+	// Household context
+	var hhID int
+	s.db.QueryRow("SELECT COALESCE(household_id, 0) FROM users WHERE id = ?", userID).Scan(&hhID)
+	if hhID > 0 {
+		var memberCount int
+		s.db.QueryRow("SELECT COUNT(*) FROM household_members WHERE household_id = ?", hhID).Scan(&memberCount)
+		if memberCount > 1 {
+			parts = append(parts, fmt.Sprintf("- Part of a %d-person household with a shared list", memberCount))
+		}
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return "What Penny knows about this user (use this context to personalize suggestions — never reference these facts directly unless relevant):\n" + strings.Join(parts, "\n")
+}
+
+// parseFloat is a simple helper for converting string to float64.
+func parseFloat(s string) float64 {
+	var f float64
+	fmt.Sscanf(s, "%f", &f)
+	return f
+}

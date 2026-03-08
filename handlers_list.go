@@ -950,7 +950,10 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 		s.db.QueryRow("SELECT COALESCE(name,'') FROM users WHERE id = ?", session.UserID).Scan(&userName)
 		firstName := strings.Split(strings.TrimSpace(userName), " ")[0]
 
-		cmd, err := s.parseCommand(s.config.AnthropicAPIKey, req.Text, currentItems, firstName)
+		// Build learning context for Penny's system prompt
+		learningCtx := s.buildLearningContext(session.UserID)
+
+		cmd, err := s.parseCommand(s.config.AnthropicAPIKey, req.Text, currentItems, firstName, learningCtx)
 		if err != nil {
 			log.Printf("[parse] command error for user %d: %v", session.UserID, err)
 			dbError(w, err, "I couldn't understand that. Try again?")

@@ -647,6 +647,87 @@ Break-even math:
 
 ---
 
+## Learning Loops — 5-Level Intelligence System (Product Team + CEO Panel, March 2026)
+
+> Full strategy document: `LEARNING_LOOPS_STRATEGY.md`. Designed by product team convene (7 roles) and validated by 6 unicorn CEO panel. Goal: make Penny smarter every day across 5 nested levels.
+
+### Architecture Overview
+
+| Level | Learning Unit | Core Question | Status |
+|-------|--------------|---------------|--------|
+| **1. Individual** | Single user | "What does THIS person want?" | **In Progress** — signals, learnings, batch processing shipped |
+| **2. Household** | Shared group | "How does this household coordinate?" | **In Progress** — coordination score in processLearnings |
+| **3. Brand** | Advertiser | "What makes a swap succeed?" | **In Progress** — brand performance metrics in processLearnings |
+| **4. Location** | Store/region | "What's available and at what price WHERE?" | Planned — requires receipt data at scale |
+| **5. Business** | Platform | "What makes the marketplace healthy?" | **In Progress** — business_metrics_daily |
+
+### Foundation (Shipped)
+
+- [x] `user_signals` table — captures behavioral events (swap accept/decline, item adds)
+- [x] `penny_learnings` table — scope-based knowledge store with confidence scores
+- [x] `store_prices` table — crowdsourced price data from receipts
+- [x] `recordSignal()` — async signal capture on swap and list events
+- [x] `processLearnings()` — 6-hour batch: shopping frequency, price sensitivity, preferred day, household coordination, brand performance, store price levels
+- [x] `GET /api/penny/insights` — returns accumulated learnings
+- [x] Collect-then-write pattern for SQLite safety
+
+### L1: Individual Learning (Current Sprint)
+
+- [x] Shopping frequency pattern (daily/frequent/weekly/occasional)
+- [x] Price sensitivity from swap behavior (high/moderate/low)
+- [x] Preferred shopping day (most active day)
+- [ ] **Dietary profile** — user_dietary_profiles table, GET/PATCH /api/preferences, allergen hard-filter on swaps
+- [ ] **Penny context enrichment** — inject learned preferences into Penny's Claude system prompt
+- [ ] **Preference reset** — DELETE /api/preferences/reset (right to forget)
+- [ ] **Structured decline reasons** — decline_reason column on swap_events, optional quick-tap UI
+- [ ] **Repurchase cycle detection** — "You buy milk every 8 days" from list + receipt patterns
+- [ ] **"Penny Knows" insights card** — show learned preferences in Penny chat, tappable to correct
+
+### L2: Household Learning
+
+- [x] Household coordination score (high/medium/low)
+- [x] Active member tracking
+- [ ] **Household dietary union** — merged allergens across all members
+- [ ] **Duplicate purchase prevention** — alert when 2 members add same item within 4 hours
+- [ ] **Repurchase nudge** — "Your household usually buys paper towels every 3 weeks"
+- [ ] **Shopping role detection** — primary shopper, list builder, etc.
+
+### L3: Brand Learning
+
+- [x] Brand accept rate tracking
+- [x] Brand performance classification (strong/average/weak)
+- [ ] **Deal performance daily** — daily aggregation of impressions/accepts/declines per deal
+- [ ] **Segment analysis** — which user segments respond best to which deals
+- [ ] **Category-level insights** — avg acceptance rate, best discount, top decline reason per category
+- [ ] **"Optimize This Deal" recommendations** — AI suggestions for improving deal performance
+- [ ] **Brand portal deep dive UI** — daily chart, segment breakdown, decline reasons
+
+### L4: Location Learning (Phase 3 — Requires Receipt Scale)
+
+- [ ] Store directory from receipt data
+- [ ] Per-store product pricing (moving averages)
+- [ ] Store-aware swap card pricing ("At YOUR Kroger: $3.48")
+- [ ] Regional swap performance aggregation
+- [ ] Price comparison across user's stores
+
+### L5: Business Learning
+
+- [ ] **Daily business metrics snapshot** — DAU/WAU/MAU, swap funnel, revenue, brand health
+- [ ] **Cohort retention analysis** — weekly cohorts, retention matrix
+- [ ] **Churn prediction signals** — days inactive, decline streak, swap fatigue
+- [ ] **Marketplace health index** — supply/demand balance, revenue concentration
+- [ ] **Enhanced admin dashboard** — time-series charts, cohort table, churn risk list
+
+### Privacy & Safety Requirements
+
+- "Learn from my choices" toggle gates ALL learning — users with this OFF get zero tracking
+- Preference reset hard-deletes all learning data (not soft-delete)
+- Allergen filtering is a SAFETY feature — zero tolerance, hard-filter before any swap suggestion
+- Brand-level aggregates require min 5 users per cohort (no de-anonymization)
+- All learning tables have user_id FK for cascading delete (CCPA/GDPR readiness)
+
+---
+
 ## Buy-vs-Build — Scope Reduction (March 2026 VC Panel Review)
 
 > Evaluated by a panel of 6 unicorn VCs. Full analysis in `pitch deck/Buy-vs-Build-Evaluation.docx`.

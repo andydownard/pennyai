@@ -239,11 +239,14 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/admin/deals", server.handleAdminDeals)
 	http.HandleFunc("/api/admin/deals/", server.handleAdminDeals)
 	http.HandleFunc("/api/admin/payouts", server.handleAdminPayouts)
+	http.HandleFunc("/api/admin/business-metrics", server.handleBusinessMetrics)
 	http.HandleFunc("/api/admin/backup", server.handleAdminBackup)
 	http.HandleFunc("/api/wrapped", server.handleWrapped)
 	http.HandleFunc("/api/milestones/check", server.handleMilestoneCheck)
 	http.HandleFunc("/api/milestones/ack", server.handleMilestoneAck)
 	http.HandleFunc("/api/penny/insights", server.handlePennyInsights)
+	http.HandleFunc("/api/preferences", server.handleDietaryPreferences)
+	http.HandleFunc("/api/preferences/reset", server.handlePreferenceReset)
 
 	// --- A/B Testing ---
 	http.HandleFunc("GET /api/ab/variant", handleGetVariant(server))
@@ -262,6 +265,7 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/brand/deals", server.handleBrandDeals)
 	http.HandleFunc("/brand/deals/", server.handleBrandDeals)
 	http.HandleFunc("/brand/category-intel/", server.handleCategoryIntel)
+	http.HandleFunc("/brand/deal-performance/", server.handleBrandDealPerformance)
 	http.HandleFunc("/brand/transactions", server.handleBrandTransactions)
 	http.HandleFunc("/brand/deposit", server.handleBrandDeposit)
 	http.HandleFunc("/brand/export", server.handleBrandExport)
@@ -376,6 +380,9 @@ Get these from https://console.twilio.com (see README for full setup).
 
 	// Learning loop: derives insights from raw signals every 6 hours
 	go server.runLearningLoop()
+
+	// Daily metrics aggregation: deal performance, category insights, business metrics
+	go server.runDailyMetricsLoop()
 
 	log.Printf("thriftly is running on http://localhost:%s", cfg.Port)
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, handler))

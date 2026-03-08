@@ -1054,6 +1054,99 @@ func initDB(path string) (*sql.DB, error) {
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_store_prices_store ON store_prices(store_name, store_zip)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_store_prices_product ON store_prices(product)")
 
+	// --- Dietary profile table ---
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS user_dietary_profiles (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id     INTEGER NOT NULL UNIQUE REFERENCES users(id),
+			allergens   TEXT NOT NULL DEFAULT '[]',
+			diets       TEXT NOT NULL DEFAULT '[]',
+			avoid_brands TEXT NOT NULL DEFAULT '[]',
+			updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating user_dietary_profiles table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_user_dietary_user ON user_dietary_profiles(user_id)")
+
+	// penny_context_cache: pre-computed context for Penny prompts
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS penny_context_cache (
+			user_id      INTEGER PRIMARY KEY REFERENCES users(id),
+			context_json TEXT NOT NULL DEFAULT '{}',
+			computed_at  TEXT NOT NULL DEFAULT (datetime('now'))
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating penny_context_cache table: %w", err)
+	}
+
+	// swap_events: decline_reason column for tracking why users decline swaps
+	db.Exec("ALTER TABLE swap_events ADD COLUMN decline_reason TEXT NOT NULL DEFAULT ''")
+
+	// ==========================================================================
+	// DAILY METRICS AGGREGATION TABLES (deal performance learning)
+	// ==========================================================================
+
+	// deal_performance_daily: materialized daily deal metrics, recomputed by batch job
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS deal_performance_daily (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			deal_id         INTEGER NOT NULL,
+			date            TEXT NOT NULL,
+			impressions     INTEGER NOT NULL DEFAULT 0,
+			accepts         INTEGER NOT NULL DEFAULT 0,
+			declines        INTEGER NOT NULL DEFAULT 0,
+			revenue_cents   INTEGER NOT NULL DEFAULT 0,
+			verified_count  INTEGER NOT NULL DEFAULT 0,
+			UNIQUE(deal_id, date)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating deal_performance_daily table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_deal_perf_daily_deal ON deal_performance_daily(deal_id, date)")
+
+	// category_swap_insights: aggregated swap metrics across deals in a category
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS category_swap_insights (
+			id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+			category            TEXT NOT NULL UNIQUE,
+			avg_acceptance_rate REAL NOT NULL DEFAULT 0.0,
+			avg_discount_pct    REAL NOT NULL DEFAULT 0.0,
+			total_swaps         INTEGER NOT NULL DEFAULT 0,
+			last_computed       TEXT NOT NULL DEFAULT (datetime('now'))
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating category_swap_insights table: %w", err)
+	}
+
+	// business_metrics_daily: daily snapshot of key business metrics
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS business_metrics_daily (
+			id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+			date                TEXT NOT NULL UNIQUE,
+			dau                 INTEGER NOT NULL DEFAULT 0,
+			wau                 INTEGER NOT NULL DEFAULT 0,
+			mau                 INTEGER NOT NULL DEFAULT 0,
+			new_users           INTEGER NOT NULL DEFAULT 0,
+			swaps_offered       INTEGER NOT NULL DEFAULT 0,
+			swaps_accepted      INTEGER NOT NULL DEFAULT 0,
+			swaps_declined      INTEGER NOT NULL DEFAULT 0,
+			acceptance_rate     REAL NOT NULL DEFAULT 0.0,
+			gross_revenue_cents INTEGER NOT NULL DEFAULT 0,
+			active_deals        INTEGER NOT NULL DEFAULT 0,
+			active_brands       INTEGER NOT NULL DEFAULT 0,
+			computed_at         TEXT NOT NULL DEFAULT (datetime('now'))
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating business_metrics_daily table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_business_metrics_date ON business_metrics_daily(date)")
+
 	return db, nil
 }
 

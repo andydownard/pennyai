@@ -112,7 +112,7 @@ func newTestServer(t *testing.T, mock *MockTwilioClient) *Server {
 		smsBuffer: newMessageBuffer(50 * time.Millisecond),
 	}
 	// Default parseCommand wraps parseItems so existing tests work
-	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
 		parsed, err := server.parseItems(apiKey, text, nil)
 		if err != nil {
 			return nil, err
@@ -10354,7 +10354,7 @@ func TestSwaps_DealMatchingBasic(t *testing.T) {
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Use seeded skippy→jif deal: add a Skippy item and verify swap is offered
-	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
 		return &ParsedCommand{
 			Action:  "add",
 			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
@@ -10470,7 +10470,7 @@ func TestSwaps_DeclineAndSuppression(t *testing.T) {
 	}
 
 	// Now add a matching item — deal should NOT appear due to suppression
-	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
 		return &ParsedCommand{
 			Action:  "add",
 			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
@@ -10498,7 +10498,7 @@ func TestSwaps_SliderConvenienceBlocksDeals(t *testing.T) {
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Use seeded deals — add a skippy item with slider=100, should get no swap
-	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
 		return &ParsedCommand{
 			Action:  "add",
 			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
@@ -10559,7 +10559,7 @@ func TestDoneShopping_Action(t *testing.T) {
 	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
-	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
 		return &ParsedCommand{
 			Action:  "done_shopping",
 			Items:   []ParsedItem{},
@@ -11024,7 +11024,7 @@ func TestSwaps_PendingSwapIncludesPriceData(t *testing.T) {
 	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
-	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
 		return &ParsedCommand{
 			Action:  "add",
 			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
@@ -11071,7 +11071,7 @@ func TestSwaps_WhyBulletsParsed(t *testing.T) {
 	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
-	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
 		return &ParsedCommand{
 			Action:  "add",
 			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
@@ -11105,7 +11105,7 @@ func TestSwaps_AllergenWarningIncluded(t *testing.T) {
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Use the archer→chomps deal which has allergen_notes
-	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
 		return &ParsedCommand{
 			Action:  "add",
 			Items:   []ParsedItem{{Name: "Beef Sticks", Brand: "Archer", Department: "Snacks & Candy", Quantity: 1}},
@@ -11140,7 +11140,7 @@ func TestSwaps_PendingSwapGracefulDegradation(t *testing.T) {
 		discount_cents, total_budget_cents, status)
 		VALUES ('heinz', 'HuntsTest', 'Tomato Ketchup', 50, 50000, 'active')`)
 
-	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
 		return &ParsedCommand{
 			Action:  "add",
 			Items:   []ParsedItem{{Name: "Ketchup", Brand: "Heinz", Department: "Pantry & Dry Goods", Quantity: 1}},
@@ -11193,7 +11193,7 @@ func TestSwaps_AutotuneThresholdBlocksDeals(t *testing.T) {
 	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
-	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
 		return &ParsedCommand{
 			Action:  "add",
 			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
@@ -11222,7 +11222,7 @@ func TestSwaps_SliderMidRangeFiltersSmallDiscounts(t *testing.T) {
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Archer→Chomps has discount_cents=75 (< $1), should be filtered by mid-range slider
-	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
 		return &ParsedCommand{
 			Action:  "add",
 			Items:   []ParsedItem{{Name: "Beef Sticks", Brand: "Archer", Department: "Snacks & Candy", Quantity: 1}},
@@ -11240,7 +11240,7 @@ func TestSwaps_SliderMidRangeFiltersSmallDiscounts(t *testing.T) {
 	}
 
 	// Skippy→Jif has discount_cents=125 (> $1), should still show
-	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
 		return &ParsedCommand{
 			Action:  "add",
 			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
@@ -14743,7 +14743,7 @@ func TestAdminBackup_WithFileDB(t *testing.T) {
 		},
 		smsBuffer: newMessageBuffer(50 * time.Millisecond),
 	}
-	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
 		parsed, err := server.parseItems(apiKey, text, nil)
 		if err != nil {
 			return nil, err
@@ -15159,6 +15159,552 @@ func TestPennyInsights_WithLearnings(t *testing.T) {
 	}
 	if freqEntry["value"] != "daily" {
 		t.Errorf("shopping_frequency value: got %v, want 'daily'", freqEntry["value"])
+	}
+}
+
+func TestBuildLearningContext_AutotuneOff(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number, penny_autotune) VALUES (100, '+15551234567', 0)")
+	ctx := server.buildLearningContext(100)
+	if ctx != "" {
+		t.Errorf("Expected empty context when autotune is off, got: %s", ctx)
+	}
+}
+
+func TestBuildLearningContext_WithLearnings(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number, penny_autotune) VALUES (100, '+15551234567', 1)")
+
+	// Add learnings
+	server.updateLearning("user", 100, "shopping_frequency", "weekly", 0.7)
+	server.updateLearning("user", 100, "price_sensitivity", "high", 0.8)
+	server.updateLearning("user", 100, "preferred_shopping_day", "Sunday", 0.6)
+
+	// Add brand preference
+	server.db.Exec("INSERT INTO brand_preferences (user_id, product_category, brand, pick_count, streak) VALUES (100, 'yogurt', 'Fage', 5, 3)")
+
+	ctx := server.buildLearningContext(100)
+	if ctx == "" {
+		t.Fatal("Expected non-empty learning context")
+	}
+	if !strings.Contains(ctx, "weekly") {
+		t.Error("Expected shopping frequency in context")
+	}
+	if !strings.Contains(ctx, "high") {
+		t.Error("Expected price sensitivity in context")
+	}
+	if !strings.Contains(ctx, "Sunday") {
+		t.Error("Expected preferred day in context")
+	}
+	if !strings.Contains(ctx, "Fage") {
+		t.Error("Expected brand preference in context")
+	}
+}
+
+func TestBuildLearningContext_LowConfidenceExcluded(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number, penny_autotune) VALUES (100, '+15551234567', 1)")
+
+	// Add low-confidence learning (below 0.3 threshold)
+	server.updateLearning("user", 100, "shopping_frequency", "daily", 0.1)
+
+	ctx := server.buildLearningContext(100)
+	if strings.Contains(ctx, "daily") {
+		t.Error("Low-confidence learning should be excluded from context")
+	}
+}
+
+// =============================================================================
+// DIETARY PROFILE TESTS
+// =============================================================================
+
+func TestDietaryProfile_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleDietaryPreferences, "GET", "/api/preferences", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestDietaryProfile_Empty(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleDietaryPreferences, "GET", "/api/preferences", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	body := parseJSON(rr)
+	allergens, ok := body["allergens"].([]interface{})
+	if !ok {
+		t.Fatal("Expected allergens to be an array")
+	}
+	if len(allergens) != 0 {
+		t.Errorf("allergens: got %v, want empty", allergens)
+	}
+	diets, ok := body["diets"].([]interface{})
+	if !ok {
+		t.Fatal("Expected diets to be an array")
+	}
+	if len(diets) != 0 {
+		t.Errorf("diets: got %v, want empty", diets)
+	}
+	avoidBrands, ok := body["avoid_brands"].([]interface{})
+	if !ok {
+		t.Fatal("Expected avoid_brands to be an array")
+	}
+	if len(avoidBrands) != 0 {
+		t.Errorf("avoid_brands: got %v, want empty", avoidBrands)
+	}
+}
+
+func TestDietaryProfile_SetAndGet(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// PATCH to set allergens and diets
+	rr := doRequest(server.handleDietaryPreferences, "PATCH", "/api/preferences",
+		map[string]interface{}{
+			"allergens": []string{"peanuts", "shellfish"},
+			"diets":     []string{"vegetarian"},
+		},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH status: got %d, want 200", rr.Code)
+	}
+	patchBody := parseJSON(rr)
+	if patchBody["ok"] != true {
+		t.Errorf("PATCH response: got %v, want ok:true", patchBody)
+	}
+
+	// GET to verify
+	rr = doRequest(server.handleDietaryPreferences, "GET", "/api/preferences", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET status: got %d, want 200", rr.Code)
+	}
+
+	body := parseJSON(rr)
+	allergens := body["allergens"].([]interface{})
+	if len(allergens) != 2 {
+		t.Fatalf("allergens: got %d items, want 2", len(allergens))
+	}
+	if allergens[0] != "peanuts" || allergens[1] != "shellfish" {
+		t.Errorf("allergens: got %v, want [peanuts shellfish]", allergens)
+	}
+	diets := body["diets"].([]interface{})
+	if len(diets) != 1 || diets[0] != "vegetarian" {
+		t.Errorf("diets: got %v, want [vegetarian]", diets)
+	}
+	avoidBrands := body["avoid_brands"].([]interface{})
+	if len(avoidBrands) != 0 {
+		t.Errorf("avoid_brands: got %v, want empty", avoidBrands)
+	}
+}
+
+func TestDietaryProfile_UpdatePartial(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Set initial profile with allergens and diets
+	doRequest(server.handleDietaryPreferences, "PATCH", "/api/preferences",
+		map[string]interface{}{
+			"allergens": []string{"peanuts"},
+			"diets":     []string{"keto"},
+		},
+		[]*http.Cookie{cookie})
+
+	// Partial update: only update allergens, leave diets unchanged
+	rr := doRequest(server.handleDietaryPreferences, "PATCH", "/api/preferences",
+		map[string]interface{}{
+			"allergens": []string{"peanuts", "gluten"},
+		},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH status: got %d, want 200", rr.Code)
+	}
+
+	// GET to verify diets are preserved
+	rr = doRequest(server.handleDietaryPreferences, "GET", "/api/preferences", nil, []*http.Cookie{cookie})
+	body := parseJSON(rr)
+
+	allergens := body["allergens"].([]interface{})
+	if len(allergens) != 2 {
+		t.Fatalf("allergens: got %d items, want 2", len(allergens))
+	}
+	if allergens[0] != "peanuts" || allergens[1] != "gluten" {
+		t.Errorf("allergens: got %v, want [peanuts gluten]", allergens)
+	}
+
+	diets := body["diets"].([]interface{})
+	if len(diets) != 1 || diets[0] != "keto" {
+		t.Errorf("diets: got %v, want [keto] (should be preserved from initial set)", diets)
+	}
+}
+
+func TestPreferenceReset(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Set dietary profile
+	doRequest(server.handleDietaryPreferences, "PATCH", "/api/preferences",
+		map[string]interface{}{
+			"allergens": []string{"dairy"},
+			"diets":     []string{"vegan"},
+		},
+		[]*http.Cookie{cookie})
+
+	// Insert learning rows
+	server.updateLearning("user", userID, "shopping_frequency", "daily", 0.9)
+	server.recordSignal(userID, "item_added", "produce", "apples", nil)
+
+	// Insert context cache
+	server.db.Exec("INSERT INTO penny_context_cache (user_id, context_json) VALUES (?, '{\"test\":true}')", userID)
+
+	// Verify data exists before reset
+	var profileCount, learningCount, signalCount, cacheCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM user_dietary_profiles WHERE user_id = ?", userID).Scan(&profileCount)
+	server.db.QueryRow("SELECT COUNT(*) FROM penny_learnings WHERE scope = 'user' AND scope_id = ?", userID).Scan(&learningCount)
+	server.db.QueryRow("SELECT COUNT(*) FROM user_signals WHERE user_id = ?", userID).Scan(&signalCount)
+	server.db.QueryRow("SELECT COUNT(*) FROM penny_context_cache WHERE user_id = ?", userID).Scan(&cacheCount)
+	if profileCount == 0 || learningCount == 0 || signalCount == 0 || cacheCount == 0 {
+		t.Fatalf("Pre-reset data missing: profiles=%d, learnings=%d, signals=%d, cache=%d",
+			profileCount, learningCount, signalCount, cacheCount)
+	}
+
+	// DELETE /api/preferences/reset
+	rr := doRequest(server.handlePreferenceReset, "DELETE", "/api/preferences/reset", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["ok"] != true {
+		t.Errorf("Response: got %v, want ok:true", body)
+	}
+
+	// Verify all data is gone
+	server.db.QueryRow("SELECT COUNT(*) FROM user_dietary_profiles WHERE user_id = ?", userID).Scan(&profileCount)
+	server.db.QueryRow("SELECT COUNT(*) FROM penny_learnings WHERE scope = 'user' AND scope_id = ?", userID).Scan(&learningCount)
+	server.db.QueryRow("SELECT COUNT(*) FROM user_signals WHERE user_id = ?", userID).Scan(&signalCount)
+	server.db.QueryRow("SELECT COUNT(*) FROM penny_context_cache WHERE user_id = ?", userID).Scan(&cacheCount)
+	if profileCount != 0 {
+		t.Errorf("user_dietary_profiles not cleared: %d rows remain", profileCount)
+	}
+	if learningCount != 0 {
+		t.Errorf("penny_learnings not cleared: %d rows remain", learningCount)
+	}
+	if signalCount != 0 {
+		t.Errorf("user_signals not cleared: %d rows remain", signalCount)
+	}
+	if cacheCount != 0 {
+		t.Errorf("penny_context_cache not cleared: %d rows remain", cacheCount)
+	}
+}
+
+func TestDietaryProfile_InvalidJSON(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Send invalid JSON body
+	req := httptest.NewRequest("PATCH", "/api/preferences", bytes.NewBufferString("{bad json"))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleDietaryPreferences(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Status: got %d, want 400", rr.Code)
+	}
+}
+
+// =============================================================================
+// DAILY METRICS AGGREGATION TESTS
+// =============================================================================
+
+func TestProcessDailyMetrics(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create users
+	user1, _ := upsertUser(server.db, "5551111111")
+	user2, _ := upsertUser(server.db, "5552222222")
+
+	// Create a brand user and deal
+	server.db.Exec(`INSERT INTO brand_users (id, email, password_hash, company_name, verified)
+		VALUES (1, 'brand@test.com', 'hash', 'TestCo', 1)`)
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product,
+		discount_cents, total_budget_cents, status, brand_user_id)
+		VALUES (1, 'skippy', 'Jif', 'Creamy PB', 100, 5000, 'active', 1)`)
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product,
+		discount_cents, total_budget_cents, status, brand_user_id)
+		VALUES (2, 'tide', 'All Free', 'Detergent', 75, 3000, 'active', 1)`)
+
+	// Insert swap events for today
+	today := time.Now().Format("2006-01-02")
+	todayDT := today + " 12:00:00"
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 1, 'offered', ?)", user1.ID, todayDT)
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 1, 'accepted', ?)", user1.ID, todayDT)
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 1, 'offered', ?)", user2.ID, todayDT)
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 1, 'declined', ?)", user2.ID, todayDT)
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 2, 'offered', ?)", user1.ID, todayDT)
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 2, 'accepted', ?)", user1.ID, todayDT)
+
+	// Create sessions so DAU counts work
+	server.sessions.CreateSession(user1.ID, "5551111111", "phone")
+	server.sessions.CreateSession(user2.ID, "5552222222", "phone")
+
+	// Run processDailyMetrics for today
+	server.processDailyMetrics(today)
+
+	// Verify deal_performance_daily was populated
+	var impressions, accepts, declines int
+	err := server.db.QueryRow(
+		"SELECT impressions, accepts, declines FROM deal_performance_daily WHERE deal_id = 1 AND date = ?",
+		today).Scan(&impressions, &accepts, &declines)
+	if err != nil {
+		t.Fatalf("Failed to query deal_performance_daily: %v", err)
+	}
+	if impressions != 2 {
+		t.Errorf("deal 1 impressions: got %d, want 2", impressions)
+	}
+	if accepts != 1 {
+		t.Errorf("deal 1 accepts: got %d, want 1", accepts)
+	}
+	if declines != 1 {
+		t.Errorf("deal 1 declines: got %d, want 1", declines)
+	}
+
+	// Verify deal 2 performance
+	err = server.db.QueryRow(
+		"SELECT impressions, accepts FROM deal_performance_daily WHERE deal_id = 2 AND date = ?",
+		today).Scan(&impressions, &accepts)
+	if err != nil {
+		t.Fatalf("Failed to query deal 2 performance: %v", err)
+	}
+	if impressions != 1 {
+		t.Errorf("deal 2 impressions: got %d, want 1", impressions)
+	}
+	if accepts != 1 {
+		t.Errorf("deal 2 accepts: got %d, want 1", accepts)
+	}
+
+	// Verify business_metrics_daily was populated
+	var dau, swapsOffered, swapsAccepted, swapsDeclined, newUsers, activeDeals int
+	var acceptanceRate float64
+	err = server.db.QueryRow(`
+		SELECT dau, swaps_offered, swaps_accepted, swaps_declined, new_users, active_deals, acceptance_rate
+		FROM business_metrics_daily WHERE date = ?`, today).Scan(
+		&dau, &swapsOffered, &swapsAccepted, &swapsDeclined, &newUsers, &activeDeals, &acceptanceRate)
+	if err != nil {
+		t.Fatalf("Failed to query business_metrics_daily: %v", err)
+	}
+	if swapsOffered != 3 {
+		t.Errorf("swaps_offered: got %d, want 3", swapsOffered)
+	}
+	if swapsAccepted != 2 {
+		t.Errorf("swaps_accepted: got %d, want 2", swapsAccepted)
+	}
+	if swapsDeclined != 1 {
+		t.Errorf("swaps_declined: got %d, want 1", swapsDeclined)
+	}
+	// active_deals includes seed data from initDB (8 seeded + 2 test = 10)
+	if activeDeals < 2 {
+		t.Errorf("active_deals: got %d, want at least 2", activeDeals)
+	}
+	// acceptance_rate should be ~66.67% (2/3)
+	if acceptanceRate < 60.0 || acceptanceRate > 70.0 {
+		t.Errorf("acceptance_rate: got %.1f, want ~66.7", acceptanceRate)
+	}
+
+	// Verify category_swap_insights was populated
+	var catCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM category_swap_insights").Scan(&catCount)
+	if catCount < 1 {
+		t.Errorf("category_swap_insights: expected at least 1 row, got %d", catCount)
+	}
+
+	// Verify idempotency: run again, should update not duplicate
+	server.processDailyMetrics(today)
+	var rowCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM deal_performance_daily WHERE deal_id = 1 AND date = ?", today).Scan(&rowCount)
+	if rowCount != 1 {
+		t.Errorf("Expected exactly 1 deal_performance_daily row after re-run, got %d", rowCount)
+	}
+	server.db.QueryRow("SELECT COUNT(*) FROM business_metrics_daily WHERE date = ?", today).Scan(&rowCount)
+	if rowCount != 1 {
+		t.Errorf("Expected exactly 1 business_metrics_daily row after re-run, got %d", rowCount)
+	}
+}
+
+func TestBusinessMetrics_AdminOnly(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Unauthenticated: should get 401
+	rr := doRequest(server.handleBusinessMetrics, "GET", "/api/admin/business-metrics", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401 without session, got %d", rr.Code)
+	}
+
+	// Non-admin user: should get 403
+	cookie, _ := loginUser(t, server, "5559999999")
+	rr = doRequest(server.handleBusinessMetrics, "GET", "/api/admin/business-metrics", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Expected 403 for non-admin, got %d", rr.Code)
+	}
+
+	// Wrong method: should get 405
+	adminCookie, _ := loginUser(t, server, "3104861833")
+	rr = doRequest(server.handleBusinessMetrics, "POST", "/api/admin/business-metrics", nil, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected 405 for POST, got %d", rr.Code)
+	}
+}
+
+func TestBusinessMetrics_WithData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create admin session
+	adminCookie, _ := loginUser(t, server, "3104861833")
+
+	// Seed some business_metrics_daily rows
+	today := time.Now().Format("2006-01-02")
+	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+	server.db.Exec(`INSERT INTO business_metrics_daily
+		(date, dau, wau, mau, new_users, swaps_offered, swaps_accepted, swaps_declined,
+		 acceptance_rate, gross_revenue_cents, active_deals, active_brands)
+		VALUES (?, 100, 500, 2000, 10, 50, 20, 15, 40.0, 5000, 5, 3)`, today)
+	server.db.Exec(`INSERT INTO business_metrics_daily
+		(date, dau, wau, mau, new_users, swaps_offered, swaps_accepted, swaps_declined,
+		 acceptance_rate, gross_revenue_cents, active_deals, active_brands)
+		VALUES (?, 95, 480, 1950, 8, 45, 18, 12, 40.0, 4500, 5, 3)`, yesterday)
+
+	rr := doRequest(server.handleBusinessMetrics, "GET", "/api/admin/business-metrics", nil, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["days"].(float64) != 30 {
+		t.Errorf("Expected days=30, got %v", body["days"])
+	}
+
+	metrics, ok := body["metrics"].([]interface{})
+	if !ok {
+		t.Fatal("Expected metrics to be an array")
+	}
+	if len(metrics) != 2 {
+		t.Errorf("Expected 2 metric rows, got %d", len(metrics))
+	}
+
+	// Verify first entry (today, most recent first)
+	if len(metrics) > 0 {
+		first := metrics[0].(map[string]interface{})
+		if first["date"] != today {
+			t.Errorf("Expected first date=%s, got %v", today, first["date"])
+		}
+		if first["dau"].(float64) != 100 {
+			t.Errorf("Expected dau=100, got %v", first["dau"])
+		}
+		if first["swaps_offered"].(float64) != 50 {
+			t.Errorf("Expected swaps_offered=50, got %v", first["swaps_offered"])
+		}
+	}
+}
+
+func TestDealPerformance_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// No session -> 401
+	rr := doRequest(server.handleBrandDealPerformance, "GET", "/brand/deal-performance/1", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401 without brand session, got %d", rr.Code)
+	}
+}
+
+func TestDealPerformance_WithBrandAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Register a brand
+	brandCookie, brandUserID := brandRegister(t, server, "perf@test.com", "password123", "PerfCo")
+
+	// Create a deal owned by this brand
+	dealID := createTestDeal(t, server, brandCookie)
+
+	// Update deal to have the correct brand_user_id (createTestDeal may or may not set it)
+	server.db.Exec("UPDATE brand_deals SET brand_user_id = ? WHERE id = ?", brandUserID, dealID)
+
+	// Insert deal performance data
+	today := time.Now().Format("2006-01-02")
+	server.db.Exec(`INSERT INTO deal_performance_daily
+		(deal_id, date, impressions, accepts, declines, revenue_cents, verified_count)
+		VALUES (?, ?, 50, 20, 10, 1500, 5)`, dealID, today)
+
+	rr := doRequest(server.handleBrandDealPerformance, "GET",
+		fmt.Sprintf("/brand/deal-performance/%d", dealID), nil, []*http.Cookie{brandCookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if int(body["deal_id"].(float64)) != dealID {
+		t.Errorf("Expected deal_id=%d, got %v", dealID, body["deal_id"])
+	}
+
+	perf, ok := body["performance"].([]interface{})
+	if !ok {
+		t.Fatal("Expected performance to be an array")
+	}
+	if len(perf) != 1 {
+		t.Fatalf("Expected 1 performance row, got %d", len(perf))
+	}
+
+	row := perf[0].(map[string]interface{})
+	if row["impressions"].(float64) != 50 {
+		t.Errorf("Expected impressions=50, got %v", row["impressions"])
+	}
+	if row["accepts"].(float64) != 20 {
+		t.Errorf("Expected accepts=20, got %v", row["accepts"])
+	}
+	if row["revenue_cents"].(float64) != 1500 {
+		t.Errorf("Expected revenue_cents=1500, got %v", row["revenue_cents"])
+	}
+}
+
+func TestDealPerformance_WrongBrand(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Register two brands
+	_, brandUserID1 := brandRegister(t, server, "brand1@test.com", "password123", "Brand1")
+	brandCookie2, _ := brandRegister(t, server, "brand2@test.com", "password123", "Brand2")
+
+	// Create a deal owned by brand 1
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product,
+		discount_cents, total_budget_cents, status, brand_user_id)
+		VALUES (99, 'competitor', 'Brand1', 'Product', 100, 5000, 'active', ?)`, brandUserID1)
+
+	// Brand 2 tries to access brand 1's deal -> 403
+	rr := doRequest(server.handleBrandDealPerformance, "GET",
+		"/brand/deal-performance/99", nil, []*http.Cookie{brandCookie2})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Expected 403 when accessing another brand's deal, got %d", rr.Code)
+	}
+}
+
+func TestDealPerformance_InvalidID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	brandCookie, _ := brandRegister(t, server, "test@brand.com", "password123", "TestBrand")
+
+	// Non-numeric ID -> 400
+	rr := doRequest(server.handleBrandDealPerformance, "GET",
+		"/brand/deal-performance/abc", nil, []*http.Cookie{brandCookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Expected 400 for non-numeric ID, got %d", rr.Code)
+	}
+
+	// Non-existent deal -> 404
+	rr = doRequest(server.handleBrandDealPerformance, "GET",
+		"/brand/deal-performance/99999", nil, []*http.Cookie{brandCookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Expected 404 for non-existent deal, got %d", rr.Code)
 	}
 }
 

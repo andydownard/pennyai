@@ -131,7 +131,7 @@ type Server struct {
 	sessions     *SessionStore
 	twilio       TwilioClient
 	parseItems   func(apiKey, text string, images []string) ([]ParsedItem, error)
-	parseCommand func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error)
+	parseCommand func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error)
 	parseReceipt func(apiKey string, images []string, currentItems []ListItem) ([]string, error)
 	smsBuffer    *messageBuffer
 	logoCache    sync.Map // domain -> *cachedLogo

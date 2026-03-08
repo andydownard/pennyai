@@ -272,7 +272,7 @@ Return ONLY a JSON array, no markdown, no code fences, no explanation.`
 
 // parseCommandWithClaude interprets the user's natural language input as a list command.
 // It receives the current list items so it can match references like "remove the milk".
-func parseCommandWithClaude(apiKey, userText string, currentItems []ListItem, userName string) (*ParsedCommand, error) {
+func parseCommandWithClaude(apiKey, userText string, currentItems []ListItem, userName, learningContext string) (*ParsedCommand, error) {
 	// Build compact list context — name, brand, and notes for matching and updates
 	var listContext strings.Builder
 	listContext.WriteString("Current shopping list:\n")
@@ -297,12 +297,17 @@ func parseCommandWithClaude(apiKey, userText string, currentItems []ListItem, us
 		nameInstruction = fmt.Sprintf("\nThe user's name is %s. Occasionally (about 2%% of the time) address them by name in your message.", userName)
 	}
 
+	learningSection := ""
+	if learningContext != "" {
+		learningSection = "\n" + learningContext + "\n"
+	}
+
 	systemPrompt := fmt.Sprintf(`You are Penny, a friendly, knowledgeable AI grocery shopping assistant. Interpret the user's message and determine what action to take on their shopping list.
 
 Personality: Be warm, helpful, and occasionally witty. Focus on the groceries and logistics — helpful tips about products, substitutions, or meal ideas are welcome. Do NOT mention "Thriftly", the app, or app navigation unless the user specifically brings it up. Just talk about the food and the list.
 
 %s
-%s
+%s%s
 Actions you can take:
 - "add": Add new items to the list. Parse items like the examples below.
 - "remove": Remove items from the list. Match by name (fuzzy/partial match OK).
@@ -374,7 +379,7 @@ Examples:
 - "I'm done shopping" → {"action":"done_shopping","items":[],"message":"Nice trip! Want to snap a photo of your receipt? I'll check off what you got."}
 - "at checkout" → {"action":"done_shopping","items":[],"message":"Almost done! Snap your receipt and I'll cross off the items."}
 
-Return ONLY the JSON object, no markdown, no code fences.`, listContext.String(), nameInstruction)
+Return ONLY the JSON object, no markdown, no code fences.`, listContext.String(), nameInstruction, learningSection)
 
 	text, err := callClaude(apiKey, systemPrompt, userText, 4096)
 	if err != nil {
