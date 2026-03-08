@@ -40,3 +40,10 @@ Snap your receipt should not be displayed when there’s no swaps to claim. Need
 ---
 _Device: Screen: home | Viewport: 394x374 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1 | Dark: dark | Items: 4_
 _Submitted: 2026-03-08 21:42 UTC_
+
+## [CRITICAL] 2026-03-08 21:43 UTC
+Reconsider urgency to low, normal, urgent
+
+---
+_Device: Screen: home | Viewport: 394x374 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1 | Dark: dark | Items: 4_
+_Submitted: 2026-03-08 21:43 UTC_
