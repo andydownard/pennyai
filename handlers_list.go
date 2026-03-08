@@ -1075,10 +1075,9 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		case "clear":
-			s.db.Exec(
-				"DELETE FROM list_items WHERE checked = 1 AND "+whereClause,
-				whereArgs...,
-			)
+			// Don't auto-delete — let the frontend confirm what to clear.
+			// Just pass the action through so the UI can present options.
+			resp.Action = "clear"
 		case "restore":
 			var stashJSON string
 			if err := s.db.QueryRow("SELECT COALESCE(last_cleared_items,'[]') FROM users WHERE id = ?", session.UserID).Scan(&stashJSON); err == nil && stashJSON != "[]" {

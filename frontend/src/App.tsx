@@ -1437,7 +1437,7 @@ function AppInner() {
       if (pennyChimeIn) { setPennyChimeIn(null); if (chimeInTimer.current) { clearTimeout(chimeInTimer.current); chimeInTimer.current = null } }
       const doneBtns = [
         { label: 'Save List', onClick: () => { setShowDoneToast(false); setShowFireworks(false); setSaveNameInput(''); pushModalState(); setShowSaveSheet(true) } },
-        { label: 'Clear List', onClick: () => { setShowDoneToast(false); setShowFireworks(false); handleClearList(true) } },
+        { label: `Clear all ${items.length} items`, onClick: () => { setShowDoneToast(false); setShowFireworks(false); handleClearList(true) } },
       ]
       fetch(`/api/penny/quote?context=done${settingsFirstName ? '&name=' + encodeURIComponent(settingsFirstName) : ''}`)
         .then(r => r.ok ? r.json() : null)
@@ -1914,11 +1914,31 @@ function AppInner() {
         } else if (action === 'delete_saved_list') {
           // Deleted — just show Penny's message
         } else if (action === 'clear') {
-          // Ask for confirmation before clearing ALL items
-          typePennyHome(pennyMsg || 'Clear your entire list?', [
-            { label: 'Yes, clear it', onClick: () => handleClearList(true) },
-            { label: 'Cancel', onClick: () => typePennyHome('No problem, your list is safe!') },
-          ])
+          // Present clear options based on what's on the list
+          const checkedCount = items.filter(i => i.checked).length
+          const totalCount = items.length
+          if (totalCount === 0) {
+            typePennyHome('Your list is already empty!')
+          } else if (checkedCount > 0) {
+            // Offer both options — make it clear what each does
+            const btns: { label: string; onClick: () => void }[] = [
+              { label: `Clear ${checkedCount} checked item${checkedCount !== 1 ? 's' : ''}`, onClick: () => { handleClearList(false); typePennyHome(`Cleared ${checkedCount} checked item${checkedCount !== 1 ? 's' : ''}!`) } },
+            ]
+            if (totalCount > checkedCount) {
+              btns.push({ label: `Clear entire list (${totalCount} items)`, onClick: () => { handleClearList(true); typePennyHome('List cleared!') } })
+            } else {
+              // All items are checked — "clear checked" and "clear all" are the same
+              // Just show one option
+            }
+            btns.push({ label: 'Cancel', onClick: () => typePennyHome('No problem, your list is safe!') })
+            typePennyHome(pennyMsg || `You have ${checkedCount} checked and ${totalCount - checkedCount} unchecked item${totalCount - checkedCount !== 1 ? 's' : ''}. What would you like to clear?`, btns)
+          } else {
+            // No checked items — only option is clear all
+            typePennyHome(pennyMsg || `Clear all ${totalCount} item${totalCount !== 1 ? 's' : ''} from your list?`, [
+              { label: `Yes, clear all ${totalCount} items`, onClick: () => { handleClearList(true); typePennyHome('List cleared!') } },
+              { label: 'Cancel', onClick: () => typePennyHome('No problem, your list is safe!') },
+            ])
+          }
           return // typePennyHome already handles the message
         } else if (action === 'done_shopping') {
           typePennyHome(pennyMsg || 'Nice trip! Snap your receipt and I\'ll check off what you got.', [
