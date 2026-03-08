@@ -641,21 +641,16 @@ Break-even math:
 - Verify end-to-end on production
 - **Why:** Local-only OAuth is useless without production URLs.
 
-### Login with Google — Profile Auto-Population (P0)
-- On Google sign-in, auto-populate the user's **profile photo**, **display name**, and **email** from Google's OAuth response (picture, name, email claims)
-- Profile photo should appear immediately in nav bar, profile page, and household member lists — zero effort from the user
-- Email should be stored and linked to the account automatically (no "enter your email" step)
-- If user already has a profile photo (e.g. uploaded one), Google photo becomes the default only if they haven't set one
-- **Why:** Google gives us rich profile data for free. Using it instantly makes the app feel polished and personal. One tap to sign in and your profile is already complete.
+### Login with Google — Profile Auto-Population (P0) — DONE
+- ~~On Google sign-in, auto-populate the user's **profile photo**, **display name**, and **email** from Google's OAuth response~~ — Already implemented: `resolveOrCreateUser()` stores name+email, `maybeStoreGooglePhoto()` fetches and stores profile photo
+- ~~Profile photo should appear immediately in nav bar, profile page, and household member lists~~ — Working via `/api/avatar/{userID}`
+- ~~Email should be stored and linked to the account automatically~~ — Working via `resolveOrCreateUser()`
+- ~~If user already has a profile photo, Google photo becomes the default only if they haven't set one~~ — `maybeStoreGooglePhoto()` checks for existing photo before storing
 
-### Unified Auth: Easy & Delightful Multi-Method Linking (P0)
-**North star:** Every user ends up with both a phone number AND an email, regardless of how they signed up. Both channels are valuable (SMS for Penny texting, email for receipts/password reset). Make it effortless to add the missing one.
-
-- **Signed up with Google?** → After first login, Penny gently prompts: "Want to text me? Add your phone number and I can help you manage your list over SMS." One-tap opens the phone input. No friction, no mandatory gate.
-- **Signed up with phone/SMS?** → Penny prompts: "Add your email so I can send you receipts and you can log in from any device." Or: "Sign in with Google to connect your email instantly."
-- **Signed up with email/password?** → Penny prompts: "Add your phone number to text me your grocery list on the go."
-- All prompts are **one-time, dismissible, non-blocking**. Penny remembers if you dismissed and doesn't re-ask in the same session. Uses the existing NPS-style session persistence pattern.
-- **Why:** The more contact methods we have, the stickier the user is. SMS users who also have email are 3x more valuable (receipts, password reset, re-engagement). Google users who also have phone can use Penny over text.
+### Unified Auth: Easy & Delightful Multi-Method Linking (P0) — DONE
+- ~~**Signed up with Google/email?** → Penny prompts to add phone for SMS~~ — `ob_link_phone` flag, session 2+, one-time dismissible, navigates to Profile
+- ~~**Signed up with phone?** → Penny prompts to add email~~ — `ob_link_email` flag, session 2+, one-time dismissible, navigates to Profile
+- ~~All prompts are one-time, dismissible, non-blocking~~ — Uses onboarding flags (localStorage + server sync) same as other nudges
 
 ### Account Merging — Simple & Safe (P1)
 **Current state:** `resolveOrCreateUser()` auto-merges accounts by matching email. This handles the common case (sign up with email, later sign in with Google using same email).

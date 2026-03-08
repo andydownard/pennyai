@@ -378,6 +378,8 @@ function AppInner() {
   const onboardingShareMentioned = useRef(localStorage.getItem('ob_share') === '1')
   const onboardingTextMentioned = useRef(localStorage.getItem('ob_text') === '1')
   const onboardingSwapsMentioned = useRef(localStorage.getItem('ob_swaps') === '1')
+  const onboardingLinkPhoneMentioned = useRef(localStorage.getItem('ob_link_phone') === '1')
+  const onboardingLinkEmailMentioned = useRef(localStorage.getItem('ob_link_email') === '1')
   const nameInputMode = useRef(false)
 
   const syncOnboardingFlags = () => {
@@ -386,6 +388,8 @@ function AppInner() {
     if (onboardingShareMentioned.current) flags.ob_share = '1'
     if (onboardingTextMentioned.current) flags.ob_text = '1'
     if (onboardingSwapsMentioned.current) flags.ob_swaps = '1'
+    if (onboardingLinkPhoneMentioned.current) flags.ob_link_phone = '1'
+    if (onboardingLinkEmailMentioned.current) flags.ob_link_email = '1'
     fetchAPI('/api/settings', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -1245,6 +1249,8 @@ function AppInner() {
               if (flags.ob_share) { onboardingShareMentioned.current = true; localStorage.setItem('ob_share', '1') }
               if (flags.ob_text) { onboardingTextMentioned.current = true; localStorage.setItem('ob_text', '1') }
               if (flags.ob_swaps) { onboardingSwapsMentioned.current = true; localStorage.setItem('ob_swaps', '1') }
+              if (flags.ob_link_phone) { onboardingLinkPhoneMentioned.current = true; localStorage.setItem('ob_link_phone', '1') }
+              if (flags.ob_link_email) { onboardingLinkEmailMentioned.current = true; localStorage.setItem('ob_link_email', '1') }
             } catch { /* ignore parse errors */ }
           }
         }
@@ -2025,6 +2031,30 @@ function AppInner() {
             syncOnboardingFlags()
             setTimeout(() => {
               typePennyHome("By the way — I keep an eye out for deals on your items. If I spot a swap that saves you money, I'll let you know!")
+            }, 3500)
+          }
+          // Session 2+: Prompt to add phone if signed up via Google/email (no phone on file)
+          else if (loginCount >= 2 && !onboardingLinkPhoneMentioned.current && !settingsUserPhone && settingsEmail && (authMethods.includes('google') || authMethods.includes('email'))) {
+            onboardingLinkPhoneMentioned.current = true
+            localStorage.setItem('ob_link_phone', '1')
+            syncOnboardingFlags()
+            setTimeout(() => {
+              typePennyHome("Want to text me your grocery list on the go? Add your phone number and I can help over SMS.", [
+                { label: 'Add phone', onClick: () => setScreen('profile') },
+                { label: 'Not now', onClick: () => typePennyHome("No problem — I'm always here in the app!") },
+              ])
+            }, 3500)
+          }
+          // Session 2+: Prompt to add email if signed up via phone only (no email on file)
+          else if (loginCount >= 2 && !onboardingLinkEmailMentioned.current && settingsUserPhone && !settingsEmail && authMethods.includes('phone')) {
+            onboardingLinkEmailMentioned.current = true
+            localStorage.setItem('ob_link_email', '1')
+            syncOnboardingFlags()
+            setTimeout(() => {
+              typePennyHome("Add your email so you can log in from any device and I can send you receipts.", [
+                { label: 'Add email', onClick: () => setScreen('profile') },
+                { label: 'Maybe later', onClick: () => typePennyHome("Just let me know when you're ready!") },
+              ])
             }, 3500)
           }
         }
