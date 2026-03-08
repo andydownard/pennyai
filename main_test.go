@@ -19751,3 +19751,279 @@ func TestIsFeedbackUser(t *testing.T) {
 		t.Error("expected false for user with ID 0")
 	}
 }
+
+// =============================================================================
+// BRAND RESOLVE ENDPOINT TESTS
+// =============================================================================
+
+func TestBrandResolve_Happy(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5559000001")
+
+	// Add an item directly
+	itemID := createListItem(t, server.db, userID, "Yogurt", "Dairy & Eggs")
+
+	// Resolve brand
+	rr := doRequest(server.handleBrandResolve, "POST", "/api/list/brand-resolve",
+		map[string]interface{}{"item_id": itemID, "brand": "Fage", "product_category": "yogurt"},
+		[]*http.Cookie{cookie})
+	if rr.Code != 200 {
+		t.Fatalf("brand resolve: got %d, body: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify brand was set
+	resolved := parseJSON(rr)
+	if resolved["brand"] != "Fage" {
+		t.Errorf("expected brand Fage, got %v", resolved["brand"])
+	}
+
+	// Verify brand choice recorded
+	var choiceCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM brand_choices WHERE product_category = 'yogurt' AND brand = 'Fage'").Scan(&choiceCount)
+	if choiceCount == 0 {
+		t.Error("brand choice not recorded in brand_choices table")
+	}
+}
+
+func TestBrandResolve_MissingFields(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559000002")
+
+	// Missing brand
+	rr := doRequest(server.handleBrandResolve, "POST", "/api/list/brand-resolve",
+		map[string]interface{}{"item_id": 1},
+		[]*http.Cookie{cookie})
+	if rr.Code != 400 {
+		t.Errorf("expected 400 for missing brand, got %d", rr.Code)
+	}
+
+	// Missing item_id
+	rr = doRequest(server.handleBrandResolve, "POST", "/api/list/brand-resolve",
+		map[string]interface{}{"brand": "Fage"},
+		[]*http.Cookie{cookie})
+	if rr.Code != 400 {
+		t.Errorf("expected 400 for missing item_id, got %d", rr.Code)
+	}
+}
+
+func TestBrandResolve_CrossUserBlocked(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID1 := loginUser(t, server, "5559000003")
+	cookie2, _ := loginUser(t, server, "5559000004")
+
+	// User 1's item
+	itemID := createListItem(t, server.db, userID1, "Milk", "Dairy & Eggs")
+
+	// User 2 tries to resolve brand on user 1's item
+	rr := doRequest(server.handleBrandResolve, "POST", "/api/list/brand-resolve",
+		map[string]interface{}{"item_id": itemID, "brand": "Horizon", "product_category": "milk"},
+		[]*http.Cookie{cookie2})
+	if rr.Code != 404 {
+		t.Errorf("expected 404 for cross-user brand resolve, got %d", rr.Code)
+	}
+}
+
+func TestBrandResolve_NoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleBrandResolve, "POST", "/api/list/brand-resolve",
+		map[string]interface{}{"item_id": 1, "brand": "Fage", "product_category": "yogurt"},
+		nil)
+	if rr.Code != 401 {
+		t.Errorf("expected 401 without auth, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// SHARE LIST ENDPOINT TESTS
+// =============================================================================
+
+func TestShareList_Happy(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559100001")
+
+	rr := doRequest(server.handleShareList, "POST", "/api/list/share", nil, []*http.Cookie{cookie})
+	if rr.Code != 201 {
+		t.Fatalf("share list: got %d, body: %s", rr.Code, rr.Body.String())
+	}
+
+	resp := parseJSON(rr)
+	if resp["code"] == nil || resp["code"] == "" {
+		t.Error("expected non-empty share code")
+	}
+	if resp["url"] == nil || resp["url"] == "" {
+		t.Error("expected non-empty share URL")
+	}
+	if resp["expires_at"] == nil {
+		t.Error("expected expires_at")
+	}
+}
+
+func TestShareList_UniqueCodesPerRequest(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559100002")
+
+	codes := make(map[string]bool)
+	for i := 0; i < 3; i++ {
+		rr := doRequest(server.handleShareList, "POST", "/api/list/share", nil, []*http.Cookie{cookie})
+		if rr.Code != 201 {
+			t.Fatalf("share %d: got %d", i, rr.Code)
+		}
+		resp := parseJSON(rr)
+		code := resp["code"].(string)
+		if codes[code] {
+			t.Errorf("duplicate share code: %s", code)
+		}
+		codes[code] = true
+	}
+}
+
+func TestShareList_NoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleShareList, "POST", "/api/list/share", nil, nil)
+	if rr.Code != 401 {
+		t.Errorf("expected 401 without auth, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// SHARED VIEW ENDPOINT TESTS
+// =============================================================================
+
+func TestSharedView_Happy(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5559200001")
+
+	// Add items directly
+	createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
+	createListItem(t, server.db, userID, "Eggs", "Dairy & Eggs")
+	createListItem(t, server.db, userID, "Bread", "Bakery & Deli")
+
+	// Create share link
+	rr := doRequest(server.handleShareList, "POST", "/api/list/share", nil, []*http.Cookie{cookie})
+	shareResp := parseJSON(rr)
+	code := shareResp["code"].(string)
+
+	// View shared list (no auth required)
+	req := httptest.NewRequest("GET", "/api/shared/"+code, nil)
+	rrView := httptest.NewRecorder()
+	server.handleSharedView(rrView, req)
+	if rrView.Code != 200 {
+		t.Fatalf("shared view: got %d, body: %s", rrView.Code, rrView.Body.String())
+	}
+
+	var viewResp map[string]interface{}
+	json.Unmarshal(rrView.Body.Bytes(), &viewResp)
+	items := viewResp["items"].([]interface{})
+	if len(items) < 3 {
+		t.Errorf("expected 3+ items, got %d", len(items))
+	}
+	if viewResp["expires_at"] == nil {
+		t.Error("expected expires_at in shared view response")
+	}
+}
+
+func TestSharedView_InvalidCode(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	req := httptest.NewRequest("GET", "/api/shared/nonexistent123", nil)
+	rr := httptest.NewRecorder()
+	server.handleSharedView(rr, req)
+	if rr.Code != 404 {
+		t.Errorf("expected 404 for invalid code, got %d", rr.Code)
+	}
+}
+
+func TestSharedView_ExpiredCode(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5559200003")
+
+	// Insert an expired shared link directly
+	pastExpiry := time.Now().Add(-1 * time.Hour).Format("2006-01-02 15:04:05")
+	server.db.Exec(
+		"INSERT INTO shared_links (code, user_id, expires_at, view_count) VALUES (?, ?, ?, 0)",
+		"expired-test-code", userID, pastExpiry,
+	)
+
+	req := httptest.NewRequest("GET", "/api/shared/expired-test-code", nil)
+	rr := httptest.NewRecorder()
+	server.handleSharedView(rr, req)
+	if rr.Code != 410 {
+		t.Errorf("expected 410 Gone for expired code, got %d", rr.Code)
+	}
+}
+
+func TestSharedView_ViewCountIncrements(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559200004")
+
+	// Create share link
+	rr := doRequest(server.handleShareList, "POST", "/api/list/share", nil, []*http.Cookie{cookie})
+	shareResp := parseJSON(rr)
+	code := shareResp["code"].(string)
+
+	// View 3 times
+	for i := 0; i < 3; i++ {
+		req := httptest.NewRequest("GET", "/api/shared/"+code, nil)
+		rrView := httptest.NewRecorder()
+		server.handleSharedView(rrView, req)
+		if rrView.Code != 200 {
+			t.Fatalf("view %d: got %d", i, rrView.Code)
+		}
+	}
+
+	// Check view count
+	var viewCount int
+	server.db.QueryRow("SELECT view_count FROM shared_links WHERE code = ?", code).Scan(&viewCount)
+	if viewCount != 3 {
+		t.Errorf("expected view_count=3, got %d", viewCount)
+	}
+}
+
+func TestSharedView_NoSensitiveData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5559200005")
+
+	// Add item directly
+	createListItem(t, server.db, userID, "Organic Milk", "Dairy & Eggs")
+
+	// Create share link
+	rr := doRequest(server.handleShareList, "POST", "/api/list/share", nil, []*http.Cookie{cookie})
+	shareResp := parseJSON(rr)
+	code := shareResp["code"].(string)
+
+	// View shared list
+	req := httptest.NewRequest("GET", "/api/shared/"+code, nil)
+	rrView := httptest.NewRecorder()
+	server.handleSharedView(rrView, req)
+
+	// Verify no sensitive fields (brand, source, user_id, department)
+	respBody := rrView.Body.String()
+	for _, field := range []string{`"brand"`, `"source"`, `"user_id"`, `"department"`} {
+		if bytes.Contains([]byte(respBody), []byte(field)) {
+			t.Errorf("shared view should not expose %s, but response contains it", field)
+		}
+	}
+}
+
+// =============================================================================
+// API CONFIG ENDPOINT TEST
+// =============================================================================
+
+func TestAPIConfig_NoCredentialLeak(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleAPIConfig, "GET", "/api/config", nil, nil)
+	if rr.Code != 200 {
+		t.Fatalf("config: got %d", rr.Code)
+	}
+
+	respBody := rr.Body.String()
+	// Should not contain secret keys or passwords
+	for _, sensitive := range []string{"secret", "password", "api_key", "token"} {
+		if bytes.Contains(bytes.ToLower([]byte(respBody)), []byte(sensitive)) {
+			t.Errorf("config response should not contain '%s'", sensitive)
+		}
+	}
+}
