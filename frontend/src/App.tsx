@@ -1415,23 +1415,29 @@ function AppInner() {
     const img = new Image()
     const objectUrl = URL.createObjectURL(file)
     img.onload = () => {
-      const MAX = 1024
-      let w = img.width
-      let h = img.height
-      if (w > MAX || h > MAX) {
-        if (w > h) { h = Math.round(h * MAX / w); w = MAX }
-        else { w = Math.round(w * MAX / h); h = MAX }
+      try {
+        const MAX = 1024
+        let w = img.width
+        let h = img.height
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round(h * MAX / w); w = MAX }
+          else { w = Math.round(w * MAX / h); h = MAX }
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { URL.revokeObjectURL(objectUrl); showToast('Could not process photo', 'error'); return }
+        ctx.drawImage(img, 0, 0, w, h)
+        setPendingImages(prev => [...prev, canvas.toDataURL('image/jpeg', 0.8)])
+      } catch (err) {
+        console.error('[photo] resize error:', err)
+        showToast('Could not process photo — try again', 'error')
+      } finally {
+        URL.revokeObjectURL(objectUrl)
       }
-      const canvas = document.createElement('canvas')
-      canvas.width = w
-      canvas.height = h
-      const ctx = canvas.getContext('2d')
-      if (!ctx) { URL.revokeObjectURL(objectUrl); return }
-      ctx.drawImage(img, 0, 0, w, h)
-      setPendingImages(prev => [...prev, canvas.toDataURL('image/jpeg', 0.8)])
-      URL.revokeObjectURL(objectUrl)
     }
-    img.onerror = () => URL.revokeObjectURL(objectUrl)
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); showToast('Could not load photo', 'error') }
     img.src = objectUrl
   }
 
@@ -2720,42 +2726,38 @@ const handleCodeChange = (index: number, value: string) => {
   )
 
 
-  const pennyBarStyle = {
-    position: 'fixed' as const,
-    bottom: 0,
-    left: 0,
-    right: 0,
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    padding: '14px 16px',
-    backgroundColor: '#F5F3EF',
-    borderTop: '1px solid var(--border)',
-    fontFamily: FONT,
-    fontSize: '15px',
-    color: 'var(--text)',
-    fontWeight: 500,
-    zIndex: 40,
-    boxShadow: '0 -2px 12px rgba(0,0,0,0.08)',
-  } as React.CSSProperties
-
-  const pennyBtnStyle = { background: 'var(--brand)', border: 'none', color: '#fff', fontFamily: FONT, fontSize: '12px', fontWeight: 600, cursor: 'pointer', padding: '5px 12px', borderRadius: '12px', flexShrink: 0 } as React.CSSProperties
-  const pennyCloseStyle = { background: 'none', border: 'none', color: 'var(--text-secondary)', fontFamily: FONT, fontSize: '17px', cursor: 'pointer', padding: '8px 12px', lineHeight: 1, flexShrink: 0, opacity: 0.6, minWidth: '44px', minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center' } as React.CSSProperties
-
   const renderPennyToast = () => toast ? (
-    <div role={toast.type === 'error' ? 'alert' : 'status'} style={{ ...pennyBarStyle, backgroundColor: toast.type === 'error' ? 'var(--error-bg)' : '#F5F3EF', color: toast.type === 'error' ? 'var(--error)' : 'var(--text)' }}>
-      <PennyAvatar />
+    <div role={toast.type === 'error' ? 'alert' : 'status'} style={{
+      position: 'fixed' as const,
+      top: '16px',
+      left: '16px',
+      right: '16px',
+      zIndex: 9999,
+      display: 'flex',
+      alignItems: 'center',
+      gap: '10px',
+      padding: '12px 16px',
+      backgroundColor: toast.type === 'error' ? 'var(--error-bg)' : 'var(--surface)',
+      color: toast.type === 'error' ? 'var(--error)' : 'var(--text)',
+      borderRadius: '14px',
+      border: `1px solid ${toast.type === 'error' ? 'var(--error)' : 'var(--border)'}`,
+      boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
+      fontFamily: FONT,
+      fontSize: '14px',
+      fontWeight: 500,
+      animation: 'feedbackSlideDown 0.25s ease-out',
+    }}>
       <span style={{ flex: 1 }}>{toast.message}</span>
       {toast.action && (
         <button
           onClick={() => { toast.action!.onClick(); setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) }}
-          style={pennyBtnStyle}
+          style={{ background: 'var(--brand)', border: 'none', color: '#fff', fontFamily: FONT, fontSize: '12px', fontWeight: 600, cursor: 'pointer', padding: '5px 12px', borderRadius: '12px', flexShrink: 0 }}
         >{toast.action.label}</button>
       )}
       <button
         onClick={() => { setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) }}
-        aria-label="Dismiss notification"
-        style={pennyCloseStyle}
+        aria-label="Dismiss"
+        style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '16px', cursor: 'pointer', padding: '4px', lineHeight: 1, flexShrink: 0, opacity: 0.6 }}
       >×</button>
     </div>
   ) : null
@@ -4169,6 +4171,11 @@ const globalCSS = `
   @keyframes feedbackSlideUp {
     from { transform: translateY(100%); }
     to { transform: translateY(0); }
+  }
+
+  @keyframes feedbackSlideDown {
+    from { transform: translateY(-100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
   }
 
   @keyframes done-overlay {

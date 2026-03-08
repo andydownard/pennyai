@@ -221,6 +221,7 @@ export function AdminScreen({
   const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[] | null>(null)
   const [feedbackLoading, setFeedbackLoading] = useState(false)
   const [feedbackFilter, setFeedbackFilter] = useState<string>('all')
+  const [unresolvedFeedbackCount, setUnresolvedFeedbackCount] = useState(0)
 
   // Original data fetching
   useEffect(() => {
@@ -233,6 +234,18 @@ export function AdminScreen({
     fetch('/api/admin/deals').then(r => r.ok ? r.json() : []).then(setAdminDeals).catch(() => {})
     fetch('/api/admin/payouts').then(r => r.ok ? r.json() : []).then(setAdminPayouts).catch(() => {})
   }, [adminDays])
+
+  // Eagerly load unresolved feedback count for badge
+  useEffect(() => {
+    fetchAPI('/api/admin/feedback')
+      .then(data => {
+        if (Array.isArray(data)) {
+          const items = data as unknown as FeedbackItem[]
+          setUnresolvedFeedbackCount(items.filter(f => f.status === 'new').length)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   // Lazy-load L5 data when tab is selected
   useEffect(() => {
@@ -280,7 +293,13 @@ export function AdminScreen({
     if (activeTab === 'feedback' && !feedbackItems && !feedbackLoading) {
       setFeedbackLoading(true)
       fetchAPI('/api/admin/feedback')
-        .then(data => { if (data) setFeedbackItems(data as unknown as FeedbackItem[]) })
+        .then(data => {
+          if (data) {
+            const items = data as unknown as FeedbackItem[]
+            setFeedbackItems(items)
+            setUnresolvedFeedbackCount(items.filter(f => f.status === 'new').length)
+          }
+        })
         .catch(e => console.warn('[load] feedback failed:', e))
         .finally(() => setFeedbackLoading(false))
     }
@@ -645,7 +664,12 @@ export function AdminScreen({
       body: JSON.stringify({ status }),
     })
     if (res) {
-      setFeedbackItems(prev => prev ? prev.map(f => f.id === id ? { ...f, status, updated_at: new Date().toISOString() } : f) : prev)
+      setFeedbackItems(prev => {
+        if (!prev) return prev
+        const updated = prev.map(f => f.id === id ? { ...f, status, updated_at: new Date().toISOString() } : f)
+        setUnresolvedFeedbackCount(updated.filter(f => f.status === 'new').length)
+        return updated
+      })
       showToast(`Feedback #${id} → ${status}`)
     }
   }
@@ -763,6 +787,22 @@ export function AdminScreen({
               }}
             >
               {tab.label}
+              {tab.key === 'feedback' && unresolvedFeedbackCount > 0 && (
+                <span style={{
+                  marginLeft: '4px',
+                  minWidth: '16px',
+                  height: '16px',
+                  borderRadius: '8px',
+                  backgroundColor: activeTab === 'feedback' ? '#fff' : 'var(--error)',
+                  color: activeTab === 'feedback' ? 'var(--brand)' : '#fff',
+                  fontSize: '10px',
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '0 4px',
+                }}>{unresolvedFeedbackCount}</span>
+              )}
             </button>
           ))}
         </div>
