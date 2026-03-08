@@ -1,3 +1,4 @@
+import { useState, useRef, useCallback } from 'react'
 import { BrandLogo } from './BrandLogo'
 import { SwapCard, type SwapOffer } from './SwapCard'
 import { FONT, DEPT_ICONS } from '../styles'
@@ -28,6 +29,7 @@ interface ItemRowProps {
   swap?: SwapOffer
   onToggle: (id: number) => void
   onTap: (item: ListItem) => void
+  onDelete: (id: number) => void
   onSwapAccept: (dealId: number, itemId: number) => void
   onSwapDecline: (dealId: number, itemId: number) => void
 }
@@ -103,21 +105,87 @@ const styles = {
   } as React.CSSProperties,
 }
 
-export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onSwapAccept, onSwapDecline }: ItemRowProps) {
+const DELETE_THRESHOLD = 80
+const REDUCED_MOTION = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+
+export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onDelete, onSwapAccept, onSwapDecline }: ItemRowProps) {
   const ts = relativeTimestamp(item.created_at)
+  const [swipeX, setSwipeX] = useState(0)
+  const touchRef = useRef<{ startX: number; startY: number; swiping: boolean } | null>(null)
+
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    const t = e.touches[0]
+    touchRef.current = { startX: t.clientX, startY: t.clientY, swiping: false }
+  }, [])
+
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!touchRef.current) return
+    const t = e.touches[0]
+    const dx = t.clientX - touchRef.current.startX
+    const dy = t.clientY - touchRef.current.startY
+
+    // Decide direction on first significant move
+    if (!touchRef.current.swiping && Math.abs(dx) < 10 && Math.abs(dy) < 10) return
+    if (!touchRef.current.swiping) {
+      if (Math.abs(dy) > Math.abs(dx)) { touchRef.current = null; return } // vertical scroll
+      touchRef.current.swiping = true
+    }
+
+    // Only allow left swipe (negative dx), clamp to -DELETE_THRESHOLD*1.3
+    const clamped = Math.max(dx, -DELETE_THRESHOLD * 1.3)
+    setSwipeX(Math.min(0, clamped))
+  }, [])
+
+  const onTouchEnd = useCallback(() => {
+    if (!touchRef.current?.swiping) { touchRef.current = null; return }
+    touchRef.current = null
+    if (swipeX <= -DELETE_THRESHOLD) {
+      onDelete(item.id)
+    }
+    setSwipeX(0)
+  }, [swipeX, onDelete, item.id])
+
+  const isRevealed = swipeX < -10
+  const deleteOpacity = Math.min(1, Math.abs(swipeX) / DELETE_THRESHOLD)
 
   return (
-    <div>
-      <div style={{
-        ...styles.row,
-        position: 'relative' as const,
-        ...(item.checked ? { backgroundColor: 'var(--bg)', opacity: 0.7 } : {}),
-        ...(isNew ? {
-          backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)',
-          transition: 'background-color 1.5s ease',
-        } : {}),
-        ...(!item.checked && item.urgent ? { backgroundColor: 'var(--error-bg)' } : {}),
-      }}>
+    <div style={{ position: 'relative', overflow: 'hidden' }}>
+      {/* Delete action behind the row */}
+      {isRevealed && (
+        <div
+          style={{
+            position: 'absolute', right: 0, top: 0, bottom: 0,
+            width: `${Math.abs(swipeX)}px`,
+            backgroundColor: 'var(--error)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#fff', fontFamily: FONT, fontSize: '13px', fontWeight: 600,
+            opacity: deleteOpacity,
+          }}
+          aria-hidden="true"
+        >
+          {Math.abs(swipeX) > 40 && (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+          )}
+        </div>
+      )}
+      <div
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        style={{
+          ...styles.row,
+          position: 'relative' as const,
+          transform: swipeX !== 0 ? `translateX(${swipeX}px)` : undefined,
+          transition: !touchRef.current?.swiping && !REDUCED_MOTION ? 'transform 0.2s ease' : undefined,
+          ...(item.checked ? { backgroundColor: 'var(--bg)', opacity: 0.7 } : {}),
+          ...(isNew ? {
+            backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)',
+            transition: 'background-color 1.5s ease',
+          } : {}),
+          ...(!item.checked && item.urgent ? { backgroundColor: 'var(--error-bg)' } : {}),
+        }}>
         <button onClick={() => onToggle(item.id)} style={styles.checkBtn} aria-label={`${item.checked ? 'Uncheck' : 'Check off'} ${item.brand && !item.name.toLowerCase().includes(item.brand.toLowerCase()) ? item.brand + ' ' : ''}${item.name}`}>
           <span style={styles.check(item.checked)} aria-hidden="true">
             {item.checked && <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}

@@ -2471,6 +2471,22 @@ function AppInner() {
     }
   }
 
+  const handleSwipeDelete = useCallback(async (id: number) => {
+    haptic.heavy()
+    const oldItems = items
+    setItems(prev => prev.filter(item => item.id !== id))
+    try {
+      const result = await fetchAction(`/api/list/${id}`, { method: 'DELETE' })
+      if (!result.ok && result.status !== 401) {
+        setItems(oldItems)
+        showToast('Couldn\'t delete that item — please try again', 'error')
+      }
+    } catch {
+      setItems(oldItems)
+      showToast('Couldn\'t delete that item — please try again', 'error')
+    }
+  }, [items]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleClearList = async (all?: boolean) => {
     haptic.heavy()
     const oldItems = items
@@ -3692,6 +3708,7 @@ const handleCodeChange = (index: number, value: string) => {
                     swap={swapsByItemId[item.id]}
                     onToggle={handleToggle}
                     onTap={openDetail}
+                    onDelete={handleSwipeDelete}
                     onSwapAccept={handleSwapAccept}
                     onSwapDecline={handleSwapDecline}
                   />
