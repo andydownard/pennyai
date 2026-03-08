@@ -4078,10 +4078,26 @@ const globalCSS = `
     -webkit-touch-callout: none;
   }
 
-  /* Allow text selection in inputs and textareas */
+  /* Allow text selection in inputs and textareas + fix iOS styling */
   input, textarea, [contenteditable] {
     -webkit-user-select: text;
     user-select: text;
+  }
+
+  /* Remove iOS default input styling (not selects — they need native picker) */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  textarea {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  /* Fix iOS autofill background flash */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--text);
+    -webkit-box-shadow: 0 0 0px 1000px var(--surface) inset;
+    transition: background-color 5000s ease-in-out 0s;
   }
 
   input:focus {
