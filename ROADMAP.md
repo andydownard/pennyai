@@ -396,7 +396,7 @@ New users currently land on an empty list with no guidance beyond Penny's greeti
 ### R2. Trip Planner Discoverability
 **Size:** S (2-3 days)
 **Priority:** P3 — Quality of life
-**Status:** Planned
+**Status:** Done (v1 — inline banner)
 
 **Description:**
 The trip planner is buried in an action sheet that users don't know to open. Penny should proactively suggest planning a trip when the list has 5+ items, or when the user says things like "I need to go shopping" or "heading to the store."
@@ -417,7 +417,7 @@ The trip planner is buried in an action sheet that users don't know to open. Pen
 ### R3. Full "Done Shopping" Flow
 **Size:** M (1-2 weeks)
 **Priority:** P2 — Retention driver + receipt scanning trigger
-**Status:** Planned
+**Status:** Done (trip duration, save list, receipt scan, confetti, clear items)
 
 **Description:**
 Currently the "Done" button just ends the trip. A complete post-shopping experience should include: trip summary (items checked off, time spent), Penny congratulating the user, option to save the list for next time, and clearing checked items. **Updated:** This is also the natural trigger for receipt scanning (M7) — "Nice trip! Snap a photo of your receipt and I'll track your savings."

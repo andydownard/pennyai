@@ -3352,9 +3352,26 @@ const handleCodeChange = (index: number, value: string) => {
             <div style={{ fontFamily: FONT, fontSize: '22px', fontWeight: 700, color: TEXT, marginBottom: '4px' }}>
               {isFirstTrip ? 'First trip complete!' : 'Nice work!'}
             </div>
-            <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, marginBottom: '20px' }}>
+            <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, marginBottom: '4px' }}>
               {doneSummaryData.checkedCount} of {doneSummaryData.totalCount} item{doneSummaryData.totalCount !== 1 ? 's' : ''} checked off
             </div>
+            {/* Trip duration */}
+            {doneSummaryData.tripStartedAt && (() => {
+              const startTime = new Date(doneSummaryData.tripStartedAt)
+              const mins = Math.round((Date.now() - startTime.getTime()) / 60000)
+              if (mins < 1 || mins > 480) return null
+              const hrs = Math.floor(mins / 60)
+              const remMins = mins % 60
+              const durationText = hrs > 0 ? `${hrs}h ${remMins}m` : `${mins} min${mins !== 1 ? 's' : ''}`
+              return (
+                <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, marginBottom: '16px' }}>
+                  {doneSummaryData.checkedCount >= doneSummaryData.totalCount
+                    ? `Everything in ${durationText}!`
+                    : `${durationText} in the store`}
+                </div>
+              )
+            })()}
+            {!doneSummaryData.tripStartedAt && <div style={{ marginBottom: '16px' }} />}
 
             {/* Save as list option */}
             {doneSummaryData.checkedCount > 0 && (
