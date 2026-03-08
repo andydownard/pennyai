@@ -15201,6 +15201,48 @@ func TestBuildLearningContext_WithLearnings(t *testing.T) {
 	}
 }
 
+func TestRepurchaseCycleDetection(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, checked) VALUES (1, 100, 'Milk', 0)")
+
+	// Add "Milk" additions with ~7 day intervals
+	for i := 0; i < 4; i++ {
+		server.db.Exec(fmt.Sprintf("INSERT INTO item_modifications (item_id, user_id, action, source, created_at) VALUES (1, 100, 'added', 'app', datetime('now', '-%d days'))", i*7))
+	}
+
+	server.processLearnings()
+
+	// Verify repurchase cycle was detected
+	var cycleDays string
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 100 AND key = 'repurchase_cycle:milk'").Scan(&cycleDays)
+	if cycleDays == "" {
+		t.Error("Expected repurchase cycle for milk to be detected")
+	}
+	if !strings.Contains(cycleDays, "7") {
+		t.Errorf("Expected ~7 day cycle, got: %s", cycleDays)
+	}
+}
+
+func TestDeclineReasonCaptured(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone_number, penny_slider) VALUES (100, '+15551234567', 0)")
+
+	// Create a deal
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status)
+		VALUES (800, 'ketchup', 'Hunts', 'Ketchup', 50, 10000, 'active')`)
+
+	// Insert a decline event with reason
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, decline_reason) VALUES (100, 800, 1, 'declined', 'brand_loyal')")
+
+	// Verify the reason is stored
+	var reason string
+	server.db.QueryRow("SELECT decline_reason FROM swap_events WHERE user_id = 100 AND action = 'declined'").Scan(&reason)
+	if reason != "brand_loyal" {
+		t.Errorf("Expected decline_reason 'brand_loyal', got '%s'", reason)
+	}
+}
+
 func TestBuildLearningContext_LowConfidenceExcluded(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 	server.db.Exec("INSERT INTO users (id, phone_number, penny_autotune) VALUES (100, '+15551234567', 1)")

@@ -380,6 +380,51 @@ func (s *Server) processLearnings() {
 		writes = append(writes, learning{"store", 0, "price_level:" + strings.ToLower(r.store), priceLevel, clampConfidence(float64(r.count)/10.0, 1.0)})
 	}
 
+	// 7. User-level: repurchase cycles (how often users re-add the same items)
+	type cycleRow struct {
+		uid   int
+		item  string
+		count int
+		days  float64 // average days between additions
+	}
+	var cycleData []cycleRow
+	cyRows, err := s.db.Query(`
+		SELECT im.user_id, LOWER(li.name) as item_name,
+			COUNT(*) as add_count,
+			CASE WHEN COUNT(*) > 1
+				THEN (julianday(MAX(im.created_at)) - julianday(MIN(im.created_at))) / (COUNT(*) - 1)
+				ELSE 0 END as avg_days
+		FROM item_modifications im
+		JOIN list_items li ON li.id = im.item_id
+		WHERE im.action = 'added'
+			AND im.created_at >= datetime('now', '-90 days')
+		GROUP BY im.user_id, LOWER(li.name)
+		HAVING add_count >= 2 AND avg_days > 0
+		ORDER BY im.user_id, add_count DESC
+	`)
+	if err == nil {
+		for cyRows.Next() {
+			var r cycleRow
+			cyRows.Scan(&r.uid, &r.item, &r.count, &r.days)
+			cycleData = append(cycleData, r)
+		}
+		cyRows.Close()
+	}
+	// Store top 5 repurchase items per user
+	cycleUserSeen := map[int]int{}
+	for _, r := range cycleData {
+		if cycleUserSeen[r.uid] >= 5 {
+			continue
+		}
+		cycleUserSeen[r.uid]++
+		writes = append(writes, learning{
+			"user", r.uid,
+			"repurchase_cycle:" + r.item,
+			fmt.Sprintf("%.0f days", r.days),
+			clampConfidence(float64(r.count)/5.0, 1.0),
+		})
+	}
+
 	// Apply all collected writes
 	for _, w := range writes {
 		s.updateLearning(w.scope, w.scopeID, w.key, w.value, w.confidence)
@@ -436,17 +481,20 @@ func (s *Server) buildLearningContext(userID int) string {
 			var k, v string
 			var conf float64
 			rows.Scan(&k, &v, &conf)
-			switch k {
-			case "shopping_frequency":
+			switch {
+			case k == "shopping_frequency":
 				parts = append(parts, fmt.Sprintf("- Shopping frequency: %s (confidence %.0f%%)", v, conf*100))
-			case "price_sensitivity":
+			case k == "price_sensitivity":
 				parts = append(parts, fmt.Sprintf("- Price sensitivity: %s", v))
-			case "preferred_shopping_day":
+			case k == "preferred_shopping_day":
 				parts = append(parts, fmt.Sprintf("- Usually shops on: %s", v))
-			case "items_per_month":
+			case k == "items_per_month":
 				parts = append(parts, fmt.Sprintf("- Adds ~%s items/month", v))
-			case "avg_accepted_discount_cents":
+			case k == "avg_accepted_discount_cents":
 				parts = append(parts, fmt.Sprintf("- Typical accepted discount: $%.2f", parseFloat(v)/100))
+			case strings.HasPrefix(k, "repurchase_cycle:"):
+				item := strings.TrimPrefix(k, "repurchase_cycle:")
+				parts = append(parts, fmt.Sprintf("- Buys %s every %s", item, v))
 			}
 		}
 	}

@@ -605,12 +605,13 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Text       string   `json:"text"`
-		Image      string   `json:"image"`
-		Images     []string `json:"images"`
-		SwapDealID int      `json:"swap_deal_id"`
-		SwapItemID int      `json:"swap_item_id"`
-		IsReceipt  bool     `json:"is_receipt"`
+		Text          string   `json:"text"`
+		Image         string   `json:"image"`
+		Images        []string `json:"images"`
+		SwapDealID    int      `json:"swap_deal_id"`
+		SwapItemID    int      `json:"swap_item_id"`
+		IsReceipt     bool     `json:"is_receipt"`
+		DeclineReason string   `json:"decline_reason"` // optional: tried_before, dietary, brand_loyal, price, other
 	}
 	// Decode directly — don't use decodeJSON which would override our 10MB limit with 1MB
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -810,14 +811,14 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			// decline_swap
-			s.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, ?, 'declined')",
-				session.UserID, req.SwapDealID, req.SwapItemID)
+			s.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, decline_reason) VALUES (?, ?, ?, 'declined', ?)",
+				session.UserID, req.SwapDealID, req.SwapItemID, req.DeclineReason)
 			s.db.Exec(`INSERT INTO swap_suppressions (user_id, deal_id, decline_count) VALUES (?, ?, 1)
 				ON CONFLICT(user_id, deal_id) DO UPDATE SET decline_count = decline_count + 1`,
 				session.UserID, req.SwapDealID)
 
-			go s.recordSignal(session.UserID, "swap_declined", "", "", map[string]interface{}{
-				"deal_id": req.SwapDealID,
+			go s.recordSignal(session.UserID, "swap_declined", "", req.DeclineReason, map[string]interface{}{
+				"deal_id": req.SwapDealID, "reason": req.DeclineReason,
 			})
 
 			resp.Action = "swap_declined"
