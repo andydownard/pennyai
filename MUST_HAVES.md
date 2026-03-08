@@ -10,3 +10,7 @@ _Submitted: 2026-03-08 17:50 UTC_
 ## [CRITICAL] 2026-03-08 18:02 UTC
 I cannot see checkbox outline dark mode
 _Submitted: 2026-03-08 18:02 UTC_
+
+## [CRITICAL] 2026-03-08 18:03 UTC
+Photos broken
+_Submitted: 2026-03-08 18:03 UTC_
