@@ -58,3 +58,10 @@ I should be able to drag whole sections so they match the order I will buy the i
 ---
 _Device: Screen: home | Viewport: 403x395 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 26_3_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/145.0.7632.108 Mobile/15E148 Safari/604.1 | Dark: light | Items: 10_
 _Submitted: 2026-03-08 21:58 UTC_
+
+## [NORMAL] 2026-03-08 22:00 UTC
+Don’t take up the vertical space at the bottom of the phone display with the text response, query, and menu buttons. Find a way to make these more compact… or maybe hide them in some way
+
+---
+_Device: Screen: home | Viewport: 403x395 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 26_3_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/145.0.7632.108 Mobile/15E148 Safari/604.1 | Dark: light | Items: 10_
+_Submitted: 2026-03-08 22:00 UTC_
