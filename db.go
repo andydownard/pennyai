@@ -177,6 +177,12 @@ func initDB(path string) (*sql.DB, error) {
 		"ALTER TABLE users ADD COLUMN last_active DATETIME",
 		"ALTER TABLE users ADD COLUMN login_count INTEGER NOT NULL DEFAULT 0",
 		"ALTER TABLE users ADD COLUMN address TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE users ADD COLUMN onboarding_flags TEXT NOT NULL DEFAULT '{}'",
+		"ALTER TABLE users ADD COLUMN referral_source TEXT NOT NULL DEFAULT ''",
+		// M2a: dedup flag for join notification SMS
+		"ALTER TABLE invites ADD COLUMN notified INTEGER NOT NULL DEFAULT 0",
+		// M2c: editable household/list name
+		"ALTER TABLE households ADD COLUMN name TEXT NOT NULL DEFAULT ''",
 	} {
 		db.Exec(stmt)
 	}
@@ -339,7 +345,7 @@ func initDB(path string) (*sql.DB, error) {
 		"ALTER TABLE users ADD COLUMN penny_brand_mode TEXT NOT NULL DEFAULT 'ask'",
 		"ALTER TABLE users ADD COLUMN deal_accept_count INTEGER NOT NULL DEFAULT 0",
 		"ALTER TABLE users ADD COLUMN deal_shown_count INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE users ADD COLUMN penny_slider INTEGER NOT NULL DEFAULT 35",
+		"ALTER TABLE users ADD COLUMN penny_slider INTEGER NOT NULL DEFAULT 15",
 		"ALTER TABLE users ADD COLUMN penny_autotune INTEGER NOT NULL DEFAULT 1",
 		"ALTER TABLE users ADD COLUMN penny_deals INTEGER NOT NULL DEFAULT 0",
 		"ALTER TABLE users ADD COLUMN last_cleared_items TEXT NOT NULL DEFAULT '[]'",
@@ -380,10 +386,11 @@ func initDB(path string) (*sql.DB, error) {
 						penny_brand_mode TEXT NOT NULL DEFAULT 'ask',
 						deal_accept_count INTEGER NOT NULL DEFAULT 0,
 						deal_shown_count  INTEGER NOT NULL DEFAULT 0,
-						penny_slider     INTEGER NOT NULL DEFAULT 35,
+						penny_slider     INTEGER NOT NULL DEFAULT 15,
 						penny_autotune   INTEGER NOT NULL DEFAULT 1,
 						penny_deals      INTEGER NOT NULL DEFAULT 0,
-						last_cleared_items TEXT NOT NULL DEFAULT '[]'
+						last_cleared_items TEXT NOT NULL DEFAULT '[]',
+						swap_credits_cents INTEGER NOT NULL DEFAULT 0
 					)
 				`); err != nil {
 					return err
@@ -392,11 +399,11 @@ func initDB(path string) (*sql.DB, error) {
 					INSERT INTO users_new (id, phone_number, created_at, name, email, household_id,
 						referral_code, referral_points, last_active, login_count, address,
 						penny_brand_mode, deal_accept_count, deal_shown_count, penny_slider,
-						penny_autotune, penny_deals, last_cleared_items)
+						penny_autotune, penny_deals, last_cleared_items, swap_credits_cents)
 					SELECT id, phone_number, created_at, name, email, household_id,
 						referral_code, referral_points, last_active, login_count, address,
 						penny_brand_mode, deal_accept_count, deal_shown_count, penny_slider,
-						penny_autotune, penny_deals, last_cleared_items
+						penny_autotune, penny_deals, last_cleared_items, COALESCE(swap_credits_cents, 0)
 					FROM users
 				`); err != nil {
 					return err
@@ -589,12 +596,127 @@ func initDB(path string) (*sql.DB, error) {
 		"ALTER TABLE users ADD COLUMN penny_brand_mode TEXT NOT NULL DEFAULT 'ask'",
 		"ALTER TABLE users ADD COLUMN deal_accept_count INTEGER NOT NULL DEFAULT 0",
 		"ALTER TABLE users ADD COLUMN deal_shown_count INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE users ADD COLUMN penny_slider INTEGER NOT NULL DEFAULT 35",
+		"ALTER TABLE users ADD COLUMN penny_slider INTEGER NOT NULL DEFAULT 15",
 		"ALTER TABLE users ADD COLUMN penny_autotune INTEGER NOT NULL DEFAULT 1",
 		"ALTER TABLE users ADD COLUMN penny_deals INTEGER NOT NULL DEFAULT 0",
 		"ALTER TABLE users ADD COLUMN last_cleared_items TEXT NOT NULL DEFAULT '[]'",
+		"ALTER TABLE users ADD COLUMN swap_credits_cents INTEGER NOT NULL DEFAULT 0",
 	} {
 		db.Exec(stmt)
+	}
+
+	// =========================================================================
+	// PENNY SWAPS TABLES
+	// =========================================================================
+
+	// brand_deals: deals seeded by admin, matching competitor products to offers
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS brand_deals (
+			id                INTEGER PRIMARY KEY AUTOINCREMENT,
+			competitor_product TEXT    NOT NULL,
+			offer_brand        TEXT    NOT NULL,
+			offer_product      TEXT    NOT NULL,
+			discount_cents     INTEGER NOT NULL DEFAULT 0,
+			daily_budget_cents INTEGER NOT NULL DEFAULT 0, -- misnomer: this is cumulative lifetime budget, not daily (B15)
+			budget_spent_cents INTEGER NOT NULL DEFAULT 0,
+			status             TEXT    NOT NULL DEFAULT 'active',
+			starts_at          TEXT    NOT NULL DEFAULT (datetime('now')),
+			ends_at            TEXT,
+			created_at         TEXT    NOT NULL DEFAULT (datetime('now'))
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating brand_deals table: %w", err)
+	}
+
+	// swap_events: tracks every swap offer/accept/decline per user
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS swap_events (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id    INTEGER NOT NULL REFERENCES users(id),
+			deal_id    INTEGER NOT NULL REFERENCES brand_deals(id),
+			item_id    INTEGER,
+			action     TEXT    NOT NULL,
+			created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating swap_events table: %w", err)
+	}
+
+	// swap_suppressions: tracks per-user deal dismissals, 3+ = permanent suppress
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS swap_suppressions (
+			user_id       INTEGER NOT NULL REFERENCES users(id),
+			deal_id       INTEGER NOT NULL REFERENCES brand_deals(id),
+			decline_count INTEGER NOT NULL DEFAULT 0,
+			UNIQUE(user_id, deal_id)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating swap_suppressions table: %w", err)
+	}
+
+	// swap_rebates: immutable ledger tracking rebates owed per swap accept
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS swap_rebates (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id        INTEGER NOT NULL REFERENCES users(id),
+			swap_event_id  INTEGER NOT NULL REFERENCES swap_events(id),
+			deal_id        INTEGER NOT NULL REFERENCES brand_deals(id),
+			amount_cents   INTEGER NOT NULL,
+			status         TEXT NOT NULL DEFAULT 'pending',
+			created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating swap_rebates table: %w", err)
+	}
+
+	// profile_photos: stores user avatar images as BLOBs (one per user)
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS profile_photos (
+			user_id      INTEGER PRIMARY KEY REFERENCES users(id),
+			photo_data   BLOB NOT NULL,
+			content_type TEXT NOT NULL DEFAULT 'image/jpeg',
+			updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating profile_photos table: %w", err)
+	}
+
+	// receipts: tracks receipt photo submissions for dedup
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS receipts (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id       INTEGER NOT NULL REFERENCES users(id),
+			image_hash    TEXT    NOT NULL,
+			items_found   INTEGER NOT NULL DEFAULT 0,
+			items_matched INTEGER NOT NULL DEFAULT 0,
+			created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating receipts table: %w", err)
+	}
+
+	// shared_links: deep-link share tokens for read-only list sharing
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS shared_links (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			code         TEXT NOT NULL UNIQUE,
+			user_id      INTEGER NOT NULL,
+			household_id INTEGER,
+			invite_code  TEXT,
+			expires_at   DATETIME NOT NULL,
+			view_count   INTEGER DEFAULT 0,
+			created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating shared_links table: %w", err)
 	}
 
 	// Indexes for common query patterns (placed after all table creation)
@@ -614,11 +736,360 @@ func initDB(path string) (*sql.DB, error) {
 		"CREATE INDEX IF NOT EXISTS idx_auth_methods_provider ON auth_methods(provider, provider_id)",
 		"CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token)",
 		"CREATE INDEX IF NOT EXISTS idx_list_items_user_checked ON list_items(user_id, checked)",
+		"CREATE INDEX IF NOT EXISTS idx_swap_events_user_deal ON swap_events(user_id, deal_id)",
+		"CREATE INDEX IF NOT EXISTS idx_swap_events_created_at ON swap_events(created_at)",
+		"CREATE INDEX IF NOT EXISTS idx_brand_deals_status ON brand_deals(status)",
+		"CREATE INDEX IF NOT EXISTS idx_receipts_user_hash ON receipts(user_id, image_hash)",
+		"CREATE INDEX IF NOT EXISTS idx_swap_rebates_user ON swap_rebates(user_id)",
+		"CREATE INDEX IF NOT EXISTS idx_swap_rebates_status ON swap_rebates(status)",
+		"CREATE INDEX IF NOT EXISTS idx_shared_links_code ON shared_links(code)",
+		"CREATE INDEX IF NOT EXISTS idx_shared_links_expires_at ON shared_links(expires_at)",
 	} {
 		db.Exec(stmt)
 	}
 
+	// brand_deals price comparison & why columns (swap card redesign M1)
+	for _, col := range []string{
+		"ALTER TABLE brand_deals ADD COLUMN offer_price_cents INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE brand_deals ADD COLUMN offer_size TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE brand_deals ADD COLUMN offer_unit_price TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE brand_deals ADD COLUMN competitor_price_cents INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE brand_deals ADD COLUMN competitor_size TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE brand_deals ADD COLUMN competitor_unit_price TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE brand_deals ADD COLUMN unit_label TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE brand_deals ADD COLUMN why_bullets TEXT NOT NULL DEFAULT '[]'",
+		"ALTER TABLE brand_deals ADD COLUMN allergen_notes TEXT NOT NULL DEFAULT ''",
+	} {
+		db.Exec(col)
+	}
+
+	// BlueCart price cache table
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS price_cache (
+			brand        TEXT NOT NULL,
+			category     TEXT NOT NULL,
+			zip          TEXT NOT NULL,
+			price_cents  INTEGER NOT NULL,
+			unit_price   TEXT NOT NULL DEFAULT '',
+			unit_label   TEXT NOT NULL DEFAULT '',
+			size         TEXT NOT NULL DEFAULT '',
+			product_name TEXT NOT NULL DEFAULT '',
+			store_name   TEXT NOT NULL DEFAULT 'Walmart',
+			fetched_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (brand, category, zip)
+		)
+	`)
+	if err != nil {
+		log.Printf("[warn] failed to create price_cache table: %v", err)
+	}
+
+	// B15: rename daily_budget_cents → total_budget_cents (the column was never daily)
+	db.Exec("ALTER TABLE brand_deals ADD COLUMN total_budget_cents INTEGER NOT NULL DEFAULT 0")
+	db.Exec("UPDATE brand_deals SET total_budget_cents = daily_budget_cents WHERE total_budget_cents = 0 AND daily_budget_cents != 0")
+
+	// Sprint 3: swap type expansion columns
+	for _, col := range []string{
+		"ALTER TABLE brand_deals ADD COLUMN deal_type TEXT NOT NULL DEFAULT 'sku_swap'",
+		"ALTER TABLE brand_deals ADD COLUMN quantity_offered INTEGER NOT NULL DEFAULT 1",
+		"ALTER TABLE brand_deals ADD COLUMN trial_product_name TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE brand_deals ADD COLUMN trial_size TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE brand_deals ADD COLUMN campaign_tag TEXT NOT NULL DEFAULT ''",
+	} {
+		db.Exec(col)
+	}
+
+	if err := seedDeals(db); err != nil {
+		log.Printf("WARNING: failed to seed deals: %v", err)
+	}
+
+	// A/B testing tables
+	if err := initABTables(db); err != nil {
+		log.Printf("WARNING: failed to init A/B tables: %v", err)
+	}
+
+	// --- Brand Portal tables (M4) ---
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS brand_users (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			email         TEXT UNIQUE NOT NULL,
+			password_hash TEXT NOT NULL,
+			company_name  TEXT NOT NULL DEFAULT '',
+			verified      INTEGER NOT NULL DEFAULT 0,
+			verify_token  TEXT DEFAULT NULL,
+			badge         TEXT NOT NULL DEFAULT '',
+			created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating brand_users table: %w", err)
+	}
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS brand_sessions (
+			token      TEXT PRIMARY KEY,
+			brand_user_id INTEGER NOT NULL,
+			created_at DATETIME NOT NULL,
+			expires_at DATETIME NOT NULL,
+			FOREIGN KEY (brand_user_id) REFERENCES brand_users(id)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating brand_sessions table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_brand_sessions_expires ON brand_sessions(expires_at)")
+
+	// Link brand_deals to brand_users (optional — legacy deals have no brand_user_id)
+	db.Exec("ALTER TABLE brand_deals ADD COLUMN brand_user_id INTEGER DEFAULT NULL")
+
+	// Brand balance for Stripe pre-funded deposits
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS brand_balance (
+			brand_user_id INTEGER PRIMARY KEY,
+			balance_cents INTEGER NOT NULL DEFAULT 0,
+			last_deposit_at DATETIME DEFAULT NULL,
+			FOREIGN KEY (brand_user_id) REFERENCES brand_users(id)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating brand_balance table: %w", err)
+	}
+
+	// Brand transactions ledger
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS brand_transactions (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			brand_user_id INTEGER NOT NULL,
+			type          TEXT NOT NULL,
+			amount_cents  INTEGER NOT NULL,
+			description   TEXT NOT NULL DEFAULT '',
+			stripe_id     TEXT DEFAULT NULL,
+			created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (brand_user_id) REFERENCES brand_users(id)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating brand_transactions table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_brand_transactions_user ON brand_transactions(brand_user_id)")
+
+	// Bug reports table (Help/Bug Report quick win)
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS bug_reports (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id     INTEGER,
+			description TEXT NOT NULL,
+			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating bug_reports table: %w", err)
+	}
+
+	// User profile photo column
+	db.Exec("ALTER TABLE users ADD COLUMN onboarding_flags TEXT NOT NULL DEFAULT '{}'")
+	db.Exec("ALTER TABLE users ADD COLUMN profile_photo TEXT NOT NULL DEFAULT ''")
+
+	// --- M7: Receipt Reading Enhancement ---
+
+	// Structured line items extracted from receipts
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS receipt_line_items (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			receipt_id  INTEGER NOT NULL,
+			raw_text    TEXT NOT NULL,
+			price_cents INTEGER NOT NULL DEFAULT 0,
+			quantity    INTEGER NOT NULL DEFAULT 1,
+			matched_item_id INTEGER DEFAULT NULL,
+			matched_name    TEXT NOT NULL DEFAULT '',
+			confidence      TEXT NOT NULL DEFAULT 'low',
+			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (receipt_id) REFERENCES receipts(id) ON DELETE CASCADE,
+			FOREIGN KEY (matched_item_id) REFERENCES list_items(id) ON DELETE SET NULL
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating receipt_line_items table: %w", err)
+	}
+
+	// Swap claims: links receipts to accepted swaps for purchase verification
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS swap_claims (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			receipt_id    INTEGER NOT NULL,
+			swap_event_id INTEGER NOT NULL,
+			deal_id       INTEGER NOT NULL,
+			user_id       INTEGER NOT NULL,
+			status        TEXT NOT NULL DEFAULT 'pending',
+			verified_at   DATETIME DEFAULT NULL,
+			payout_held_until DATETIME DEFAULT NULL,
+			created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (receipt_id) REFERENCES receipts(id),
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating swap_claims table: %w", err)
+	}
+
+	// Retailer abbreviation database (flywheel: user confirmations improve matching)
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS retailer_abbreviations (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			abbreviation TEXT NOT NULL,
+			full_name    TEXT NOT NULL,
+			retailer     TEXT NOT NULL DEFAULT '',
+			confirmations INTEGER NOT NULL DEFAULT 1,
+			created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(abbreviation, retailer)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating retailer_abbreviations table: %w", err)
+	}
+
+	// Add structured fields to receipts table
+	for _, col := range []string{
+		"ALTER TABLE receipts ADD COLUMN store_name TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE receipts ADD COLUMN store_address TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE receipts ADD COLUMN transaction_date TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE receipts ADD COLUMN subtotal_cents INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE receipts ADD COLUMN tax_cents INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE receipts ADD COLUMN total_cents INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE receipts ADD COLUMN status TEXT NOT NULL DEFAULT 'processed'",
+		"ALTER TABLE receipts ADD COLUMN swaps_verified INTEGER NOT NULL DEFAULT 0",
+	} {
+		db.Exec(col)
+	}
+
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_receipt_line_items_receipt ON receipt_line_items(receipt_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_swap_claims_receipt ON swap_claims(receipt_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_swap_claims_user ON swap_claims(user_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_retailer_abbreviations_abbr ON retailer_abbreviations(abbreviation)")
+
 	return db, nil
+}
+
+// seedDeals populates the brand_deals table with test swap deals if empty.
+// Idempotent — only inserts when no deals exist.
+func seedDeals(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM brand_deals").Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	// $20 total budget ($2000 cents) split across 5 brand-level deals.
+	// Prices are realistic Walmart averages; will be overridden by BlueCart API
+	// when BLUECART_API_KEY is set and user has a zip code.
+	deals := []struct {
+		competitor, offerBrand, offerProduct       string
+		discountCents, budgetCents                 int
+		offerPriceCents, competitorPriceCents       int
+		offerSize, competitorSize                   string
+		offerUnitPrice, competitorUnitPrice         string
+		unitLabel, whyBullets, allergenNotes        string
+	}{
+		{
+			"skippy", "Jif", "Creamy Peanut Butter", 125, 400,
+			348, 473, "16 oz", "16.3 oz", "$0.22/oz", "$0.29/oz", "oz",
+			`["No palm oil","4.6★ avg rating","24% less per ounce"]`, "",
+		},
+		{
+			"lacroix", "Waterloo", "Sparkling Water Variety Pack", 50, 400,
+			498, 548, "12-pack", "12-pack", "$0.42/can", "$0.46/can", "can",
+			`["Bolder natural flavors","4.5★ avg rating","No artificial sweeteners"]`, "",
+		},
+		{
+			"tide", "All Free Clear", "Liquid Laundry Detergent", 100, 400,
+			897, 1197, "88 oz", "92 oz", "$0.10/oz", "$0.13/oz", "oz",
+			`["Hypoallergenic","Dermatologist recommended","23% less per load"]`,
+			"Free of dyes and perfumes.",
+		},
+		{
+			"ragu", "Rao's", "Marinara Sauce", 50, 400,
+			498, 548, "24 oz", "24 oz", "$0.21/oz", "$0.23/oz", "oz",
+			`["All-natural ingredients","No added sugar","Slow-simmered recipe"]`, "",
+		},
+		{
+			"archer", "Chomps", "Beef Sticks", 75, 400,
+			199, 274, "1.15 oz", "1 oz", "$1.73/oz", "$2.74/oz", "oz",
+			`["100% grass-fed beef","Whole30 approved","37% less per ounce"]`,
+			"Contains: beef. Free of top 8 allergens.",
+		},
+	}
+
+	for _, d := range deals {
+		if _, err := db.Exec(
+			`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product,
+			 discount_cents, total_budget_cents, status,
+			 offer_price_cents, competitor_price_cents, offer_size, competitor_size,
+			 offer_unit_price, competitor_unit_price, unit_label, why_bullets, allergen_notes)
+			 VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			d.competitor, d.offerBrand, d.offerProduct, d.discountCents, d.budgetCents,
+			d.offerPriceCents, d.competitorPriceCents, d.offerSize, d.competitorSize,
+			d.offerUnitPrice, d.competitorUnitPrice, d.unitLabel, d.whyBullets, d.allergenNotes,
+		); err != nil {
+			return fmt.Errorf("seeding deal %s→%s: %w", d.competitor, d.offerBrand, err)
+		}
+	}
+	log.Printf("[deals] seeded %d sku_swap deals ($20 total budget)", len(deals))
+
+	// Seed one deal of each new type for testing
+	newTypeDeals := []struct {
+		competitor, offerBrand, offerProduct string
+		discountCents, budgetCents           int
+		offerPriceCents, competitorPriceCents int
+		offerSize, competitorSize             string
+		offerUnitPrice, competitorUnitPrice   string
+		unitLabel, whyBullets, allergenNotes  string
+		dealType                              string
+		quantityOffered                       int
+		trialProductName, trialSize           string
+		campaignTag, endsAt                   string
+	}{
+		{
+			"cheerios", "Magic Spoon", "Cereal", 150, 400,
+			898, 598, "7 oz", "18 oz", "$1.28/oz", "$0.33/oz", "oz",
+			`["High protein (13g/serving)","Zero sugar","Keto-friendly"]`, "",
+			"bogo", 2, "", "", "", "",
+		},
+		{
+			"folgers", "Counter Culture", "Coffee Sample", 100, 400,
+			0, 899, "2 oz sample", "12 oz", "", "$0.75/oz", "oz",
+			`["Single-origin Ethiopian","Direct trade certified","Try before you buy"]`, "",
+			"trial", 1, "Counter Culture Coffee Sample", "2 oz", "", "",
+		},
+		{
+			"oreo", "Partake", "Holiday Cookie Box", 200, 400,
+			599, 499, "7 oz", "15.25 oz", "$0.86/oz", "$0.33/oz", "oz",
+			`["Allergy-friendly (top 9 free)","Limited holiday edition","Vegan & non-GMO"]`,
+			"Free of top 9 allergens.",
+			"seasonal", 1, "", "", "holiday_2026",
+			time.Now().Add(30 * 24 * time.Hour).Format("2006-01-02 15:04:05"),
+		},
+	}
+	for _, d := range newTypeDeals {
+		if _, err := db.Exec(
+			`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product,
+			 discount_cents, total_budget_cents, status,
+			 offer_price_cents, competitor_price_cents, offer_size, competitor_size,
+			 offer_unit_price, competitor_unit_price, unit_label, why_bullets, allergen_notes,
+			 deal_type, quantity_offered, trial_product_name, trial_size, campaign_tag, ends_at)
+			 VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''))`,
+			d.competitor, d.offerBrand, d.offerProduct, d.discountCents, d.budgetCents,
+			d.offerPriceCents, d.competitorPriceCents, d.offerSize, d.competitorSize,
+			d.offerUnitPrice, d.competitorUnitPrice, d.unitLabel, d.whyBullets, d.allergenNotes,
+			d.dealType, d.quantityOffered, d.trialProductName, d.trialSize, d.campaignTag, d.endsAt,
+		); err != nil {
+			return fmt.Errorf("seeding %s deal %s→%s: %w", d.dealType, d.competitor, d.offerBrand, err)
+		}
+	}
+	log.Printf("[deals] seeded %d new-type deals (bogo, trial, seasonal)", len(newTypeDeals))
+
+	return nil
 }
 
 // seedBrands populates the brands and brand_owners tables if they are empty.
@@ -1430,7 +1901,7 @@ func scanListItem(scanner interface{ Scan(dest ...interface{}) error }) (ListIte
 	return item, nil
 }
 
-// maskPhone masks a 10-digit phone number: "3101234567" → "310***4567"
+// maskPhone masks a phone number: "3101234567" → "310***567"
 func maskPhone(phone string) string {
 	if len(phone) == 10 {
 		return phone[:3] + "***" + phone[7:]

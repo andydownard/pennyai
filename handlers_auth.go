@@ -171,23 +171,9 @@ func (s *Server) handleEmailLogin(w http.ResponseWriter, r *http.Request) {
 
 	// IP rate limit: max 10 per IP per 10 minutes
 	clientIP := getClientIP(r)
-	now := time.Now()
-	window := 10 * time.Minute
-	if raw, ok := s.emailLoginIPLimiter.Load(clientIP); ok {
-		times := raw.([]time.Time)
-		recent := make([]time.Time, 0, len(times))
-		for _, t := range times {
-			if now.Sub(t) < window {
-				recent = append(recent, t)
-			}
-		}
-		if len(recent) >= 10 {
-			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Too many login attempts. Please try again later."})
-			return
-		}
-		s.emailLoginIPLimiter.Store(clientIP, append(recent, now))
-	} else {
-		s.emailLoginIPLimiter.Store(clientIP, []time.Time{now})
+	if checkRateLimit(&s.emailLoginIPLimiter, clientIP, 10*time.Minute, 10) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Too many login attempts. Please try again later."})
+		return
 	}
 
 	var req struct {
@@ -589,40 +575,28 @@ func (s *Server) handleSendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Per-IP rate limit: max 5 OTP requests per IP per 10 minutes
+	// Skip all OTP rate limiting in test mode to allow E2E tests to run freely
 	clientIP := getClientIP(r)
-	now := time.Now()
-	window := 10 * time.Minute
-	if raw, ok := s.otpIPLimiter.Load(clientIP); ok {
-		times := raw.([]time.Time)
-		// Keep only times within the window
-		recent := make([]time.Time, 0, len(times))
-		for _, t := range times {
-			if now.Sub(t) < window {
-				recent = append(recent, t)
-			}
-		}
-		if len(recent) >= 5 {
+	if !s.config.TestMode {
+		// Per-IP rate limit: max 5 OTP requests per IP per 10 minutes
+		if checkRateLimit(&s.otpIPLimiter, clientIP, 10*time.Minute, 5) {
 			writeJSON(w, http.StatusTooManyRequests, map[string]string{
 				"error": "Too many requests. Please try again later.",
 			})
 			return
 		}
-		s.otpIPLimiter.Store(clientIP, append(recent, now))
-	} else {
-		s.otpIPLimiter.Store(clientIP, []time.Time{now})
-	}
 
-	// Rate limit: 1 OTP per phone per 60 seconds
-	if last, ok := s.otpLimiter.Load(e164); ok {
-		if time.Since(last.(time.Time)) < 60*time.Second {
-			writeJSON(w, http.StatusTooManyRequests, map[string]string{
-				"error": "Please wait 60 seconds before requesting another code.",
-			})
-			return
+		// Rate limit: 1 OTP per phone per 60 seconds
+		if last, ok := s.otpLimiter.Load(e164); ok {
+			if time.Since(last.(time.Time)) < 60*time.Second {
+				writeJSON(w, http.StatusTooManyRequests, map[string]string{
+					"error": "Please wait 60 seconds before requesting another code.",
+				})
+				return
+			}
 		}
+		s.otpLimiter.Store(e164, time.Now())
 	}
-	s.otpLimiter.Store(e164, now)
 
 	log.Printf("Sending verification code to %s", maskPhone(e164))
 
@@ -773,6 +747,16 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	if session.PhoneNumber != "" {
 		resp["phone_number"] = session.PhoneNumber
 	}
+
+	// Include login_count and name for onboarding flow
+	var loginCount int
+	var userName string
+	s.db.QueryRow("SELECT login_count, name FROM users WHERE id = ?", session.UserID).Scan(&loginCount, &userName)
+	resp["login_count"] = loginCount
+	if userName != "" {
+		resp["name"] = userName
+	}
+
 	writeJSON(w, http.StatusOK, resp)
 }
 

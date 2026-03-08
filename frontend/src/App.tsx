@@ -8,15 +8,24 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 
 import { PennyAvatar } from './components/PennyAvatar'
-import { BrandLogo } from './components/BrandLogo'
-import { ActionSheet, SectionHeader } from './components/ActionSheet'
+import { ActionSheet } from './components/ActionSheet'
 import { ConfirmModal } from './components/ConfirmModal'
 import { Confetti } from './components/Confetti'
 import { FloatingLabelField } from './components/FloatingLabelField'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { type SwapOffer } from './components/SwapCard'
+import { NavigationMenu } from './components/NavigationMenu'
+import { ItemRow, type ListItem } from './components/ItemRow'
+import { PennyBar } from './components/PennyBar'
+import { NPSSurveyModal } from './components/NPSSurveyModal'
+import { track, identify } from './analytics'
+import { TripPlannerSheet, type ShoppingTrip } from './components/TripPlannerSheet'
+import { ItemEditSheet } from './components/ItemEditSheet'
+import { ReviewSheet } from './components/ReviewSheet'
+import { type ItemModification } from './types'
 import {
-  BRAND, BG, TEXT, TEXT_SECONDARY, BORDER, ERROR_RED, WHITE, FONT,
-  DEPARTMENTS, DEPT_ICONS,
+  BRAND, BRAND_LIGHT, BG, TEXT, TEXT_SECONDARY, BORDER, ERROR_RED, ERROR_RED_BG, ERROR_RED_DARK, ERROR_RED_LIGHT,
+  WHITE, FONT, RADIUS_MD, DEPARTMENTS, DEPT_ICONS, SKELETON, SKELETON_SHIMMER,
 } from './styles'
 
 // =============================================================================
@@ -24,7 +33,7 @@ import {
 // =============================================================================
 
 // The screens the app can show
-type Screen = 'phone' | 'code' | 'home' | 'penny' | 'profile' | 'settings-share' | 'admin' | 'email-login' | 'email-register' | 'forgot-password' | 'reset-password'
+type Screen = 'phone' | 'code' | 'home' | 'penny' | 'profile' | 'settings-share' | 'admin' | 'email-login' | 'email-register' | 'forgot-password' | 'reset-password' | 'shared-list' | 'help'
 
 // Declare gtag for TypeScript
 declare function gtag(...args: unknown[]): void
@@ -45,6 +54,8 @@ const SCREEN_PATHS: Record<Screen, string> = {
   'email-register': '/login/email/register',
   'forgot-password': '/login/forgot',
   'reset-password': '/reset-password',
+  'shared-list': '/shared',
+  help: '/help',
 }
 
 const PATH_TO_SCREEN: Record<string, Screen> = {
@@ -62,52 +73,17 @@ const PATH_TO_SCREEN: Record<string, Screen> = {
   '/login/email/register': 'email-register',
   '/login/forgot': 'forgot-password',
   '/reset-password': 'reset-password',
+  '/help': 'help',
 }
 
 const AUTH_SCREENS: Screen[] = ['phone', 'code', 'email-login', 'email-register', 'forgot-password', 'reset-password']
-
-type ListItem = {
-  id: number
-  name: string
-  brand: string
-  department: string
-  quantity: number
-  size: string
-  notes: string
-  source: string
-  checked: boolean
-  urgent: boolean
-  created_at: string
-  added_by_name: string
-  added_by_phone: string
-  claimed_by_id: number | null
-  claimed_by_name: string
-}
-
-type ItemModification = {
-  action: string
-  detail: string
-  source: string
-  created_at: string
-  user_name: string
-}
-
-type ShoppingTrip = {
-  id: number
-  user_id: number
-  user_name: string
-  trip_date: string
-  trip_time: string
-  time_label: string
-  is_mine: boolean
-  created_at: string
-}
 
 // =============================================================================
 // CONSTANTS
 // =============================================================================
 
 
+// Relative timestamp for recently-added items (< 1 hour). Returns null for older items.
 function DeptIcon({ dept }: { dept: string }) {
   const icon = DEPT_ICONS[dept]
   if (!icon) return null
@@ -303,6 +279,16 @@ function AppInner() {
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)    // checking existing session on load
 
+  // Shared list deep link state
+  const [sharedCode, setSharedCode] = useState<string | null>(null)
+  const [sharedData, setSharedData] = useState<{ items: { name: string; quantity: number; checked: boolean }[]; sharer_name: string; expires_at: string; invite_code?: string } | null>(null)
+  const [sharedError, setSharedError] = useState<string | null>(null)
+  const [sharedLoading, setSharedLoading] = useState(false)
+  // Post-auth join prompt
+  const [showJoinPrompt, setShowJoinPrompt] = useState(false)
+  const [joinPromptName, setJoinPromptName] = useState('')
+  const [joinPromptCode, setJoinPromptCode] = useState('')
+
 
   // Login page Penny typewriter
   const [loginPennyText, setLoginPennyText] = useState('')
@@ -319,6 +305,11 @@ function AppInner() {
 
   // --- List state ---
   const [items, setItems] = useState<ListItem[]>([])
+  const [listLoading, setListLoading] = useState(true)
+  const [pullRefreshing, setPullRefreshing] = useState(false)
+  const pullStartY = useRef(0)
+  const [pullDistance, setPullDistance] = useState(0)
+  const isPulling = useRef(false)
   const [chatText, setChatText] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set())
@@ -347,13 +338,15 @@ function AppInner() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const chatInputRef = useRef<HTMLTextAreaElement>(null)
 
-  // --- Hamburger menu state ---
-  const [menuOpen, setMenuOpen] = useState(false)
+  // Menu state is now internal to NavigationMenu component
 
   // --- Done toast state ---
   const [showDoneToast, setShowDoneToast] = useState(false)
   const [showFireworks, setShowFireworks] = useState(false)
   const [showDoneOverlay, setShowDoneOverlay] = useState(false)
+  const [showDoneSummary, setShowDoneSummary] = useState(false)
+  const [doneSummaryData, setDoneSummaryData] = useState<{ checkedCount: number; totalCount: number; tripStartedAt: string } | null>(null)
+  const [isFirstTrip, setIsFirstTrip] = useState(false)
 
   // --- Floating label animation state ---
   const [floatingLabels, setFloatingLabels] = useState<Array<{ text: string; key: number }>>([])
@@ -361,9 +354,7 @@ function AppInner() {
   // --- Shopping trip planner state ---
   const [trips, setTrips] = useState<ShoppingTrip[]>([])
   const [showTripSheet, setShowTripSheet] = useState(false)
-  const [tripDay, setTripDay] = useState('')
-  const [tripTimeLabel, setTripTimeLabel] = useState('')
-  const [tripExactTime, setTripExactTime] = useState('')
+  const [tripSuggestionDismissed, setTripSuggestionDismissed] = useState(() => sessionStorage.getItem('penny_trip_suggested') === 'true')
 
   // --- Saved lists state ---
   const [showSaveSheet, setShowSaveSheet] = useState(false)
@@ -388,6 +379,27 @@ function AppInner() {
     if (action) action()
   }
 
+  // --- Onboarding state (persisted via localStorage + server) ---
+  const [loginCount, setLoginCount] = useState(0)
+  const onboardingNameAsked = useRef(localStorage.getItem('ob_name') === '1')
+  const onboardingShareMentioned = useRef(localStorage.getItem('ob_share') === '1')
+  const onboardingTextMentioned = useRef(localStorage.getItem('ob_text') === '1')
+  const onboardingSwapsMentioned = useRef(localStorage.getItem('ob_swaps') === '1')
+  const nameInputMode = useRef(false)
+
+  const syncOnboardingFlags = () => {
+    const flags: Record<string, string> = {}
+    if (onboardingNameAsked.current) flags.ob_name = '1'
+    if (onboardingShareMentioned.current) flags.ob_share = '1'
+    if (onboardingTextMentioned.current) flags.ob_text = '1'
+    if (onboardingSwapsMentioned.current) flags.ob_swaps = '1'
+    fetchAPI('/api/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ onboarding_flags: JSON.stringify(flags) }),
+    }).catch(() => {})
+  }
+
   // --- Settings state ---
   const [settingsFirstName, setSettingsFirstName] = useState('')
   const [settingsLastName, setSettingsLastName] = useState('')
@@ -398,17 +410,50 @@ function AppInner() {
   const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
   const addressSuggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [settingsMembers, setSettingsMembers] = useState<{ name: string; phone: string }[]>([])
+  const [listName, setListName] = useState('')
+  const [editingListName, setEditingListName] = useState(false)
+  const [listNameDraft, setListNameDraft] = useState('')
   const [settingsPennyPhone, setSettingsPennyPhone] = useState('')
   const [settingsUserPhone, setSettingsUserPhone] = useState('')
   const [inviteLoading, setInviteLoading] = useState(false)
+  const [avatarVersion, setAvatarVersion] = useState(0)
+  const [avatarUploading, setAvatarUploading] = useState(false)
+  const [avatarError, setAvatarError] = useState(false)
 
   // --- Referral state ---
   const [referralCode, setReferralCode] = useState('')
   const [referralFriends, setReferralFriends] = useState<{ name: string; created_at: string }[]>([])
 
+  // --- Swap offer state ---
+  const [swapsByItemId, setSwapsByItemId] = useState<Record<number, SwapOffer>>({})
+  const [pendingReceiptMode, setPendingReceiptMode] = useState(false)
+
   // --- Admin state ---
   const [isAdmin, setIsAdmin] = useState(false)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
+  const [adminDeals, setAdminDeals] = useState<{
+    id: number; competitor_product: string; offer_brand: string; offer_product: string;
+    discount_cents: number; daily_budget_cents: number; budget_spent_cents: number;
+    status: string; starts_at: string; ends_at: string; created_at: string;
+    offer_price_cents: number; competitor_price_cents: number;
+    offer_size: string; competitor_size: string;
+    offer_unit_price: string; competitor_unit_price: string;
+    why_bullets: string; allergen_notes: string;
+    deal_type: string; quantity_offered: number;
+    trial_product_name: string; trial_size: string; campaign_tag: string;
+  }[]>([])
+  const [showDealForm, setShowDealForm] = useState(false)
+  const [dealForm, setDealForm] = useState({
+    competitor_product: '', offer_brand: '', offer_product: '',
+    discount_cents: 0, daily_budget_cents: 0, status: 'active', ends_at: '',
+    offer_price_cents: 0, competitor_price_cents: 0,
+    offer_size: '', competitor_size: '',
+    offer_unit_price: '', competitor_unit_price: '',
+    why_bullets: '[]', allergen_notes: '',
+    deal_type: 'sku_swap', quantity_offered: 1,
+    trial_product_name: '', trial_size: '', campaign_tag: '',
+  })
+  const [editingDealId, setEditingDealId] = useState<number | null>(null)
   const [adminData, setAdminData] = useState<{
     active_users: number; total_users: number; new_users: number;
     k_factor: number; leaderboard: { phone: string; name: string; points: number; referrals: number }[];
@@ -418,6 +463,10 @@ function AppInner() {
     nps_total: number;
     nps_promoters: number;
     nps_detractors: number;
+    swap_offered?: number;
+    swap_accepted?: number;
+    swap_declined?: number;
+    swap_accept_rate?: number;
   } | null>(null)
   const [adminDays, setAdminDays] = useState(30)
   const [analyticsData, setAnalyticsData] = useState<{
@@ -427,14 +476,13 @@ function AppInner() {
     events_by_action: Record<string, number>;
     events_by_day: { date: string; count: number }[];
   } | null>(null)
+  const [adminPayouts, setAdminPayouts] = useState<{
+    user_id: number; name: string; email: string; phone: string;
+    total_cents: number; swap_count: number; oldest_swap: string;
+  }[]>([])
 
   // --- NPS state ---
   const [showNPS, setShowNPS] = useState(false)
-  const [npsScore, setNpsScore] = useState<number | null>(null)
-  const [npsStep, setNpsStep] = useState<1 | 2>(1)
-  const [npsComment, setNpsComment] = useState('')
-  const [npsTypedText, setNpsTypedText] = useState('')
-  const [npsTypingDone, setNpsTypingDone] = useState(false)
 
   // --- SMS opt-in state ---
   const [smsOptIn, setSmsOptIn] = useState(true)
@@ -466,6 +514,15 @@ function AppInner() {
   const [pennySlider, setPennySlider] = useState(35)
   const [pennyAutotune, setPennyAutotune] = useState(true)
   const [pennyDeals, setPennyDeals] = useState(false)
+
+  // --- Savings/rebate state ---
+  const [swapCreditsCents, setSwapCreditsCents] = useState(0)
+  const [showSavingsSheet, setShowSavingsSheet] = useState(false)
+  const [rebateHistory, setRebateHistory] = useState<{
+    id: number; offer_brand: string; offer_product: string;
+    amount_cents: number; status: string; created_at: string;
+  }[]>([])
+  const [rebateSummary, setRebateSummary] = useState<{ total_cents: number; pending_cents: number; paid_cents: number }>({ total_cents: 0, pending_cents: 0, paid_cents: 0 })
   const [keyboardOpen, setKeyboardOpen] = useState(false)
 
   // --- Penny chime-in state ---
@@ -477,10 +534,15 @@ function AppInner() {
     'Looking good!', 'Almost there!', 'Nice work!', 'On a roll!', 'Keep going!',
   ]
 
-  const EMPTY_LIST_MESSAGES = [
+  const FIRST_VISIT_GREETINGS = [
+    "Hey! I'm Penny. What do you need from the store?",
+    "Hi there! I'm Penny, your grocery sidekick. What are we shopping for?",
+    "Hey! I'm Penny. Tell me what you need and I'll get your list started.",
+  ]
+
+  const RETURNING_GREETINGS = [
     "What are we shopping for today?",
     "Ready when you are — just tell me what you need!",
-    "Type your grocery list below and I'll get it organized.",
     "What can I help you find at the store?",
   ]
 
@@ -588,20 +650,63 @@ function AppInner() {
   // a valid session cookie. If so, skip straight to the home screen.
   // =========================================================================
 
-  // Store join code or referral code from URL if present
+  // Store join code or referral code from URL if present, and redirect unknown paths
   useEffect(() => {
     const path = window.location.pathname
     const joinMatch = path.match(/^\/join\/(.+)$/)
     if (joinMatch) {
       localStorage.setItem('thriftly_join_code', joinMatch[1])
       window.history.replaceState({}, '', '/')
+      return
     }
     const referralMatch = path.match(/^\/r\/(.+)$/)
     if (referralMatch) {
       localStorage.setItem('referral_code', referralMatch[1])
       window.history.replaceState({}, '', '/')
+      return
+    }
+    // Shared list deep link — load read-only view (no auth needed)
+    const sharedMatch = path.match(/^\/shared\/(.+)$/)
+    if (sharedMatch) {
+      setSharedCode(sharedMatch[1])
+      return // Don't redirect — we'll show the shared-list screen
+    }
+    // Unknown route: fix URL and flag for toast after auth resolves
+    if (path !== '/' && !PATH_TO_SCREEN[path]) {
+      window.history.replaceState({}, '', '/')
+      sessionStorage.setItem('thriftly_404', '1')
     }
   }, [])
+
+  // Fetch shared list data when a shared code is detected
+  useEffect(() => {
+    if (!sharedCode) return
+    setSharedLoading(true)
+    fetch(`/api/shared/${sharedCode}`)
+      .then(res => {
+        if (res.status === 410) {
+          setSharedError('expired')
+          return null
+        }
+        if (!res.ok) {
+          setSharedError('not_found')
+          return null
+        }
+        return res.json()
+      })
+      .then(data => {
+        if (data) {
+          setSharedData(data)
+          // Stash invite code for post-auth join prompt
+          if (data.invite_code) {
+            localStorage.setItem('thriftly_share_invite', data.invite_code)
+            localStorage.setItem('thriftly_share_name', data.sharer_name || '')
+          }
+        }
+      })
+      .catch(() => setSharedError('not_found'))
+      .finally(() => setSharedLoading(false))
+  }, [sharedCode])
 
   // Browser back/forward navigation
   useEffect(() => {
@@ -619,7 +724,7 @@ function AppInner() {
         setShowReviewSheet(false)
         setShowSaveSheet(false)
         setShowTripSheet(false)
-        setMenuOpen(false)
+
       } else {
         // No state — resolve from URL
         const path = window.location.pathname
@@ -634,7 +739,7 @@ function AppInner() {
           setShowReviewSheet(false)
           setShowSaveSheet(false)
           setShowTripSheet(false)
-            setMenuOpen(false)
+    
         }
       }
     }
@@ -652,12 +757,12 @@ function AppInner() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code: joinCode }),
         })
+        const data = await res.json().catch(() => null)
         if (res.ok) {
           localStorage.removeItem('thriftly_join_code')
-          showToast('You joined the shared list!')
+          showToast(data?.penny_message || 'You joined the shared list!')
         } else {
           localStorage.removeItem('thriftly_join_code')
-          const data = await res.json().catch(() => null)
           if (data?.error) showToast(data.error, 'error')
         }
       } catch {
@@ -692,12 +797,29 @@ function AppInner() {
     fetch('/auth/me')
       .then(res => {
         if (res.ok) {
-          res.clone().json().then((data: { is_admin?: boolean; user_id?: number }) => {
+          res.clone().json().then((data: { is_admin?: boolean; user_id?: number; login_count?: number; name?: string }) => {
             if (data.is_admin) setIsAdmin(true)
-            if (data.user_id) setCurrentUserId(data.user_id)
+            if (data.user_id) { setCurrentUserId(data.user_id); identify(data.user_id) }
+            if (data.login_count != null) setLoginCount(data.login_count)
+            if (data.name) {
+              const parts = data.name.split(' ')
+              setSettingsFirstName(parts[0] || '')
+              setSettingsLastName(parts.slice(1).join(' '))
+            }
           }).catch(() => {})
           tryJoinCode()
           loadSettings() // Load settings once at auth
+          // Check for post-auth join prompt from shared list link
+          const shareInvite = localStorage.getItem('thriftly_share_invite')
+          const shareName = localStorage.getItem('thriftly_share_name')
+          if (shareInvite) {
+            localStorage.removeItem('thriftly_share_invite')
+            localStorage.removeItem('thriftly_share_name')
+            setJoinPromptCode(shareInvite)
+            setJoinPromptName(shareName || '')
+            setShowJoinPrompt(true)
+            setScreen('home', true)
+          } else {
           // Resolve screen from pathname (or migrated hash)
           const path = window.location.pathname
           const resolved = PATH_TO_SCREEN[path]
@@ -713,6 +835,7 @@ function AppInner() {
             } else {
               setScreen('home', true)
             }
+          }
           }
         } else {
           // Not authenticated — store intended destination for post-login redirect
@@ -733,7 +856,14 @@ function AppInner() {
         // Not logged in — that's fine, show the phone screen
         setScreen('phone', true)
       })
-      .finally(() => setChecking(false))
+      .finally(() => {
+        setChecking(false)
+        // Show 404 toast if user landed on an unknown route
+        if (sessionStorage.getItem('thriftly_404')) {
+          sessionStorage.removeItem('thriftly_404')
+          showToast("Page not found — here's your list")
+        }
+      })
   }, [])
 
   // Fetch Google Client ID and extract reset token from URL
@@ -947,6 +1077,16 @@ function AppInner() {
         return depts
       })
     }
+    // Restore pending swaps from server
+    try {
+      const swaps = await fetchAPI('/api/list/swaps')
+      if (Array.isArray(swaps) && swaps.length > 0) {
+        const byItem: Record<number, SwapOffer> = {}
+        for (const s of swaps) byItem[(s as SwapOffer).item_id] = s as SwapOffer
+        setSwapsByItemId(prev => ({ ...prev, ...byItem }))
+      }
+    } catch { /* swaps are optional */ }
+    setListLoading(false)
   }
 
   const loadTrips = async () => {
@@ -954,14 +1094,71 @@ function AppInner() {
     if (data) setTrips(Array.isArray(data) ? data as ShoppingTrip[] : [])
   }
 
+  const npsCheckedRef = useRef(false)
   useEffect(() => {
     if (screen !== 'home') return
     reloadList().catch(e => console.warn('[load] list failed:', e))
     loadTrips().catch(e => console.warn('[load] trips failed:', e))
-    fetchAPI('/api/nps/check')
-      .then(data => { if (data && !Array.isArray(data) && data.show_nps) setShowNPS(true) })
-      .catch(e => console.warn('[load] nps check failed:', e))
+    // Only check NPS once per session — never re-prompt after dismiss or submit
+    if (!npsCheckedRef.current && !sessionStorage.getItem('nps_dismissed')) {
+      npsCheckedRef.current = true
+      fetchAPI('/api/nps/check')
+        .then(data => { if (data && !Array.isArray(data) && data.show_nps) setShowNPS(true) })
+        .catch(e => console.warn('[load] nps check failed:', e))
+    }
   }, [screen])
+
+  // --- Pull-to-refresh handlers ---
+  useEffect(() => {
+    if (screen !== 'home') return
+    const el = listAreaRef.current
+    if (!el) return
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (el.scrollTop <= 0 && !pullRefreshing) {
+        pullStartY.current = e.touches[0].clientY
+        isPulling.current = true
+      }
+    }
+    const onTouchMove = (e: TouchEvent) => {
+      if (!isPulling.current) return
+      const dy = e.touches[0].clientY - pullStartY.current
+      if (dy > 0) {
+        // Dampen the pull distance (feels more natural)
+        setPullDistance(Math.min(dy * 0.5, 80))
+        if (dy > 20) e.preventDefault()
+      } else {
+        isPulling.current = false
+        setPullDistance(0)
+      }
+    }
+    const onTouchEnd = () => {
+      if (!isPulling.current) return
+      isPulling.current = false
+      if (pullDistance >= 50) {
+        setPullRefreshing(true)
+        setPullDistance(50)
+        reloadList()
+          .then(() => loadTrips())
+          .catch(e => console.warn('[pull-refresh] failed:', e))
+          .finally(() => {
+            setPullRefreshing(false)
+            setPullDistance(0)
+          })
+      } else {
+        setPullDistance(0)
+      }
+    }
+
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: false })
+    el.addEventListener('touchend', onTouchEnd)
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+      el.removeEventListener('touchend', onTouchEnd)
+    }
+  }, [screen, pullRefreshing, pullDistance])
 
   // --- Trip planner helpers ---
   const formatTripTime = (trip: ShoppingTrip) => {
@@ -1010,28 +1207,18 @@ function AppInner() {
 
   const activeTrips = trips.filter(t => !isTripExpired(t))
 
-  const handleSetTrip = async (addToCalendar = false) => {
-    if (!tripDay) return
+  const handleSetTrip = async (day: string, timeLbl: string, exactTime: string) => {
+    if (!day) return
     const timeMap: Record<string, string> = { morning: '09:00', afternoon: '14:00', evening: '18:00' }
-    const tripTime = tripTimeLabel === 'exact' ? tripExactTime : (timeMap[tripTimeLabel] || '')
-    const timeLabel = tripTimeLabel && tripTimeLabel !== 'exact' ? tripTimeLabel : ''
+    const tripTime = timeLbl === 'exact' ? exactTime : (timeMap[timeLbl] || '')
+    const timeLabel = timeLbl && timeLbl !== 'exact' ? timeLbl : ''
     const data = await fetchAPI('/api/trips', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ trip_date: tripDay, trip_time: tripTime, time_label: timeLabel }),
+      body: JSON.stringify({ trip_date: day, trip_time: tripTime, time_label: timeLabel }),
     })
     if (!data) { showToast('Couldn\'t save your trip — please try again', 'error'); return }
-    if (addToCalendar) {
-      const fakeTrip = { trip_date: tripDay, trip_time: tripTime, time_label: timeLabel } as ShoppingTrip
-      const link = document.createElement('a')
-      link.href = generateICSLink(fakeTrip)
-      link.download = 'shopping-trip.ics'
-      link.click()
-    }
     setShowTripSheet(false)
-    setTripDay('')
-    setTripTimeLabel('')
-    setTripExactTime('')
     loadTrips()
     showToast('Trip added! Everyone will see it.')
   }
@@ -1041,39 +1228,6 @@ function AppInner() {
     if (!data) { showToast('Couldn\'t cancel your trip — please try again', 'error'); return }
     loadTrips()
     showToast('Trip cancelled')
-  }
-
-  const generateICSLink = (trip: ShoppingTrip) => {
-    const date = trip.trip_date.replace(/-/g, '')
-    const timeMap: Record<string, string> = { morning: '090000', afternoon: '140000', evening: '180000' }
-    let dtStart = date + 'T'
-    let dtEnd = date + 'T'
-    if (trip.trip_time) {
-      dtStart += trip.trip_time.replace(':', '') + '00'
-      const [h, m] = trip.trip_time.split(':').map(Number)
-      const endH = (h + 1) % 24
-      dtEnd += `${String(endH).padStart(2, '0')}${String(m).padStart(2, '0')}00`
-    } else if (trip.time_label && timeMap[trip.time_label]) {
-      dtStart += timeMap[trip.time_label]
-      const h = parseInt(timeMap[trip.time_label].slice(0, 2)) + 1
-      dtEnd += `${String(h).padStart(2, '0')}0000`
-    } else {
-      dtStart += '100000'
-      dtEnd += '110000'
-    }
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'
-    const ics = [
-      'BEGIN:VCALENDAR',
-      'VERSION:2.0',
-      'BEGIN:VEVENT',
-      `DTSTART;TZID=${tz}:${dtStart}`,
-      `DTEND;TZID=${tz}:${dtEnd}`,
-      'SUMMARY:Grocery Shopping',
-      'DESCRIPTION:Planned via Thriftly',
-      'END:VEVENT',
-      'END:VCALENDAR',
-    ].join('\r\n')
-    return 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics)
   }
 
   const getDayOptions = () => {
@@ -1130,6 +1284,18 @@ function AppInner() {
           if (data.penny_slider != null) setPennySlider(data.penny_slider as number)
           if (data.penny_autotune != null) setPennyAutotune(data.penny_autotune as boolean)
           if (data.penny_deals != null) setPennyDeals(data.penny_deals as boolean)
+          if (data.swap_credits_cents != null) setSwapCreditsCents(data.swap_credits_cents as number)
+          if (data.list_name != null) setListName(data.list_name as string)
+          // Hydrate onboarding flags from server (server is source of truth)
+          if (data.onboarding_flags && typeof data.onboarding_flags === 'string') {
+            try {
+              const flags = JSON.parse(data.onboarding_flags as string) as Record<string, string>
+              if (flags.ob_name) { onboardingNameAsked.current = true; localStorage.setItem('ob_name', '1') }
+              if (flags.ob_share) { onboardingShareMentioned.current = true; localStorage.setItem('ob_share', '1') }
+              if (flags.ob_text) { onboardingTextMentioned.current = true; localStorage.setItem('ob_text', '1') }
+              if (flags.ob_swaps) { onboardingSwapsMentioned.current = true; localStorage.setItem('ob_swaps', '1') }
+            } catch { /* ignore parse errors */ }
+          }
         }
       })
       .catch(e => console.warn('[load] settings failed:', e))
@@ -1204,6 +1370,8 @@ function AppInner() {
     fetchAPI(`/api/admin/analytics?days=${adminDays}`)
       .then(data => { if (data) setAnalyticsData(data as typeof analyticsData) })
       .catch(e => console.warn('[load] admin analytics failed:', e))
+    fetch('/api/admin/deals').then(r => r.ok ? r.json() : []).then(setAdminDeals).catch(() => {})
+    fetch('/api/admin/payouts').then(r => r.ok ? r.json() : []).then(setAdminPayouts).catch(() => {})
   }, [screen, adminDays])
 
   const showToast = (message: string, type: 'success' | 'error' = 'success', action?: { label: string; onClick: () => void }) => {
@@ -1241,7 +1409,7 @@ function AppInner() {
       if (pennyChimeIn) { setPennyChimeIn(null); if (chimeInTimer.current) { clearTimeout(chimeInTimer.current); chimeInTimer.current = null } }
       const doneBtns = [
         { label: 'Save List', onClick: () => { setShowDoneToast(false); setShowFireworks(false); setSaveNameInput(''); pushModalState(); setShowSaveSheet(true) } },
-        { label: 'Clear List', onClick: () => { setShowDoneToast(false); setShowFireworks(false); handleClearList() } },
+        { label: 'Clear List', onClick: () => { setShowDoneToast(false); setShowFireworks(false); handleClearList(true) } },
       ]
       fetch(`/api/penny/quote?context=done${settingsFirstName ? '&name=' + encodeURIComponent(settingsFirstName) : ''}`)
         .then(r => r.ok ? r.json() : null)
@@ -1259,7 +1427,15 @@ function AppInner() {
       if (!homePennyInterval.current) typePennyHome(pennyChimeIn)
     } else if (items.length === 0 && !hasGreetedEmpty.current) {
       hasGreetedEmpty.current = true
-      typePennyHome(pickRandom(EMPTY_LIST_MESSAGES))
+      if (loginCount <= 1 && !settingsFirstName) {
+        // First visit, no name yet — introduce Penny
+        typePennyHome(pickRandom(FIRST_VISIT_GREETINGS))
+      } else if (settingsFirstName) {
+        // We know their name — personal greeting
+        typePennyHome(`Hey ${settingsFirstName}! What do we need from the store?`)
+      } else {
+        typePennyHome(pickRandom(RETURNING_GREETINGS))
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, pennyStatus, toast?.message, pennyChimeIn, showDoneToast, items.length])
@@ -1361,6 +1537,20 @@ function AppInner() {
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files) return
+
+    // Receipt mode: send photo directly as receipt
+    if (pendingReceiptMode && files.length > 0) {
+      const file = files[0]
+      const reader = new FileReader()
+      reader.onload = () => {
+        const dataUrl = reader.result as string
+        handleReceiptSubmit([dataUrl])
+      }
+      reader.readAsDataURL(file)
+      e.target.value = ''
+      return
+    }
+
     const remaining = 5 - pendingImages.length
     if (remaining <= 0) { showToast('Max 5 images at a time', 'error'); e.target.value = ''; return }
     const count = Math.min(files.length, remaining)
@@ -1396,7 +1586,75 @@ function AppInner() {
     }
   }
 
+  // --- Swap accept/decline ---
+  const handleSwapAccept = async (dealId: number, itemId: number) => {
+    try {
+      const res = await fetch('/api/list/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'accept_swap', swap_deal_id: dealId, swap_item_id: itemId }),
+      })
+      if (res.status === 401) { handleSessionExpired(); return }
+      if (res.ok) {
+        const data = await res.json()
+        if (data.updated?.length > 0) {
+          setItems(prev => {
+            const map = new Map(prev.map(i => [i.id, i]))
+            for (const item of data.updated) map.set(item.id, item)
+            return sortItems(Array.from(map.values()))
+          })
+        }
+        setSwapsByItemId(prev => { const next = { ...prev }; delete next[itemId]; return next })
+        if (data.swap_credits_cents != null) setSwapCreditsCents(data.swap_credits_cents)
+        showToast(data.message || 'Swapped!')
+      } else {
+        const err = await res.json().catch(() => null)
+        showToast(err?.error || 'Couldn\'t accept the swap', 'error')
+      }
+    } catch { showToast('Connection error — try again', 'error') }
+  }
+
+  const handleSwapDecline = async (dealId: number, itemId: number) => {
+    track('swap_declined', { deal_id: dealId })
+    setSwapsByItemId(prev => { const next = { ...prev }; delete next[itemId]; return next })
+    try {
+      await fetch('/api/list/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'decline_swap', swap_deal_id: dealId, swap_item_id: itemId }),
+      })
+    } catch { /* silent — optimistic removal already done */ }
+  }
+
+  // --- Receipt submit ---
+  const handleReceiptSubmit = async (imageData: string[]) => {
+    setChatLoading(true)
+    try {
+      const res = await fetch('/api/list/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: '', images: imageData, is_receipt: true }),
+      })
+      if (res.status === 401) { handleSessionExpired(); return }
+      if (res.ok) {
+        const data = await res.json()
+        if (data.checked?.length > 0) {
+          const checkedIds = new Set(data.checked.map((i: ListItem) => i.id))
+          setItems(prev => sortItems(prev.map(i => checkedIds.has(i.id) ? { ...i, checked: true } : i)))
+        }
+        showToast(data.message || 'Receipt processed!')
+      } else {
+        showToast('Couldn\'t process receipt — try again', 'error')
+      }
+    } catch { showToast('Connection error — try again', 'error') }
+    finally {
+      setChatLoading(false)
+      setPendingReceiptMode(false)
+    }
+  }
+
   const handleToggle = async (id: number) => {
+    navigator.vibrate?.(10)
     // Capture current checked state before optimistic update
     const oldChecked = items.find(i => i.id === id)?.checked
     setItems(prev => prev.map(item => item.id === id ? { ...item, checked: !item.checked } : item))
@@ -1484,6 +1742,26 @@ function AppInner() {
 
   const handleSendChat = async () => {
     if ((!chatText.trim() && pendingImages.length === 0) || chatLoading) return
+
+    // Name input mode: user typed their name in response to "what should I call you?"
+    if (nameInputMode.current && chatText.trim() && pendingImages.length === 0) {
+      nameInputMode.current = false
+      const name = chatText.trim()
+      setChatText('')
+      // Save name to backend
+      const parts = name.split(' ')
+      const firstName = parts[0] || ''
+      const lastName = parts.slice(1).join(' ')
+      setSettingsFirstName(firstName)
+      setSettingsLastName(lastName)
+      fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      }).catch(() => {})
+      typePennyHome(`Nice to meet you, ${firstName}! Keep adding — I'll sort everything by aisle.`)
+      return
+    }
 
     // Disambiguation-aware routing: handle brand picks via chat input
     if (pennyDisambig.length > 0 && chatText.trim() && pendingImages.length === 0) {
@@ -1608,6 +1886,43 @@ function AppInner() {
             { label: 'Cancel', onClick: () => typePennyHome('No problem, your list is safe!') },
           ])
           return // typePennyHome already handles the message
+        } else if (action === 'done_shopping') {
+          typePennyHome(pennyMsg || 'Nice trip! Snap your receipt and I\'ll check off what you got.', [
+            {
+              label: 'Snap receipt',
+              onClick: () => {
+                setPendingReceiptMode(true)
+                fileInputRef.current?.click()
+              },
+            },
+            { label: 'Skip', onClick: () => typePennyHome('All good! Happy shopping!') },
+          ])
+          return
+        } else if (action === 'receipt_processed') {
+          // Receipt was processed — update checked items in local state
+          if (checkedItems.length > 0) {
+            const checkedIds = new Set(checkedItems.map(i => i.id))
+            setItems(prev => sortItems(prev.map(i => checkedIds.has(i.id) ? { ...i, checked: true } : i)))
+          }
+          setPendingReceiptMode(false)
+        } else if (action === 'receipt_duplicate') {
+          setPendingReceiptMode(false)
+        } else if (action === 'swap_accepted') {
+          track('swap_accepted', { items: updatedItems.length })
+          // Swap accepted — update the item in local state
+          if (updatedItems.length > 0) {
+            setItems(prev => {
+              const map = new Map(prev.map(i => [i.id, i]))
+              for (const item of updatedItems) map.set(item.id, item)
+              return sortItems(Array.from(map.values()))
+            })
+          }
+          // Remove swap offer from local state
+          setSwapsByItemId(prev => {
+            const next = { ...prev }
+            for (const item of updatedItems) delete next[item.id]
+            return next
+          })
         } else {
           // Default "add" flow
           setItems(prev => {
@@ -1618,6 +1933,7 @@ function AppInner() {
           setLastAdded(addedItems)
           setLastSkipped(skippedItems)
           if (addedItems.length > 0) {
+            track('items_added', { count: addedItems.length })
             const now = Date.now()
             setFloatingLabels(addedItems.slice(0, 5).map((item, i) => ({
               text: `+${item.quantity || 1} ${item.name}`,
@@ -1641,6 +1957,13 @@ function AppInner() {
                 deptRefs.current[firstDept]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
               }, 100)
             }
+          }
+
+          // Store any pending swap offer
+          if (data.pending_swap) {
+            const swap = data.pending_swap
+            setSwapsByItemId(prev => ({ ...prev, [swap.item_id]: swap }))
+            track('swap_offered', { deal_id: swap.deal_id, offer_brand: swap.offer_brand, discount_cents: swap.discount_cents })
           }
         }
         setTimeout(() => chatInputRef.current?.focus(), 150)
@@ -1667,6 +1990,55 @@ function AppInner() {
           if (parts.length > 0) showToast(parts.join(' · '))
           else if (action === 'add' && addedItems.length === 0 && skippedItems.length === 0) showToast("I couldn't find any items in that — try rewording it?", 'error')
         }
+
+        // --- Onboarding nudges (spaced, non-intrusive) ---
+        if (action === 'add' && addedItems.length > 0) {
+          // Session 1: After first add, casually ask for name (once per session)
+          if (loginCount <= 1 && !settingsFirstName && !onboardingNameAsked.current) {
+            onboardingNameAsked.current = true
+            localStorage.setItem('ob_name', '1')
+            syncOnboardingFlags()
+            setTimeout(() => {
+              typePennyHome("What do you need from the store? I'll get your list started.", [
+                { label: 'Skip', onClick: () => typePennyHome("No worries! Just type or paste what you need.") },
+              ])
+              nameInputMode.current = true
+            }, 2500)
+          }
+          // Session 2: Mention sharing (once per session, after 2+ items)
+          else if (loginCount === 2 && !onboardingShareMentioned.current && addedItems.length >= 1) {
+            onboardingShareMentioned.current = true
+            localStorage.setItem('ob_share', '1')
+            syncOnboardingFlags()
+            setTimeout(() => {
+              typePennyHome("Shopping for the family? You can invite them to share this list.", [
+                { label: 'Invite someone', onClick: () => handleTextInviteLink() },
+                { label: 'Just me', onClick: () => typePennyHome("Got it — solo mission!") },
+              ])
+            }, 3000)
+          }
+          // Session 3: Mention texting Penny
+          else if (loginCount === 3 && !onboardingTextMentioned.current) {
+            onboardingTextMentioned.current = true
+            localStorage.setItem('ob_text', '1')
+            syncOnboardingFlags()
+            setTimeout(() => {
+              typePennyHome("Quick tip — you can text me your list anytime. Just save my number!", [
+                { label: 'Save contact', onClick: () => { window.open('/api/penny.vcf', '_blank') } },
+                { label: 'Maybe later', onClick: () => typePennyHome("I'll be here!") },
+              ])
+            }, 3000)
+          }
+          // After 3+ items on list and haven't mentioned swaps yet
+          else if (!onboardingSwapsMentioned.current && items.length + addedItems.length >= 3) {
+            onboardingSwapsMentioned.current = true
+            localStorage.setItem('ob_swaps', '1')
+            syncOnboardingFlags()
+            setTimeout(() => {
+              typePennyHome("By the way — I keep an eye out for deals on your items. If I spot a swap that saves you money, I'll let you know!")
+            }, 3500)
+          }
+        }
       } else if (res.status === 429) {
         showToast('Hold on — give it a minute and try again', 'error')
       } else {
@@ -1682,19 +2054,16 @@ function AppInner() {
     finally { setChatLoading(false) }
   }
 
-  const handleNPSSubmit = async () => {
-    if (npsScore === null) return
+  const handleNPSSubmit = async (score: number, comment: string) => {
     const result = await fetchAction('/api/nps', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ score: npsScore, comment: npsComment }),
+      body: JSON.stringify({ score, comment }),
     })
     if (result.ok) {
       showToast('Thanks for your feedback!')
       setShowNPS(false)
-      setNpsScore(null)
-      setNpsStep(1)
-      setNpsComment('')
+      sessionStorage.setItem('nps_dismissed', '1')
     } else if (result.status !== 401) {
       showToast('Couldn\'t save feedback — please try again', 'error')
     }
@@ -1702,32 +2071,9 @@ function AppInner() {
 
   const closeNPS = () => {
     setShowNPS(false)
-    setNpsScore(null)
-    setNpsStep(1)
-    setNpsComment('')
-    setNpsTypedText('')
-    setNpsTypingDone(false)
+    sessionStorage.setItem('nps_dismissed', '1')
   }
 
-  // Typewriter effect for NPS questions
-  useEffect(() => {
-    if (!showNPS) return
-    const question = npsStep === 1
-      ? 'How likely are you to recommend Thriftly to a friend?'
-      : `You picked ${npsScore}! What's the biggest reason for your score?`
-    setNpsTypedText('')
-    setNpsTypingDone(false)
-    let i = 0
-    const timer = setInterval(() => {
-      i++
-      setNpsTypedText(question.slice(0, i))
-      if (i >= question.length) {
-        clearInterval(timer)
-        setNpsTypingDone(true)
-      }
-    }, 25)
-    return () => clearInterval(timer)
-  }, [showNPS, npsStep, npsScore])
 
   // Push a modal history entry so browser back closes the modal
   const pushModalState = () => {
@@ -2198,7 +2544,6 @@ const handleCodeChange = (index: number, value: string) => {
 
   const handleLogout = async () => {
     await fetch('/auth/logout', { method: 'POST' })
-    setMenuOpen(false)
     setScreen('phone', true)
     setPhone('')
     setCode(['', '', '', '', '', ''])
@@ -2208,6 +2553,132 @@ const handleCodeChange = (index: number, value: string) => {
   // =========================================================================
   // LOADING STATE (checking existing session)
   // =========================================================================
+
+  // =========================================================================
+  // SHARED LIST SCREEN (standalone, no auth required)
+  // =========================================================================
+
+  if (sharedCode) {
+    const timeLeft = sharedData ? (() => {
+      const ms = new Date(sharedData.expires_at).getTime() - Date.now()
+      if (ms <= 0) return 'expired'
+      const hours = Math.floor(ms / 3600000)
+      if (hours > 0) return `${hours} hour${hours !== 1 ? 's' : ''}`
+      const mins = Math.floor(ms / 60000)
+      return `${mins} minute${mins !== 1 ? 's' : ''}`
+    })() : null
+
+    return (
+      <div style={{ minHeight: '100vh', backgroundColor: BG, display: 'flex', flexDirection: 'column' }}>
+        {/* Header */}
+        <div style={{ backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}`, padding: '20px', textAlign: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px' }}>
+            <PennyAvatar size={48} />
+          </div>
+          <div style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: TEXT }}>
+            {sharedData ? `${sharedData.sharer_name || 'Someone'}'s Shopping List` : 'Shared Shopping List'}
+          </div>
+          <div style={{ fontFamily: FONT, fontSize: '13px', color: BRAND, fontWeight: 600, letterSpacing: '-0.3px', marginTop: '4px' }}>thriftly</div>
+        </div>
+
+        {/* Expiry banner */}
+        {sharedData && timeLeft && timeLeft !== 'expired' && (
+          <div style={{ backgroundColor: '#FEF3C7', padding: '10px 20px', fontFamily: FONT, fontSize: '13px', color: '#92400E', textAlign: 'center' }}>
+            This link expires in {timeLeft}
+          </div>
+        )}
+
+        {/* Content */}
+        <div style={{ flex: 1, padding: '16px 20px', overflowY: 'auto' }}>
+          {sharedLoading && (
+            <div style={{ textAlign: 'center', padding: '40px 0' }}>
+              <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY }}>Loading list...</p>
+            </div>
+          )}
+
+          {sharedError === 'expired' && (
+            <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>⏰</div>
+              <h2 style={{ fontFamily: FONT, fontSize: '20px', color: TEXT, margin: '0 0 8px' }}>This link has expired</h2>
+              <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: '0 0 24px' }}>
+                Share links are valid for 48 hours. Ask the sender to share again.
+              </p>
+              <button
+                onClick={() => { setSharedCode(null); setSharedError(null); window.history.replaceState({}, '', '/login/email/register'); setScreen('email-register', true) }}
+                style={{ backgroundColor: BRAND, color: WHITE, border: 'none', borderRadius: '10px', padding: '14px 28px', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Sign up for Thriftly
+              </button>
+            </div>
+          )}
+
+          {sharedError === 'not_found' && (
+            <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔗</div>
+              <h2 style={{ fontFamily: FONT, fontSize: '20px', color: TEXT, margin: '0 0 8px' }}>Link not found</h2>
+              <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: '0 0 24px' }}>
+                This share link doesn't exist. Check the URL and try again.
+              </p>
+              <button
+                onClick={() => { setSharedCode(null); setSharedError(null); window.history.replaceState({}, '', '/login/email/register'); setScreen('email-register', true) }}
+                style={{ backgroundColor: BRAND, color: WHITE, border: 'none', borderRadius: '10px', padding: '14px 28px', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Sign up for Thriftly
+              </button>
+            </div>
+          )}
+
+          {sharedData && !sharedError && (
+            <>
+              {sharedData.items.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                  <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY }}>This list is empty</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  {sharedData.items.map((item, i) => (
+                    <div key={i} style={{
+                      display: 'flex', alignItems: 'center', gap: '12px',
+                      padding: '14px 16px', backgroundColor: WHITE, borderRadius: '10px',
+                      opacity: item.checked ? 0.5 : 1,
+                    }}>
+                      <div style={{
+                        width: '22px', height: '22px', borderRadius: '6px', flexShrink: 0,
+                        border: item.checked ? 'none' : `2px solid ${BORDER}`,
+                        backgroundColor: item.checked ? BRAND : 'transparent',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        {item.checked && <span style={{ color: WHITE, fontSize: '14px', fontWeight: 700 }}>✓</span>}
+                      </div>
+                      <span style={{
+                        fontFamily: FONT, fontSize: '15px', color: TEXT, flex: 1,
+                        textDecoration: item.checked ? 'line-through' : 'none',
+                      }}>
+                        {item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Sign-up CTA */}
+        <div style={{ padding: '20px', backgroundColor: WHITE, borderTop: `1px solid ${BORDER}`, textAlign: 'center' }}>
+          <p style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, margin: '0 0 12px' }}>
+            Sign up for Thriftly to make your own list and earn rebates
+          </p>
+          <button
+            onClick={() => { setSharedCode(null); window.history.replaceState({}, '', '/login/email/register'); setScreen('email-register', true) }}
+            style={{ backgroundColor: BRAND, color: WHITE, border: 'none', borderRadius: '10px', padding: '14px 28px', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer', width: '100%', maxWidth: '320px' }}
+          >
+            Get Started
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   if (checking) {
     return (
@@ -2293,7 +2764,7 @@ const handleCodeChange = (index: number, value: string) => {
             </span>
           </label>
 
-          {error && <p style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
+          {error && <p role="alert" style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
 
           <button
             onClick={() => handleSendCode()}
@@ -2304,7 +2775,6 @@ const handleCodeChange = (index: number, value: string) => {
               backgroundColor: BRAND, border: 'none', borderRadius: '14px',
               cursor: isValid && smsOptIn && !loading ? 'pointer' : 'default',
               transition: 'opacity 0.2s, transform 0.1s',
-              WebkitTapHighlightColor: 'transparent',
               letterSpacing: '0.2px',
               opacity: isValid && smsOptIn && !loading ? 1 : 0.35,
               marginBottom: '4px',
@@ -2390,7 +2860,7 @@ const handleCodeChange = (index: number, value: string) => {
             </button>
           </div>
 
-          {error && <p style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
+          {error && <p role="alert" style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
           {magicLinkSent && <p style={{ fontFamily: FONT, fontSize: '14px', color: BRAND, fontWeight: 500, width: '100%', textAlign: 'left' as const, marginBottom: '12px' }}>We sent a sign-in link to your email — check your inbox!</p>}
 
           <button
@@ -2497,7 +2967,7 @@ const handleCodeChange = (index: number, value: string) => {
             </FloatingLabelField>
           </div>
 
-          {error && <p style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
+          {error && <p role="alert" style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
 
           <button
             onClick={handleEmailRegister}
@@ -2558,7 +3028,7 @@ const handleCodeChange = (index: number, value: string) => {
                 </FloatingLabelField>
               </div>
 
-              {error && <p style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
+              {error && <p role="alert" style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
 
               <button
                 onClick={handleForgotPassword}
@@ -2622,7 +3092,7 @@ const handleCodeChange = (index: number, value: string) => {
             </FloatingLabelField>
           </div>
 
-          {error && <p style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
+          {error && <p role="alert" style={{ ...styles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
 
           <button
             onClick={handleResetPassword}
@@ -2693,6 +3163,7 @@ const handleCodeChange = (index: number, value: string) => {
                 autoComplete={i === 0 ? 'one-time-code' : 'off'}
                 maxLength={1}
                 value={digit}
+                aria-label={`Verification code digit ${i + 1} of 6`}
                 onChange={e => handleCodeChange(i, e.target.value)}
                 onKeyDown={e => handleCodeKeyDown(i, e)}
                 onPaste={handleCodePaste}
@@ -2720,7 +3191,7 @@ const handleCodeChange = (index: number, value: string) => {
             </p>
           )}
 
-          {error && <p style={{ ...styles.error, width: '100%', textAlign: 'center' as const }}>{error}</p>}
+          {error && <p role="alert" style={{ ...styles.error, width: '100%', textAlign: 'center' as const }}>{error}</p>}
 
           {/* Subtle helper links */}
           <div style={{ display: 'flex', gap: '16px', marginTop: '8px' }}>
@@ -2748,43 +3219,15 @@ const handleCodeChange = (index: number, value: string) => {
   // =========================================================================
 
   const renderMenu = (active: Screen) => (
-    <div style={{ position: 'relative' }}>
-      <button onClick={() => setMenuOpen(!menuOpen)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, WebkitTapHighlightColor: 'transparent', display: 'flex', alignItems: 'center' }} aria-label="Navigation menu" aria-expanded={menuOpen} aria-haspopup="true">
-        <div style={{ ...avatarCircleStyle(30), fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {[settingsFirstName, settingsLastName].map(n => (n || '')[0]?.toUpperCase() || '').filter(Boolean).join('') || <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}
-        </div>
-      </button>
-      {menuOpen && (
-        <>
-          <div style={listStyles.menuOverlay} onClick={() => setMenuOpen(false)} />
-          <div style={listStyles.menuDropdown}>
-            <button style={{ ...listStyles.menuItem(active === 'home'), display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => { setMenuOpen(false); setScreen('home') }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
-              Shopping List
-            </button>
-            <button style={{ ...listStyles.menuItem(active === 'settings-share'), display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => { setMenuOpen(false); setScreen('settings-share') }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
-              Share & Earn
-            </button>
-            <button style={{ ...listStyles.menuItem(active === 'penny'), display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => { setMenuOpen(false); setScreen('penny') }}>
-              <PennyAvatar size={18} />
-              Penny
-            </button>
-            <div style={{ height: '1px', backgroundColor: BORDER, margin: '4px 0' }} />
-            <button style={{ ...listStyles.menuItem(active === 'profile'), display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => { setMenuOpen(false); setScreen('profile') }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-              Profile
-            </button>
-            {isAdmin && (
-              <button style={{ ...listStyles.menuItem(active === 'admin'), display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => { setMenuOpen(false); setScreen('admin') }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/></svg>
-                Dashboard
-              </button>
-            )}
-          </div>
-        </>
-      )}
-    </div>
+    <NavigationMenu
+      active={active}
+      isAdmin={isAdmin}
+      firstName={settingsFirstName}
+      lastName={settingsLastName}
+      userId={currentUserId}
+      avatarVersion={avatarVersion}
+      onNavigate={setScreen}
+    />
   )
 
   const renderMemberList = () => settingsMembers.map((m, i) => (
@@ -2830,7 +3273,7 @@ const handleCodeChange = (index: number, value: string) => {
   const pennyCloseStyle = { background: 'none', border: 'none', color: TEXT_SECONDARY, fontFamily: FONT, fontSize: '17px', cursor: 'pointer', padding: '8px 12px', lineHeight: 1, flexShrink: 0, opacity: 0.6, minWidth: '44px', minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center' } as React.CSSProperties
 
   const renderPennyToast = () => toast ? (
-    <div style={{ ...pennyBarStyle, backgroundColor: toast.type === 'error' ? '#FEE2E2' : '#F5F3EF', color: toast.type === 'error' ? '#991B1B' : TEXT }}>
+    <div role={toast.type === 'error' ? 'alert' : 'status'} style={{ ...pennyBarStyle, backgroundColor: toast.type === 'error' ? ERROR_RED_LIGHT : '#F5F3EF', color: toast.type === 'error' ? ERROR_RED_DARK : TEXT }}>
       <PennyAvatar />
       <span style={{ flex: 1 }}>{toast.message}</span>
       {toast.action && (
@@ -2841,6 +3284,7 @@ const handleCodeChange = (index: number, value: string) => {
       )}
       <button
         onClick={() => { setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) }}
+        aria-label="Dismiss notification"
         style={pennyCloseStyle}
       >×</button>
     </div>
@@ -2922,7 +3366,46 @@ const handleCodeChange = (index: number, value: string) => {
         <div style={listStyles.listArea}>
           <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
-            {/* ── How Penny works ── */}
+            {/* ── Contact Penny (top) ── */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <PennyAvatar size={52} />
+              <div>
+                <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT }}>Penny</div>
+                <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, marginTop: '2px' }}>Your household's AI shopping assistant</div>
+              </div>
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                {pennyPhoneFormatted && (
+                  <a href={`sms:${settingsPennyPhone}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', borderRadius: '50%', backgroundColor: BG, textDecoration: 'none' }} aria-label="Text Penny">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                  </a>
+                )}
+                <a href="mailto:penny@list.thrift.ly" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', borderRadius: '50%', backgroundColor: BG, textDecoration: 'none' }} aria-label="Email Penny">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                </a>
+                <a href="/api/penny.vcf" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', borderRadius: '50%', backgroundColor: BG, textDecoration: 'none' }} aria-label="Add Penny to contacts">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+                </a>
+              </div>
+            </div>
+
+            {/* ── Divider ── */}
+            <div style={{ height: '1px', backgroundColor: BORDER, margin: '4px 0' }} />
+
+            {/* ── Settings ── */}
+
+            {/* Deals toggle — only show if user has messaging (phone) */}
+            {settingsPennyPhone && (
+              <div onClick={toggleDeals} style={listStyles.settingsCard}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>
+                </svg>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>I want to text with Penny</div>
+                  <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginTop: '1px' }}>Penny texts you about deals and savings she finds</div>
+                </div>
+                <ToggleSwitch value={pennyDeals} onChange={toggleDeals} />
+              </div>
+            )}
 
             {/* Learn from my choices toggle */}
             <div onClick={toggleAutotune} style={listStyles.settingsCard}>
@@ -2937,7 +3420,7 @@ const handleCodeChange = (index: number, value: string) => {
               <ToggleSwitch value={pennyAutotune} onChange={toggleAutotune} />
             </div>
 
-            {/* Slider — only visible when autotune is OFF */}
+            {/* Slider — only visible when autotune is OFF, at bottom so it doesn't shift content above */}
             <div style={{
               maxHeight: pennyAutotune ? 0 : '200px',
               opacity: pennyAutotune ? 0 : 1,
@@ -2972,6 +3455,7 @@ const handleCodeChange = (index: number, value: string) => {
                 min={0}
                 max={100}
                 value={pennySlider}
+                aria-label="Convenience versus savings preference"
                 onChange={e => saveSlider(Number(e.target.value))}
                 style={{
                   width: '100%', height: '6px', appearance: 'none', WebkitAppearance: 'none',
@@ -2989,45 +3473,6 @@ const handleCodeChange = (index: number, value: string) => {
               </p>
             </div>
 
-            {/* Deals toggle — only show if user has messaging (phone) */}
-            {settingsPennyPhone && (
-              <div onClick={toggleDeals} style={listStyles.settingsCard}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={TEXT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>
-                </svg>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>I want to text with Penny</div>
-                  <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginTop: '1px' }}>Penny texts you about deals and savings she finds</div>
-                </div>
-                <ToggleSwitch value={pennyDeals} onChange={toggleDeals} />
-              </div>
-            )}
-
-            {/* ── Divider ── */}
-            <div style={{ height: '1px', backgroundColor: BORDER, margin: '4px 0' }} />
-
-            {/* ── Contact Penny ── */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              <PennyAvatar size={52} />
-              <div>
-                <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT }}>Penny</div>
-                <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY, marginTop: '2px' }}>Your household's AI shopping assistant</div>
-              </div>
-              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                {pennyPhoneFormatted && (
-                  <a href={`sms:${settingsPennyPhone}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', borderRadius: '50%', backgroundColor: BG, textDecoration: 'none', WebkitTapHighlightColor: 'transparent' }} aria-label="Text Penny">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                  </a>
-                )}
-                <a href="mailto:penny@list.thrift.ly" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', borderRadius: '50%', backgroundColor: BG, textDecoration: 'none', WebkitTapHighlightColor: 'transparent' }} aria-label="Email Penny">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-                </a>
-                <a href="/api/penny.vcf" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', borderRadius: '50%', backgroundColor: BG, textDecoration: 'none', WebkitTapHighlightColor: 'transparent' }} aria-label="Add Penny to contacts">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
-                </a>
-              </div>
-            </div>
-
           </div>
         </div>
         {renderPennyToast()}
@@ -3043,6 +3488,50 @@ const handleCodeChange = (index: number, value: string) => {
     const initials = [settingsFirstName, settingsLastName].map(n => (n || '')[0]?.toUpperCase() || '').filter(Boolean).join('')
     const displayName = [settingsFirstName, settingsLastName].filter(Boolean).join(' ')
     const userPhoneFormatted = settingsUserPhone ? formatPhone(settingsUserPhone.replace('+1', '')) : ''
+
+    const avatarUrl = currentUserId ? `/api/avatar/${currentUserId}?v=${avatarVersion}` : null
+
+    const handleAvatarPick = () => {
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = 'image/*'
+      input.onchange = async () => {
+        const file = input.files?.[0]
+        if (!file) return
+        setAvatarUploading(true)
+        try {
+          // Load image and resize to 256x256 JPEG
+          const bitmap = await createImageBitmap(file)
+          const canvas = document.createElement('canvas')
+          canvas.width = 256
+          canvas.height = 256
+          const ctx = canvas.getContext('2d')!
+          // Scale to cover, center crop
+          const scale = Math.max(256 / bitmap.width, 256 / bitmap.height)
+          const sw = 256 / scale, sh = 256 / scale
+          const sx = (bitmap.width - sw) / 2, sy = (bitmap.height - sh) / 2
+          ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, 256, 256)
+          const blob = await new Promise<Blob>((resolve) => canvas.toBlob(b => resolve(b!), 'image/jpeg', 0.85))
+          const buf = await blob.arrayBuffer()
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+          const res = await fetch('/api/avatar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ photo: base64 }) })
+          if (res.status === 401) { handleSessionExpired(); return }
+          if (res.ok) {
+            setAvatarVersion(v => v + 1)
+            showToast('Photo updated!')
+          } else {
+            const data = await res.json().catch(() => ({}))
+            showToast(data?.error || 'Upload failed', 'error')
+          }
+        } catch {
+          showToast('Could not process image', 'error')
+        } finally {
+          setAvatarUploading(false)
+        }
+      }
+      input.click()
+    }
+
     return (
       <div style={listStyles.page}>
         <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
@@ -3052,12 +3541,51 @@ const handleCodeChange = (index: number, value: string) => {
 
             {/* Avatar + display info */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-              <div style={{
-                width: 80, height: 80, borderRadius: '50%',
-                backgroundColor: BRAND, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontFamily: FONT, fontSize: '28px', fontWeight: 700, color: WHITE,
-              }}>
-                {initials || '?'}
+              <div
+                onClick={handleAvatarPick}
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleAvatarPick() } }}
+                style={{
+                  width: 80, height: 80, borderRadius: '50%',
+                  backgroundColor: BRAND, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontFamily: FONT, fontSize: '28px', fontWeight: 700, color: WHITE,
+                  cursor: 'pointer', position: 'relative', overflow: 'hidden',
+                }}
+                aria-label="Change profile photo"
+                title="Tap to change photo"
+              >
+                {avatarUrl && !avatarError ? (
+                  <img
+                    key={avatarVersion}
+                    src={avatarUrl}
+                    alt="Profile"
+                    onError={() => setAvatarError(true)}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  initials || '?'
+                )}
+                {avatarUploading && (
+                  <div style={{
+                    position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <div style={{ width: 24, height: 24, border: '3px solid rgba(255,255,255,0.3)', borderTopColor: WHITE, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                  </div>
+                )}
+                {!avatarUploading && (
+                  <div style={{
+                    position: 'absolute', bottom: 0, left: 0, right: 0,
+                    backgroundColor: 'rgba(0,0,0,0.5)', padding: '2px 0',
+                    display: 'flex', justifyContent: 'center',
+                  }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                      <circle cx="12" cy="13" r="4"/>
+                    </svg>
+                  </div>
+                )}
               </div>
               {displayName && <div style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 600, color: TEXT }}>{displayName}</div>}
               {userPhoneFormatted && <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY }}>{userPhoneFormatted}</div>}
@@ -3118,16 +3646,202 @@ const handleCodeChange = (index: number, value: string) => {
             {/* ── Divider ── */}
             <div style={listStyles.divider} />
 
+            {/* Need Help? */}
+            <button onClick={() => setScreen('help')} style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+              fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: BRAND,
+              textAlign: 'left' as const,
+              display: 'flex', alignItems: 'center', gap: '8px',
+            }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+              Need Help?
+            </button>
+
             {/* Sign out */}
             <button onClick={handleLogout} style={{
               background: 'none', border: 'none', cursor: 'pointer', padding: 0,
               fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: ERROR_RED,
-              textAlign: 'left' as const, WebkitTapHighlightColor: 'transparent',
+              textAlign: 'left' as const,
             }}>Sign Out</button>
 
           </div>
         </div>
 
+      </div>
+    )
+  }
+
+  // =========================================================================
+  // HELP / FAQ / BUG REPORT PAGE
+  // =========================================================================
+
+  if (screen === 'help') {
+    const faqs = [
+      { q: 'How do I share my list with someone?', a: 'Go to Share & Earn from the menu. Tap "Invite to Household" to generate an invite link. Anyone who opens it can join your shared list.' },
+      { q: 'How do Penny\'s swaps work?', a: 'When you add an item, Penny may suggest a swap from a brand partner. If you accept, the brand covers part of the cost. You can always decline — no pressure!' },
+      { q: 'How do I add items via text message?', a: 'Text your grocery items to Penny\'s number (you can find it in the Penny settings screen). She\'ll parse your message and add them to your list automatically.' },
+      { q: 'How do I save a list for later?', a: 'Just ask Penny! Say something like "save this as my weekly groceries" in the Penny chat. You can load saved lists later by asking Penny "what lists do I have?"' },
+      { q: 'How do I delete my account?', a: 'Email us at support@thrift.ly and we\'ll take care of it within 48 hours. We\'ll delete all your data permanently.' },
+    ]
+
+    const [openFaq, setOpenFaq] = useState<number | null>(null)
+    const [bugDescription, setBugDescription] = useState('')
+    const [bugSubmitting, setBugSubmitting] = useState(false)
+    const [bugSubmitted, setBugSubmitted] = useState(false)
+
+    const handleBugSubmit = async () => {
+      if (!bugDescription.trim() || bugSubmitting) return
+      setBugSubmitting(true)
+      try {
+        const res = await fetch('/api/bug-report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ description: bugDescription.trim() }),
+        })
+        if (res.status === 401) { handleSessionExpired(); return }
+        if (res.ok) {
+          setBugSubmitted(true)
+          setBugDescription('')
+          showToast('Bug report submitted — thank you!')
+        } else {
+          const data = await res.json().catch(() => ({}))
+          showToast(data?.error || 'Failed to submit report', 'error')
+        }
+      } catch {
+        showToast('Something went wrong', 'error')
+      } finally {
+        setBugSubmitting(false)
+      }
+    }
+
+    return (
+      <div style={listStyles.page}>
+        {renderPageHeader('Help', 'help')}
+        <div style={listStyles.listArea}>
+          <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+
+            {/* FAQ Section */}
+            <div>
+              <h2 style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 700, color: TEXT, marginBottom: '16px' }}>
+                Frequently Asked Questions
+              </h2>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0px', borderRadius: '12px', overflow: 'hidden', border: `1px solid ${BORDER}` }}>
+                {faqs.map((faq, i) => (
+                  <div key={i}>
+                    {i > 0 && <div style={{ height: '1px', backgroundColor: BORDER }} />}
+                    <button
+                      onClick={() => setOpenFaq(openFaq === i ? null : i)}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        width: '100%', padding: '14px 16px',
+                        backgroundColor: openFaq === i ? `${BRAND}08` : WHITE,
+                        border: 'none', cursor: 'pointer', textAlign: 'left',
+                        fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: TEXT,
+                        gap: '12px',
+                      }}
+                    >
+                      <span style={{ flex: 1 }}>{faq.q}</span>
+                      <span style={{
+                        fontSize: '18px', color: TEXT_SECONDARY, flexShrink: 0,
+                        transform: openFaq === i ? 'rotate(180deg)' : 'none',
+                        transition: 'transform 0.2s ease',
+                      }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={TEXT_SECONDARY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                      </span>
+                    </button>
+                    <div style={{
+                      maxHeight: openFaq === i ? '200px' : '0px',
+                      opacity: openFaq === i ? 1 : 0,
+                      overflow: 'hidden',
+                      transition: 'max-height 0.3s ease, opacity 0.25s ease',
+                    }}>
+                      <div style={{
+                        padding: '0 16px 14px 16px',
+                        fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, lineHeight: 1.5,
+                        backgroundColor: openFaq === i ? `${BRAND}08` : WHITE,
+                      }}>
+                        {faq.a}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Divider */}
+            <div style={listStyles.divider} />
+
+            {/* Bug Report Section */}
+            <div>
+              <h2 style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 700, color: TEXT, marginBottom: '4px' }}>
+                Report a Bug
+              </h2>
+              <p style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, marginBottom: '16px' }}>
+                Found something that doesn't look right? Let us know and we'll fix it.
+              </p>
+              {bugSubmitted ? (
+                <div style={{
+                  padding: '20px', borderRadius: '12px',
+                  backgroundColor: `${BRAND}10`, textAlign: 'center',
+                }}>
+                  <p style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: BRAND }}>
+                    Thanks for your report! We'll look into it.
+                  </p>
+                  <button
+                    onClick={() => setBugSubmitted(false)}
+                    style={{
+                      marginTop: '12px', background: 'none', border: 'none', cursor: 'pointer',
+                      fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, textDecoration: 'underline',
+                    }}
+                  >
+                    Submit another report
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <textarea
+                    value={bugDescription}
+                    onChange={e => setBugDescription(e.target.value)}
+                    placeholder="Describe the issue you encountered..."
+                    maxLength={2000}
+                    rows={5}
+                    style={{
+                      width: '100%', padding: '13px 16px',
+                      fontSize: '16px', fontFamily: FONT, color: TEXT,
+                      backgroundColor: WHITE, border: `1.5px solid ${BORDER}`,
+                      borderRadius: '12px', outline: 'none',
+                      boxSizing: 'border-box', resize: 'vertical',
+                      lineHeight: 1.5,
+                    }}
+                    onFocus={e => { e.target.style.borderColor = BRAND }}
+                    onBlur={e => { e.target.style.borderColor = BORDER }}
+                  />
+                  <button
+                    onClick={handleBugSubmit}
+                    disabled={!bugDescription.trim() || bugSubmitting}
+                    style={{
+                      marginTop: '12px', width: '100%', padding: '14px',
+                      backgroundColor: (!bugDescription.trim() || bugSubmitting) ? `${BRAND}60` : BRAND,
+                      color: WHITE, border: 'none', borderRadius: '12px',
+                      fontFamily: FONT, fontSize: '16px', fontWeight: 600,
+                      cursor: (!bugDescription.trim() || bugSubmitting) ? 'not-allowed' : 'pointer',
+                      transition: 'background-color 0.2s',
+                    }}
+                  >
+                    {bugSubmitting ? 'Submitting...' : 'Submit Report'}
+                  </button>
+                </>
+              )}
+            </div>
+
+          </div>
+        </div>
       </div>
     )
   }
@@ -3346,6 +4060,214 @@ const handleCodeChange = (index: number, value: string) => {
                 ))
               )}
 
+              {/* Swap Stats */}
+              {(adminData.swap_offered != null && adminData.swap_offered > 0) && (
+                <>
+                  <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '28px', marginBottom: '12px' }}>
+                    Swap Deals
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+                    {[
+                      { label: 'Offered', value: adminData.swap_offered },
+                      { label: 'Accepted', value: adminData.swap_accepted },
+                      { label: 'Declined', value: adminData.swap_declined },
+                      { label: 'Accept Rate', value: `${(adminData.swap_accept_rate || 0).toFixed(1)}%` },
+                    ].map(m => (
+                      <div key={m.label} style={{
+                        backgroundColor: WHITE, borderRadius: '12px', padding: '16px',
+                        border: `1px solid ${BORDER}`,
+                      }}>
+                        <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginBottom: '4px' }}>{m.label}</div>
+                        <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>{m.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* Payout Checklist */}
+              {adminPayouts.length > 0 && (
+                <>
+                  <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '28px', marginBottom: '12px' }}>
+                    Pending Payouts
+                  </div>
+                  {adminPayouts.map(p => (
+                    <div key={p.user_id} style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '12px 0', borderBottom: `1px solid ${BORDER}`,
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT, fontWeight: 500 }}>
+                          {p.name || 'No name'} — ${(p.total_cents / 100).toFixed(2)}
+                        </div>
+                        <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>
+                          {p.phone || p.email || 'No contact'} · {p.swap_count} swap{p.swap_count !== 1 ? 's' : ''} · since {new Date(p.oldest_swap).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          const res = await fetch('/api/admin/payouts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: p.user_id }) })
+                          if (res.ok) {
+                            setAdminPayouts(prev => prev.filter(x => x.user_id !== p.user_id))
+                            showToast(`Marked $${(p.total_cents / 100).toFixed(2)} as paid for ${p.name || 'user'}`)
+                          } else { showToast('Failed to mark as paid', 'error') }
+                        }}
+                        style={{ fontSize: '12px', padding: '6px 12px', borderRadius: '6px', border: `1px solid ${BRAND}`, backgroundColor: WHITE, cursor: 'pointer', fontFamily: FONT, color: BRAND, fontWeight: 600, flexShrink: 0 }}
+                      >Mark Paid</button>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {/* Deal Management */}
+              <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginTop: '28px', marginBottom: '12px' }}>
+                Manage Deals
+                <button
+                  onClick={() => { setShowDealForm(true); setEditingDealId(null); setDealForm({ competitor_product: '', offer_brand: '', offer_product: '', discount_cents: 0, daily_budget_cents: 0, status: 'active', ends_at: '', offer_price_cents: 0, competitor_price_cents: 0, offer_size: '', competitor_size: '', offer_unit_price: '', competitor_unit_price: '', why_bullets: '[]', allergen_notes: '', deal_type: 'sku_swap', quantity_offered: 1, trial_product_name: '', trial_size: '', campaign_tag: '' }) }}
+                  style={{ marginLeft: '12px', backgroundColor: BRAND, color: WHITE, border: 'none', borderRadius: '6px', padding: '4px 12px', fontFamily: FONT, fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+                >+ Add</button>
+              </div>
+
+              {showDealForm && (
+                <div style={{ backgroundColor: WHITE, borderRadius: '12px', padding: '16px', border: `1px solid ${BORDER}`, marginBottom: '16px' }}>
+                  {/* Deal Type selector */}
+                  <div style={{ marginBottom: '8px' }}>
+                    <label style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, display: 'block', marginBottom: '2px' }}>Deal Type</label>
+                    <select
+                      value={dealForm.deal_type}
+                      onChange={e => setDealForm(prev => ({ ...prev, deal_type: e.target.value, quantity_offered: e.target.value === 'bogo' ? 2 : 1 }))}
+                      style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '14px' }}
+                    >
+                      <option value="sku_swap">SKU Swap</option>
+                      <option value="bogo">BOGO (Buy One Get One)</option>
+                      <option value="trial">Trial (Free Sample)</option>
+                      <option value="seasonal">Seasonal / Limited-Time</option>
+                    </select>
+                  </div>
+                  {[
+                    { label: 'Competitor Product', key: 'competitor_product' as const, type: 'text' },
+                    { label: 'Offer Brand', key: 'offer_brand' as const, type: 'text' },
+                    { label: 'Offer Product', key: 'offer_product' as const, type: 'text' },
+                    { label: 'Discount (cents)', key: 'discount_cents' as const, type: 'number' },
+                    { label: 'Total Budget (cents)', key: 'daily_budget_cents' as const, type: 'number' },
+                    { label: 'Offer Price (cents)', key: 'offer_price_cents' as const, type: 'number' },
+                    { label: 'Competitor Price (cents)', key: 'competitor_price_cents' as const, type: 'number' },
+                    { label: 'Offer Size', key: 'offer_size' as const, type: 'text' },
+                    { label: 'Competitor Size', key: 'competitor_size' as const, type: 'text' },
+                    { label: 'Offer Unit Price', key: 'offer_unit_price' as const, type: 'text' },
+                    { label: 'Competitor Unit Price', key: 'competitor_unit_price' as const, type: 'text' },
+                    { label: 'Why Bullets (JSON array)', key: 'why_bullets' as const, type: 'text' },
+                    { label: 'Allergen Notes', key: 'allergen_notes' as const, type: 'text' },
+                  ].map(f => (
+                    <div key={f.key} style={{ marginBottom: '8px' }}>
+                      <label style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, display: 'block', marginBottom: '2px' }}>{f.label}</label>
+                      <input
+                        type={f.type}
+                        value={dealForm[f.key]}
+                        onChange={e => setDealForm(prev => ({ ...prev, [f.key]: f.type === 'number' ? parseInt(e.target.value) || 0 : e.target.value }))}
+                        style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '14px' }}
+                      />
+                    </div>
+                  ))}
+                  {/* Conditional fields by deal type */}
+                  {dealForm.deal_type === 'bogo' && (
+                    <div style={{ marginBottom: '8px' }}>
+                      <label style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, display: 'block', marginBottom: '2px' }}>Quantity Offered</label>
+                      <input type="number" value={dealForm.quantity_offered} onChange={e => setDealForm(prev => ({ ...prev, quantity_offered: parseInt(e.target.value) || 2 }))}
+                        style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '14px' }} />
+                    </div>
+                  )}
+                  {dealForm.deal_type === 'trial' && (
+                    <>
+                      <div style={{ marginBottom: '8px' }}>
+                        <label style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, display: 'block', marginBottom: '2px' }}>Trial Product Name</label>
+                        <input type="text" value={dealForm.trial_product_name} onChange={e => setDealForm(prev => ({ ...prev, trial_product_name: e.target.value }))}
+                          style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '14px' }} />
+                      </div>
+                      <div style={{ marginBottom: '8px' }}>
+                        <label style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, display: 'block', marginBottom: '2px' }}>Trial Size</label>
+                        <input type="text" value={dealForm.trial_size} onChange={e => setDealForm(prev => ({ ...prev, trial_size: e.target.value }))}
+                          style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '14px' }} />
+                      </div>
+                    </>
+                  )}
+                  {dealForm.deal_type === 'seasonal' && (
+                    <div style={{ marginBottom: '8px' }}>
+                      <label style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, display: 'block', marginBottom: '2px' }}>Campaign Tag</label>
+                      <input type="text" value={dealForm.campaign_tag} onChange={e => setDealForm(prev => ({ ...prev, campaign_tag: e.target.value }))}
+                        placeholder="e.g. holiday_2026"
+                        style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '14px' }} />
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                    <button
+                      onClick={async () => {
+                        const method = editingDealId ? 'PUT' : 'POST'
+                        const body = editingDealId ? { ...dealForm, id: editingDealId } : dealForm
+                        const res = await fetch('/api/admin/deals', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+                        if (res.ok) {
+                          const dealsRes = await fetch('/api/admin/deals')
+                          if (dealsRes.ok) setAdminDeals(await dealsRes.json())
+                          setShowDealForm(false)
+                          showToast(editingDealId ? 'Deal updated' : 'Deal created')
+                        } else { showToast('Failed to save deal', 'error') }
+                      }}
+                      style={{ flex: 1, backgroundColor: BRAND, color: WHITE, border: 'none', borderRadius: '8px', padding: '10px', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer' }}
+                    >{editingDealId ? 'Update' : 'Create'}</button>
+                    <button
+                      onClick={() => setShowDealForm(false)}
+                      style={{ padding: '10px 16px', borderRadius: '8px', border: `1px solid ${BORDER}`, backgroundColor: WHITE, fontFamily: FONT, fontSize: '15px', cursor: 'pointer', color: TEXT }}
+                    >Cancel</button>
+                  </div>
+                </div>
+              )}
+
+              {adminDeals.map(deal => (
+                <div key={deal.id} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '12px 0', borderBottom: `1px solid ${BORDER}`,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT, fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {deal.competitor_product} → {deal.offer_brand} {deal.offer_product}
+                      {deal.deal_type && deal.deal_type !== 'sku_swap' && (
+                        <span style={{ fontSize: '10px', fontWeight: 700, color: WHITE, backgroundColor: deal.deal_type === 'bogo' ? '#E67E22' : deal.deal_type === 'trial' ? '#27AE60' : '#E74C3C', padding: '1px 5px', borderRadius: '3px', textTransform: 'uppercase' as const }}>{deal.deal_type}</span>
+                      )}
+                    </div>
+                    <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>
+                      ${(deal.discount_cents / 100).toFixed(2)} off · Budget: ${(deal.daily_budget_cents / 100).toFixed(2)} · Spent: ${(deal.budget_spent_cents / 100).toFixed(2)} · {deal.status}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                    <button
+                      onClick={async () => {
+                        const newStatus = deal.status === 'active' ? 'paused' : 'active'
+                        await fetch('/api/admin/deals', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...deal, status: newStatus }) })
+                        const res = await fetch('/api/admin/deals')
+                        if (res.ok) setAdminDeals(await res.json())
+                      }}
+                      style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: `1px solid ${BORDER}`, backgroundColor: WHITE, cursor: 'pointer', fontFamily: FONT, color: TEXT }}
+                    >{deal.status === 'active' ? 'Pause' : 'Resume'}</button>
+                    <button
+                      onClick={() => {
+                        setEditingDealId(deal.id)
+                        setDealForm({ competitor_product: deal.competitor_product, offer_brand: deal.offer_brand, offer_product: deal.offer_product, discount_cents: deal.discount_cents, daily_budget_cents: deal.daily_budget_cents, status: deal.status, ends_at: deal.ends_at, offer_price_cents: deal.offer_price_cents, competitor_price_cents: deal.competitor_price_cents, offer_size: deal.offer_size, competitor_size: deal.competitor_size, offer_unit_price: deal.offer_unit_price, competitor_unit_price: deal.competitor_unit_price, why_bullets: deal.why_bullets, allergen_notes: deal.allergen_notes, deal_type: deal.deal_type || 'sku_swap', quantity_offered: deal.quantity_offered || 1, trial_product_name: deal.trial_product_name || '', trial_size: deal.trial_size || '', campaign_tag: deal.campaign_tag || '' })
+                        setShowDealForm(true)
+                      }}
+                      style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: `1px solid ${BORDER}`, backgroundColor: WHITE, cursor: 'pointer', fontFamily: FONT, color: TEXT }}
+                    >Edit</button>
+                    <button
+                      onClick={async () => {
+                        await fetch('/api/admin/deals', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: deal.id }) })
+                        const res = await fetch('/api/admin/deals')
+                        if (res.ok) setAdminDeals(await res.json())
+                      }}
+                      style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: `1px solid ${ERROR_RED}40`, backgroundColor: ERROR_RED_BG, cursor: 'pointer', fontFamily: FONT, color: ERROR_RED }}
+                    >Del</button>
+                  </div>
+                </div>
+              ))}
+
               {/* Item Analytics */}
               {analyticsData && (
                 <>
@@ -3463,18 +4385,50 @@ const handleCodeChange = (index: number, value: string) => {
             style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: '17px', fontWeight: 700 }}
             onClick={() => setScreen('home')}
           >thriftly</span>
-          <span style={{
-            position: 'absolute',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            fontFamily: FONT,
-            fontSize: '15px',
-            fontWeight: 600,
-            color: TEXT,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-          }}>{pageIcons['Shopping List']} Shopping List</span>
+          {editingListName ? (
+            <input
+              autoFocus
+              aria-label="List name"
+              value={listNameDraft}
+              onChange={e => setListNameDraft(e.target.value)}
+              onBlur={() => {
+                const trimmed = listNameDraft.trim()
+                setListName(trimmed)
+                setEditingListName(false)
+                fetchAPI('/api/settings', {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ list_name: trimmed }),
+                })
+              }}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+              maxLength={40}
+              placeholder="Shopping List"
+              style={{
+                position: 'absolute', left: '50%', transform: 'translateX(-50%)',
+                fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT,
+                background: 'transparent', border: 'none', borderBottom: `1.5px solid ${BRAND}`,
+                outline: 'none', textAlign: 'center', width: '160px', padding: '2px 0',
+              }}
+            />
+          ) : (
+            <span
+              onClick={() => { setListNameDraft(listName); setEditingListName(true) }}
+              style={{
+                position: 'absolute',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                fontFamily: FONT,
+                fontSize: '15px',
+                fontWeight: 600,
+                color: TEXT,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer',
+              }}
+            >{pageIcons['Shopping List']} {listName || 'Shopping List'}</span>
+          )}
           <div style={{ marginLeft: 'auto' }}>
             {renderMenu('home')}
           </div>
@@ -3485,7 +4439,7 @@ const handleCodeChange = (index: number, value: string) => {
           const checkedQty = items.filter(i => i.checked).reduce((s, i) => s + (i.quantity || 1), 0)
           const pct = Math.round((checkedQty / totalQty) * 100)
           return (
-            <div style={{ height: '3px', backgroundColor: BORDER }}>
+            <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Shopping list ${pct}% complete`} style={{ height: '3px', backgroundColor: BORDER }}>
               <div style={{
                 height: '100%',
                 width: `${pct}%`,
@@ -3507,7 +4461,7 @@ const handleCodeChange = (index: number, value: string) => {
               borderLeft: `3px solid ${trip.is_mine ? BRAND : BORDER}`, borderRadius: '4px',
               backgroundColor: BG, marginBottom: activeTrips.indexOf(trip) < activeTrips.length - 1 ? '4px' : 0,
             }}>
-              {isTripInProgress(trip) && <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4CAF50', flexShrink: 0 }} />}
+              {isTripInProgress(trip) && <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4a9470', flexShrink: 0 }} />}
               <span style={{ flex: 1, fontFamily: FONT, fontSize: '15px', color: TEXT }}>
                 <strong>{trip.is_mine ? 'You' : (trip.user_name || 'Someone')}</strong>
                 {' — '}
@@ -3518,15 +4472,15 @@ const handleCodeChange = (index: number, value: string) => {
                   {isTripInProgress(trip) && (
                     <button
                       onClick={() => {
-                        handleCancelTrip()
-                        if (items.length > 0) {
-                          const allChecked = items.every(i => i.checked)
-                          if (allChecked) {
-                            setShowDoneToast(true); setShowFireworks(true); setShowDoneOverlay(true)
-                          } else {
-                            showToast('Trip complete!')
-                          }
-                        }
+                        const checkedCount = items.filter(i => i.checked).length
+                        const totalCount = items.length
+                        setDoneSummaryData({ checkedCount, totalCount, tripStartedAt: trip.created_at })
+                        // Check if this is the user's first completed trip
+                        fetchAPI('/api/trips').then(data => {
+                          const d = data as { trips?: unknown[] } | null
+                          setIsFirstTrip(!d?.trips || d.trips.length <= 1)
+                        }).catch(() => setIsFirstTrip(false))
+                        setShowDoneSummary(true)
                       }}
                       style={{
                         fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: WHITE,
@@ -3537,9 +4491,10 @@ const handleCodeChange = (index: number, value: string) => {
                   )}
                   <button
                     onClick={handleCancelTrip}
+                    aria-label="Cancel trip"
                     style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: TEXT_SECONDARY, display: 'flex' }}
                   >
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
                   </button>
                 </div>
               )}
@@ -3548,12 +4503,52 @@ const handleCodeChange = (index: number, value: string) => {
         </div>
       )}
 
+      {/* Savings banner — tappable to see rebate history */}
+      {swapCreditsCents > 0 && (
+        <div
+          onClick={() => {
+            fetchAPI('/api/rebates').then(data => {
+              const d = data as Record<string, unknown> | null
+              if (d?.rebates) {
+                setRebateHistory(d.rebates as typeof rebateHistory)
+                setRebateSummary({ total_cents: (d.total_cents as number) || 0, pending_cents: (d.pending_cents as number) || 0, paid_cents: (d.paid_cents as number) || 0 })
+              }
+            }).catch(() => {})
+            pushModalState()
+            setShowSavingsSheet(true)
+          }}
+          style={{
+            flexShrink: 0, padding: '10px 20px', backgroundColor: '#F0F7F4',
+            borderBottom: `1px solid ${BORDER}`, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}
+        >
+          <span style={{ fontFamily: FONT, fontSize: '14px', color: BRAND, fontWeight: 600 }}>
+            You've saved ${(swapCreditsCents / 100).toFixed(2)} with Penny
+          </span>
+          <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>View details ›</span>
+        </div>
+      )}
+
       {/* Scrollable list — tap to dismiss keyboard */}
-      <div ref={listAreaRef} style={listStyles.listArea} onClick={e => {
+      <div ref={listAreaRef} style={{
+        ...listStyles.listArea,
+        ...(pullDistance > 0 ? { transform: `translateY(${pullDistance}px)`, transition: isPulling.current ? 'none' : 'transform 0.2s ease' } : {}),
+      }} onClick={e => {
         if (e.target === e.currentTarget || !(e.target as HTMLElement).closest('button, a, input, textarea')) {
           chatInputRef.current?.blur()
         }
       }}>
+        {/* Pull-to-refresh indicator */}
+        {(pullDistance > 0 || pullRefreshing) && (
+          <div style={{
+            position: 'absolute', top: -40, left: 0, right: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            height: '40px', fontFamily: FONT, fontSize: '13px', color: TEXT_SECONDARY,
+          }}>
+            {pullRefreshing ? 'Refreshing...' : pullDistance >= 50 ? 'Release to refresh' : 'Pull to refresh'}
+          </div>
+        )}
         {chatLoading && (
           <div style={{
             position: 'absolute',
@@ -3563,7 +4558,35 @@ const handleCodeChange = (index: number, value: string) => {
             pointerEvents: 'auto',
           }} />
         )}
-        {items.length === 0 && !chatLoading ? (
+        {listLoading && items.length === 0 ? (
+          <div style={{ padding: '8px 0' }}>
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', padding: '12px 20px',
+                borderBottom: `1px solid ${BORDER}`, backgroundColor: WHITE,
+              }}>
+                <div className="skeleton-shimmer" style={{
+                  width: '22px', height: '22px', borderRadius: '50%',
+                  backgroundColor: SKELETON, marginRight: '12px', flexShrink: 0,
+                }} />
+                <div className="skeleton-shimmer" style={{
+                  width: '44px', height: '44px', borderRadius: '8px',
+                  backgroundColor: SKELETON, marginRight: '10px', flexShrink: 0,
+                }} />
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column' as const, gap: '6px' }}>
+                  <div className="skeleton-shimmer" style={{
+                    height: '14px', borderRadius: '4px', backgroundColor: SKELETON,
+                    width: `${50 + i * 10}%`,
+                  }} />
+                  <div className="skeleton-shimmer" style={{
+                    height: '10px', borderRadius: '4px', backgroundColor: SKELETON,
+                    width: `${30 + i * 5}%`,
+                  }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : items.length === 0 && !chatLoading ? (
           <div style={listStyles.emptyState}>
             <p style={listStyles.emptyText}>Your list is empty.</p>
             <p style={listStyles.emptySubtext}>Tell Penny what you need.</p>
@@ -3581,68 +4604,28 @@ const handleCodeChange = (index: number, value: string) => {
                   style={listStyles.deptHeader(isOpen, deptIdx === 0)}
                   onClick={() => handleDeptClick(dept)}
                   aria-expanded={isOpen}
+                  aria-label={`${dept}, ${deptChecked} of ${deptTotal} items checked`}
                 >
-                  <span style={{ width: '52px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, paddingLeft: '9px', boxSizing: 'border-box' }}>
+                  <span style={{ width: '52px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, paddingLeft: '9px', boxSizing: 'border-box' }} aria-hidden="true">
                     {deptDone ? <span style={{ color: BRAND, fontSize: '15px' }}>✓</span> : <DeptIcon dept={dept} />}
                   </span>
                   <span style={deptDone ? { textDecoration: 'line-through', opacity: 0.5 } : undefined}>{dept}</span>
-                  <span style={listStyles.deptCount}>{deptChecked}/{deptTotal}</span>
-                  <span style={listStyles.deptChevron(isOpen)}>›</span>
+                  <span style={listStyles.deptCount} aria-hidden="true">{deptChecked}/{deptTotal}</span>
+                  <span style={listStyles.deptChevron(isOpen)} aria-hidden="true">›</span>
                 </button>
-                {isOpen && deptItems.map((item) => {
-                  return (
-                  <div key={item.id} style={{
-                    ...listStyles.itemRow,
-                    ...(item.checked ? { backgroundColor: '#F5F4F1', opacity: 0.7 } : {}),
-                    ...(newItemIds.has(item.id) ? {
-                      backgroundColor: `${BRAND}15`,
-                      transition: 'background-color 1.5s ease',
-                    } : {}),
-                    ...(!item.checked && item.urgent ? { backgroundColor: '#FEF2F2' } : {}),
-                  }}>
-                    <button onClick={() => handleToggle(item.id)} style={listStyles.itemCheckBtn}>
-                      <span style={listStyles.itemCheck(item.checked)}>
-                        {item.checked && '✓'}
-                      </span>
-                    </button>
-                    <div style={{ marginRight: '10px' }}>
-                      <BrandLogo brand={item.brand} size={52} opacity={item.checked ? 0.4 : 1} />
-                    </div>
-                    <div style={listStyles.itemCenter} onClick={() => openDetail(item)}>
-                      <span style={listStyles.itemName(item.checked)}>
-                        {item.brand ? `${item.brand} ` : ''}{item.name}
-                      </span>
-                      {(item.quantity > 1 || item.size || item.notes) && (
-                        <span style={listStyles.itemMeta}>
-                          {item.quantity > 1 ? `×${item.quantity}` : ''}{item.quantity > 1 && item.size ? ' · ' : ''}{item.size}{(item.quantity > 1 || item.size) && item.notes ? ' · ' : ''}{item.notes}
-                        </span>
-                      )}
-                    </div>
-                    {(item.urgent || item.claimed_by_id) && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end', flexShrink: 0 }}>
-                        {item.urgent && (
-                          <span style={{
-                            backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #E53E3E40',
-                            fontSize: '12px', fontWeight: 600, borderRadius: '10px', padding: '2px 8px',
-                            whiteSpace: 'nowrap',
-                          }}>🔥 urgent</span>
-                        )}
-                        {item.claimed_by_id && (
-                          <span style={{
-                            fontSize: '12px', fontWeight: 600, borderRadius: '10px', padding: '2px 8px',
-                            whiteSpace: 'nowrap',
-                            ...(item.claimed_by_id === currentUserId
-                              ? { backgroundColor: '#F0FFF4', color: '#276749', border: '1px solid #27674940' }
-                              : { backgroundColor: '#F7F6F3', color: TEXT, border: `1px solid ${BORDER}` }),
-                          }}>
-                            {item.claimed_by_id === currentUserId ? 'Me' : (item.claimed_by_name?.[0] || '?')}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  )
-                })}
+                {isOpen && deptItems.map((item) => (
+                  <ItemRow
+                    key={item.id}
+                    item={item}
+                    isNew={newItemIds.has(item.id)}
+                    currentUserId={currentUserId}
+                    swap={swapsByItemId[item.id]}
+                    onToggle={handleToggle}
+                    onTap={openDetail}
+                    onSwapAccept={handleSwapAccept}
+                    onSwapDecline={handleSwapDecline}
+                  />
+                ))}
               </div>
             )
           })
@@ -3650,8 +4633,142 @@ const handleCodeChange = (index: number, value: string) => {
       </div>
 
 
+      {/* Trip planner suggestion banner — once per session, 5+ unchecked items */}
+      {screen === 'home' && !tripSuggestionDismissed && !showTripSheet && items.filter(i => !i.checked).length >= 5 && (
+        <div style={{
+          margin: '0 16px 8px',
+          padding: '10px 14px',
+          backgroundColor: BRAND_LIGHT,
+          borderRadius: RADIUS_MD,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '8px',
+        }}>
+          <button
+            onClick={() => {
+              sessionStorage.setItem('penny_trip_suggested', 'true')
+              setTripSuggestionDismissed(true)
+              pushModalState()
+              setShowTripSheet(true)
+            }}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+              fontFamily: FONT, fontSize: '14px', fontWeight: 500, color: BRAND,
+              textAlign: 'left' as const, flex: 1,
+            }}
+          >
+            Ready to shop? Plan a trip &rarr;
+          </button>
+          <button
+            onClick={() => {
+              sessionStorage.setItem('penny_trip_suggested', 'true')
+              setTripSuggestionDismissed(true)
+            }}
+            aria-label="Dismiss trip suggestion"
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: '4px',
+              color: TEXT_SECONDARY, fontSize: '18px', lineHeight: 1, flexShrink: 0,
+            }}
+          >&times;</button>
+        </div>
+      )}
+
       {/* Confetti on list completion */}
       {showFireworks && <Confetti onComplete={() => setShowFireworks(false)} />}
+
+      {/* Done Shopping Summary */}
+      {showDoneSummary && doneSummaryData && (
+        <div role="presentation" style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center',
+          backgroundColor: 'rgba(0,0,0,0.6)',
+          padding: '24px',
+        }}>
+          <div role="dialog" aria-modal="true" aria-label="Trip summary" style={{
+            backgroundColor: WHITE, borderRadius: '20px', padding: '32px 24px',
+            maxWidth: '360px', width: '100%', textAlign: 'center' as const,
+          }}>
+            <div style={{ fontSize: '48px', marginBottom: '12px' }}>
+              {isFirstTrip ? '🎉' : '✓'}
+            </div>
+            <div style={{ fontFamily: FONT, fontSize: '22px', fontWeight: 700, color: TEXT, marginBottom: '4px' }}>
+              {isFirstTrip ? 'First trip complete!' : 'Nice work!'}
+            </div>
+            <div style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, marginBottom: '20px' }}>
+              {doneSummaryData.checkedCount} of {doneSummaryData.totalCount} item{doneSummaryData.totalCount !== 1 ? 's' : ''} checked off
+            </div>
+
+            {/* Save as list option */}
+            {doneSummaryData.checkedCount > 0 && (
+              <button
+                onClick={async () => {
+                  const listName = `Trip ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                  const res = await fetchAPI('/api/saved-lists', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: listName, items: items.filter(i => i.checked).map(i => ({ name: i.name, brand: i.brand, department: i.department, quantity: i.quantity, size: i.size, notes: i.notes })) }),
+                  })
+                  if (res) showToast(`Saved as "${listName}"`)
+                  else showToast('Could not save list', 'error')
+                }}
+                style={{
+                  width: '100%', padding: '12px', borderRadius: '10px',
+                  border: `1px solid ${BORDER}`, backgroundColor: BG,
+                  fontFamily: FONT, fontSize: '14px', color: TEXT, cursor: 'pointer',
+                  marginBottom: '8px',
+                }}
+              >
+                Save this list for next time
+              </button>
+            )}
+
+            {/* Clear checked items */}
+            <button
+              onClick={async () => {
+                await handleCancelTrip()
+                if (doneSummaryData.checkedCount > 0) {
+                  await handleClearList()
+                }
+                setShowDoneSummary(false)
+                setDoneSummaryData(null)
+                if (isFirstTrip) {
+                  setShowFireworks(true)
+                }
+                showToast('Trip complete!')
+              }}
+              style={{
+                width: '100%', padding: '14px', borderRadius: '10px',
+                backgroundColor: BRAND, color: WHITE, border: 'none',
+                fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+                marginBottom: '8px',
+              }}
+            >
+              {doneSummaryData.checkedCount > 0 ? 'Clear checked & finish' : 'Finish trip'}
+            </button>
+
+            <button
+              onClick={() => { setShowDoneSummary(false); setDoneSummaryData(null) }}
+              style={{
+                width: '100%', padding: '10px', background: 'none', border: 'none',
+                fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, cursor: 'pointer',
+              }}
+            >
+              Keep shopping
+            </button>
+
+            {/* Future: receipt scan placeholder */}
+            <div style={{
+              marginTop: '16px', padding: '10px', borderRadius: '8px',
+              backgroundColor: `${BRAND}08`, border: `1px dashed ${BRAND}30`,
+            }}>
+              <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>
+                Receipt scanning coming soon
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* "You're done!" overlay */}
       {showDoneOverlay && (
@@ -3698,692 +4815,242 @@ const handleCodeChange = (index: number, value: string) => {
         aria-label="Upload photos"
       />
 
-      {/* Penny — always visible above chat, keyboard-aware */}
-      <div style={{ flexShrink: 0, backgroundColor: toast?.type === 'error' ? '#FEE2E2' : '#F5F3EF', borderTop: `1px solid ${BORDER}`, overflow: 'hidden' }}>
-        <div style={{ padding: keyboardOpen ? '6px 12px' : '12px 16px', transition: 'padding 200ms ease' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: keyboardOpen ? '8px' : '10px' }}>
-            <PennyAvatar size={keyboardOpen ? 28 : 36} />
-            <span style={{ flex: 1, fontFamily: FONT, fontSize: keyboardOpen ? '13px' : '14px', color: toast?.type === 'error' ? '#991B1B' : TEXT, fontWeight: 500, display: '-webkit-box' as const, WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden', minHeight: keyboardOpen ? undefined : '20px', transition: 'font-size 200ms ease' }}>
-              {pennyDisambig.length > 0 && pennyDisambigIndex < pennyDisambig.length
-                ? (() => { const d = pennyDisambig[pennyDisambigIndex]; return d.current_brand ? `${d.product_category} (${d.current_brand}) — which brand?` : `${d.product_category} — which brand?` })()
-                : homePennyText}
-              {pennyDisambig.length === 0 && homePennyTyping && <span className="cursor-blink" style={{ fontWeight: 300, marginLeft: '1px' }}>|</span>}
-            </span>
-            {pennyDisambig.length > 1 && pennyDisambigIndex < pennyDisambig.length && keyboardOpen && (
-              <span style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, flexShrink: 0 }}>{pennyDisambigIndex + 1}/{pennyDisambig.length}</span>
-            )}
-            {pennyDisambig.length === 0 && pennyStatus && <span className="penny-pulse" style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: BRAND, flexShrink: 0 }} />}
-          </div>
-          {pennyDisambig.length === 0 && !keyboardOpen && homePennyBtns.length > 0 && (
-            <div style={{ display: 'flex', gap: '8px', marginTop: '8px', paddingLeft: keyboardOpen ? '36px' : '46px' }}>
-              {homePennyBtns.map((btn, i) => (
-                <button key={i} onClick={btn.onClick} style={pennyBtnStyle}>{btn.label}</button>
-              ))}
-            </div>
-          )}
-        </div>
-        {pennyDisambig.length > 0 && pennyDisambigIndex < pennyDisambig.length && (() => {
-          const d = pennyDisambig[pennyDisambigIndex]
-          return (
-            <div style={{ position: 'relative' }}>
-              <div style={{ display: 'flex', flexWrap: 'nowrap', overflowX: 'auto', gap: '6px', padding: keyboardOpen ? '4px 12px 6px 42px' : '4px 16px 10px 56px', WebkitOverflowScrolling: 'touch' as any, scrollbarWidth: 'none' as any, msOverflowStyle: 'none' as any }}>
-                {d.current_brand && !d.alternatives.includes(d.current_brand) && (
-                  <button onClick={() => handleBrandPick(d.current_brand)} style={{ ...pennyBtnStyle, padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0, boxShadow: `0 0 0 2px ${BRAND}` }}>{d.current_brand}</button>
-                )}
-                {d.alternatives.filter(a => a !== '').map((alt, i) => (
-                  <button key={i} onClick={() => handleBrandPick(alt)} style={{
-                    ...pennyBtnStyle,
-                    padding: keyboardOpen ? '4px 10px' : '5px 12px',
-                    flexShrink: 0,
-                    ...(alt === d.current_brand ? { boxShadow: `0 0 0 2px ${BRAND}` } : { background: 'transparent', color: TEXT, border: `1px solid ${BORDER}` }),
-                  }}>{alt}</button>
-                ))}
-                <button onClick={() => advanceDisambig()} style={{ ...pennyBtnStyle, background: 'transparent', color: TEXT_SECONDARY, border: `1px solid ${BORDER}`, padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0 }}>Skip</button>
-                {pennyDisambig.length > 1 && !keyboardOpen && (
-                  <span style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, alignSelf: 'center', paddingLeft: '4px', flexShrink: 0 }}>{pennyDisambigIndex + 1}/{pennyDisambig.length}</span>
-                )}
-              </div>
-              <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: '28px', background: `linear-gradient(to right, transparent, ${toast?.type === 'error' ? '#FEE2E2' : '#F5F3EF'})`, pointerEvents: 'none' }} />
-            </div>
-          )
-        })()}
-      </div>
-
-
-      {/* Thumbnail strip above chat bar */}
-      {pendingImages.length > 0 && (
-        <div style={{ display: 'flex', gap: '8px', padding: '8px 12px', overflowX: 'auto', backgroundColor: WHITE, borderTop: `1px solid ${BORDER}`, flexShrink: 0 }}>
-          {pendingImages.map((img, idx) => (
-            <div key={idx} style={{ position: 'relative', flexShrink: 0 }}>
-              <img src={img} alt={`Preview ${idx + 1}`} style={{
-                width: '56px',
-                height: '56px',
-                borderRadius: '8px',
-                objectFit: 'cover',
-              }} />
-              <button
-                aria-label={`Remove image ${idx + 1}`}
-                onClick={() => setPendingImages(prev => prev.filter((_, i) => i !== idx))}
-                style={{
-                  position: 'absolute',
-                  top: '-6px',
-                  right: '-6px',
-                  width: '18px',
-                  height: '18px',
-                  borderRadius: '50%',
-                  backgroundColor: TEXT,
-                  color: WHITE,
-                  border: 'none',
-                  fontSize: '12px',
-                  lineHeight: '18px',
-                  textAlign: 'center',
-                  cursor: 'pointer',
-                  padding: 0,
-                }}
-              >×</button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Bottom chat bar — pill with + icon outside (iOS style) */}
-      <div style={listStyles.chatBar}>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px' }}>
-          <button
-            title="Add photo"
-            onMouseDown={e => { e.preventDefault(); fileInputRef.current?.click() }}
-            onTouchEnd={e => { e.preventDefault(); fileInputRef.current?.click() }}
-            style={{ flexShrink: 0, width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', WebkitTapHighlightColor: 'transparent', padding: 0, marginBottom: '3px' }}
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          </button>
-        <div style={listStyles.chatPill}>
-          <textarea
-            ref={chatInputRef}
-            rows={1}
-            enterKeyHint="send"
-            placeholder={pennyDisambig.length > 0 && pennyDisambigIndex < pennyDisambig.length ? "Or type a brand name\u2026" : "Tell Penny what you need\u2026"}
-            value={chatText}
-            onChange={e => {
-              setChatText(e.target.value)
-              e.target.style.height = 'auto'
-              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
-            }}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat() }
-            }}
-            onPaste={handlePaste}
-            disabled={chatLoading}
-            style={{ ...listStyles.chatPillInput, resize: 'none' as const, overflowY: 'hidden' as const, maxHeight: '120px' }}
-          />
-          <button
-            onClick={handleSendChat}
-            disabled={(!chatText.trim() && pendingImages.length === 0) || chatLoading}
-            style={listStyles.chatPillSend((!!chatText.trim() || pendingImages.length > 0) && !chatLoading)}
-          >
-            {chatLoading
-              ? <span style={{ fontSize: '12px', fontFamily: FONT }}>…</span>
-              : <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-                  <path d="M18 2L9 11M18 2l-6 16-3-7-7-3 16-6z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-            }
-          </button>
-        </div>
-        </div>
-      </div>
+      {/* Penny text + disambiguation + chat input */}
+      <PennyBar
+        pennyText={homePennyText}
+        pennyTyping={homePennyTyping}
+        pennyStatus={!!pennyStatus}
+        buttons={homePennyBtns}
+        toastError={toast?.type === 'error'}
+        keyboardOpen={keyboardOpen}
+        disambig={pennyDisambig.map(d => ({ product_category: d.product_category, current_brand: d.current_brand, alternatives: d.alternatives }))}
+        disambigIndex={pennyDisambigIndex}
+        onBrandPick={handleBrandPick}
+        onSkipDisambig={advanceDisambig}
+        pendingImages={pendingImages}
+        onRemoveImage={(idx) => setPendingImages(prev => prev.filter((_, i) => i !== idx))}
+        chatText={chatText}
+        onChatTextChange={setChatText}
+        chatLoading={chatLoading}
+        onSend={handleSendChat}
+        onPaste={handlePaste}
+        onAddPhoto={() => fileInputRef.current?.click()}
+        chatInputRef={chatInputRef}
+      />
 
       {/* Trip planner bottom sheet */}
-      {showTripSheet && (() => {
-        const myTrip = activeTrips.find(t => t.is_mine)
-        if (myTrip) {
-          return (
-            <ActionSheet isOpen={true} onClose={() => { popModalState(); setShowTripSheet(false) }} title="Your planned trip" maxHeight="60dvh">
-              <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-                </svg>
-                <p style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 600, color: TEXT, margin: '12px 0 4px' }}>
-                  {isTripInProgress(myTrip) ? 'Shopping now!' : formatTripTime(myTrip)}
-                </p>
-                <p style={{ fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY, margin: 0 }}>
-                  Everyone on your list can see this.
-                </p>
-              </div>
-              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                <button
-                  onClick={() => { handleCancelTrip(); setShowTripSheet(false) }}
-                  style={{ ...listStyles.sheetButton, flex: 1, backgroundColor: '#FEE2E2', color: '#DC2626', border: 'none' }}
-                >Cancel Trip</button>
-              </div>
-            </ActionSheet>
-          )
-        }
-        return (
-          <ActionSheet isOpen={true} onClose={() => { popModalState(); setShowTripSheet(false) }} title="Plan a shopping trip" maxHeight="60dvh">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <p style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: TEXT, margin: 0 }}>When?</p>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'nowrap', alignItems: 'center' }}>
-                {[
-                  { label: 'Today', value: todayStr },
-                  { label: 'Tomorrow', value: tomorrowStr },
-                  { label: 'Weekend', value: satStr },
-                ].map(opt => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setTripDay(opt.value)}
-                    style={{
-                      padding: '6px 12px', borderRadius: '20px', border: `1.5px solid ${tripDay === opt.value ? BRAND : BORDER}`,
-                      backgroundColor: tripDay === opt.value ? BRAND : WHITE, color: tripDay === opt.value ? WHITE : TEXT,
-                      fontFamily: FONT, fontSize: '14px', fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
-                    }}
-                  >{opt.label}</button>
-                ))}
-                <select
-                  value={getDayOptions().some(o => o.value === tripDay) ? tripDay : ''}
-                  onChange={e => setTripDay(e.target.value)}
-                  style={{
-                    padding: '6px 10px', borderRadius: '20px',
-                    border: `1.5px solid ${getDayOptions().some(o => o.value === tripDay) ? BRAND : BORDER}`,
-                    backgroundColor: getDayOptions().some(o => o.value === tripDay) ? BRAND : WHITE,
-                    color: getDayOptions().some(o => o.value === tripDay) ? WHITE : TEXT_SECONDARY,
-                    fontFamily: FONT, fontSize: '14px', cursor: 'pointer', flexShrink: 0, minWidth: 0,
-                  }}
-                >
-                  <option value="">More...</option>
-                  {getDayOptions().map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-
-              <p style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: TEXT, margin: 0 }}>
-                What time? <span style={{ fontWeight: 400, color: TEXT_SECONDARY }}>(optional)</span>
-              </p>
-              {tripTimeLabel === 'exact' ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <input
-                    type="time"
-                    value={tripExactTime}
-                    onChange={e => setTripExactTime(e.target.value)}
-                    autoFocus
-                    style={{
-                      flex: 1, padding: '6px 12px', borderRadius: '20px',
-                      border: `1.5px solid ${BRAND}`,
-                      fontFamily: FONT, fontSize: '14px', color: TEXT,
-                      height: '36px', boxSizing: 'border-box' as const,
-                    }}
-                  />
-                  <button
-                    onClick={() => setTripTimeLabel('')}
-                    style={{
-                      padding: '6px 12px', borderRadius: '20px', border: `1.5px solid ${BORDER}`,
-                      backgroundColor: WHITE, color: TEXT_SECONDARY,
-                      fontFamily: FONT, fontSize: '14px', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
-                    }}
-                  >Clear</button>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'nowrap' }}>
-                  {['Morning', 'Afternoon', 'Evening', 'Exact'].map(t => (
-                    <button
-                      key={t}
-                      onClick={() => setTripTimeLabel(tripTimeLabel === t.toLowerCase() ? '' : t.toLowerCase())}
-                      style={{
-                        flex: 1, padding: '6px 4px', borderRadius: '20px',
-                        border: `1.5px solid ${tripTimeLabel === t.toLowerCase() ? BRAND : BORDER}`,
-                        backgroundColor: tripTimeLabel === t.toLowerCase() ? BRAND : WHITE,
-                        color: tripTimeLabel === t.toLowerCase() ? WHITE : TEXT,
-                        fontFamily: FONT, fontSize: '13px', fontWeight: 500, cursor: 'pointer',
-                      }}
-                    >{t}</button>
-                  ))}
-                </div>
-              )}
-
-              <button
-                onClick={() => handleSetTrip(false)}
-                disabled={!tripDay}
-                style={{ ...listStyles.sheetButton, padding: '12px', marginTop: '2px', opacity: tripDay ? 1 : 0.4 }}
-              >Save</button>
-              <button
-                onClick={() => setShowTripSheet(false)}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  fontFamily: FONT, fontSize: '15px', color: TEXT_SECONDARY,
-                  padding: '4px 0', textAlign: 'center' as const, width: '100%',
-                }}
-              >Cancel</button>
-            </div>
-          </ActionSheet>
-        )
-      })()}
+      {showTripSheet && (
+        <TripPlannerSheet
+          activeTrips={activeTrips}
+          onClose={() => { popModalState(); setShowTripSheet(false) }}
+          onSaveTrip={handleSetTrip}
+          onCancelTrip={handleCancelTrip}
+          formatTripTime={formatTripTime}
+          isTripInProgress={isTripInProgress}
+          getDayOptions={getDayOptions}
+          todayStr={todayStr}
+          tomorrowStr={tomorrowStr}
+          satStr={satStr}
+          listStyles={listStyles}
+        />
+      )}
 
       {/* NPS Survey Modal — Penny asks */}
       {showNPS && (
-        <div onClick={closeNPS} style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <div onClick={e => e.stopPropagation()} style={{
-            backgroundColor: WHITE, borderRadius: '16px', padding: '24px',
-            width: '90%', maxWidth: '360px', position: 'relative',
-          }}>
-            <button onClick={closeNPS} style={{
-              position: 'absolute', top: '12px', right: '12px',
-              background: 'none', border: 'none', fontSize: '20px', color: TEXT_SECONDARY, cursor: 'pointer', zIndex: 1,
-            }}>×</button>
+        <NPSSurveyModal onClose={closeNPS} onSubmit={handleNPSSubmit} />
+      )}
 
-            {/* Penny speech bubble */}
-            <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', paddingRight: '24px' }}>
-              <PennyAvatar />
-              <div style={{
-                flex: 1, backgroundColor: BG, borderRadius: '14px', padding: '12px 14px',
-                fontFamily: FONT, fontSize: '15px', color: TEXT, lineHeight: '1.4', position: 'relative',
-              }}>
-                {npsTypedText}{!npsTypingDone && <span style={{ opacity: 0.4 }}>|</span>}
-              </div>
-            </div>
-
-            {/* Controls appear after typing finishes */}
-            {npsTypingDone && (
-              npsStep === 1 ? (
-                <>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(11, 1fr)', gap: '4px', marginBottom: '8px' }}>
-                    {Array.from({ length: 11 }, (_, i) => (
-                      <button key={i} onClick={() => { setNpsScore(i); setNpsStep(2) }} style={{
-                        height: '40px', borderRadius: '10px',
-                        border: `1.5px solid ${BRAND}30`, backgroundColor: WHITE,
-                        fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: BRAND,
-                        cursor: 'pointer', padding: 0,
-                      }}>{i}</button>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY }}>
-                    <span>Not likely</span><span>Very likely</span>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <textarea
-                    value={npsComment}
-                    onChange={e => setNpsComment(e.target.value)}
-                    placeholder={`What's behind your score of ${npsScore}? (optional)`}
-                    rows={3}
-                    autoFocus
-                    style={{
-                      width: '100%', padding: '10px', borderRadius: '8px',
-                      border: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '15px',
-                      resize: 'vertical', marginBottom: '16px', boxSizing: 'border-box',
-                    }}
-                  />
-                  <button onClick={handleNPSSubmit} style={{
-                    width: '100%', padding: '12px', borderRadius: '10px',
-                    backgroundColor: BRAND, color: WHITE, border: 'none',
-                    fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer',
-                  }}>Submit</button>
-                </>
-              )
-            )}
+      {/* Post-auth join prompt from shared list link */}
+      {showJoinPrompt && (
+        <div role="presentation" style={{ position: 'fixed', inset: 0, zIndex: 9999, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div role="dialog" aria-modal="true" aria-label="Join shared list" style={{ backgroundColor: WHITE, borderRadius: '16px', padding: '32px 24px', maxWidth: '360px', width: '100%', textAlign: 'center' }}>
+            <PennyAvatar size={64} />
+            <h2 style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: TEXT, margin: '16px 0 8px' }}>
+              {joinPromptName ? `${joinPromptName} wants to shop together!` : 'Shop together!'}
+            </h2>
+            <p style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, margin: '0 0 24px', lineHeight: 1.5 }}>
+              You'll share one shopping list — items either of you add will show up for both of you.
+            </p>
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetch('/api/join', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code: joinPromptCode }),
+                  })
+                  const data = await res.json().catch(() => null)
+                  if (res.ok) {
+                    showToast(data?.penny_message || `You joined ${joinPromptName ? joinPromptName + "'s" : 'the shared'} list!`)
+                  } else {
+                    showToast(data?.error || 'Could not join — the invite may have expired', 'error')
+                  }
+                } catch {
+                  showToast('Could not join right now', 'error')
+                }
+                setShowJoinPrompt(false)
+              }}
+              style={{ backgroundColor: BRAND, color: WHITE, border: 'none', borderRadius: '10px', padding: '14px 0', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer', width: '100%', marginBottom: '12px' }}
+            >
+              Shop together{joinPromptName ? ` with ${joinPromptName}` : ''}
+            </button>
+            <button
+              onClick={() => setShowJoinPrompt(false)}
+              style={{ background: 'none', border: 'none', fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, cursor: 'pointer', padding: '8px' }}
+            >
+              Start my own list
+            </button>
           </div>
         </div>
       )}
 
       {/* Item detail sheet */}
       {selectedItem && (
-        <div style={listStyles.overlay} onClick={() => closeEditSheet()} role="presentation">
-          <div role="dialog" aria-modal="true" aria-label="Edit item" style={{
-            width: '100%', height: '100dvh', backgroundColor: WHITE,
-            display: 'flex', flexDirection: 'column' as const,
-          }} onClick={e => e.stopPropagation()}>
-            {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
-              <button onClick={() => closeEditSheet()} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', color: TEXT }}>
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M15 5L5 15M5 5l10 10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
-              </button>
-              <span style={{ flex: 1, textAlign: 'center', fontFamily: FONT, fontSize: '17px', fontWeight: 600, color: TEXT }}>Edit item</span>
-              <div style={{ width: '28px' }} />
-            </div>
-            {/* Scrollable content */}
-            <div style={{ flex: 1, overflowY: 'auto' as const, padding: '20px', display: 'flex', flexDirection: 'column' as const, gap: '14px' }}>
-            {/* Brand field with logo */}
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px' }}>
-              <div style={{ flex: 1 }}>
-                <FloatingLabelField label="Brand">
-                  <input
-                    type="text"
-                    value={editForm.brand}
-                    onChange={e => setEditForm(f => ({ ...f, brand: e.target.value }))}
-                    onBlur={() => setDisplayBrand(editForm.brand)}
-                    placeholder="Optional"
-                    style={listStyles.floatingInput}
-                  />
-                </FloatingLabelField>
-              </div>
-              <BrandLogo brand={displayBrand || undefined} size={44} />
-            </div>
-
-            <FloatingLabelField label="Name">
-              <input
-                type="text"
-                value={editForm.name}
-                onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
-                placeholder="Item name"
-                style={listStyles.floatingInput}
-                autoFocus
-              />
-            </FloatingLabelField>
-
-            <FloatingLabelField label="Department">
-              <select
-                value={editForm.dept}
-                onChange={e => setEditForm(f => ({ ...f, dept: e.target.value }))}
-                style={listStyles.floatingSelect}
-              >
-                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </FloatingLabelField>
-
-            <div style={listStyles.sheetRow}>
-              <div style={{ flex: 1 }}>
-                <FloatingLabelField label="Size">
-                  <input
-                    type="text"
-                    list="size-suggestions"
-                    value={editForm.size}
-                    onChange={e => setEditForm(f => ({ ...f, size: e.target.value }))}
-                    placeholder="e.g. 16 oz, 1 lb"
-                    style={listStyles.floatingInput}
-                  />
-                </FloatingLabelField>
-                <datalist id="size-suggestions">
-                  {['4 oz','8 oz','12 oz','16 oz','24 oz','32 oz','1 lb','2 lb','5 lb','½ gal','1 gal','Small','Medium','Large','XL'].map(s => (
-                    <option key={s} value={s} />
-                  ))}
-                </datalist>
-              </div>
-              <div>
-                <FloatingLabelField label="Qty">
-                  <QuantityControl value={editForm.qty} onChange={(v: number) => setEditForm(f => ({ ...f, qty: v }))} />
-                </FloatingLabelField>
-              </div>
-            </div>
-
-            <FloatingLabelField label="Notes">
-              <input
-                type="text"
-                value={editForm.notes}
-                onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
-                placeholder="e.g. Tangerine flavor, organic"
-                style={listStyles.floatingInput}
-              />
-            </FloatingLabelField>
-
-            {/* Urgent toggle */}
-            {selectedItem && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderTop: `1px solid ${BORDER}`, marginTop: '4px' }}>
-                <span style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>🔥 Urgent</span>
-                <ToggleSwitch label="Urgent" value={selectedItem.urgent} onChange={() => { handleUrgentToggle(selectedItem.id); setSelectedItem(prev => prev ? { ...prev, urgent: !prev.urgent } : prev) }} />
-              </div>
-            )}
-
-            {/* Claim UI */}
-            {selectedItem && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: `1px solid ${BORDER}` }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={selectedItem.claimed_by_id ? BRAND : TEXT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
-                    <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
-                  </svg>
-                  <span style={{ fontFamily: FONT, fontSize: '15px', color: TEXT }}>
-                    {!selectedItem.claimed_by_id ? "I'll get it" : selectedItem.claimed_by_id === currentUserId ? "You're getting this" : `${selectedItem.claimed_by_name} is getting this`}
-                  </span>
-                </div>
-                {(!selectedItem.claimed_by_id || selectedItem.claimed_by_id === currentUserId) && (
-                  <ToggleSwitch
-                    value={selectedItem.claimed_by_id === currentUserId}
-                    onChange={() => {
-                      const wasClaimed = selectedItem.claimed_by_id === currentUserId
-                      handleClaim(selectedItem.id)
-                      setSelectedItem(prev => prev ? { ...prev, claimed_by_id: wasClaimed ? null : currentUserId, claimed_by_name: wasClaimed ? '' : 'Me' } : prev)
-                    }}
-                  />
-                )}
-              </div>
-            )}
-
-            {itemHistory.length > 0 && (
-              <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${BORDER}` }}>
-                <SectionHeader label="History" />
-                {itemHistory.map((mod, i) => {
-                  const name = mod.user_name || 'Someone'
-                  const via = mod.source === 'sms' ? ' via text' : mod.source === 'email' ? ' via email' : ''
-                  const ago = mod.created_at ? (() => {
-                    const diff = Date.now() - new Date(mod.created_at).getTime()
-                    const mins = Math.floor(diff / 60000)
-                    if (mins < 1) return 'just now'
-                    if (mins < 60) return `${mins}m ago`
-                    const hrs = Math.floor(mins / 60)
-                    if (hrs < 24) return `${hrs}h ago`
-                    const days = Math.floor(hrs / 24)
-                    if (days < 7) return `${days}d ago`
-                    return new Date(mod.created_at).toLocaleDateString()
-                  })() : ''
-                  let description: string
-                  switch (mod.action) {
-                    case 'added': description = `${name} added this${via}`; break
-                    case 'checked': description = `${name} checked this off${via}`; break
-                    case 'unchecked': description = `${name} unchecked this${via}`; break
-                    case 'updated': description = mod.detail ? `${name} changed ${mod.detail}${via}` : `${name} updated this${via}`; break
-                    case 'claimed': description = `${name} claimed this`; break
-                    case 'unclaimed': description = `${name} unclaimed this`; break
-                    default: description = `${name} ${mod.action}${mod.detail ? ` ${mod.detail}` : ''}${via}`
-                  }
-                  return (
-                    <div key={i} style={{
-                      padding: '6px 0',
-                      borderBottom: i < itemHistory.length - 1 ? `1px solid ${BORDER}` : 'none',
-                      fontFamily: FONT,
-                      fontSize: '12px',
-                      color: TEXT_SECONDARY,
-                    }}>
-                      {description}
-                      {ago && <span> · {ago}</span>}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-            </div>
-            {/* Anchored bottom buttons */}
-            <div style={{ flexShrink: 0, padding: '16px 20px', paddingBottom: 'max(16px, env(safe-area-inset-bottom))', borderTop: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column' as const, gap: '8px' }}>
-              <button
-                onClick={handleEditSave}
-                disabled={!editForm.name.trim() || editLoading}
-                style={{
-                  ...listStyles.sheetButton,
-                  opacity: editForm.name.trim() && !editLoading ? 1 : 0.4,
-                }}
-              >
-                {editLoading ? 'Saving…' : 'Save'}
-              </button>
-              <button onClick={() => openConfirmModal({ title: 'Delete Item', message: 'Remove this item from your list?', confirmLabel: 'Delete', destructive: true, onConfirm: () => handleEditDelete() })} disabled={editLoading} style={listStyles.sheetDeleteBtn}>
-                Delete item
-              </button>
-            </div>
-          </div>
-        </div>
+        <ItemEditSheet
+          item={selectedItem}
+          editForm={editForm}
+          setEditForm={setEditForm}
+          displayBrand={displayBrand}
+          setDisplayBrand={setDisplayBrand}
+          editLoading={editLoading}
+          currentUserId={currentUserId}
+          itemHistory={itemHistory}
+          onSave={handleEditSave}
+          onDelete={handleEditDelete}
+          onClose={() => closeEditSheet()}
+          onUrgentToggle={handleUrgentToggle}
+          onClaim={handleClaim}
+          setSelectedItem={setSelectedItem}
+          openConfirmModal={openConfirmModal}
+          listStyles={listStyles}
+          ToggleSwitch={ToggleSwitch}
+          QuantityControl={QuantityControl}
+        />
       )}
 
       {/* Review sheet — shows items from last parse */}
       {showReviewSheet && (lastAdded.length > 0 || lastSkipped.length > 0) && (
-        <ActionSheet isOpen={true} onClose={() => { popModalState(); setShowReviewSheet(false); setLastAdded([]); setLastSkipped([]) }} title={lastAdded.length > 0 ? 'Added' : undefined}>
+        <ReviewSheet
+          lastAdded={lastAdded}
+          lastSkipped={lastSkipped}
+          items={items}
+          onClose={() => { popModalState(); setShowReviewSheet(false); setLastAdded([]); setLastSkipped([]) }}
+          onUpdateQuantity={async (item, delta) => {
+            const data = await fetchAPI(`/api/list/${item.id}`, {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ quantity: Math.max(1, item.quantity + delta) }),
+            })
+            if (data) {
+              const updated = data as ListItem
+              setLastAdded(prev => prev.map(i => i.id === updated.id ? updated : i))
+              setItems(prev => sortItems(prev.map(i => i.id === updated.id ? updated : i)))
+            }
+          }}
+          onDeleteItem={async (item) => {
+            const delRes = await fetchAction(`/api/list/${item.id}`, { method: 'DELETE' })
+            if (!delRes.ok) return
+            setItems(prev => prev.filter(i => i.id !== item.id))
+            const remaining = lastAdded.filter(i => i.id !== item.id)
+            setLastAdded(remaining)
+            if (remaining.length === 0 && lastSkipped.length === 0) setShowReviewSheet(false)
+          }}
+          onUndoAll={async () => {
+            for (const item of lastAdded) {
+              const dr = await fetchAction(`/api/list/${item.id}`, { method: 'DELETE' })
+              if (!dr.ok) return
+            }
+            setItems(prev => {
+              const ids = new Set(lastAdded.map(i => i.id))
+              return prev.filter(i => !ids.has(i.id))
+            })
+            setLastAdded([])
+            if (lastSkipped.length === 0) setShowReviewSheet(false)
+          }}
+          onAddSkipped={async (skipped, existing) => {
+            const data = await fetchAPI(`/api/list/${skipped.existing_id}`, {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ quantity: (existing?.quantity ?? 1) + (skipped.parsed.quantity || 1) }),
+            })
+            if (data) {
+              const updated = data as ListItem
+              setItems(prev => sortItems(prev.map(i => i.id === updated.id ? updated : i)))
+              const remaining = lastSkipped.filter(s => s.existing_id !== skipped.existing_id)
+              setLastSkipped(remaining)
+              if (remaining.length === 0 && lastAdded.length === 0) setShowReviewSheet(false)
+            }
+          }}
+          onOpenDetail={openDetailFromReview}
+          listStyles={listStyles}
+        />
+      )}
 
-            {/* Added items section */}
-            {lastAdded.length > 0 && (
-              <>
-                {lastAdded.map(item => (
-                  <div key={item.id} style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '10px 0',
-                    borderBottom: `1px solid ${BORDER}`,
-                    gap: '10px',
-                  }}>
-                    <BrandLogo brand={item.brand} size={52} />
-                    <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openDetailFromReview(item)}>
-                      <span style={{ fontFamily: FONT, fontSize: '16px', color: TEXT }}>
-                        {item.brand ? `${item.brand} ` : ''}{item.name}
-                      </span>
-                      {item.size && (
-                        <span style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginLeft: '6px' }}>
-                          {item.size}
-                        </span>
-                      )}
-                      <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>
-                        {item.department} · <span style={{ color: BRAND, fontSize: '12px' }}>edit</span>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0', border: `1.5px solid ${BORDER}`, borderRadius: '10px', overflow: 'hidden', backgroundColor: BG, flexShrink: 0 }}>
-                      <button
-                        onClick={async () => {
-                          const data = await fetchAPI(`/api/list/${item.id}`, {
-                            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ quantity: Math.max(1, item.quantity - 1) }),
-                          })
-                          if (data) {
-                            const updated = data as ListItem
-                            setLastAdded(prev => prev.map(i => i.id === updated.id ? updated : i))
-                            setItems(prev => sortItems(prev.map(i => i.id === updated.id ? updated : i)))
-                          }
-                        }}
-                        style={{ width: '34px', height: '34px', border: 'none', background: 'none', fontSize: '17px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                      >−</button>
-                      <span style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT, minWidth: '24px', textAlign: 'center' }}>{item.quantity}</span>
-                      <button
-                        onClick={async () => {
-                          const data = await fetchAPI(`/api/list/${item.id}`, {
-                            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ quantity: item.quantity + 1 }),
-                          })
-                          if (data) {
-                            const updated = data as ListItem
-                            setLastAdded(prev => prev.map(i => i.id === updated.id ? updated : i))
-                            setItems(prev => sortItems(prev.map(i => i.id === updated.id ? updated : i)))
-                          }
-                        }}
-                        style={{ width: '34px', height: '34px', border: 'none', background: 'none', fontSize: '17px', color: BRAND, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                      >+</button>
-                    </div>
-                    <button
-                      onClick={async () => {
-                        const delRes = await fetchAction(`/api/list/${item.id}`, { method: 'DELETE' })
-                        if (!delRes.ok) return
-                        setItems(prev => prev.filter(i => i.id !== item.id))
-                        const remaining = lastAdded.filter(i => i.id !== item.id)
-                        setLastAdded(remaining)
-                        if (remaining.length === 0 && lastSkipped.length === 0) setShowReviewSheet(false)
-                      }}
-                      style={{
-                        flexShrink: 0,
-                        width: '28px',
-                        height: '28px',
-                        borderRadius: '50%',
-                        border: `1px solid ${BORDER}`,
-                        background: 'none',
-                        color: TEXT_SECONDARY,
-                        fontSize: '15px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >×</button>
+      {/* Savings detail sheet */}
+      {showSavingsSheet && (
+        <ActionSheet isOpen={true} onClose={() => { popModalState(); setShowSavingsSheet(false) }} title="Your Savings" maxHeight="70dvh">
+          <div style={{ padding: '0 4px' }}>
+            {/* Summary cards — hide Paid Out when $0 */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+              {[
+                { label: 'Total Saved', cents: rebateSummary.total_cents, color: BRAND, show: true },
+                { label: 'Pending Payout', cents: rebateSummary.pending_cents, color: '#D97706', show: true },
+                { label: 'Paid Out', cents: rebateSummary.paid_cents, color: '#059669', show: rebateSummary.paid_cents > 0 },
+              ].filter(c => c.show).map(card => (
+                <div key={card.label} style={{
+                  flex: 1, padding: '12px 8px', borderRadius: '8px', backgroundColor: BG,
+                  textAlign: 'center' as const,
+                }}>
+                  <div style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 700, color: card.color }}>
+                    ${(card.cents / 100).toFixed(2)}
                   </div>
-                ))}
-              </>
-            )}
+                  <div style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SECONDARY, marginTop: '2px' }}>
+                    {card.label}
+                  </div>
+                </div>
+              ))}
+            </div>
 
-            {/* Skipped items section */}
-            {lastSkipped.length > 0 && (
-              <>
-                <p style={{ ...listStyles.sheetTitle, marginTop: lastAdded.length > 0 ? '16px' : '0' } as React.CSSProperties}>Already on your list</p>
-                {lastSkipped.map(skipped => {
-                  const existing = items.find(i => i.id === skipped.existing_id)
-                  return (
-                    <div key={skipped.existing_id} style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      padding: '10px 0',
-                      borderBottom: `1px solid ${BORDER}`,
-                      gap: '10px',
-                    }}>
-                      <BrandLogo brand={skipped.parsed.brand} size={52} />
-                      <div style={{ flex: 1, cursor: existing ? 'pointer' : undefined }} onClick={() => existing && openDetailFromReview(existing)}>
-                        <span style={{ fontFamily: FONT, fontSize: '16px', color: TEXT }}>
-                          {skipped.parsed.brand ? `${skipped.parsed.brand} ` : ''}{skipped.parsed.name}
-                        </span>
-                        <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>
-                          On list: {existing?.quantity ?? 1}{existing && <> · <span style={{ color: BRAND, fontSize: '12px' }}>edit</span></>}
-                        </div>
-                      </div>
-                      <button
-                        onClick={async () => {
-                          const data = await fetchAPI(`/api/list/${skipped.existing_id}`, {
-                            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ quantity: (existing?.quantity ?? 1) + (skipped.parsed.quantity || 1) }),
-                          })
-                          if (data) {
-                            const updated = data as ListItem
-                            setItems(prev => sortItems(prev.map(i => i.id === updated.id ? updated : i)))
-                            const remaining = lastSkipped.filter(s => s.existing_id !== skipped.existing_id)
-                            setLastSkipped(remaining)
-                            if (remaining.length === 0 && lastAdded.length === 0) setShowReviewSheet(false)
-                          }
-                        }}
-                        style={{
-                          flexShrink: 0,
-                          padding: '6px 14px',
-                          borderRadius: '16px',
-                          border: `1.5px solid ${BRAND}`,
-                          background: 'none',
-                          color: BRAND,
-                          fontFamily: FONT,
-                          fontSize: '15px',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                        }}
-                      >+{skipped.parsed.quantity || 1}</button>
+            {/* Rebate history */}
+            {rebateHistory.length === 0 ? (
+              <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SECONDARY, textAlign: 'center' as const, padding: '20px 0' }}>
+                Accept a swap deal to start saving!
+              </div>
+            ) : (
+              rebateHistory.map(r => (
+                <div key={r.id} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 0', borderBottom: `1px solid ${BORDER}`,
+                }}>
+                  <div>
+                    <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT, fontWeight: 500 }}>
+                      {r.offer_brand} {r.offer_product}
                     </div>
-                  )
-                })}
-              </>
+                    <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, marginTop: '2px' }}>
+                      {new Date(r.created_at + 'Z').toLocaleDateString()}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' as const }}>
+                    <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: BRAND }}>
+                      ${(r.amount_cents / 100).toFixed(2)}
+                    </div>
+                    <div style={{
+                      fontFamily: FONT, fontSize: '11px', marginTop: '2px',
+                      color: r.status === 'paid' ? '#059669' : r.status === 'issued' ? '#2563EB' : '#D97706',
+                    }}>
+                      {r.status === 'pending' ? 'Ready to cash out' : r.status === 'issued' ? 'Payout sent' : 'Paid'}
+                    </div>
+                  </div>
+                </div>
+              ))
             )}
 
-            {lastAdded.length > 0 && (
-              <button
-                onClick={async () => {
-                  for (const item of lastAdded) {
-                    const dr = await fetchAction(`/api/list/${item.id}`, { method: 'DELETE' })
-                    if (!dr.ok) return
-                  }
-                  setItems(prev => {
-                    const ids = new Set(lastAdded.map(i => i.id))
-                    return prev.filter(i => !ids.has(i.id))
-                  })
-                  setLastAdded([])
-                  if (lastSkipped.length === 0) setShowReviewSheet(false)
-                }}
-                style={listStyles.sheetDeleteBtn}
-              >
-                Undo all
-              </button>
-            )}
-
-            <button
-              onClick={() => { setShowReviewSheet(false); setLastAdded([]); setLastSkipped([]) }}
-              style={listStyles.sheetButton}
-            >
-              Done
-            </button>
+            {/* Info note */}
+            <div style={{
+              fontFamily: FONT, fontSize: '12px', color: TEXT_SECONDARY, textAlign: 'center' as const,
+              padding: '16px 0 8px', lineHeight: '1.4',
+            }}>
+              Savings from Penny Swaps. Payouts are sent monthly via Venmo — no action needed on your end.
+            </div>
+          </div>
         </ActionSheet>
       )}
 
@@ -4490,39 +5157,7 @@ const listStyles = {
     letterSpacing: '-0.5px',
   } as React.CSSProperties,
 
-  menuOverlay: {
-    position: 'fixed' as const,
-    inset: 0,
-    zIndex: 19,
-  } as React.CSSProperties,
-
-  menuDropdown: {
-    position: 'absolute' as const,
-    top: '44px',
-    right: 0,
-    backgroundColor: WHITE,
-    borderRadius: '12px',
-    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-    padding: '6px 0',
-    minWidth: '220px',
-    whiteSpace: 'nowrap' as const,
-    zIndex: 20,
-  } as React.CSSProperties,
-
-  menuItem: (active: boolean): React.CSSProperties => ({
-    display: 'block',
-    width: '100%',
-    padding: '10px 18px',
-    fontFamily: FONT,
-    fontSize: '15px',
-    fontWeight: active ? 600 : 400,
-    color: active ? BRAND : TEXT,
-    background: 'none',
-    border: 'none',
-    textAlign: 'left' as const,
-    cursor: 'pointer',
-    WebkitTapHighlightColor: 'transparent',
-  }),
+  // Menu styles moved to NavigationMenu component
 
   listArea: {
     flex: 1,
@@ -4565,7 +5200,6 @@ const listStyles = {
     borderLeft: open ? `3px solid ${BRAND}` : '3px solid transparent',
     cursor: 'pointer',
     textAlign: 'left' as const,
-    WebkitTapHighlightColor: 'transparent',
     gap: '0px',
     fontFamily: FONT,
     fontSize: '13px',
@@ -4594,125 +5228,9 @@ const listStyles = {
     marginLeft: '4px',
   }),
 
-  itemRow: {
-    display: 'flex',
-    alignItems: 'center',
-    borderBottom: `1px solid ${BORDER}`,
-    backgroundColor: WHITE,
-  } as React.CSSProperties,
+  // Item row styles moved to ItemRow component
 
-  itemCheckBtn: {
-    padding: '10px 10px 10px 20px',
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    flexShrink: 0,
-    WebkitTapHighlightColor: 'transparent',
-    display: 'flex',
-    alignItems: 'center',
-  } as React.CSSProperties,
-
-  itemCheck: (checked: boolean): React.CSSProperties => ({
-    width: '22px',
-    height: '22px',
-    borderRadius: '50%',
-    border: `2px solid ${checked ? '#C5C0B8' : BORDER}`,
-    backgroundColor: checked ? '#C5C0B8' : 'transparent',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    fontSize: '12px',
-    fontWeight: 700,
-    color: WHITE,
-    transition: 'all 0.15s',
-  }),
-
-  itemCenter: {
-    flex: 1,
-    padding: '10px 0',
-    cursor: 'pointer',
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '2px',
-    WebkitTapHighlightColor: 'transparent',
-  } as React.CSSProperties,
-
-  itemName: (checked: boolean): React.CSSProperties => ({
-    fontFamily: FONT,
-    fontSize: '17px',
-    color: checked ? TEXT_SECONDARY : TEXT,
-    textDecoration: checked ? 'line-through' : 'none',
-    transition: 'all 0.15s',
-  }),
-
-  itemMeta: {
-    fontFamily: FONT,
-    fontSize: '12px',
-    color: TEXT_SECONDARY,
-  } as React.CSSProperties,
-
-
-  chatBar: {
-    flexShrink: 0,
-    padding: '8px 8px 8px 4px',
-    paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
-    backgroundColor: WHITE,
-    borderTop: `1.5px solid #D4CFC7`,
-    boxShadow: '0 -2px 12px rgba(0,0,0,0.06)',
-  } as React.CSSProperties,
-
-  chatPill: {
-    flex: 1,
-    display: 'flex',
-    alignItems: 'flex-end',
-    backgroundColor: BG,
-    border: `1.5px solid #C5C0B8`,
-    borderRadius: '24px',
-    overflow: 'hidden',
-    minWidth: 0,
-  } as React.CSSProperties,
-
-  chatPillBtn: {
-    flexShrink: 0,
-    width: '40px',
-    height: '40px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    WebkitTapHighlightColor: 'transparent',
-  } as React.CSSProperties,
-
-  chatPillInput: {
-    flex: 1,
-    padding: '10px 14px',
-    fontSize: '16px',
-    fontFamily: FONT,
-    color: TEXT,
-    backgroundColor: 'transparent',
-    border: 'none',
-    outline: 'none',
-    minWidth: 0,
-  } as React.CSSProperties,
-
-  chatPillSend: (active: boolean): React.CSSProperties => ({
-    flexShrink: 0,
-    width: '40px',
-    height: '40px',
-    borderRadius: '50%',
-    backgroundColor: 'transparent',
-    color: active ? BRAND : TEXT_SECONDARY,
-    border: 'none',
-    cursor: active ? 'pointer' : 'default',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    transition: 'color 0.15s',
-    WebkitTapHighlightColor: 'transparent',
-  }),
+  // Chat bar styles moved to PennyBar component
 
   overlay: {
     position: 'fixed' as const,
@@ -4829,7 +5347,6 @@ const listStyles = {
     backgroundColor: BG,
     borderRadius: '12px',
     cursor: 'pointer',
-    WebkitTapHighlightColor: 'transparent',
   } as React.CSSProperties,
 
   // Subtle text link (used for "wrong number?", "resend code", etc.)
@@ -4896,6 +5413,12 @@ const globalCSS = `
     background-color: ${BRAND}30;
   }
 
+  /* Avatar upload spinner */
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
   /* Penny loading pulse */
   @keyframes cursor-blink {
     0%, 100% { opacity: 1; }
@@ -4945,6 +5468,29 @@ const globalCSS = `
     70% { opacity: 1; }
     100% { opacity: 0; }
   }
+
+  @keyframes skeleton-shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+  .skeleton-shimmer {
+    background: linear-gradient(90deg, ${SKELETON} 25%, ${SKELETON_SHIMMER} 50%, ${SKELETON} 75%);
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.8s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  button, a, [role="button"] { -webkit-tap-highlight-color: transparent; }
+
+  button:focus-visible { outline: 2px solid ${BRAND}; outline-offset: 2px; }
+
+  .sr-only { position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0; }
 
   @keyframes confetti-fall {
     0% { transform: translateY(-10px) translateX(0) rotate(0deg); opacity: 1; }

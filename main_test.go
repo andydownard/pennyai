@@ -18,6 +18,7 @@ package main
 import (
 	"bytes"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"mime/multipart"
@@ -1071,12 +1072,12 @@ func TestListCannotAccessOtherUsersItems(t *testing.T) {
 	)
 	itemID, _ := result.LastInsertId()
 
-	// User 2 tries to delete user 1's item
+	// User 2 tries to delete user 1's item — should get 404 (not their item)
 	rr := doRequest(server.handleList, "DELETE", fmt.Sprintf("/api/list/%d", itemID),
 		nil, []*http.Cookie{cookie2})
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("Delete returned %d", rr.Code)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Delete returned %d, want 404", rr.Code)
 	}
 
 	// Item should still exist (user 2's delete was a no-op)
@@ -1534,8 +1535,8 @@ func TestListDelete_NonexistentItem(t *testing.T) {
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleList, "DELETE", "/api/list/99999", nil, []*http.Cookie{cookie})
-	if rr.Code != http.StatusOK {
-		t.Errorf("Status: got %d, want 200", rr.Code)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Status: got %d, want 404", rr.Code)
 	}
 }
 
@@ -1546,6 +1547,97 @@ func TestList_InvalidID(t *testing.T) {
 	rr := doRequest(server.handleList, "PATCH", "/api/list/abc/toggle", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("Status: got %d, want 400", rr.Code)
+	}
+}
+
+func TestInvalidID_ListEndpoints(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   interface{}
+		want   int
+	}{
+		{"toggle", "PATCH", "/api/list/abc/toggle", nil, 400},
+		{"urgent", "PATCH", "/api/list/abc/urgent", nil, 400},
+		{"claim", "PATCH", "/api/list/abc/claim", nil, 400},
+		{"history", "GET", "/api/list/abc/history", nil, 400},
+		{"edit", "PATCH", "/api/list/abc", map[string]string{"name": "x"}, 400},
+		{"delete", "DELETE", "/api/list/abc", nil, 400},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := doRequest(server.handleList, tc.method, tc.path, tc.body, []*http.Cookie{cookie})
+			if rr.Code != tc.want {
+				t.Errorf("Status: got %d, want %d", rr.Code, tc.want)
+			}
+			ct := rr.Header().Get("Content-Type")
+			if !strings.Contains(ct, "application/json") {
+				t.Errorf("Content-Type: got %q, want application/json", ct)
+			}
+			var resp map[string]string
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Errorf("Response is not valid JSON: %v, body: %s", err, rr.Body.String())
+			}
+			if resp["error"] != "Invalid ID" {
+				t.Errorf("Error message: got %q, want %q", resp["error"], "Invalid ID")
+			}
+		})
+	}
+}
+
+func TestInvalidID_SavedListEndpoints(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   interface{}
+		want   int
+	}{
+		{"update", "PUT", "/api/saved-lists/abc", map[string]string{"name": "x"}, 400},
+		{"delete", "DELETE", "/api/saved-lists/abc", nil, 400},
+		{"load", "POST", "/api/saved-lists/abc/load", nil, 400},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := doRequest(server.handleSavedLists, tc.method, tc.path, tc.body, []*http.Cookie{cookie})
+			if rr.Code != tc.want {
+				t.Errorf("Status: got %d, want %d", rr.Code, tc.want)
+			}
+			ct := rr.Header().Get("Content-Type")
+			if !strings.Contains(ct, "application/json") {
+				t.Errorf("Content-Type: got %q, want application/json", ct)
+			}
+			var resp map[string]string
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Errorf("Response is not valid JSON: %v, body: %s", err, rr.Body.String())
+			}
+			if resp["error"] != "Invalid ID" {
+				t.Errorf("Error message: got %q, want %q", resp["error"], "Invalid ID")
+			}
+		})
+	}
+}
+
+func TestInvalidID_ListNotFoundReturnsJSON(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleList, "GET", "/api/list/1/unknown", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Status: got %d, want 404", rr.Code)
+	}
+	ct := rr.Header().Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Errorf("Content-Type: got %q, want application/json", ct)
 	}
 }
 
@@ -1691,7 +1783,7 @@ func TestClearList_Success(t *testing.T) {
 	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, ?, ?)", userID, "Milk", "Dairy & Eggs")
 	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, ?, ?)", userID, "Bread", "Bakery")
 
-	rr := doRequest(server.handleListClear, "POST", "/api/list/clear", nil, []*http.Cookie{cookie})
+	rr := doRequest(server.handleListClear, "POST", "/api/list/clear?all=true", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusOK {
 		t.Errorf("Status: got %d, want 200", rr.Code)
 	}
@@ -1711,7 +1803,7 @@ func TestClearList_DoesNotAffectOtherUsers(t *testing.T) {
 	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, ?, ?)", userID1, "Milk", "Dairy & Eggs")
 	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, ?, ?)", userID2, "Bread", "Bakery")
 
-	doRequest(server.handleListClear, "POST", "/api/list/clear", nil, []*http.Cookie{cookie1})
+	doRequest(server.handleListClear, "POST", "/api/list/clear?all=true", nil, []*http.Cookie{cookie1})
 
 	var count int
 	server.db.QueryRow("SELECT COUNT(*) FROM list_items WHERE user_id = ?", userID2).Scan(&count)
@@ -4732,7 +4824,7 @@ func TestListClear_Success(t *testing.T) {
 	server.db.Exec("INSERT INTO list_items (user_id, name, department, quantity) VALUES (?, 'Milk', 'Dairy & Eggs', 1)", userID)
 	server.db.Exec("INSERT INTO list_items (user_id, name, department, quantity) VALUES (?, 'Bread', 'Bakery', 1)", userID)
 
-	rr := doRequest(server.handleListClear, "POST", "/api/list/clear", nil, []*http.Cookie{cookie})
+	rr := doRequest(server.handleListClear, "POST", "/api/list/clear?all=true", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusOK {
 		t.Errorf("Status: got %d, want 200", rr.Code)
 	}
@@ -5806,8 +5898,8 @@ func TestAdminDashboard_Success(t *testing.T) {
 	if len(leaderboard) > 0 {
 		entry := leaderboard[0].(map[string]interface{})
 		// Phone should be masked
-		if entry["phone"] != "310***1833" {
-			t.Errorf("Expected masked phone 310***1833, got %v", entry["phone"])
+		if entry["phone"] != "310***833" {
+			t.Errorf("Expected masked phone 310***833, got %v", entry["phone"])
 		}
 	}
 }
@@ -6038,7 +6130,7 @@ func TestClearList_PostMethod(t *testing.T) {
 	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, 'Milk', 'Dairy & Eggs')", userID)
 	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, 'Bread', 'Bakery')", userID)
 
-	rr := doRequest(server.handleListClear, "POST", "/api/list/clear", nil, []*http.Cookie{cookie})
+	rr := doRequest(server.handleListClear, "POST", "/api/list/clear?all=true", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusOK {
 		t.Errorf("Expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -6086,7 +6178,7 @@ func TestMuxRouting_ClearList(t *testing.T) {
 	mux.HandleFunc("/api/list/", server.handleList)
 	mux.HandleFunc("/api/list/clear", server.handleListClear)
 
-	req := httptest.NewRequest("POST", "/api/list/clear", nil)
+	req := httptest.NewRequest("POST", "/api/list/clear?all=true", nil)
 	req.AddCookie(cookie)
 	rr := httptest.NewRecorder()
 	mux.ServeHTTP(rr, req)
@@ -6980,7 +7072,7 @@ func TestHandleListClear_Success(t *testing.T) {
 	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, 'Milk', 'Dairy')", userID)
 	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, 'Bread', 'Bakery')", userID)
 
-	rr := doRequest(server.handleListClear, "POST", "/api/list/clear", nil, []*http.Cookie{cookie})
+	rr := doRequest(server.handleListClear, "POST", "/api/list/clear?all=true", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("Status: %d", rr.Code)
 	}
@@ -7380,7 +7472,7 @@ func TestHandleListClear_WithItems(t *testing.T) {
 		map[string]string{"name": "Bread"}, []*http.Cookie{cookie})
 
 	// Clear
-	rr := doRequest(server.handleListClear, "POST", "/api/list/clear", nil, []*http.Cookie{cookie})
+	rr := doRequest(server.handleListClear, "POST", "/api/list/clear?all=true", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("Clear: %d", rr.Code)
 	}
@@ -10245,6 +10337,2965 @@ func TestListClaim_AcrossHousehold(t *testing.T) {
 	claimedByID := itemsAfter[0]["claimed_by_id"]
 	if claimedByID == nil || claimedByID == float64(0) {
 		t.Error("expected item to be claimed when viewed by other household member")
+	}
+}
+
+// =============================================================================
+// PENNY SWAPS TESTS
+// =============================================================================
+
+func TestSwaps_DealMatchingBasic(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	// Create user and session
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Use seeded skippy→jif deal: add a Skippy item and verify swap is offered
+	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
+			Message: "Added peanut butter!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "skippy peanut butter"}, cookies)
+
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.PendingSwap == nil {
+		t.Fatal("expected a pending swap for skippy peanut butter")
+	}
+	if resp.PendingSwap.OfferBrand != "Jif" {
+		t.Errorf("expected offer brand Jif, got %s", resp.PendingSwap.OfferBrand)
+	}
+	if resp.PendingSwap.DiscountCents != 125 {
+		t.Errorf("expected 125 discount cents, got %d", resp.PendingSwap.DiscountCents)
+	}
+
+	// Verify swap_events logged
+	var eventCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'offered'").Scan(&eventCount)
+	if eventCount != 1 {
+		t.Errorf("expected 1 offered event, got %d", eventCount)
+	}
+}
+
+func TestSwaps_AcceptSwap(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Create item matching seeded skippy→jif deal (deal ID 1)
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Peanut Butter', 'Skippy', 'Pantry & Dry Goods')")
+
+	// Get the seeded deal ID for skippy
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE competitor_product = 'skippy'").Scan(&dealID)
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "accept_swap", "swap_deal_id": dealID, "swap_item_id": 1}, cookies)
+
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.Action != "swap_accepted" {
+		t.Errorf("expected action swap_accepted, got %s", resp.Action)
+	}
+
+	// Verify item was updated to Jif
+	var name, brand string
+	server.db.QueryRow("SELECT name, brand FROM list_items WHERE id = 1").Scan(&name, &brand)
+	if name != "Creamy Peanut Butter" || brand != "Jif" {
+		t.Errorf("expected Jif Creamy Peanut Butter, got %s %s", brand, name)
+	}
+
+	// Verify accepted event logged
+	var eventCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'accepted'").Scan(&eventCount)
+	if eventCount != 1 {
+		t.Errorf("expected 1 accepted event, got %d", eventCount)
+	}
+
+	// Verify budget decremented
+	var spent int
+	server.db.QueryRow("SELECT budget_spent_cents FROM brand_deals WHERE id = ?", dealID).Scan(&spent)
+	if spent != 125 {
+		t.Errorf("expected budget_spent_cents 125, got %d", spent)
+	}
+}
+
+func TestSwaps_DeclineAndSuppression(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Peanut Butter', 'Skippy', 'Pantry & Dry Goods')")
+
+	// Get the seeded deal ID for skippy
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE competitor_product = 'skippy'").Scan(&dealID)
+
+	// Decline 3 times
+	for i := 0; i < 3; i++ {
+		rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+			map[string]interface{}{"text": "decline_swap", "swap_deal_id": dealID, "swap_item_id": 1}, cookies)
+		if rr.Code != 201 {
+			t.Fatalf("decline %d: expected 201, got %d", i+1, rr.Code)
+		}
+	}
+
+	// Verify suppression count is 3
+	var declineCount int
+	server.db.QueryRow("SELECT decline_count FROM swap_suppressions WHERE user_id = 1 AND deal_id = ?", dealID).Scan(&declineCount)
+	if declineCount != 3 {
+		t.Errorf("expected decline_count 3, got %d", declineCount)
+	}
+
+	// Now add a matching item — deal should NOT appear due to suppression
+	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
+			Message: "Added peanut butter!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "skippy peanut butter"}, cookies)
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.PendingSwap != nil {
+		t.Error("expected no swap offer after 3 declines (suppressed)")
+	}
+}
+
+func TestSwaps_SliderConvenienceBlocksDeals(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	// Create user with slider = 100 (convenience, never show deals)
+	server.db.Exec("INSERT INTO users (id, phone_number, penny_slider, penny_autotune) VALUES (1, '5551234567', 100, 0)")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Use seeded deals — add a skippy item with slider=100, should get no swap
+	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
+			Message: "Added!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "skippy peanut butter"}, cookies)
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.PendingSwap != nil {
+		t.Error("expected no swap when slider is at 100 (convenience)")
+	}
+}
+
+func TestSwaps_BudgetExhaustedAutopauses(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Create a deal with tight budget: discount = budget, so one accept exhausts it
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Ketchup', 'Heinz', 'Pantry & Dry Goods')")
+	server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status)
+		VALUES ('heinz', 'Hunts', 'Tomato Ketchup', 200, 200, 'active')`)
+
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE competitor_product = 'heinz'").Scan(&dealID)
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "accept_swap", "swap_deal_id": dealID, "swap_item_id": 1}, cookies)
+
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d", rr.Code)
+	}
+
+	// Verify deal was auto-paused
+	var status string
+	server.db.QueryRow("SELECT status FROM brand_deals WHERE id = ?", dealID).Scan(&status)
+	if status != "paused" {
+		t.Errorf("expected deal status 'paused', got %q", status)
+	}
+}
+
+// =============================================================================
+// DONE SHOPPING TESTS
+// =============================================================================
+
+func TestDoneShopping_Action(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "done_shopping",
+			Items:   []ParsedItem{},
+			Message: "Nice trip! Snap your receipt and I'll check off what you got.",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "I'm done shopping"}, cookies)
+
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.Action != "done_shopping" {
+		t.Errorf("expected action done_shopping, got %s", resp.Action)
+	}
+	if resp.Message == "" {
+		t.Error("expected a non-empty message")
+	}
+}
+
+// =============================================================================
+// RECEIPT TESTS
+// =============================================================================
+
+func TestReceipt_ProcessAndCheckOff(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Add items to list
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (1, 1, 'Whole Milk', 'Dairy & Eggs')")
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (2, 1, 'Eggs', 'Dairy & Eggs')")
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (3, 1, 'Bread', 'Bakery & Deli')")
+
+	// Mock receipt parser to return matched items
+	server.parseReceipt = func(apiKey string, images []string, currentItems []ListItem) ([]string, error) {
+		return []string{"Whole Milk", "Eggs"}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{
+			"text":       "",
+			"is_receipt": true,
+			"images":     []string{"base64fakeimagadata"},
+		}, cookies)
+
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.Action != "receipt_processed" {
+		t.Errorf("expected action receipt_processed, got %s", resp.Action)
+	}
+	if len(resp.Checked) != 2 {
+		t.Errorf("expected 2 checked items, got %d", len(resp.Checked))
+	}
+
+	// Verify items are checked in DB
+	var checkedCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM list_items WHERE checked = 1").Scan(&checkedCount)
+	if checkedCount != 2 {
+		t.Errorf("expected 2 checked items in DB, got %d", checkedCount)
+	}
+
+	// Verify receipt record created
+	var receiptCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM receipts WHERE user_id = 1").Scan(&receiptCount)
+	if receiptCount != 1 {
+		t.Errorf("expected 1 receipt record, got %d", receiptCount)
+	}
+}
+
+func TestReceipt_DuplicateDedup(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (1, 1, 'Milk', 'Dairy & Eggs')")
+
+	server.parseReceipt = func(apiKey string, images []string, currentItems []ListItem) ([]string, error) {
+		return []string{"Milk"}, nil
+	}
+
+	body := map[string]interface{}{
+		"text":       "",
+		"is_receipt": true,
+		"images":     []string{"sameimagedata"},
+	}
+
+	// First submission
+	rr1 := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse", body, cookies)
+	if rr1.Code != 201 {
+		t.Fatalf("first submit: expected 201, got %d", rr1.Code)
+	}
+
+	// Second submission with same image — should be deduped
+	rr2 := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse", body, cookies)
+	if rr2.Code != 200 {
+		t.Fatalf("second submit: expected 200, got %d", rr2.Code)
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr2.Body).Decode(&resp)
+	if resp.Action != "receipt_duplicate" {
+		t.Errorf("expected action receipt_duplicate, got %s", resp.Action)
+	}
+}
+
+// =============================================================================
+// ADMIN DEALS TESTS
+// =============================================================================
+
+func TestAdminDeals_CRUD(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	// Create admin user
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '3104861833')")
+	token, _ := server.sessions.CreateSession(1, "3104861833", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// POST — create deal
+	rr := doRequest(server.handleAdminDeals, "POST", "/api/admin/deals",
+		map[string]interface{}{
+			"competitor_product": "heinz ketchup",
+			"offer_brand":       "Hunts",
+			"offer_product":     "Tomato Ketchup",
+			"discount_cents":    150,
+			"total_budget_cents": 10000,
+		}, cookies)
+	if rr.Code != 201 {
+		t.Fatalf("create deal: expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var created BrandDeal
+	json.NewDecoder(rr.Body).Decode(&created)
+	if created.ID == 0 {
+		t.Fatal("expected non-zero deal ID")
+	}
+
+	// GET — list deals (5 seeded + 1 created = 6)
+	rr = doRequest(server.handleAdminDeals, "GET", "/api/admin/deals", nil, cookies)
+	if rr.Code != 200 {
+		t.Fatalf("list deals: expected 200, got %d", rr.Code)
+	}
+	var deals []BrandDeal
+	json.NewDecoder(rr.Body).Decode(&deals)
+	if len(deals) != 9 {
+		t.Fatalf("expected 9 deals (5 sku_swap + 3 new types + 1 created), got %d", len(deals))
+	}
+
+	// PUT — update deal
+	rr = doRequest(server.handleAdminDeals, "PUT", "/api/admin/deals",
+		map[string]interface{}{
+			"id":                 created.ID,
+			"competitor_product": "heinz ketchup",
+			"offer_brand":       "Hunts",
+			"offer_product":     "Tomato Ketchup",
+			"discount_cents":    200,
+			"total_budget_cents": 10000,
+			"status":            "paused",
+		}, cookies)
+	if rr.Code != 200 {
+		t.Fatalf("update deal: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify update
+	var discount int
+	var status string
+	server.db.QueryRow("SELECT discount_cents, status FROM brand_deals WHERE id = ?", created.ID).Scan(&discount, &status)
+	if discount != 200 || status != "paused" {
+		t.Errorf("expected discount 200 and status paused, got %d and %s", discount, status)
+	}
+
+	// DELETE — remove deal
+	rr = doRequest(server.handleAdminDeals, "DELETE", "/api/admin/deals",
+		map[string]interface{}{"id": created.ID}, cookies)
+	if rr.Code != 200 {
+		t.Fatalf("delete deal: expected 200, got %d", rr.Code)
+	}
+
+	// Soft-delete: deal still exists in DB but with status='deleted' (B12 fix)
+	var deletedStatus string
+	server.db.QueryRow("SELECT status FROM brand_deals WHERE id = ?", created.ID).Scan(&deletedStatus)
+	if deletedStatus != "deleted" {
+		t.Errorf("expected status='deleted' after soft-delete, got %q", deletedStatus)
+	}
+
+	// GET should not return deleted deals
+	rr = doRequest(server.handleAdminDeals, "GET", "/api/admin/deals", nil, cookies)
+	var remaining []BrandDeal
+	json.NewDecoder(rr.Body).Decode(&remaining)
+	if len(remaining) != 8 {
+		t.Errorf("expected 8 deals in GET after soft-delete (8 seeded, 1 created then deleted), got %d", len(remaining))
+	}
+}
+
+func TestAdminDeals_RequiresAdmin(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	// Non-admin user
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	rr := doRequest(server.handleAdminDeals, "GET", "/api/admin/deals", nil, cookies)
+	if rr.Code != 403 {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+
+func TestAdminDashboard_IncludesSwapStats(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '3104861833')")
+	token, _ := server.sessions.CreateSession(1, "3104861833", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Use seeded deal (id=1, skippy→jif) for swap events
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (1, 1, 'offered')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (1, 1, 'offered')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (1, 1, 'accepted')")
+
+	rr := doRequest(server.handleAdminDashboard, "GET", "/api/admin/dashboard", nil, cookies)
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	result := parseJSON(rr)
+	if result["swap_offered"] != float64(2) {
+		t.Errorf("expected swap_offered 2, got %v", result["swap_offered"])
+	}
+	if result["swap_accepted"] != float64(1) {
+		t.Errorf("expected swap_accepted 1, got %v", result["swap_accepted"])
+	}
+}
+
+func TestSwaps_RebateCreatedOnAccept(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Peanut Butter', 'Skippy', 'Pantry & Dry Goods')")
+
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE competitor_product = 'skippy'").Scan(&dealID)
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "accept_swap", "swap_deal_id": dealID, "swap_item_id": 1}, cookies)
+
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify swap_rebates row exists with correct amount
+	var rebateAmount int
+	var rebateStatus string
+	err := server.db.QueryRow("SELECT amount_cents, status FROM swap_rebates WHERE user_id = 1 AND deal_id = ?", dealID).Scan(&rebateAmount, &rebateStatus)
+	if err != nil {
+		t.Fatalf("expected rebate row, got error: %v", err)
+	}
+	// Seeded skippy→jif deal has discount_cents=125
+	if rebateAmount != 125 {
+		t.Errorf("expected rebate amount 125, got %d", rebateAmount)
+	}
+	if rebateStatus != "pending" {
+		t.Errorf("expected rebate status 'pending', got %q", rebateStatus)
+	}
+
+	// Verify user's swap_credits_cents was incremented
+	var credits int
+	server.db.QueryRow("SELECT swap_credits_cents FROM users WHERE id = 1").Scan(&credits)
+	if credits != 125 {
+		t.Errorf("expected swap_credits_cents 125, got %d", credits)
+	}
+}
+
+func TestSwaps_RebateAppearsInSettings(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number, swap_credits_cents) VALUES (1, '5551234567', 350)")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	rr := doRequest(server.handleSettings, "GET", "/api/settings", nil, cookies)
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	result := parseJSON(rr)
+	if result["swap_credits_cents"] != float64(350) {
+		t.Errorf("expected swap_credits_cents 350, got %v", result["swap_credits_cents"])
+	}
+}
+
+func TestAdminDashboard_IncludesRebateStats(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '3104861833')")
+	token, _ := server.sessions.CreateSession(1, "3104861833", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Insert swap events so we can reference valid IDs
+	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (1, 1, 1, 'accepted')")
+	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (2, 1, 1, 'accepted')")
+
+	// Insert rebates: 2 pending, 1 issued
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (1, 1, 1, 100, 'pending')")
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (1, 2, 1, 150, 'pending')")
+	// Manually insert a paid one (no swap event needed for ledger test)
+	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (3, 1, 1, 'accepted')")
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (1, 3, 1, 200, 'paid')")
+
+	rr := doRequest(server.handleAdminDashboard, "GET", "/api/admin/dashboard", nil, cookies)
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	result := parseJSON(rr)
+	if result["rebates_pending_cents"] != float64(250) {
+		t.Errorf("expected rebates_pending_cents 250, got %v", result["rebates_pending_cents"])
+	}
+	if result["rebates_issued_cents"] != float64(200) {
+		t.Errorf("expected rebates_issued_cents 200, got %v", result["rebates_issued_cents"])
+	}
+}
+
+func TestRebates_ReturnsHistory(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Insert swap events and rebates with different statuses
+	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (1, 1, 1, 'accepted')")
+	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (2, 1, 1, 'accepted')")
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (1, 1, 1, 150, 'pending')")
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (1, 2, 1, 150, 'paid')")
+
+	rr := doRequest(server.handleRebates, "GET", "/api/rebates", nil, cookies)
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	result := parseJSON(rr)
+	rebates := result["rebates"].([]interface{})
+	if len(rebates) != 2 {
+		t.Fatalf("expected 2 rebates, got %d", len(rebates))
+	}
+
+	// Verify summary totals
+	if result["total_cents"] != float64(300) {
+		t.Errorf("expected total_cents 300, got %v", result["total_cents"])
+	}
+	if result["pending_cents"] != float64(150) {
+		t.Errorf("expected pending_cents 150, got %v", result["pending_cents"])
+	}
+	if result["paid_cents"] != float64(150) {
+		t.Errorf("expected paid_cents 150, got %v", result["paid_cents"])
+	}
+
+	// Verify rebate entries have deal info
+	first := rebates[0].(map[string]interface{})
+	if first["offer_brand"] != "Jif" {
+		t.Errorf("expected offer_brand Jif, got %v", first["offer_brand"])
+	}
+	if first["amount_cents"] != float64(150) {
+		t.Errorf("expected amount_cents 150, got %v", first["amount_cents"])
+	}
+}
+
+func TestRebates_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleRebates, "GET", "/api/rebates", nil, nil)
+	if rr.Code != 401 {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestRebates_EmptyForNewUser(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	rr := doRequest(server.handleRebates, "GET", "/api/rebates", nil, cookies)
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	result := parseJSON(rr)
+	rebates := result["rebates"].([]interface{})
+	if len(rebates) != 0 {
+		t.Errorf("expected 0 rebates, got %d", len(rebates))
+	}
+	if result["total_cents"] != float64(0) {
+		t.Errorf("expected total_cents 0, got %v", result["total_cents"])
+	}
+}
+
+func TestSwaps_AcceptIncludesCumulativeTotal(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number, swap_credits_cents) VALUES (1, '5551234567', 500)")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Peanut Butter', 'Skippy', 'Pantry & Dry Goods')")
+
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE competitor_product = 'skippy'").Scan(&dealID)
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "accept_swap", "swap_deal_id": dealID, "swap_item_id": 1}, cookies)
+
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+
+	// 500 existing + 125 from skippy deal = 625
+	if resp.SwapCreditsCents != 625 {
+		t.Errorf("expected swap_credits_cents 625, got %d", resp.SwapCreditsCents)
+	}
+	if !strings.Contains(resp.Message, "$6.25 total saved") {
+		t.Errorf("expected message to include cumulative total, got: %s", resp.Message)
+	}
+}
+
+func TestSwaps_PendingSwapIncludesPriceData(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
+			Message: "Added peanut butter!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "skippy peanut butter"}, cookies)
+
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.PendingSwap == nil {
+		t.Fatal("expected a pending swap")
+	}
+
+	// Verify new price fields from seeded data (skippy→jif: 348 vs 473)
+	if resp.PendingSwap.OfferPriceCents != 348 {
+		t.Errorf("expected offer_price_cents 348, got %d", resp.PendingSwap.OfferPriceCents)
+	}
+	if resp.PendingSwap.OriginalPriceCents != 473 {
+		t.Errorf("expected original_price_cents 473, got %d", resp.PendingSwap.OriginalPriceCents)
+	}
+	if resp.PendingSwap.OfferSize != "16 oz" {
+		t.Errorf("expected offer_size '16 oz', got %q", resp.PendingSwap.OfferSize)
+	}
+	if resp.PendingSwap.OfferUnitPrice != "$0.22/oz" {
+		t.Errorf("expected offer_unit_price '$0.22/oz', got %q", resp.PendingSwap.OfferUnitPrice)
+	}
+	if resp.PendingSwap.SavingsPercent != 26 {
+		t.Errorf("expected savings_percent 26, got %d", resp.PendingSwap.SavingsPercent)
+	}
+}
+
+func TestSwaps_WhyBulletsParsed(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
+			Message: "Added peanut butter!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "skippy peanut butter"}, cookies)
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.PendingSwap == nil {
+		t.Fatal("expected a pending swap")
+	}
+
+	if len(resp.PendingSwap.WhyBullets) != 3 {
+		t.Fatalf("expected 3 why bullets, got %d", len(resp.PendingSwap.WhyBullets))
+	}
+	if resp.PendingSwap.WhyBullets[0] != "No palm oil" {
+		t.Errorf("expected first bullet 'No palm oil', got %q", resp.PendingSwap.WhyBullets[0])
+	}
+}
+
+func TestSwaps_AllergenWarningIncluded(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Use the archer→chomps deal which has allergen_notes
+	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: "Beef Sticks", Brand: "Archer", Department: "Snacks & Candy", Quantity: 1}},
+			Message: "Added beef sticks!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "archer beef sticks"}, cookies)
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.PendingSwap == nil {
+		t.Fatal("expected a pending swap for archer")
+	}
+
+	if resp.PendingSwap.AllergenWarning != "Contains: beef. Free of top 8 allergens." {
+		t.Errorf("expected allergen warning, got %q", resp.PendingSwap.AllergenWarning)
+	}
+}
+
+func TestSwaps_PendingSwapGracefulDegradation(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Insert a deal with no price/why data (only required fields)
+	server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product,
+		discount_cents, total_budget_cents, status)
+		VALUES ('heinz', 'HuntsTest', 'Tomato Ketchup', 50, 50000, 'active')`)
+
+	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: "Ketchup", Brand: "Heinz", Department: "Pantry & Dry Goods", Quantity: 1}},
+			Message: "Added ketchup!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "heinz ketchup"}, cookies)
+
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.PendingSwap == nil {
+		t.Fatal("expected a pending swap for heinz")
+	}
+
+	// All price fields should be zero/empty for graceful degradation
+	if resp.PendingSwap.OfferPriceCents != 0 {
+		t.Errorf("expected offer_price_cents 0, got %d", resp.PendingSwap.OfferPriceCents)
+	}
+	if resp.PendingSwap.SavingsPercent != 0 {
+		t.Errorf("expected savings_percent 0, got %d", resp.PendingSwap.SavingsPercent)
+	}
+	if len(resp.PendingSwap.WhyBullets) != 0 {
+		t.Errorf("expected empty why_bullets, got %v", resp.PendingSwap.WhyBullets)
+	}
+	if resp.PendingSwap.AllergenWarning != "" {
+		t.Errorf("expected empty allergen_warning, got %q", resp.PendingSwap.AllergenWarning)
+	}
+	// Core fields still work
+	if resp.PendingSwap.OfferBrand != "HuntsTest" {
+		t.Errorf("expected offer brand HuntsTest, got %s", resp.PendingSwap.OfferBrand)
+	}
+	if resp.PendingSwap.DiscountCents != 50 {
+		t.Errorf("expected 50 discount cents, got %d", resp.PendingSwap.DiscountCents)
+	}
+}
+
+func TestSwaps_AutotuneThresholdBlocksDeals(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	// Create user with autotune ON, 20+ shown, <5% accept rate → should block deals
+	server.db.Exec(`INSERT INTO users (id, phone_number, penny_autotune, deal_shown_count, deal_accept_count)
+		VALUES (1, '5551234567', 1, 25, 1)`)
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
+			Message: "Added!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "skippy peanut butter"}, cookies)
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.PendingSwap != nil {
+		t.Error("expected no swap when autotune ratio < 5% (1/25 = 4%)")
+	}
+}
+
+func TestSwaps_SliderMidRangeFiltersSmallDiscounts(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	// Slider 50, autotune OFF — should block deals with discount <= $1
+	server.db.Exec(`INSERT INTO users (id, phone_number, penny_slider, penny_autotune)
+		VALUES (1, '5551234567', 50, 0)`)
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Archer→Chomps has discount_cents=75 (< $1), should be filtered by mid-range slider
+	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: "Beef Sticks", Brand: "Archer", Department: "Snacks & Candy", Quantity: 1}},
+			Message: "Added!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "archer beef sticks"}, cookies)
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.PendingSwap != nil {
+		t.Error("expected no swap for $0.75 discount with slider=50 (threshold is $1)")
+	}
+
+	// Skippy→Jif has discount_cents=125 (> $1), should still show
+	server.parseCommand = func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: "Peanut Butter", Brand: "Skippy", Department: "Pantry & Dry Goods", Quantity: 1}},
+			Message: "Added!",
+		}, nil
+	}
+
+	rr2 := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "skippy peanut butter"}, cookies)
+
+	var resp2 ParseResponse
+	json.NewDecoder(rr2.Body).Decode(&resp2)
+	if resp2.PendingSwap == nil {
+		t.Error("expected swap for $1.50 discount with slider=50 (above threshold)")
+	}
+}
+
+func TestSwaps_InvalidDealIDReturnsError(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Ketchup', 'Heinz', 'Pantry & Dry Goods')")
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "accept_swap", "swap_deal_id": 99999, "swap_item_id": 1}, cookies)
+
+	if rr.Code != 400 {
+		t.Fatalf("expected 400 for nonexistent deal, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var errResp map[string]string
+	json.NewDecoder(rr.Body).Decode(&errResp)
+	if errResp["error"] != "Deal no longer available" {
+		t.Errorf("expected 'Deal no longer available' error, got %q", errResp["error"])
+	}
+}
+
+func TestSwaps_DoubleAcceptBlocked(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Peanut Butter', 'Skippy', 'Pantry & Dry Goods')")
+
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE competitor_product = 'skippy'").Scan(&dealID)
+
+	// First accept — should succeed
+	rr1 := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "accept_swap", "swap_deal_id": dealID, "swap_item_id": 1}, cookies)
+	if rr1.Code != 201 {
+		t.Fatalf("first accept: expected 201, got %d: %s", rr1.Code, rr1.Body.String())
+	}
+
+	// Second accept — same deal+item within 1 hour → blocked by rebate dedup (B14)
+	rr2 := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "accept_swap", "swap_deal_id": dealID, "swap_item_id": 1}, cookies)
+	if rr2.Code != 409 {
+		t.Fatalf("second accept: expected 409, got %d: %s", rr2.Code, rr2.Body.String())
+	}
+
+	// Verify only 1 credit award (125, not 250)
+	var credits int
+	server.db.QueryRow("SELECT swap_credits_cents FROM users WHERE id = 1").Scan(&credits)
+	if credits != 125 {
+		t.Errorf("expected 125 credits (single accept), got %d", credits)
+	}
+
+	// Verify only 1 rebate row
+	var rebateCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM swap_rebates WHERE user_id = 1").Scan(&rebateCount)
+	if rebateCount != 1 {
+		t.Errorf("expected 1 rebate row, got %d", rebateCount)
+	}
+}
+
+func TestSwaps_CrossUserAcceptBlocked(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	// User 1 owns the item
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (2, '5559876543')")
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Peanut Butter', 'Skippy', 'Pantry & Dry Goods')")
+
+	// User 2 tries to accept swap on User 1's item (not in same household)
+	token2, _ := server.sessions.CreateSession(2, "5559876543", "phone")
+	cookies2 := []*http.Cookie{{Name: "session", Value: token2}}
+
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE competitor_product = 'skippy'").Scan(&dealID)
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "accept_swap", "swap_deal_id": dealID, "swap_item_id": 1}, cookies2)
+
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d", rr.Code)
+	}
+
+	// Verify User 1's item was NOT modified (brand should still be Skippy)
+	var brand string
+	server.db.QueryRow("SELECT brand FROM list_items WHERE id = 1").Scan(&brand)
+	if brand != "Skippy" {
+		t.Errorf("expected item brand to remain 'Skippy' (cross-user protection), got %q", brand)
+	}
+}
+
+func TestSwaps_BudgetExhaustionBlocksAccept(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Set a deal budget that's barely enough for one accept (discount=125, budget=125)
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE competitor_product = 'skippy'").Scan(&dealID)
+	server.db.Exec("UPDATE brand_deals SET total_budget_cents = 125 WHERE id = ?", dealID)
+
+	// First accept with item 1 — should succeed and exhaust the budget
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Peanut Butter', 'Skippy', 'Pantry & Dry Goods')")
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "accept_swap", "swap_deal_id": dealID, "swap_item_id": 1}, cookies)
+	if rr.Code != 201 {
+		t.Fatalf("first accept: expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Deal should be auto-paused now
+	var status string
+	server.db.QueryRow("SELECT status FROM brand_deals WHERE id = ?", dealID).Scan(&status)
+	if status != "paused" {
+		t.Errorf("expected deal to be auto-paused, got status=%q", status)
+	}
+
+	// Second accept from a DIFFERENT user — should fail (deal paused/budget exhausted)
+	// (Same user would be blocked by per-campaign limit; use user 2 to test budget enforcement)
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (2, '5559998888')")
+	token2, _ := server.sessions.CreateSession(2, "5559998888", "phone")
+	cookies2 := []*http.Cookie{{Name: "session", Value: token2}}
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (2, 2, 'Peanut Butter 2', 'Skippy', 'Pantry & Dry Goods')")
+	rr2 := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "accept_swap", "swap_deal_id": dealID, "swap_item_id": 2}, cookies2)
+	if rr2.Code != 400 {
+		t.Errorf("second accept after budget exhaustion: expected 400, got %d: %s", rr2.Code, rr2.Body.String())
+	}
+
+	// Verify only 125 credits awarded to user 1 (not 250)
+	var credits int
+	server.db.QueryRow("SELECT swap_credits_cents FROM users WHERE id = 1").Scan(&credits)
+	if credits != 125 {
+		t.Errorf("expected 125 credits, got %d", credits)
+	}
+}
+
+func TestSwaps_OneSwapPerUserPerCampaign(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE competitor_product = 'skippy'").Scan(&dealID)
+
+	// First accept — should succeed
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Peanut Butter', 'Skippy', 'Pantry & Dry Goods')")
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "accept_swap", "swap_deal_id": dealID, "swap_item_id": 1}, cookies)
+	if rr.Code != 201 {
+		t.Fatalf("first accept: expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Second accept (different item, same deal) — should be blocked
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (2, 1, 'Peanut Butter 2', 'Skippy', 'Pantry & Dry Goods')")
+	rr2 := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "accept_swap", "swap_deal_id": dealID, "swap_item_id": 2}, cookies)
+	if rr2.Code != 409 {
+		t.Errorf("second accept same campaign: expected 409, got %d: %s", rr2.Code, rr2.Body.String())
+	}
+
+	// Verify only 1 rebate created
+	var rebateCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM swap_rebates WHERE user_id = 1 AND deal_id = ?", dealID).Scan(&rebateCount)
+	if rebateCount != 1 {
+		t.Errorf("expected 1 rebate, got %d", rebateCount)
+	}
+}
+
+// =============================================================================
+// SWAP TYPE EXPANSION (Sprint 3)
+// =============================================================================
+
+func TestSwaps_BOGOAcceptSetsQuantity(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Get the seeded BOGO deal (cheerios→Magic Spoon)
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE deal_type = 'bogo'").Scan(&dealID)
+	if dealID == 0 {
+		t.Fatal("no BOGO deal found in seeded data")
+	}
+
+	// Create matching item
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Cheerios', 'General Mills', 'Cereal')")
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "accept_swap", "swap_deal_id": dealID, "swap_item_id": 1}, cookies)
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.Action != "swap_accepted" {
+		t.Errorf("expected action swap_accepted, got %s", resp.Action)
+	}
+
+	// Verify item has quantity=2 (BOGO)
+	var quantity int
+	var name, brand string
+	server.db.QueryRow("SELECT name, brand, quantity FROM list_items WHERE id = 1").Scan(&name, &brand, &quantity)
+	if quantity != 2 {
+		t.Errorf("BOGO: expected quantity 2, got %d", quantity)
+	}
+	if brand != "Magic Spoon" {
+		t.Errorf("BOGO: expected brand Magic Spoon, got %s", brand)
+	}
+}
+
+func TestSwaps_TrialAcceptAddsItem(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Get the seeded Trial deal (folgers→Counter Culture)
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE deal_type = 'trial'").Scan(&dealID)
+	if dealID == 0 {
+		t.Fatal("no Trial deal found in seeded data")
+	}
+
+	// Create matching item
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Coffee', 'Folgers', 'Beverages')")
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "accept_swap", "swap_deal_id": dealID, "swap_item_id": 1}, cookies)
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.Action != "swap_accepted" {
+		t.Errorf("expected action swap_accepted, got %s", resp.Action)
+	}
+
+	// Verify original item is UNCHANGED (trial keeps original)
+	var origName, origBrand string
+	server.db.QueryRow("SELECT name, brand FROM list_items WHERE id = 1").Scan(&origName, &origBrand)
+	if origName != "Coffee" || origBrand != "Folgers" {
+		t.Errorf("Trial: original item should be unchanged, got %s %s", origBrand, origName)
+	}
+
+	// Verify trial item was ADDED as new item
+	var trialCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM list_items WHERE user_id = 1 AND name = 'Counter Culture Coffee Sample'").Scan(&trialCount)
+	if trialCount != 1 {
+		t.Errorf("Trial: expected 1 trial item added, got %d", trialCount)
+	}
+}
+
+func TestSwaps_SeasonalDealIncludesEndsAt(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Create matching item for seasonal deal (oreo→Partake)
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Oreo Cookies', 'Nabisco', 'Snacks')")
+
+	// Add the item via parse to trigger deal check
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "oreo"}, cookies)
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Check the seasonal deal has ends_at and campaign_tag set
+	var endsAt, campaignTag, dealType string
+	server.db.QueryRow("SELECT COALESCE(ends_at,''), campaign_tag, deal_type FROM brand_deals WHERE deal_type = 'seasonal'").Scan(&endsAt, &campaignTag, &dealType)
+	if dealType != "seasonal" {
+		t.Errorf("expected deal_type 'seasonal', got %s", dealType)
+	}
+	if endsAt == "" {
+		t.Error("seasonal deal should have ends_at set")
+	}
+	if campaignTag != "holiday_2026" {
+		t.Errorf("expected campaign_tag 'holiday_2026', got %s", campaignTag)
+	}
+}
+
+func TestSwaps_NewDealTypesInAdminGET(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	// Use the admin phone directly
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '3104861833')")
+	token, _ := server.sessions.CreateSession(1, "3104861833", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	rr := doRequest(server.handleAdminDeals, "GET", "/api/admin/deals", nil, cookies)
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var deals []BrandDeal
+	json.NewDecoder(rr.Body).Decode(&deals)
+
+	// Check that we have deals with different types
+	typeMap := make(map[string]bool)
+	for _, d := range deals {
+		typeMap[d.DealType] = true
+	}
+	for _, expected := range []string{"sku_swap", "bogo", "trial", "seasonal"} {
+		if !typeMap[expected] {
+			t.Errorf("expected deal_type %q in admin GET response", expected)
+		}
+	}
+}
+
+// =============================================================================
+// SETTINGS EDGE CASES
+// =============================================================================
+
+func TestSettings_EdgeCase_PennySliderNegative(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Negative slider value should be clamped to 0
+	negVal := -50
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]interface{}{"penny_slider": negVal}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH with negative slider: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	var stored int
+	server.db.QueryRow("SELECT penny_slider FROM users WHERE id = ?", userID).Scan(&stored)
+	if stored != 0 {
+		t.Errorf("Expected penny_slider clamped to 0, got %d", stored)
+	}
+}
+
+func TestSettings_EdgeCase_PennySliderOver100(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Slider > 100 should be clamped to 100
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]interface{}{"penny_slider": 999}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH with slider=999: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	var stored int
+	server.db.QueryRow("SELECT penny_slider FROM users WHERE id = ?", userID).Scan(&stored)
+	if stored != 100 {
+		t.Errorf("Expected penny_slider clamped to 100, got %d", stored)
+	}
+}
+
+func TestSettings_EdgeCase_PennySliderBoundary0(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Exactly 0 should be accepted as-is
+	zero := 0
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]interface{}{"penny_slider": zero}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH with slider=0: got %d, want 200", rr.Code)
+	}
+
+	var stored int
+	server.db.QueryRow("SELECT penny_slider FROM users WHERE id = ?", userID).Scan(&stored)
+	if stored != 0 {
+		t.Errorf("Expected penny_slider=0, got %d", stored)
+	}
+}
+
+func TestSettings_EdgeCase_PennySliderBoundary100(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]interface{}{"penny_slider": 100}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH with slider=100: got %d, want 200", rr.Code)
+	}
+
+	var stored int
+	server.db.QueryRow("SELECT penny_slider FROM users WHERE id = ?", userID).Scan(&stored)
+	if stored != 100 {
+		t.Errorf("Expected penny_slider=100, got %d", stored)
+	}
+}
+
+func TestSettings_EdgeCase_InvalidBrandMode(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Invalid brand mode should return 400
+	badMode := "invalid_mode"
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]interface{}{"penny_brand_mode": badMode}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("PATCH with invalid brand mode: got %d, want 400. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	result := parseJSON(rr)
+	if result["error"] != "Invalid penny_brand_mode" {
+		t.Errorf("Expected 'Invalid penny_brand_mode' error, got %v", result["error"])
+	}
+}
+
+func TestSettings_EdgeCase_ValidBrandModes(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	validModes := []string{"auto", "ask", "deals"}
+	for _, mode := range validModes {
+		rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+			map[string]interface{}{"penny_brand_mode": mode}, []*http.Cookie{cookie})
+		if rr.Code != http.StatusOK {
+			t.Errorf("PATCH brand_mode=%q: got %d, want 200. Body: %s", mode, rr.Code, rr.Body.String())
+		}
+
+		var stored string
+		server.db.QueryRow("SELECT penny_brand_mode FROM users WHERE id = ?", userID).Scan(&stored)
+		if stored != mode {
+			t.Errorf("Expected brand_mode=%q, got %q", mode, stored)
+		}
+	}
+}
+
+func TestSettings_EdgeCase_EmptyBody(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Empty JSON object — no fields to update, should succeed as no-op
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]interface{}{}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("PATCH with empty body: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestSettings_EdgeCase_PennyAutotuneToggle(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Set autotune to false
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]interface{}{"penny_autotune": false}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH autotune=false: got %d, want 200", rr.Code)
+	}
+
+	var stored int
+	server.db.QueryRow("SELECT penny_autotune FROM users WHERE id = ?", userID).Scan(&stored)
+	if stored != 0 {
+		t.Errorf("Expected penny_autotune=0, got %d", stored)
+	}
+
+	// Set autotune back to true
+	rr = doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]interface{}{"penny_autotune": true}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH autotune=true: got %d, want 200", rr.Code)
+	}
+
+	server.db.QueryRow("SELECT penny_autotune FROM users WHERE id = ?", userID).Scan(&stored)
+	if stored != 1 {
+		t.Errorf("Expected penny_autotune=1, got %d", stored)
+	}
+}
+
+func TestSettings_EdgeCase_PennyDealsToggle(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Set deals to true
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]interface{}{"penny_deals": true}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH penny_deals=true: got %d, want 200", rr.Code)
+	}
+
+	var stored int
+	server.db.QueryRow("SELECT penny_deals FROM users WHERE id = ?", userID).Scan(&stored)
+	if stored != 1 {
+		t.Errorf("Expected penny_deals=1, got %d", stored)
+	}
+
+	// Set deals back to false
+	rr = doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]interface{}{"penny_deals": false}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH penny_deals=false: got %d, want 200", rr.Code)
+	}
+
+	server.db.QueryRow("SELECT penny_deals FROM users WHERE id = ?", userID).Scan(&stored)
+	if stored != 0 {
+		t.Errorf("Expected penny_deals=0, got %d", stored)
+	}
+}
+
+func TestSettings_EdgeCase_MultipleFieldsAtOnce(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Update slider, autotune, brand mode, and name all at once
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]interface{}{
+			"name":             "Alice",
+			"penny_slider":     75,
+			"penny_autotune":   false,
+			"penny_brand_mode": "auto",
+		}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH multiple fields: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	var name, mode string
+	var slider, autotune int
+	server.db.QueryRow("SELECT name, penny_slider, penny_autotune, penny_brand_mode FROM users WHERE id = ?", userID).Scan(&name, &slider, &autotune, &mode)
+	if name != "Alice" {
+		t.Errorf("Expected name=Alice, got %q", name)
+	}
+	if slider != 75 {
+		t.Errorf("Expected slider=75, got %d", slider)
+	}
+	if autotune != 0 {
+		t.Errorf("Expected autotune=0, got %d", autotune)
+	}
+	if mode != "auto" {
+		t.Errorf("Expected mode=auto, got %q", mode)
+	}
+}
+
+func TestSettings_EdgeCase_WhitespaceNameTrimmed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]interface{}{"name": "  Bob  "}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH whitespace name: got %d, want 200", rr.Code)
+	}
+
+	var stored string
+	server.db.QueryRow("SELECT name FROM users WHERE id = ?", userID).Scan(&stored)
+	if stored != "Bob" {
+		t.Errorf("Expected trimmed name 'Bob', got %q", stored)
+	}
+}
+
+func TestSettings_EdgeCase_WhitespaceBrandModeTrimmed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Whitespace-padded but valid mode should be trimmed and accepted
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]interface{}{"penny_brand_mode": "  ask  "}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH whitespace brand mode: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	var stored string
+	server.db.QueryRow("SELECT penny_brand_mode FROM users WHERE id = ?", userID).Scan(&stored)
+	if stored != "ask" {
+		t.Errorf("Expected trimmed brand_mode='ask', got %q", stored)
+	}
+}
+
+func TestSettings_EdgeCase_GetReflectsClampedSlider(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Set slider to a clamped value
+	doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]interface{}{"penny_slider": -10}, []*http.Cookie{cookie})
+
+	// GET should reflect clamped value
+	rr := doRequest(server.handleSettings, "GET", "/api/settings", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET settings: got %d, want 200", rr.Code)
+	}
+	result := parseJSON(rr)
+	if result["penny_slider"] != float64(0) {
+		t.Errorf("Expected penny_slider=0 in GET response, got %v", result["penny_slider"])
+	}
+}
+
+// =============================================================================
+// SAVED LISTS EDGE CASES
+// =============================================================================
+
+func TestSavedLists_EdgeCase_WhitespaceOnlyName(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Whitespace-only name should be rejected (trimmed to empty)
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists",
+		map[string]string{"name": "   "}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("POST with whitespace name: got %d, want 400. Body: %s", rr.Code, rr.Body.String())
+	}
+	result := parseJSON(rr)
+	if result["error"] != "Name is required" {
+		t.Errorf("Expected 'Name is required' error, got %v", result["error"])
+	}
+}
+
+func TestSavedLists_EdgeCase_VeryLongName(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Add an item so save can succeed
+	createListItem(t, server.db, userID, "Milk", "Dairy")
+
+	longName := strings.Repeat("a", 500)
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists",
+		map[string]string{"name": longName}, []*http.Cookie{cookie})
+	// Should succeed — SQLite TEXT has no length limit
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("POST with long name: got %d, want 201. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	result := parseJSON(rr)
+	if result["name"] != longName {
+		t.Errorf("Expected long name to be stored verbatim, got length %d", len(result["name"].(string)))
+	}
+}
+
+func TestSavedLists_EdgeCase_LoadNonexistentList(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Loading a saved list that doesn't exist should return 404
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists/99999/load", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Load nonexistent saved list: got %d, want 404. Body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestSavedLists_EdgeCase_DeleteNonexistentList(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Deleting a saved list that doesn't exist should return 404
+	rr := doRequest(server.handleSavedLists, "DELETE", "/api/saved-lists/99999", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Delete nonexistent saved list: got %d, want 404. Body: %s", rr.Code, rr.Body.String())
+	}
+	result := parseJSON(rr)
+	if result["error"] != "Saved list not found" {
+		t.Errorf("Expected 'Saved list not found' error, got %v", result["error"])
+	}
+}
+
+func TestSavedLists_EdgeCase_UpdateNonexistentList(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Updating a saved list that doesn't exist should return 404
+	rr := doRequest(server.handleSavedLists, "PUT", "/api/saved-lists/99999", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Update nonexistent saved list: got %d, want 404. Body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestSavedLists_EdgeCase_LoadEmptySavedList(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Create an item so saved list can be created
+	createListItem(t, server.db, userID, "Bread", "Bakery")
+
+	// Create a saved list
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists",
+		map[string]string{"name": "Test List"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("Create saved list: got %d, want 201", rr.Code)
+	}
+	result := parseJSON(rr)
+	savedListID := int(result["id"].(float64))
+
+	// Manually delete all items from the saved list to simulate an empty one
+	server.db.Exec("DELETE FROM saved_list_items WHERE saved_list_id = ?", savedListID)
+
+	// Load the now-empty saved list — should succeed with 0 items added
+	rr = doRequest(server.handleSavedLists, "POST", fmt.Sprintf("/api/saved-lists/%d/load", savedListID),
+		nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Load empty saved list: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+	result = parseJSON(rr)
+	if result["added"] != float64(0) {
+		t.Errorf("Expected 0 items added from empty saved list, got %v", result["added"])
+	}
+}
+
+func TestSavedLists_EdgeCase_SpecialCharsInName(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	createListItem(t, server.db, userID, "Eggs", "Dairy")
+
+	specialName := "My List <script>alert('xss')</script> & \"quotes\""
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists",
+		map[string]string{"name": specialName}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("POST with special chars name: got %d, want 201. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify stored as-is (no mutation of the name)
+	result := parseJSON(rr)
+	if result["name"] != specialName {
+		t.Errorf("Expected name stored verbatim, got %q", result["name"])
+	}
+}
+
+func TestSavedLists_EdgeCase_CreateWithInvalidJSON(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Send nil body — decodeJSON should reject it
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("POST with nil body: got %d, want 400. Body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestSavedLists_EdgeCase_DoubleDelete(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	createListItem(t, server.db, userID, "Butter", "Dairy")
+
+	// Create
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists",
+		map[string]string{"name": "Temp"}, []*http.Cookie{cookie})
+	result := parseJSON(rr)
+	id := int(result["id"].(float64))
+
+	// First delete
+	rr = doRequest(server.handleSavedLists, "DELETE", fmt.Sprintf("/api/saved-lists/%d", id),
+		nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("First delete: got %d, want 200", rr.Code)
+	}
+
+	// Second delete — should be 404
+	rr = doRequest(server.handleSavedLists, "DELETE", fmt.Sprintf("/api/saved-lists/%d", id),
+		nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Second delete of same list: got %d, want 404", rr.Code)
+	}
+}
+
+// =============================================================================
+// TRIPS EDGE CASES
+// =============================================================================
+
+func TestTrips_EdgeCase_InvalidDateFormat(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	badDates := []struct {
+		name string
+		date string
+	}{
+		{"month-day-year", "01-15-2099"},
+		{"slash format", "01/15/2099"},
+		{"text format", "January 15, 2099"},
+		{"no separators", "20990115"},
+		{"partial date", "2099-01"},
+		{"garbage", "not-a-date"},
+	}
+
+	for _, tt := range badDates {
+		t.Run(tt.name, func(t *testing.T) {
+			rr := doRequest(server.handleTrips, "POST", "/api/trips",
+				map[string]string{"trip_date": tt.date}, []*http.Cookie{cookie})
+			if rr.Code != http.StatusBadRequest {
+				t.Errorf("POST with date=%q: got %d, want 400. Body: %s", tt.date, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestTrips_EdgeCase_MissingTripDate(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// No trip_date field at all
+	rr := doRequest(server.handleTrips, "POST", "/api/trips",
+		map[string]string{"trip_time": "15:00"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("POST without trip_date: got %d, want 400. Body: %s", rr.Code, rr.Body.String())
+	}
+	result := parseJSON(rr)
+	if result["error"] != "trip_date is required" {
+		t.Errorf("Expected 'trip_date is required' error, got %v", result["error"])
+	}
+}
+
+func TestTrips_EdgeCase_EmptyBodyPost(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Empty JSON body — trip_date missing
+	rr := doRequest(server.handleTrips, "POST", "/api/trips",
+		map[string]string{}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("POST with empty body: got %d, want 400. Body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestTrips_EdgeCase_DeleteWhenNoTrips(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Delete with no trips should still succeed (idempotent)
+	rr := doRequest(server.handleTrips, "DELETE", "/api/trips", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("DELETE with no trips: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+	result := parseJSON(rr)
+	if result["ok"] != true {
+		t.Errorf("Expected ok=true, got %v", result["ok"])
+	}
+}
+
+func TestTrips_EdgeCase_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleTrips, "PATCH", "/api/trips", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("PATCH trips: got %d, want 405", rr.Code)
+	}
+}
+
+func TestTrips_EdgeCase_WithTimeLabel(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Create trip with time_label
+	rr := doRequest(server.handleTrips, "POST", "/api/trips",
+		map[string]string{
+			"trip_date":  "2099-06-15",
+			"trip_time":  "10:00",
+			"time_label": "Morning",
+		}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Create trip with time_label: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify time_label is stored and returned
+	rr = doRequest(server.handleTrips, "GET", "/api/trips", nil, []*http.Cookie{cookie})
+	var trips []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &trips)
+	if len(trips) != 1 {
+		t.Fatalf("Expected 1 trip, got %d", len(trips))
+	}
+	if trips[0]["time_label"] != "Morning" {
+		t.Errorf("Expected time_label='Morning', got %v", trips[0]["time_label"])
+	}
+	if trips[0]["trip_time"] != "10:00" {
+		t.Errorf("Expected trip_time='10:00', got %v", trips[0]["trip_time"])
+	}
+}
+
+func TestTrips_EdgeCase_EmptyTripDateString(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Explicit empty string for trip_date
+	rr := doRequest(server.handleTrips, "POST", "/api/trips",
+		map[string]string{"trip_date": ""}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("POST with empty trip_date: got %d, want 400", rr.Code)
+	}
+}
+
+func TestTrips_EdgeCase_NilBody(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// nil body should fail gracefully
+	rr := doRequest(server.handleTrips, "POST", "/api/trips", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("POST with nil body: got %d, want 400. Body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestTrips_EdgeCase_GetEmptyReturnsArray(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleTrips, "GET", "/api/trips", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET empty trips: got %d, want 200", rr.Code)
+	}
+	// Should be an empty array, not null
+	body := strings.TrimSpace(rr.Body.String())
+	if body != "[]" {
+		t.Errorf("Expected empty array '[]', got %q", body)
+	}
+}
+
+// =============================================================================
+// NPS EDGE CASES
+// =============================================================================
+
+func TestNPS_EdgeCase_ScoreNegative(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleNPS, "POST", "/api/nps",
+		map[string]interface{}{"score": -5, "comment": "bad"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("NPS with score=-5: got %d, want 400. Body: %s", rr.Code, rr.Body.String())
+	}
+	result := parseJSON(rr)
+	if result["error"] != "Score must be 0-10" {
+		t.Errorf("Expected 'Score must be 0-10' error, got %v", result["error"])
+	}
+}
+
+func TestNPS_EdgeCase_ScoreOver10(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleNPS, "POST", "/api/nps",
+		map[string]interface{}{"score": 100, "comment": ""}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("NPS with score=100: got %d, want 400", rr.Code)
+	}
+}
+
+func TestNPS_EdgeCase_DuplicateSubmission(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	body := map[string]interface{}{"score": 8, "comment": "First"}
+	rr := doRequest(server.handleNPS, "POST", "/api/nps", body, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("First NPS submit: got %d, want 200", rr.Code)
+	}
+
+	// Second submission should also succeed (no unique constraint)
+	body2 := map[string]interface{}{"score": 9, "comment": "Second"}
+	rr = doRequest(server.handleNPS, "POST", "/api/nps", body2, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("Second NPS submit: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	// Both should be in the DB
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM nps_responses WHERE user_id = ?", userID).Scan(&count)
+	if count != 2 {
+		t.Errorf("Expected 2 NPS responses, got %d", count)
+	}
+}
+
+func TestNPS_EdgeCase_WhitespaceOnlyComment(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	body := map[string]interface{}{"score": 7, "comment": "   \t\n   "}
+	rr := doRequest(server.handleNPS, "POST", "/api/nps", body, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("NPS with whitespace comment: got %d, want 200", rr.Code)
+	}
+
+	// Comment should be trimmed to empty
+	var comment string
+	server.db.QueryRow("SELECT comment FROM nps_responses WHERE user_id = ?", userID).Scan(&comment)
+	if comment != "" {
+		t.Errorf("Expected empty comment after trim, got %q", comment)
+	}
+}
+
+func TestNPS_EdgeCase_CommentExactly500Chars(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	exact500 := strings.Repeat("b", 500)
+	body := map[string]interface{}{"score": 6, "comment": exact500}
+	rr := doRequest(server.handleNPS, "POST", "/api/nps", body, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("NPS with 500-char comment: got %d, want 200", rr.Code)
+	}
+
+	var comment string
+	server.db.QueryRow("SELECT comment FROM nps_responses WHERE user_id = ?", userID).Scan(&comment)
+	if len(comment) != 500 {
+		t.Errorf("Expected comment length 500, got %d", len(comment))
+	}
+}
+
+func TestNPS_EdgeCase_CommentExactly501CharsTruncated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	over500 := strings.Repeat("c", 501)
+	body := map[string]interface{}{"score": 5, "comment": over500}
+	rr := doRequest(server.handleNPS, "POST", "/api/nps", body, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("NPS with 501-char comment: got %d, want 200", rr.Code)
+	}
+
+	var comment string
+	server.db.QueryRow("SELECT comment FROM nps_responses WHERE user_id = ?", userID).Scan(&comment)
+	if len(comment) != 500 {
+		t.Errorf("Expected comment truncated to 500, got %d", len(comment))
+	}
+}
+
+func TestNPS_EdgeCase_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// NPS submit is POST only
+	rr := doRequest(server.handleNPS, "GET", "/api/nps", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET /api/nps: got %d, want 405", rr.Code)
+	}
+
+	// NPS check is GET only
+	rr = doRequest(server.handleNPSCheck, "POST", "/api/nps/check",
+		map[string]interface{}{"score": 5}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST /api/nps/check: got %d, want 405", rr.Code)
+	}
+}
+
+func TestNPS_EdgeCase_InvalidJSON(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// nil body
+	rr := doRequest(server.handleNPS, "POST", "/api/nps", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("NPS with nil body: got %d, want 400. Body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestNPS_EdgeCase_MissingScoreDefaultsToZero(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// JSON with only comment — score defaults to 0 (Go zero value), which is valid (0-10)
+	body := map[string]interface{}{"comment": "No score given"}
+	rr := doRequest(server.handleNPS, "POST", "/api/nps", body, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("NPS with missing score: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	var score int
+	server.db.QueryRow("SELECT score FROM nps_responses WHERE user_id = ?", userID).Scan(&score)
+	if score != 0 {
+		t.Errorf("Expected score=0 (Go zero value), got %d", score)
+	}
+}
+
+func TestNPSCheck_EdgeCase_ExactMinLoginThreshold(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.NPSIntervalDays = 90
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Set login_count to exactly npsMinLogins (3) — should show NPS
+	server.db.Exec("UPDATE users SET login_count = ? WHERE id = ?", npsMinLogins, userID)
+
+	rr := doRequest(server.handleNPSCheck, "GET", "/api/nps/check", nil, []*http.Cookie{cookie})
+	result := parseJSON(rr)
+	if result["show_nps"] != true {
+		t.Errorf("Expected show_nps=true at exactly %d logins, got %v", npsMinLogins, result["show_nps"])
+	}
+}
+
+func TestNPSCheck_EdgeCase_OneBelowMinLoginThreshold(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.NPSIntervalDays = 90
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Set login_count to npsMinLogins-1 — should NOT show NPS
+	server.db.Exec("UPDATE users SET login_count = ? WHERE id = ?", npsMinLogins-1, userID)
+
+	rr := doRequest(server.handleNPSCheck, "GET", "/api/nps/check", nil, []*http.Cookie{cookie})
+	result := parseJSON(rr)
+	if result["show_nps"] != false {
+		t.Errorf("Expected show_nps=false at %d logins, got %v", npsMinLogins-1, result["show_nps"])
+	}
+}
+
+// =============================================================================
+// AVATAR TESTS
+// =============================================================================
+
+// makeJPEG returns minimal valid JPEG bytes (FF D8 header + padding).
+func makeJPEG(size int) []byte {
+	data := make([]byte, size)
+	data[0] = 0xFF
+	data[1] = 0xD8
+	return data
+}
+
+// makePNG returns minimal valid PNG bytes (89 50 4E 47 header + padding).
+func makePNG(size int) []byte {
+	data := make([]byte, size)
+	data[0] = 0x89
+	data[1] = 0x50
+	data[2] = 0x4E
+	data[3] = 0x47
+	return data
+}
+
+func TestAvatar_UploadJPEG(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	jpegData := makeJPEG(100)
+	b64 := base64.StdEncoding.EncodeToString(jpegData)
+
+	// Upload
+	rr := doRequest(server.handleAvatar, "POST", "/api/avatar", map[string]string{"photo": b64}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// GET should serve it back
+	rr = doRequest(server.handleAvatar, "GET", fmt.Sprintf("/api/avatar/%d", userID), nil, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "image/jpeg" {
+		t.Errorf("Expected Content-Type image/jpeg, got %s", ct)
+	}
+	if rr.Body.Len() != 100 {
+		t.Errorf("Expected 100 bytes, got %d", rr.Body.Len())
+	}
+	if cc := rr.Header().Get("Cache-Control"); cc != "public, max-age=86400" {
+		t.Errorf("Expected Cache-Control header, got %q", cc)
+	}
+}
+
+func TestAvatar_UploadPNG(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	pngData := makePNG(200)
+	b64 := base64.StdEncoding.EncodeToString(pngData)
+
+	rr := doRequest(server.handleAvatar, "POST", "/api/avatar", map[string]string{"photo": b64}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAvatar_RejectInvalid(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// GIF magic bytes (not allowed)
+	gifData := []byte("GIF89a" + strings.Repeat("x", 100))
+	b64 := base64.StdEncoding.EncodeToString(gifData)
+
+	rr := doRequest(server.handleAvatar, "POST", "/api/avatar", map[string]string{"photo": b64}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Expected 400, got %d", rr.Code)
+	}
+	result := parseJSON(rr)
+	if !strings.Contains(fmt.Sprint(result["error"]), "JPEG and PNG") {
+		t.Errorf("Expected JPEG/PNG error, got %v", result["error"])
+	}
+}
+
+func TestAvatar_RejectTooLarge(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// 3MB JPEG — exceeds 2MB limit
+	jpegData := makeJPEG(3 * 1024 * 1024)
+	b64 := base64.StdEncoding.EncodeToString(jpegData)
+
+	rr := doRequest(server.handleAvatar, "POST", "/api/avatar", map[string]string{"photo": b64}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Expected 400, got %d", rr.Code)
+	}
+	result := parseJSON(rr)
+	if !strings.Contains(fmt.Sprint(result["error"]), "too large") {
+		t.Errorf("Expected too large error, got %v", result["error"])
+	}
+}
+
+func TestAvatar_RejectEmpty(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Empty photo field
+	rr := doRequest(server.handleAvatar, "POST", "/api/avatar", map[string]string{"photo": ""}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Missing photo field entirely
+	rr = doRequest(server.handleAvatar, "POST", "/api/avatar", map[string]string{}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Expected 400 for missing photo, got %d", rr.Code)
+	}
+}
+
+func TestAvatar_Upsert(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Upload first photo (JPEG, 100 bytes)
+	jpeg1 := makeJPEG(100)
+	rr := doRequest(server.handleAvatar, "POST", "/api/avatar", map[string]string{"photo": base64.StdEncoding.EncodeToString(jpeg1)}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("First upload failed: %d", rr.Code)
+	}
+
+	// Upload second photo (PNG, 200 bytes) — should replace
+	png2 := makePNG(200)
+	rr = doRequest(server.handleAvatar, "POST", "/api/avatar", map[string]string{"photo": base64.StdEncoding.EncodeToString(png2)}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Second upload failed: %d", rr.Code)
+	}
+
+	// GET should return the PNG
+	rr = doRequest(server.handleAvatar, "GET", fmt.Sprintf("/api/avatar/%d", userID), nil, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET failed: %d", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("Expected image/png after upsert, got %s", ct)
+	}
+	if rr.Body.Len() != 200 {
+		t.Errorf("Expected 200 bytes after upsert, got %d", rr.Body.Len())
+	}
+}
+
+func TestAvatar_Delete(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Upload
+	jpeg := makeJPEG(100)
+	doRequest(server.handleAvatar, "POST", "/api/avatar", map[string]string{"photo": base64.StdEncoding.EncodeToString(jpeg)}, []*http.Cookie{cookie})
+
+	// Delete
+	rr := doRequest(server.handleAvatar, "DELETE", "/api/avatar", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("DELETE failed: %d", rr.Code)
+	}
+
+	// GET should 404
+	rr = doRequest(server.handleAvatar, "GET", fmt.Sprintf("/api/avatar/%d", userID), nil, nil)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Expected 404 after delete, got %d", rr.Code)
+	}
+}
+
+func TestAvatar_NotFound(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// GET for user without photo
+	rr := doRequest(server.handleAvatar, "GET", "/api/avatar/99999", nil, nil)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Expected 404, got %d", rr.Code)
+	}
+}
+
+func TestAvatar_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	jpeg := makeJPEG(100)
+	b64 := base64.StdEncoding.EncodeToString(jpeg)
+
+	// POST without session cookie
+	rr := doRequest(server.handleAvatar, "POST", "/api/avatar", map[string]string{"photo": b64}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401, got %d", rr.Code)
+	}
+
+	// DELETE without session cookie
+	rr = doRequest(server.handleAvatar, "DELETE", "/api/avatar", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401 for DELETE, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// ONBOARDING TESTS
+// =============================================================================
+
+func TestOnboarding_MeReturnsLoginCount(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	user, _ := upsertUser(server.db, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// User created via upsertUser gets login_count=1 (first login)
+	rr := doRequest(server.handleMe, "GET", "/auth/me", nil, cookies)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	lc, ok := body["login_count"].(float64)
+	if !ok {
+		t.Fatal("login_count not in response")
+	}
+	if int(lc) != 1 {
+		t.Errorf("expected login_count=1 for new user, got %d", int(lc))
+	}
+
+	// Name should not be present when empty
+	if _, hasName := body["name"]; hasName {
+		t.Error("expected no 'name' key for user without name")
+	}
+}
+
+func TestOnboarding_MeReturnsLoginCountAfterLogins(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+
+	// Simulate a phone login which increments login_count
+	server.db.Exec("INSERT INTO users (id, phone_number, login_count) VALUES (1, '5551234567', 0)")
+	server.db.Exec("INSERT INTO auth_methods (user_id, provider, provider_id) VALUES (1, 'phone', '5551234567')")
+
+	// Manually increment login_count as would happen during auth
+	server.db.Exec("UPDATE users SET login_count = 3 WHERE id = 1")
+
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	rr := doRequest(server.handleMe, "GET", "/auth/me", nil, cookies)
+	body := parseJSON(rr)
+	lc := body["login_count"].(float64)
+	if int(lc) != 3 {
+		t.Errorf("expected login_count=3, got %d", int(lc))
+	}
+}
+
+func TestOnboarding_MeReturnsName(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	server.db.Exec("INSERT INTO users (id, phone_number, name) VALUES (1, '5551234567', 'Andy')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	rr := doRequest(server.handleMe, "GET", "/auth/me", nil, cookies)
+	body := parseJSON(rr)
+
+	name, ok := body["name"].(string)
+	if !ok || name != "Andy" {
+		t.Errorf("expected name='Andy', got %v", body["name"])
+	}
+}
+
+func TestOnboarding_OnboardingFlagsColumnExists(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Verify onboarding_flags column exists with default value
+	var flags string
+	err := server.db.QueryRow("SELECT onboarding_flags FROM users WHERE id = 1").Scan(&flags)
+	if err == nil && flags != "{}" {
+		t.Errorf("expected default onboarding_flags='{}', got '%s'", flags)
+	}
+
+	// Insert a user and verify default
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (99, '5559999999')")
+	err = server.db.QueryRow("SELECT onboarding_flags FROM users WHERE id = 99").Scan(&flags)
+	if err != nil {
+		t.Fatalf("failed to read onboarding_flags: %v", err)
+	}
+	if flags != "{}" {
+		t.Errorf("expected default '{}', got '%s'", flags)
+	}
+}
+
+func TestOnboarding_NameSavedViaSettings(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Save name via PATCH /api/settings
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]string{"name": "Penny Tester"}, cookies)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH settings: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify name persisted
+	var name string
+	server.db.QueryRow("SELECT name FROM users WHERE id = 1").Scan(&name)
+	if name != "Penny Tester" {
+		t.Errorf("expected name='Penny Tester', got '%s'", name)
+	}
+
+	// Verify /auth/me returns the name
+	rr = doRequest(server.handleMe, "GET", "/auth/me", nil, cookies)
+	body := parseJSON(rr)
+	if body["name"] != "Penny Tester" {
+		t.Errorf("expected name='Penny Tester' in /auth/me, got %v", body["name"])
+	}
+}
+
+// =============================================================================
+// BRAND PORTAL TESTS
+// =============================================================================
+
+// brandRegister is a helper that registers a brand user and returns the session cookie and brand_user_id.
+func brandRegister(t *testing.T, server *Server, email, password, companyName string) (*http.Cookie, int) {
+	t.Helper()
+	rr := doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
+		"email":        email,
+		"password":     password,
+		"company_name": companyName,
+	}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("brandRegister: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var cookie *http.Cookie
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == "brand_session" {
+			cookie = c
+			break
+		}
+	}
+	if cookie == nil {
+		t.Fatal("brandRegister: no brand_session cookie returned")
+	}
+	body := parseJSON(rr)
+	brandUserID := int(body["brand_user_id"].(float64))
+	return cookie, brandUserID
+}
+
+// createTestDeal is a helper that creates a brand deal and returns the deal ID.
+func createTestDeal(t *testing.T, server *Server, cookie *http.Cookie) int {
+	t.Helper()
+	rr := doRequest(server.handleBrandDeals, "POST", "/brand/deals", map[string]interface{}{
+		"competitor_product":   "Competitor Cola 12pk",
+		"offer_brand":          "TestBrand",
+		"offer_product":        "TestBrand Cola 12pk",
+		"discount_cents":       75,
+		"daily_budget_cents":   10000,
+		"offer_price_cents":    499,
+		"competitor_price_cents": 599,
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("createTestDeal: expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	return int(body["id"].(float64))
+}
+
+func TestBrandPortal_RegisterAndLogin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Register
+	rr := doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
+		"email":        "brand@example.com",
+		"password":     "securepassword123",
+		"company_name": "Acme Brands",
+	}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Register: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["success"] != true {
+		t.Errorf("expected success=true, got %v", body["success"])
+	}
+	if body["brand_user_id"] == nil || body["brand_user_id"].(float64) == 0 {
+		t.Error("expected non-zero brand_user_id")
+	}
+
+	// Verify brand_session cookie was set
+	var regCookie *http.Cookie
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == "brand_session" {
+			regCookie = c
+			break
+		}
+	}
+	if regCookie == nil {
+		t.Fatal("no brand_session cookie set on register")
+	}
+
+	// Login with same credentials
+	rr = doRequest(server.handleBrandLogin, "POST", "/brand/login", map[string]string{
+		"email":    "brand@example.com",
+		"password": "securepassword123",
+	}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Login: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body = parseJSON(rr)
+	if body["success"] != true {
+		t.Errorf("Login: expected success=true, got %v", body["success"])
+	}
+
+	// Login with wrong password should fail
+	rr = doRequest(server.handleBrandLogin, "POST", "/brand/login", map[string]string{
+		"email":    "brand@example.com",
+		"password": "wrongpassword",
+	}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Login bad password: expected 401, got %d", rr.Code)
+	}
+}
+
+func TestBrandPortal_Me(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, brandUserID := brandRegister(t, server, "me@brand.com", "password1234", "MyCo Inc")
+
+	rr := doRequest(server.handleBrandMe, "GET", "/brand/me", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Me: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if int(body["brand_user_id"].(float64)) != brandUserID {
+		t.Errorf("brand_user_id: got %v, want %d", body["brand_user_id"], brandUserID)
+	}
+	if body["email"] != "me@brand.com" {
+		t.Errorf("email: got %v, want me@brand.com", body["email"])
+	}
+	if body["company_name"] != "MyCo Inc" {
+		t.Errorf("company_name: got %v, want MyCo Inc", body["company_name"])
+	}
+	if body["verified"] != true {
+		t.Errorf("verified: got %v, want true", body["verified"])
+	}
+	// balance_cents should be 0 for a new user
+	if body["balance_cents"].(float64) != 0 {
+		t.Errorf("balance_cents: got %v, want 0", body["balance_cents"])
+	}
+}
+
+func TestBrandPortal_Logout(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "logout@brand.com", "password1234", "LogoutCo")
+
+	// Logout
+	rr := doRequest(server.handleBrandLogout, "POST", "/brand/logout", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Logout: expected 200, got %d", rr.Code)
+	}
+
+	// /brand/me should now return 401
+	rr = doRequest(server.handleBrandMe, "GET", "/brand/me", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Me after logout: expected 401, got %d", rr.Code)
+	}
+}
+
+func TestBrandPortal_DuplicateEmail(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// First registration succeeds
+	rr := doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
+		"email":        "dup@brand.com",
+		"password":     "password1234",
+		"company_name": "First Co",
+	}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("First register: expected 200, got %d", rr.Code)
+	}
+
+	// Second registration with same email should fail with 409
+	rr = doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
+		"email":        "dup@brand.com",
+		"password":     "anotherpass123",
+		"company_name": "Second Co",
+	}, nil)
+	if rr.Code != http.StatusConflict {
+		t.Errorf("Duplicate register: expected 409, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["error"] == nil || body["error"] == "" {
+		t.Error("expected error message in duplicate register response")
+	}
+}
+
+func TestBrandPortal_CreateDeal(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "deals@brand.com", "password1234", "DealCo")
+
+	// Create a deal
+	rr := doRequest(server.handleBrandDeals, "POST", "/brand/deals", map[string]interface{}{
+		"competitor_product":     "Store Brand Oats 32oz",
+		"offer_brand":            "TestOats",
+		"offer_product":          "TestOats Organic 32oz",
+		"discount_cents":         100,
+		"daily_budget_cents":     20000,
+		"offer_price_cents":      399,
+		"competitor_price_cents": 299,
+		"why_bullets":            `["Organic certified","Non-GMO"]`,
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("Create deal: expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	dealID := body["id"].(float64)
+	if dealID == 0 {
+		t.Error("expected non-zero deal ID")
+	}
+
+	// GET deals should return the created deal
+	rr = doRequest(server.handleBrandDeals, "GET", "/brand/deals", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Get deals: expected 200, got %d", rr.Code)
+	}
+
+	var deals []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &deals)
+	if len(deals) != 1 {
+		t.Fatalf("expected 1 deal, got %d", len(deals))
+	}
+	if deals[0]["competitor_product"] != "Store Brand Oats 32oz" {
+		t.Errorf("competitor_product: got %v, want 'Store Brand Oats 32oz'", deals[0]["competitor_product"])
+	}
+	if deals[0]["offer_brand"] != "TestOats" {
+		t.Errorf("offer_brand: got %v, want 'TestOats'", deals[0]["offer_brand"])
+	}
+	if deals[0]["status"] != "active" {
+		t.Errorf("status: got %v, want 'active'", deals[0]["status"])
+	}
+
+	// Create deal with missing required fields should fail
+	rr = doRequest(server.handleBrandDeals, "POST", "/brand/deals", map[string]interface{}{
+		"offer_brand": "TestOats",
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Create deal missing fields: expected 400, got %d", rr.Code)
+	}
+}
+
+func TestBrandPortal_DealPauseResume(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "pause@brand.com", "password1234", "PauseCo")
+	dealID := createTestDeal(t, server, cookie)
+
+	// Pause the deal
+	pauseStatus := "paused"
+	rr := doRequest(server.handleBrandDeals, "PUT", fmt.Sprintf("/brand/deals/%d", dealID),
+		map[string]interface{}{"status": &pauseStatus},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Pause deal: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify status is paused
+	rr = doRequest(server.handleBrandDeals, "GET", "/brand/deals", nil, []*http.Cookie{cookie})
+	var deals []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &deals)
+	if len(deals) != 1 {
+		t.Fatalf("expected 1 deal, got %d", len(deals))
+	}
+	if deals[0]["status"] != "paused" {
+		t.Errorf("status after pause: got %v, want 'paused'", deals[0]["status"])
+	}
+
+	// Resume the deal
+	activeStatus := "active"
+	rr = doRequest(server.handleBrandDeals, "PUT", fmt.Sprintf("/brand/deals/%d", dealID),
+		map[string]interface{}{"status": &activeStatus},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Resume deal: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify status is active again
+	rr = doRequest(server.handleBrandDeals, "GET", "/brand/deals", nil, []*http.Cookie{cookie})
+	json.Unmarshal(rr.Body.Bytes(), &deals)
+	if deals[0]["status"] != "active" {
+		t.Errorf("status after resume: got %v, want 'active'", deals[0]["status"])
+	}
+}
+
+func TestBrandPortal_DeleteDeal(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "delete@brand.com", "password1234", "DeleteCo")
+	dealID := createTestDeal(t, server, cookie)
+
+	// Delete the deal
+	rr := doRequest(server.handleBrandDeals, "DELETE", fmt.Sprintf("/brand/deals/%d", dealID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Delete deal: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// GET deals should no longer return the deleted deal (soft delete filters by status != 'deleted')
+	rr = doRequest(server.handleBrandDeals, "GET", "/brand/deals", nil, []*http.Cookie{cookie})
+	var deals []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &deals)
+	if len(deals) != 0 {
+		t.Errorf("expected 0 deals after delete, got %d", len(deals))
+	}
+
+	// Verify the deal still exists in the DB (soft delete, not hard delete)
+	var status string
+	server.db.QueryRow("SELECT status FROM brand_deals WHERE id = ?", dealID).Scan(&status)
+	if status != "deleted" {
+		t.Errorf("expected deal status='deleted' in DB, got '%s'", status)
+	}
+}
+
+func TestBrandPortal_Dashboard(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "dash@brand.com", "password1234", "DashCo")
+
+	// Create 2 deals
+	createTestDeal(t, server, cookie)
+	createTestDeal(t, server, cookie)
+
+	// Check dashboard
+	rr := doRequest(server.handleBrandDashboard, "GET", "/brand/dashboard", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Dashboard: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["total_deals"].(float64) != 2 {
+		t.Errorf("total_deals: got %v, want 2", body["total_deals"])
+	}
+	if body["active_deals"].(float64) != 2 {
+		t.Errorf("active_deals: got %v, want 2", body["active_deals"])
+	}
+	if body["balance_cents"].(float64) != 0 {
+		t.Errorf("balance_cents: got %v, want 0", body["balance_cents"])
+	}
+	if body["total_swaps"].(float64) != 0 {
+		t.Errorf("total_swaps: got %v, want 0 (no swap events yet)", body["total_swaps"])
+	}
+	if body["accept_rate"].(float64) != 0 {
+		t.Errorf("accept_rate: got %v, want 0 (no swaps)", body["accept_rate"])
+	}
+	// daily should be an array (possibly empty)
+	if body["daily"] == nil {
+		t.Error("expected 'daily' key in dashboard response")
+	}
+}
+
+func TestBrandPortal_Deposit(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "deposit@brand.com", "password1234", "DepositCo")
+
+	// Deposit $100 (10000 cents)
+	rr := doRequest(server.handleBrandDeposit, "POST", "/brand/deposit", map[string]interface{}{
+		"amount_cents": 10000,
+		"stripe_token": "tok_test_abc123",
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Deposit: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["amount_cents"].(float64) != 10000 {
+		t.Errorf("amount_cents: got %v, want 10000", body["amount_cents"])
+	}
+
+	// Verify balance increased via /brand/me
+	rr = doRequest(server.handleBrandMe, "GET", "/brand/me", nil, []*http.Cookie{cookie})
+	body = parseJSON(rr)
+	if body["balance_cents"].(float64) != 10000 {
+		t.Errorf("balance after deposit: got %v, want 10000", body["balance_cents"])
+	}
+
+	// Deposit another $50 (5000 cents) and verify cumulative
+	doRequest(server.handleBrandDeposit, "POST", "/brand/deposit", map[string]interface{}{
+		"amount_cents": 5000,
+		"stripe_token": "tok_test_def456",
+	}, []*http.Cookie{cookie})
+
+	rr = doRequest(server.handleBrandMe, "GET", "/brand/me", nil, []*http.Cookie{cookie})
+	body = parseJSON(rr)
+	if body["balance_cents"].(float64) != 15000 {
+		t.Errorf("balance after two deposits: got %v, want 15000", body["balance_cents"])
+	}
+}
+
+func TestBrandPortal_DepositMinimum(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "mindepo@brand.com", "password1234", "MinDepoCo")
+
+	// Try to deposit $49.99 (4999 cents) - below $50 minimum
+	rr := doRequest(server.handleBrandDeposit, "POST", "/brand/deposit", map[string]interface{}{
+		"amount_cents": 4999,
+		"stripe_token": "tok_test_small",
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Deposit below minimum: expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["error"] == nil || body["error"] == "" {
+		t.Error("expected error message for below-minimum deposit")
+	}
+
+	// Verify balance is still 0
+	rr = doRequest(server.handleBrandMe, "GET", "/brand/me", nil, []*http.Cookie{cookie})
+	body = parseJSON(rr)
+	if body["balance_cents"].(float64) != 0 {
+		t.Errorf("balance should be 0 after rejected deposit, got %v", body["balance_cents"])
+	}
+
+	// Deposit exactly $50 (5000 cents) should succeed
+	rr = doRequest(server.handleBrandDeposit, "POST", "/brand/deposit", map[string]interface{}{
+		"amount_cents": 5000,
+		"stripe_token": "tok_test_exact",
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("Deposit at minimum: expected 200, got %d", rr.Code)
+	}
+}
+
+func TestBrandPortal_StripeWebhookIdempotent(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, brandUserID := brandRegister(t, server, "stripe@brand.com", "password1234", "StripeCo")
+
+	// Build a payment_intent.succeeded webhook payload
+	payload := fmt.Sprintf(`{
+		"type": "payment_intent.succeeded",
+		"data": {
+			"object": {
+				"id": "pi_test_idempotent_123",
+				"amount": 25000,
+				"metadata": {
+					"brand_user_id": "%d"
+				}
+			}
+		}
+	}`, brandUserID)
+
+	// First webhook delivery
+	req1 := httptest.NewRequest("POST", "/brand/stripe-webhook", strings.NewReader(payload))
+	req1.Header.Set("Content-Type", "application/json")
+	rr1 := httptest.NewRecorder()
+	server.handleStripeWebhook(rr1, req1)
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("First webhook: expected 200, got %d", rr1.Code)
+	}
+
+	// Check balance after first delivery
+	var balance1 int
+	server.db.QueryRow("SELECT balance_cents FROM brand_balance WHERE brand_user_id = ?", brandUserID).Scan(&balance1)
+	if balance1 != 25000 {
+		t.Fatalf("Balance after first webhook: got %d, want 25000", balance1)
+	}
+
+	// Second webhook delivery (duplicate/retry) with same payment_intent ID
+	req2 := httptest.NewRequest("POST", "/brand/stripe-webhook", strings.NewReader(payload))
+	req2.Header.Set("Content-Type", "application/json")
+	rr2 := httptest.NewRecorder()
+	server.handleStripeWebhook(rr2, req2)
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("Second webhook: expected 200, got %d", rr2.Code)
+	}
+
+	// Balance should NOT have doubled
+	var balance2 int
+	server.db.QueryRow("SELECT balance_cents FROM brand_balance WHERE brand_user_id = ?", brandUserID).Scan(&balance2)
+	if balance2 != 25000 {
+		t.Errorf("Balance after duplicate webhook: got %d, want 25000 (idempotency failed!)", balance2)
+	}
+
+	// Verify only one transaction record exists
+	var txnCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM brand_transactions WHERE stripe_id = 'pi_test_idempotent_123'").Scan(&txnCount)
+	if txnCount != 1 {
+		t.Errorf("Expected 1 transaction for this stripe_id, got %d", txnCount)
+	}
+}
+
+func TestBrandPortal_CategoryIntel(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "intel@brand.com", "password1234", "IntelCo")
+
+	// Create a deal with "cola" in the competitor product
+	doRequest(server.handleBrandDeals, "POST", "/brand/deals", map[string]interface{}{
+		"competitor_product": "Generic Cola 12pk",
+		"offer_brand":        "BrandCola",
+		"offer_product":      "BrandCola Premium 12pk",
+		"discount_cents":     50,
+		"daily_budget_cents": 5000,
+	}, []*http.Cookie{cookie})
+
+	// Query category intel for "cola"
+	rr := doRequest(server.handleCategoryIntel, "GET", "/brand/category-intel/cola", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Category intel: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["category"] != "cola" {
+		t.Errorf("category: got %v, want 'cola'", body["category"])
+	}
+	// total_swap_outs should be 0 (no swap events yet)
+	if body["total_swap_outs"].(float64) != 0 {
+		t.Errorf("total_swap_outs: got %v, want 0", body["total_swap_outs"])
+	}
+	// details should contain the deal we created
+	details, ok := body["details"].([]interface{})
+	if !ok {
+		t.Fatal("expected 'details' to be an array")
+	}
+	if len(details) != 1 {
+		t.Errorf("expected 1 detail row, got %d", len(details))
+	}
+
+	// Query empty category should still return valid response
+	rr = doRequest(server.handleCategoryIntel, "GET", "/brand/category-intel/nonexistent", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("Category intel (empty): expected 200, got %d", rr.Code)
+	}
+}
+
+func TestBugReport_Submit(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559991234")
+
+	rr := doRequest(server.handleBugReport, "POST", "/api/bug-report", map[string]string{
+		"description": "The app crashes when I add more than 50 items to my list.",
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("Bug report: expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["message"] == nil || body["message"] == "" {
+		t.Error("expected message in bug report response")
+	}
+
+	// Verify it was saved in the database
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM bug_reports").Scan(&count)
+	if count != 1 {
+		t.Errorf("expected 1 bug report in DB, got %d", count)
+	}
+}
+
+func TestBugReport_EmptyDescription(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559991235")
+
+	// Empty description
+	rr := doRequest(server.handleBugReport, "POST", "/api/bug-report", map[string]string{
+		"description": "",
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Empty bug report: expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Whitespace-only description
+	rr = doRequest(server.handleBugReport, "POST", "/api/bug-report", map[string]string{
+		"description": "   \t\n  ",
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Whitespace-only bug report: expected 400, got %d", rr.Code)
+	}
+
+	// No bug reports should have been saved
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM bug_reports").Scan(&count)
+	if count != 0 {
+		t.Errorf("expected 0 bug reports in DB after empty submissions, got %d", count)
+	}
+}
+
+func TestBrandPortal_FoundingBadge(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Register the first 10 brand users — all should get "founding" badge
+	for i := 0; i < 10; i++ {
+		email := fmt.Sprintf("founding%d@brand.com", i)
+		rr := doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
+			"email":        email,
+			"password":     "password1234",
+			"company_name": fmt.Sprintf("FoundingCo %d", i),
+		}, nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("Register founding user %d: expected 200, got %d", i, rr.Code)
+		}
+		body := parseJSON(rr)
+		if body["badge"] != "founding" {
+			t.Errorf("User %d badge: got %v, want 'founding'", i, body["badge"])
+		}
+	}
+
+	// The 11th user should NOT get the founding badge
+	rr := doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
+		"email":        "notfounding@brand.com",
+		"password":     "password1234",
+		"company_name": "LateCo",
+	}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Register 11th user: expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["badge"] != "" {
+		t.Errorf("11th user badge: got %v, want empty string", body["badge"])
+	}
+
+	// Verify via /brand/me that the badge persists
+	var cookie11 *http.Cookie
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == "brand_session" {
+			cookie11 = c
+			break
+		}
+	}
+	rr = doRequest(server.handleBrandMe, "GET", "/brand/me", nil, []*http.Cookie{cookie11})
+	body = parseJSON(rr)
+	if body["badge"] != "" {
+		t.Errorf("11th user badge via /brand/me: got %v, want empty", body["badge"])
 	}
 }
 

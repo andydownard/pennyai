@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"net/mail"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -267,12 +269,12 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var name, email, phone, address, pennyBrandMode sql.NullString
-	var pennySlider, pennyAutotune, pennyDeals int
+	var name, email, phone, address, pennyBrandMode, onboardingFlags sql.NullString
+	var pennySlider, pennyAutotune, pennyDeals, swapCreditsCents int
 	err := s.db.QueryRow(
-		"SELECT COALESCE(name,''), COALESCE(email,''), phone_number, COALESCE(address,''), COALESCE(penny_brand_mode,'ask'), COALESCE(penny_slider,35), COALESCE(penny_autotune,1), COALESCE(penny_deals,0) FROM users WHERE id = ?",
+		"SELECT COALESCE(name,''), COALESCE(email,''), phone_number, COALESCE(address,''), COALESCE(penny_brand_mode,'ask'), COALESCE(penny_slider,35), COALESCE(penny_autotune,1), COALESCE(penny_deals,0), COALESCE(swap_credits_cents,0), COALESCE(onboarding_flags,'{}') FROM users WHERE id = ?",
 		session.UserID,
-	).Scan(&name, &email, &phone, &address, &pennyBrandMode, &pennySlider, &pennyAutotune, &pennyDeals)
+	).Scan(&name, &email, &phone, &address, &pennyBrandMode, &pennySlider, &pennyAutotune, &pennyDeals, &swapCreditsCents, &onboardingFlags)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load settings"})
 		return
@@ -304,6 +306,14 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 		members = []memberInfo{}
 	}
 
+	// M2c: Get household list name
+	var listName string
+	var userHouseholdID sql.NullInt64
+	s.db.QueryRow("SELECT household_id FROM users WHERE id = ?", session.UserID).Scan(&userHouseholdID)
+	if userHouseholdID.Valid {
+		s.db.QueryRow("SELECT COALESCE(name,'') FROM households WHERE id = ?", userHouseholdID.Int64).Scan(&listName)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"name":               name.String,
 		"email":              email.String,
@@ -315,8 +325,17 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 		"penny_brand_mode":  pennyBrandMode.String,
 		"penny_slider":      pennySlider,
 		"penny_autotune":    pennyAutotune == 1,
-		"penny_deals":       pennyDeals == 1,
+		"penny_deals":        pennyDeals == 1,
+		"swap_credits_cents": swapCreditsCents,
+		"list_name":          listName,
+		"onboarding_flags":   onboardingFlags.String,
 	})
+}
+
+// addSetClause appends a "column = ?" clause and its value to the SQL builder slices.
+func addSetClause(setClauses *[]string, args *[]interface{}, column string, value interface{}) {
+	*setClauses = append(*setClauses, column+" = ?")
+	*args = append(*args, value)
 }
 
 // handleSettingsUpdate handles PATCH /api/settings
@@ -327,13 +346,15 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name           *string `json:"name"`
-		Email          *string `json:"email"`
-		Address        *string `json:"address"`
-		PennyBrandMode *string `json:"penny_brand_mode"`
-		PennySlider    *int    `json:"penny_slider"`
-		PennyAutotune  *bool   `json:"penny_autotune"`
-		PennyDeals     *bool   `json:"penny_deals"`
+		Name            *string `json:"name"`
+		Email           *string `json:"email"`
+		Address         *string `json:"address"`
+		PennyBrandMode  *string `json:"penny_brand_mode"`
+		PennySlider     *int    `json:"penny_slider"`
+		PennyAutotune   *bool   `json:"penny_autotune"`
+		PennyDeals      *bool   `json:"penny_deals"`
+		ListName        *string `json:"list_name"`
+		OnboardingFlags *string `json:"onboarding_flags"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -369,20 +390,16 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	setClauses := []string{}
 	args := []interface{}{}
 	if req.PennyBrandMode != nil {
-		setClauses = append(setClauses, "penny_brand_mode = ?")
-		args = append(args, strings.TrimSpace(*req.PennyBrandMode))
+		addSetClause(&setClauses, &args, "penny_brand_mode", strings.TrimSpace(*req.PennyBrandMode))
 	}
 	if req.Name != nil {
-		setClauses = append(setClauses, "name = ?")
-		args = append(args, strings.TrimSpace(*req.Name))
+		addSetClause(&setClauses, &args, "name", strings.TrimSpace(*req.Name))
 	}
 	if req.Email != nil {
-		setClauses = append(setClauses, "email = ?")
-		args = append(args, email)
+		addSetClause(&setClauses, &args, "email", email)
 	}
 	if req.Address != nil {
-		setClauses = append(setClauses, "address = ?")
-		args = append(args, strings.TrimSpace(*req.Address))
+		addSetClause(&setClauses, &args, "address", strings.TrimSpace(*req.Address))
 	}
 	if req.PennySlider != nil {
 		v := *req.PennySlider
@@ -391,24 +408,24 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		} else if v > 100 {
 			v = 100
 		}
-		setClauses = append(setClauses, "penny_slider = ?")
-		args = append(args, v)
+		addSetClause(&setClauses, &args, "penny_slider", v)
 	}
 	if req.PennyAutotune != nil {
 		val := 0
 		if *req.PennyAutotune {
 			val = 1
 		}
-		setClauses = append(setClauses, "penny_autotune = ?")
-		args = append(args, val)
+		addSetClause(&setClauses, &args, "penny_autotune", val)
 	}
 	if req.PennyDeals != nil {
 		val := 0
 		if *req.PennyDeals {
 			val = 1
 		}
-		setClauses = append(setClauses, "penny_deals = ?")
-		args = append(args, val)
+		addSetClause(&setClauses, &args, "penny_deals", val)
+	}
+	if req.OnboardingFlags != nil {
+		addSetClause(&setClauses, &args, "onboarding_flags", *req.OnboardingFlags)
 	}
 	if len(setClauses) > 0 {
 		args = append(args, session.UserID)
@@ -419,6 +436,144 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// M2c: Update household list name
+	if req.ListName != nil {
+		var householdID sql.NullInt64
+		s.db.QueryRow("SELECT household_id FROM users WHERE id = ?", session.UserID).Scan(&householdID)
+		if householdID.Valid {
+			if _, err := s.db.Exec("UPDATE households SET name = ? WHERE id = ?", strings.TrimSpace(*req.ListName), householdID.Int64); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update list name"})
+				return
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// =============================================================================
+// AVATAR HANDLERS
+// =============================================================================
+
+const maxAvatarBytes = 2 * 1024 * 1024 // 2MB decoded limit
+
+// handleAvatar multiplexes GET/POST/DELETE for /api/avatar
+func (s *Server) handleAvatar(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleAvatarGet(w, r)
+	case http.MethodPost:
+		s.handleAvatarUpload(w, r)
+	case http.MethodDelete:
+		s.handleAvatarDelete(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleAvatarGet serves GET /api/avatar/{id} — public (no auth), serves stored photo.
+func (s *Server) handleAvatarGet(w http.ResponseWriter, r *http.Request) {
+	// Extract user ID from path: /api/avatar/123
+	parts := strings.Split(strings.TrimSuffix(r.URL.Path, "/"), "/")
+	if len(parts) < 4 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "User ID required"})
+		return
+	}
+	idStr := parts[len(parts)-1]
+	userID, err := strconv.Atoi(idStr)
+	if err != nil || userID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid user ID"})
+		return
+	}
+
+	var photoData []byte
+	var contentType string
+	err = s.db.QueryRow("SELECT photo_data, content_type FROM profile_photos WHERE user_id = ?", userID).Scan(&photoData, &contentType)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "No profile photo"})
+		return
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Header().Set("Content-Length", strconv.Itoa(len(photoData)))
+	w.Write(photoData)
+}
+
+// handleAvatarUpload handles POST /api/avatar — upload a base64-encoded photo.
+func (s *Server) handleAvatarUpload(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Photo string `json:"photo"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Photo == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Photo is required"})
+		return
+	}
+
+	// Decode base64
+	photoData, err := base64.StdEncoding.DecodeString(req.Photo)
+	if err != nil {
+		// Try URL-safe base64
+		photoData, err = base64.URLEncoding.DecodeString(req.Photo)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid base64 encoding"})
+			return
+		}
+	}
+
+	if len(photoData) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Photo is required"})
+		return
+	}
+
+	if len(photoData) > maxAvatarBytes {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Photo too large (max 2MB)"})
+		return
+	}
+
+	// Validate magic bytes: JPEG (FF D8) or PNG (89 50 4E 47)
+	var contentType string
+	if len(photoData) >= 2 && photoData[0] == 0xFF && photoData[1] == 0xD8 {
+		contentType = "image/jpeg"
+	} else if len(photoData) >= 4 && photoData[0] == 0x89 && photoData[1] == 0x50 && photoData[2] == 0x4E && photoData[3] == 0x47 {
+		contentType = "image/png"
+	} else {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Only JPEG and PNG images are allowed"})
+		return
+	}
+
+	// Upsert into profile_photos
+	_, err = s.db.Exec(
+		`INSERT INTO profile_photos (user_id, photo_data, content_type, updated_at)
+		 VALUES (?, ?, ?, datetime('now'))
+		 ON CONFLICT(user_id) DO UPDATE SET photo_data = excluded.photo_data, content_type = excluded.content_type, updated_at = datetime('now')`,
+		session.UserID, photoData, contentType,
+	)
+	if err != nil {
+		dbError(w, err, "Failed to save profile photo")
+		return
+	}
+
+	log.Printf("user %d uploaded profile photo (%d bytes)", session.UserID, len(photoData))
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// handleAvatarDelete handles DELETE /api/avatar — remove profile photo.
+func (s *Server) handleAvatarDelete(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	s.db.Exec("DELETE FROM profile_photos WHERE user_id = ?", session.UserID)
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
@@ -597,6 +752,8 @@ func (s *Server) handleReferralClaim(w http.ResponseWriter, r *http.Request) {
 	if _, err := tx.Exec("UPDATE users SET referral_points = COALESCE(referral_points, 0) + ? WHERE id = ?", referralPointsPerInvite, referrerID); err != nil {
 		log.Printf("[referral] failed to update points: %v", err)
 	}
+	// M2d: Track referral source
+	tx.Exec("UPDATE users SET referral_source = 'referral' WHERE id = ? AND referral_source = ''", session.UserID)
 
 	if err := tx.Commit(); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "We couldn't process your referral. Please try again."})
@@ -604,6 +761,78 @@ func (s *Server) handleReferralClaim(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// =============================================================================
+// REBATE HISTORY
+// =============================================================================
+
+// handleRebates handles GET /api/rebates — returns user's rebate history and summary.
+func (s *Server) handleRebates(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	type rebateEntry struct {
+		ID           int    `json:"id"`
+		OfferBrand   string `json:"offer_brand"`
+		OfferProduct string `json:"offer_product"`
+		AmountCents  int    `json:"amount_cents"`
+		Status       string `json:"status"`
+		CreatedAt    string `json:"created_at"`
+	}
+
+	rows, err := s.db.Query(`
+		SELECT sr.id, bd.offer_brand, bd.offer_product, sr.amount_cents, sr.status, sr.created_at
+		FROM swap_rebates sr
+		JOIN brand_deals bd ON bd.id = sr.deal_id
+		WHERE sr.user_id = ?
+		ORDER BY sr.created_at DESC
+		LIMIT 100
+	`, session.UserID)
+	if err != nil {
+		log.Printf("[rebates] query error for user %d: %v", session.UserID, err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load rebates"})
+		return
+	}
+	defer rows.Close()
+
+	rebates := []rebateEntry{}
+	for rows.Next() {
+		var e rebateEntry
+		if err := rows.Scan(&e.ID, &e.OfferBrand, &e.OfferProduct, &e.AmountCents, &e.Status, &e.CreatedAt); err != nil {
+			log.Printf("[rebates] scan error: %v", err)
+			continue
+		}
+		rebates = append(rebates, e)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[rebates] row iteration error: %v", err)
+	}
+
+	// Summary totals
+	var pendingCents, paidCents, totalCents int
+	for _, r := range rebates {
+		totalCents += r.AmountCents
+		switch r.Status {
+		case "pending":
+			pendingCents += r.AmountCents
+		case "issued", "paid":
+			paidCents += r.AmountCents
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"rebates":       rebates,
+		"total_cents":   totalCents,
+		"pending_cents": pendingCents,
+		"paid_cents":    paidCents,
+	})
 }
 
 // handleNPSCheck handles GET /api/nps/check — returns whether the NPS survey should show.

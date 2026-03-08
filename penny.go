@@ -316,6 +316,7 @@ Actions you can take:
 - "share": User wants to share their list, invite someone to their household, or get help inviting a family member/roommate. Triggered by phrases like "invite my wife", "share this with my husband", "can you help me share", "add my roommate", "how do I invite someone". No items needed.
 - "load_saved_list": User wants to load, open, or use a previously saved list. Triggered by phrases like "load my weekly groceries", "open a saved list", "use my party list", "what lists do I have", "pull up my saved lists". If the user mentions a specific list name, include it in "saved_list_name". If they just ask about saved lists generally, leave "saved_list_name" empty and I'll show them their options.
 - "delete_saved_list": User wants to delete a previously saved list. Triggered by phrases like "delete my weekly list", "remove my party list". Include the list name in "saved_list_name".
+- "done_shopping": User is done shopping or at checkout. Triggered by phrases like "I'm done", "done shopping", "finished shopping", "at checkout", "all done", "heading to checkout". No items needed.
 
 For add items, include full item details:
 - "name": specific product name WITHOUT the brand, preserving flavor/variety. NEVER change defining characteristics like flavor, type, variety, or style. Only fix obvious misspellings.
@@ -370,6 +371,8 @@ Examples:
 - "load my weekly groceries" → {"action":"load_saved_list","items":[],"saved_list_name":"Weekly Groceries","message":"Loading up your Weekly Groceries list!"}
 - "what saved lists do I have" → {"action":"load_saved_list","items":[],"saved_list_name":"","message":"Here are your saved lists — pick one to load!"}
 - "delete my weekly groceries list" → {"action":"delete_saved_list","items":[],"saved_list_name":"Weekly Groceries","message":"Deleted your Weekly Groceries list!"}
+- "I'm done shopping" → {"action":"done_shopping","items":[],"message":"Nice trip! Want to snap a photo of your receipt? I'll check off what you got."}
+- "at checkout" → {"action":"done_shopping","items":[],"message":"Almost done! Snap your receipt and I'll cross off the items."}
 
 Return ONLY the JSON object, no markdown, no code fences.`, listContext.String(), nameInstruction)
 
@@ -394,6 +397,68 @@ Return ONLY the JSON object, no markdown, no code fences.`, listContext.String()
 	return &cmd, nil
 }
 
+// parseReceiptWithClaude extracts item names from a receipt photo and cross-references
+// them against the user's current shopping list. Returns matched item names.
+func parseReceiptWithClaude(apiKey string, images []string, currentItems []ListItem) ([]string, error) {
+	// Build list context for cross-referencing
+	var listNames []string
+	for _, item := range currentItems {
+		entry := item.Name
+		if item.Brand != "" {
+			entry += " (" + item.Brand + ")"
+		}
+		listNames = append(listNames, entry)
+	}
+
+	systemPrompt := fmt.Sprintf(`You are a receipt parser. Extract item names from the receipt photo and cross-reference them against this shopping list:
+
+%s
+
+For each receipt item that matches a shopping list item (fuzzy match OK — "ORG WHOLE MLK" matches "Whole Milk"), include it in the output.
+
+Return ONLY a JSON array of matched item names exactly as they appear on the shopping list (not the receipt).
+Example: ["Whole Milk", "Eggs", "Sourdough Bread"]
+
+If no items match, return an empty array: []
+Return ONLY the JSON array, no markdown, no code fences, no explanation.`, strings.Join(listNames, "\n"))
+
+	var contentBlocks []map[string]interface{}
+	for _, img := range images {
+		mediaType := "image/jpeg"
+		b64Data := img
+		if strings.HasPrefix(img, "data:") {
+			if idx := strings.Index(img, ";base64,"); idx > 0 {
+				mediaType = img[5:idx]
+				b64Data = img[idx+8:]
+			}
+		}
+		contentBlocks = append(contentBlocks, map[string]interface{}{
+			"type": "image",
+			"source": map[string]string{
+				"type":       "base64",
+				"media_type": mediaType,
+				"data":       b64Data,
+			},
+		})
+	}
+	contentBlocks = append(contentBlocks, map[string]interface{}{
+		"type": "text",
+		"text": "Extract all items from this receipt and match them against my shopping list.",
+	})
+
+	text, err := callClaude(apiKey, systemPrompt, contentBlocks, 4096)
+	if err != nil {
+		return nil, err
+	}
+	text = stripCodeFence(text)
+
+	var matched []string
+	if err := json.Unmarshal([]byte(text), &matched); err != nil {
+		log.Printf("[receipt] failed to parse Claude response as JSON: %v (text: %s)", err, text)
+		return []string{}, nil
+	}
+	return matched, nil
+}
 
 // =============================================================================
 // PENNY QUOTE GENERATOR

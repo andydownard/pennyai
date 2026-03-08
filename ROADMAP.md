@@ -16,6 +16,76 @@
 
 ---
 
+## Swap Types Strategy (Product Team + Focus Group Convene, March 2026)
+
+Three swap types were evaluated across 3 rounds with the full product team and 7-person customer panel.
+
+### Priority Ranking
+
+| Priority | Swap Type | Rationale |
+|---|---|---|
+| **P0 — Ship First** | **SKU-Level Swap** | Highest user value, lowest complexity, lowest trust risk, cleanest analytics. 7/7 panel acceptance. |
+| **P1 — Ship Second** | **Brand-Level Swap** | Natural upsell, higher revenue per campaign. 5/7 accept with per-item control. Requires product taxonomy. |
+| **P2 — Rethink** | **Department Placement (CPM)** | Must be redesigned as "Deals" feature, NOT a swap. 4/7 reject, 2/7 deal-breaker. Highest trust risk. |
+
+### Key Findings
+- **SKU swaps** feel like a helpful friend's recommendation. Inline card below matched item with price comparison + "Sponsored" label.
+- **Brand swaps** triggered when 3+ items from same brand detected. Must have per-item review (not blanket swap). Per-user, not per-household.
+- **Department placement** is fundamentally advertising, not a swap. Must never be called a "swap." Redesign as optional "Deals near you" section with strict frequency caps (1/session, 2/week).
+
+### Critical UX Rules (from panel)
+1. "Sponsored" label visible on all paid swap cards — non-negotiable
+2. Attribute matching required (organic, allergen-free, size) — not just category
+3. Global swap opt-out toggle in Settings
+4. Declined swaps never reshown in same session
+5. Swaps are app-only for v1 (no SMS/email swap flow)
+6. Per-user preferences, not per-household
+
+### Red Flags
+- Department placement erodes Penny's core value proposition (Marcus: "deal-breaker, I'll delete the app")
+- "Equivalent" is subjective — brand-defined equivalence must validate on key attributes
+- Household members can be confused by accepted swaps — make swap origin clear
+
+### Backlog (prioritized by convene)
+- **SKU swap improvements:** auto-accept threshold setting, decline reason capture, 3-decline permanent suppression
+- **Brand swap (P1):** product category taxonomy, brand equivalence mapping, bundle swap UI with "Swap all" + per-item undo
+- **Deals feature (P2):** separate from swap flow, department classifier, frequency caps, dietary filtering, permanent dismiss
+
+### Extended Swap Types (Sprint 3, March 2026)
+
+Evaluated 10 swap types across product team + 7-person customer panel. Three new types shipping this sprint:
+
+| Rank | Swap Type | Ship When | Revenue/Swap | Description |
+|------|-----------|-----------|-------------|-------------|
+| 1 | **SKU-Level** | **SHIPPED** | $1.50 | Replace item with competitor alternative |
+| 2 | **Trial Size** | **Sprint 3 (schema shipped)** | $1.00-1.50 | Free sample alongside original item (no swap needed) |
+| 3 | **Seasonal** | **Sprint 3 (schema shipped)** | $2.00-3.00 | Time-boxed deal with deadline display |
+| 4 | **BOGO** | **Sprint 3 (schema shipped)** | $2.50-3.00 | 2x product for price of 1 competitor |
+| 5 | Brand-Level | Next sprint | $2.00-2.50 | Replace all items from a brand (needs product taxonomy) |
+| 6 | Loyalty | Phase 3 | $0.50-1.00 | Repeat-purchase reward after initial swap |
+| 7 | Ingredient-Upgrade | Phase 3 | $2.00-3.00 | Premium/healthier swap based on dietary profile |
+| 8 | Cashback | Phase 3 | $2.50-3.00 | Post-purchase rebate via receipt scan |
+| 9 | Bundle | Phase 3+ | $3.00-5.00 | Cross-category discount on 2+ related swaps |
+| 10 | Department Placement | Phase 3+ (if ever) | CPM $3-5 | Redesign as "Deals" — highest trust risk |
+
+**Key insight:** Trial Size has highest expected acceptance rate (>20%) because user keeps original item. Zero risk = easiest yes.
+
+### Ongoing: A/B Testing on Swap Design
+**Priority:** P1 — Revenue optimization
+**Status:** Active, ongoing
+
+Continuous A/B testing on swap card UI, copy, layout, and deal presentation to maximize take rate. Tests include:
+- Card layout variations (compact vs expanded, badge placement)
+- CTA copy ("Swap" vs "Try it" vs "Save $X")
+- Price display format (total price vs unit price emphasis)
+- Why panel: auto-expanded vs collapsed
+- Badge colors and positioning for BOGO/Trial/Seasonal
+- Swap suggestion timing (immediate vs delayed after item add)
+
+Results feed directly into swap acceptance rate metrics. Target: 8%→15% acceptance rate through iterative design optimization.
+
+---
+
 ## Phase 1 — Penny Swaps MVP + Sharing Fixes (Weeks 1-2)
 
 > **North star:** Get 5 swaps accepted by real users. Prove the unit economics.
@@ -413,22 +483,37 @@ Playwright E2E tests covering critical user flows: login, add items, check items
 
 ---
 
-## Priority Order
+## Priority Order (Groomed March 2026)
 
-| # | Item | Size | Phase | Priority | Rationale |
-|---|------|------|-------|----------|-----------|
-| 1 | M1. Penny Swaps v0 (+ v1 stretch) | L | 1 | P0 | Core revenue mechanism. Nothing else matters without this |
-| 2 | M2. Fix Sharing & Invite Flow | M | 1 | P0 | Distribution channel for swaps — broken sharing = no growth |
-| 3 | M3. Swap Admin Tooling | S | 1 | P0 | Enables M1 — Andy seeds first 10 deals manually |
-| 4 | R1. Conversational Onboarding | L | 2 | P1 | Activation gate — swaps only fire when users have items on list |
-| 5 | M4. Brand Portal v0 | L | 2 | P0 | Self-serve brand sign-up = revenue without Andy on every call |
-| 6 | M5. Stripe Payment | M | 2 | P0 | Proof of willingness to pay. $ = validation |
-| 7 | R5. E2E Tests | M | 2 | P1 | Brand portal + payments need E2E coverage before shipping |
-| 8 | R3. Done Shopping Flow | M | 3 | P1 | Retention + natural trigger for receipt scanning (M7) |
-| 9 | M7. Receipt Reading | L | 3 | P1 | Closes attribution loop, unlocks enterprise brand interest |
-| 10 | M9. Brand Dashboard v2 | M | 3 | P1 | Justifies recurring brand spend |
-| 11 | R2. Trip Planner Discoverability | S | — | P3 | Quality of life, quick win |
-| 12 | R4. SSE Real-Time Updates | L | — | P3 | Scale optimization, not urgent yet |
+| # | Item | Size | Phase | Priority | Rationale | Status |
+|---|------|------|-------|----------|-----------|--------|
+| 1 | **M3. Swap Admin Tooling** | S | 1 | P0 | Enables M1 — Andy seeds first 10 deals manually. Ship first so deals exist before swaps code lands. | Planned |
+| 2 | **B11 + B14. Swap safety bugs** | S | 1 | P0 | Budget race condition (B11) + rebate farming (B14) = swap accept is exploitable. **Must fix before M1 ships.** | **Done** |
+| 3 | **M1. Penny Swaps v0** | L | 1 | P0 | Core revenue mechanism. Nothing else matters without this. Depends on M3 + B11/B14. | Planned |
+| 4 | **M2. Fix Sharing & Invite Flow** | M | 1 | P0 | Distribution channel for swaps — broken sharing = no growth. Parallel with M1. | **Done** |
+| 5 | **Sentry integration** | XS | — | P0 | 2 hours. Required before Stripe webhooks go live. De-risks everything after. (Buy-vs-Build: BUY NOW) | **Done** |
+| 6 | **PostHog integration** | S | — | P0 | Half day. Replaces custom analytics in handlers_admin.go. Needed to measure swap acceptance rates. (Buy-vs-Build: BUY NOW) | **Done** |
+| 7 | **R5. E2E Tests** | M | 2 | P1 | Brand portal + payments need E2E coverage. Moved up — ship before M4, not after. | **In progress** (Sprint 3) |
+| 8 | **R1. Conversational Onboarding** | L | 2 | P1 | Activation gate — swaps only fire when users have items on list. | **Done** (Sprint 3 — server-side flags, refined prompts) |
+| 9 | **M4. Brand Portal v0** | L | 2 | P0 | Self-serve brand sign-up = revenue without Andy on every call. Depends on R5. | Planned |
+| 10 | **M5. Stripe Payment** | M | 2 | P0 | Proof of willingness to pay. Depends on Sentry (#5) for webhook reliability. | Planned |
+| 11 | ~~**B12. Admin DELETE deals FK failure**~~ | XS | — | P1 | ~~Quick fix. Admin can't delete deals.~~ Soft-delete fix shipped. | **Done** |
+| 12 | **B13. BrandDeal struct missing columns** | S | — | P1 | Admin can't view/edit price comparison fields. Blocks swap quality. | **Done** |
+| 13 | **B15. daily_budget_cents misnomer** | XS | — | P2 | Rename to total_budget_cents or implement daily reset. Low urgency but confusing. | **Done** |
+| 14 | **R3. Done Shopping Flow** | M | 3 | P1 | Retention + natural trigger for receipt scanning (M7). | **Done** (Sprint 3 — summary, save list, confetti) |
+| 15 | **M7. Receipt Reading** | L | 3 | P1 | Closes attribution loop. Consider Veryfi for OCR layer (Buy-vs-Build: BUY LATER). | Planned |
+| 16 | **M9. Brand Dashboard v2** | S→M | 3 | P2 | **Scope reduced** — Metabase handles most reporting. Only Competitive Intel + purchase verification funnel need custom code. Was M, now S-M. | Planned |
+| 17 | **R2. Trip Planner Discoverability** | S | — | P3 | Quality of life, quick win. Do when there's a spare afternoon. | Planned |
+| — | ~~R4. SSE Real-Time Updates~~ | — | — | — | **Replaced by Pusher/Ably** (Buy-vs-Build: BUY NOW). No longer a build item. | Replaced |
+
+### What changed (March 2026 groom)
+- **M3 moved to #1** — deals must exist before swap code ships. M1 depends on M3, not the other way around.
+- **B11 + B14 promoted to P0** — swap accept has a budget race condition and no rebate farming dedup. Exploitable on day 1 if unfixed.
+- **Sentry + PostHog inserted at #5-6** — both are half-day or less, both de-risk everything after. Do them in the gap between Phase 1 and Phase 2.
+- **R5 (E2E tests) moved up to #7** — before brand portal, not after. Shipping payments without E2E is asking for trouble.
+- **Bugs B12, B13, B15 given explicit priority slots** — were buried in Bugs section. Now visible in the backlog.
+- **M9 scope reduced** — Metabase handles most reporting. Only custom views (Competitive Intel, purchase funnel) need code.
+- **R4 dropped from backlog** — replaced by Pusher/Ably buy recommendation.
 
 ---
 
@@ -466,24 +551,38 @@ Break-even math:
 
 > Small, self-contained tasks that can be completed with minimal/no supervision. Good for overnight runs.
 
-- **GitHub Actions CI** — Run `go test ./...` and Playwright on every PR push. No CI pipeline currently exists. Essential before M4/M5 ship.
 - **Error monitoring (Sentry)** — Sentry integration for Go backend + frontend. Error alerting on production crashes. Required before Stripe webhooks go live.
 - **User profile photo** — Add camera/upload button on profile screen. Store as base64 or upload to S3/Railway volume. Show avatar in hamburger menu, household member list, and "added by" labels. Falls back to person icon if no photo.
-- **Haptic feedback on check/uncheck** — Add `navigator.vibrate(10)` on item toggle for satisfying tactile feedback on mobile.
-- **Pull-to-refresh on list** — Standard mobile pattern. Trigger a list re-fetch on pull-down gesture.
-- **"Added just now" timestamp** — Show relative timestamps on recently added items ("just now", "2 min ago") that fade to nothing after 1 hour.
 - **Accessibility audit** — Add `aria-label` to all interactive elements, ensure color contrast meets WCAG AA, test with VoiceOver/TalkBack.
-- **404 page** — Currently unknown routes show a blank page. Add a friendly "Page not found — here's your list" redirect.
-- **Loading skeleton** — Replace the blank screen during list fetch with a skeleton/shimmer animation. Feels faster.
+- **Expand Go test coverage to replace manual UAT** — Add integration-style tests that exercise full request flows (multi-step auth → list CRUD → sharing → swaps → receipts) as Go tests, so UAT runs automatically via `go test` with no manual approval. Target: every endpoint has happy path + 3 edge case tests minimum. Priority areas: email webhook parsing, SMS webhook parsing, receipt photo flow, brand resolve, household cross-user scenarios.
+- **Help / Bug Report** — Simple "Need help?" link in profile or settings that opens a lightweight FAQ + bug report form. FAQ answers top 5 questions (how to share list, how swaps work, how to add via text, how to save a list, how to delete account). Bug report form at bottom: description field + optional screenshot + submit. Reports go to a `bug_reports` table and/or email to founder. Keep it dead simple — one page, no categories or ticketing system.
+
+### Completed Quick Wins (March 2026)
+- ~~GitHub Actions CI~~ — `.github/workflows/ci.yml` created: Go tests + frontend build on every PR
+- ~~Haptic feedback on check/uncheck~~ — `navigator.vibrate(10)` on item toggle
+- ~~Pull-to-refresh on list~~ — touch gesture triggers list re-fetch
+- ~~"Added just now" timestamp~~ — relative timestamps on recent items, fade after 1 hour
+- ~~404 page~~ — unknown routes redirect to home with toast
+- ~~Loading skeleton~~ — shimmer animation during list fetch
 
 ---
 
 ## Bugs
 
 ### Open
-- **B8. Non-numeric item ID returns plain text error** — `/api/list/abc` returns `"Invalid ID"` as `text/plain` instead of JSON. Fix: use `writeJSON()` in the ID parser. Files: `handlers_list.go`.
+- **B13. `BrandDeal` struct missing 9 price/why columns** — The `BrandDeal` Go struct and admin API (`GET/PUT /api/admin/deals`) don't include price comparison or why-bullet fields added in M1. Admins cannot view or edit these fields. The admin deal form in App.tsx also lacks these inputs. Fix: expand `BrandDeal` struct, update admin handlers, add form fields. Files: `models.go:152-165`, `handlers_admin.go:379`, `App.tsx:437-443`.
+- **B15. `daily_budget_cents` never resets** — Column named "daily" but budget is cumulative-lifetime. No cron or reset mechanism exists. Either rename to `total_budget_cents` or implement a daily reset. Files: `db.go:614`, `handlers_list.go:578`.
 
 ### Completed (March 2026)
+- ~~B18. Clear List buttons appear before Penny finishes typing~~ — Fixed: added `!pennyTyping` guard to button visibility, changed `handleClearList()` to `handleClearList(true)` for full clear. Files: `PennyBar.tsx:118`, `App.tsx:1364`.
+- ~~B13. BrandDeal struct missing unit_label~~ — Fixed: added `UnitLabel` to struct and all admin handler SQL. Files: `models.go`, `handlers_admin.go`.
+- ~~B15. daily_budget_cents misnomer~~ — Fixed: added `total_budget_cents` column with data migration, updated all Go code. JSON tag kept for backward compat. Files: `db.go`, `handlers_admin.go`, `handlers_list.go`, `main_test.go`.
+- ~~B17. No per-campaign swap limit~~ — Fixed: same user could accept the same deal multiple times across different items, earning multiple rebates from one campaign. The B14 dedup only checked same deal+item within 1 hour. Fix: added lifetime per-user-per-campaign check on both the offer side (`checkDealsForItems` skips already-accepted deals) and accept side (hard 409 enforcement). Files: `handlers_list.go`.
+- ~~B16. NPS survey shows on every page reload~~ — Fixed: `useEffect` called `/api/nps/check` on every `screen` change to `'home'`, and dismissing the modal had no persistence. After dismiss or submit, navigating away and back re-triggered the survey. Fix: added `useRef` gate so the check runs at most once per mount, plus `sessionStorage` flag on dismiss/submit so it never re-prompts within the same browser session. Files: `frontend/src/App.tsx`.
+- ~~B11. Budget TOCTOU race in swap accept~~ — Fixed: budget check moved inside transaction with atomic conditional `UPDATE ... WHERE budget_spent_cents + ? <= daily_budget_cents`. Files: `handlers_list.go`.
+- ~~B12. Admin DELETE deals FK failure~~ — Fixed: soft-delete (`status='deleted'`) instead of hard DELETE, preserving FK references from `swap_events`/`swap_rebates`. Files: `handlers_admin.go`.
+- ~~B14. No rebate farming dedup on swap accept~~ — Fixed: dedup check prevents repeated accepts for same deal+item within 1 hour. Returns 409 Conflict on duplicates. Files: `handlers_list.go`.
+- ~~B8. Non-numeric item ID returns plain text error~~ — Fixed: all ID parsers in `handlers_list.go` and `handlers_saved_lists.go` now use `writeJSON()`. 9 tests added.
 - ~~B1. `/api/*` unknown paths return 200 HTML instead of 404 JSON~~ — Fixed in `server.go`
 - ~~B2. No Open Graph meta tags on referral/invite links~~ — Fixed: `serveWithOGTags()` in `utils.go`, OG tags in `index.html`
 - ~~B3. Silent household switch on join~~ — Fixed: warning returned in `handleJoin`
@@ -493,6 +592,46 @@ Break-even math:
 - ~~B7. Burning invite codes on no-op joins~~ — Fixed: already-in-household check
 - ~~B9. No PWA manifest~~ — Fixed: `manifest.json` created, linked in `index.html`
 - ~~B10. Clearing list compacts departments instead of empty state~~ — Fixed: `?all=true` param for full clear
+
+---
+
+## Buy-vs-Build — Scope Reduction (March 2026 VC Panel Review)
+
+> Evaluated by a panel of 6 unicorn VCs. Full analysis in `pitch deck/Buy-vs-Build-Evaluation.docx`.
+> Goal: get commodity infrastructure off the founder's plate so all build time goes to swap economics.
+
+### BUY NOW — Replace with off-the-shelf
+
+| Area | Current State | Replace With | Effort | Saves | Cost |
+|------|--------------|-------------|--------|-------|------|
+| **Error monitoring** | log.Printf() only, no alerting | **Sentry** free tier | 30 min | Hours/incident | $0 |
+| **Internal analytics** | ~300 LOC custom SQL in handlers_admin.go | **PostHog** free tier (1M events/mo) | 1 day | Ongoing metric requests | $0 |
+| **Brand reporting (M9)** | Not built (1-2 week estimate) | **Metabase OSS** on Railway | Half day | M9 entirely | $5/mo |
+| **Real-time sync (R4)** | Polling every few seconds | **Pusher** or **Ably** free tier | 1 day | R4 entirely (2-3 weeks) | $0 |
+| **Auth system** | ~500 LOC custom (4 auth methods) | **Clerk** free tier (10K MAU) | 3-5 days | Auth maintenance burden | $0 |
+
+### BUY LATER — When Phase 3 starts
+
+| Area | Current State | Replace With | Effort | Cost |
+|------|--------------|-------------|--------|------|
+| **Receipt OCR (M7 partial)** | Not built (Textract+Claude planned) | **Veryfi API** for OCR layer | 1 day integration | ~$0.08/receipt |
+
+> Veryfi replaces the Textract OCR layer only. Fraud detection, perceptual hashing, swap verification, and evidence retention are still custom-built.
+
+### KEEP BUILDING — Core IP, never outsource
+
+| Area | Why |
+|------|-----|
+| **Penny AI brain** (penny.go) | Claude integration for parsing, suggestions, personality — the soul of the product |
+| **Swap marketplace** (handlers_list.go) | Deal matching, suppression, budget tracking, rebate ledger — the business model |
+| **Brand portal** (M4) | Self-serve brand UX is the product for B2B side (use Metabase for analytics layer underneath) |
+| **Competitive Swap Intel** | The FOMO engine — custom view even if rest of brand dashboard is Metabase |
+
+### NOT Databricks
+
+Databricks is enterprise data lakehouse tooling ($10K+/yr, requires a data engineer). PostHog + Metabase covers all analytics and reporting needs through $5M ARR for $0-5/mo.
+
+### Total scope reclaimed: ~5-7 weeks of build time + ongoing maintenance
 
 ---
 

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 func (s *Server) requireSession(w http.ResponseWriter, r *http.Request) (Session, bool) {
@@ -159,18 +161,39 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		npsResponses = []npsEntry{}
 	}
 
+	// Swap deal stats
+	var swapOffered, swapAccepted, swapDeclined int
+	s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'offered' AND created_at >= datetime('now', ?)", modifier).Scan(&swapOffered)
+	s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'accepted' AND created_at >= datetime('now', ?)", modifier).Scan(&swapAccepted)
+	s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'declined' AND created_at >= datetime('now', ?)", modifier).Scan(&swapDeclined)
+	var swapAcceptRate float64
+	if swapOffered > 0 {
+		swapAcceptRate = float64(swapAccepted) / float64(swapOffered) * 100
+	}
+
+	// Rebate ledger stats
+	var rebatesPendingCents, rebatesIssuedCents int
+	s.db.QueryRow("SELECT COALESCE(SUM(amount_cents),0) FROM swap_rebates WHERE status = 'pending'").Scan(&rebatesPendingCents)
+	s.db.QueryRow("SELECT COALESCE(SUM(amount_cents),0) FROM swap_rebates WHERE status IN ('issued','paid')").Scan(&rebatesIssuedCents)
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"active_users":  activeUsers,
-		"total_users":   totalUsers,
-		"new_users":     newUsers,
-		"k_factor":      kFactor,
-		"leaderboard":   leaderboard,
-		"days":          days,
-		"nps_responses":  npsResponses,
-		"nps_score":      npsScore,
-		"nps_total":      npsTotal,
-		"nps_promoters":  npsPromoters,
-		"nps_detractors": npsDetractors,
+		"active_users":           activeUsers,
+		"total_users":            totalUsers,
+		"new_users":              newUsers,
+		"k_factor":               kFactor,
+		"leaderboard":            leaderboard,
+		"days":                   days,
+		"nps_responses":          npsResponses,
+		"nps_score":              npsScore,
+		"nps_total":              npsTotal,
+		"nps_promoters":          npsPromoters,
+		"nps_detractors":         npsDetractors,
+		"swap_offered":           swapOffered,
+		"swap_accepted":          swapAccepted,
+		"swap_declined":          swapDeclined,
+		"swap_accept_rate":       swapAcceptRate,
+		"rebates_pending_cents":  rebatesPendingCents,
+		"rebates_issued_cents":   rebatesIssuedCents,
 	})
 }
 
@@ -273,6 +296,237 @@ func (s *Server) handleAdminAnalytics(w http.ResponseWriter, r *http.Request) {
 		"events_by_action":  eventsByAction,
 		"events_by_day":     eventsByDay,
 	})
+}
+
+// handleAdminDeals handles GET/POST/PUT/DELETE /api/admin/deals
+func (s *Server) handleAdminDeals(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requireAdmin(w, r); !ok {
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		rows, err := s.db.Query(`
+			SELECT id, competitor_product, offer_brand, offer_product, discount_cents,
+			       total_budget_cents, budget_spent_cents, status,
+			       starts_at, COALESCE(ends_at,''), created_at,
+			       offer_price_cents, competitor_price_cents,
+			       offer_size, competitor_size,
+			       offer_unit_price, competitor_unit_price,
+			       unit_label, why_bullets, allergen_notes,
+			       deal_type, quantity_offered, trial_product_name, trial_size, campaign_tag
+			FROM brand_deals WHERE status != 'deleted' ORDER BY created_at DESC
+		`)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load deals"})
+			return
+		}
+		defer rows.Close()
+
+		var deals []BrandDeal
+		for rows.Next() {
+			var d BrandDeal
+			if err := rows.Scan(&d.ID, &d.CompetitorProduct, &d.OfferBrand, &d.OfferProduct,
+				&d.DiscountCents, &d.TotalBudgetCents, &d.BudgetSpentCents, &d.Status,
+				&d.StartsAt, &d.EndsAt, &d.CreatedAt,
+				&d.OfferPriceCents, &d.CompetitorPriceCents,
+				&d.OfferSize, &d.CompetitorSize,
+				&d.OfferUnitPrice, &d.CompetitorUnitPrice,
+				&d.UnitLabel, &d.WhyBullets, &d.AllergenNotes,
+				&d.DealType, &d.QuantityOffered, &d.TrialProductName, &d.TrialSize, &d.CampaignTag); err != nil {
+				log.Printf("[admin-deals] scan error: %v", err)
+				continue
+			}
+			deals = append(deals, d)
+		}
+		if deals == nil {
+			deals = []BrandDeal{}
+		}
+		writeJSON(w, http.StatusOK, deals)
+
+	case http.MethodPost:
+		var deal BrandDeal
+		if err := json.NewDecoder(r.Body).Decode(&deal); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+			return
+		}
+		deal.CompetitorProduct = strings.TrimSpace(deal.CompetitorProduct)
+		deal.OfferBrand = strings.TrimSpace(deal.OfferBrand)
+		deal.OfferProduct = strings.TrimSpace(deal.OfferProduct)
+		if deal.CompetitorProduct == "" || deal.OfferBrand == "" || deal.OfferProduct == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "competitor_product, offer_brand, and offer_product are required"})
+			return
+		}
+		if deal.Status == "" {
+			deal.Status = "active"
+		}
+		if deal.DealType == "" {
+			deal.DealType = "sku_swap"
+		}
+		if deal.QuantityOffered == 0 {
+			deal.QuantityOffered = 1
+		}
+
+		result, err := s.db.Exec(`
+			INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents,
+			                         total_budget_cents, status, ends_at,
+			                         offer_price_cents, competitor_price_cents,
+			                         offer_size, competitor_size,
+			                         offer_unit_price, competitor_unit_price,
+			                         unit_label, why_bullets, allergen_notes,
+			                         deal_type, quantity_offered, trial_product_name, trial_size, campaign_tag)
+			VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			deal.CompetitorProduct, deal.OfferBrand, deal.OfferProduct, deal.DiscountCents,
+			deal.TotalBudgetCents, deal.Status, deal.EndsAt,
+			deal.OfferPriceCents, deal.CompetitorPriceCents,
+			deal.OfferSize, deal.CompetitorSize,
+			deal.OfferUnitPrice, deal.CompetitorUnitPrice,
+			deal.UnitLabel, deal.WhyBullets, deal.AllergenNotes,
+			deal.DealType, deal.QuantityOffered, deal.TrialProductName, deal.TrialSize, deal.CampaignTag,
+		)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create deal"})
+			return
+		}
+		id, _ := result.LastInsertId()
+		deal.ID = int(id)
+		writeJSON(w, http.StatusCreated, deal)
+
+	case http.MethodPut:
+		var deal BrandDeal
+		if err := json.NewDecoder(r.Body).Decode(&deal); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+			return
+		}
+		if deal.ID == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
+			return
+		}
+		_, err := s.db.Exec(`
+			UPDATE brand_deals SET competitor_product = ?, offer_brand = ?, offer_product = ?,
+			       discount_cents = ?, total_budget_cents = ?, status = ?, ends_at = NULLIF(?, ''),
+			       offer_price_cents = ?, competitor_price_cents = ?,
+			       offer_size = ?, competitor_size = ?,
+			       offer_unit_price = ?, competitor_unit_price = ?,
+			       unit_label = ?, why_bullets = ?, allergen_notes = ?,
+			       deal_type = ?, quantity_offered = ?, trial_product_name = ?, trial_size = ?, campaign_tag = ?
+			WHERE id = ?`,
+			deal.CompetitorProduct, deal.OfferBrand, deal.OfferProduct,
+			deal.DiscountCents, deal.TotalBudgetCents, deal.Status, deal.EndsAt,
+			deal.OfferPriceCents, deal.CompetitorPriceCents,
+			deal.OfferSize, deal.CompetitorSize,
+			deal.OfferUnitPrice, deal.CompetitorUnitPrice,
+			deal.UnitLabel, deal.WhyBullets, deal.AllergenNotes,
+			deal.DealType, deal.QuantityOffered, deal.TrialProductName, deal.TrialSize, deal.CampaignTag,
+			deal.ID,
+		)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update deal"})
+			return
+		}
+		writeJSON(w, http.StatusOK, deal)
+
+	case http.MethodDelete:
+		var req struct {
+			ID int `json:"id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
+			return
+		}
+		// Soft-delete: set status='deleted' instead of hard DELETE to preserve
+		// FK references from swap_events and swap_rebates (B12 fix)
+		result, err := s.db.Exec("UPDATE brand_deals SET status = 'deleted' WHERE id = ?", req.ID)
+		if err != nil {
+			log.Printf("[admin] failed to soft-delete deal %d: %v", req.ID, err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to delete deal"})
+			return
+		}
+		rows, _ := result.RowsAffected()
+		if rows == 0 {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Deal not found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
+	}
+}
+
+// handleAdminPayouts handles GET/POST /api/admin/payouts
+// GET: returns users with pending swap rebates, their contact info, and amounts due.
+// POST: marks a payout as issued (updates rebate status from pending → issued).
+func (s *Server) handleAdminPayouts(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requireAdmin(w, r); !ok {
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		rows, err := s.db.Query(`
+			SELECT u.id, COALESCE(u.name,''), COALESCE(u.email,''), COALESCE(u.phone_number,''),
+			       SUM(sr.amount_cents) as total_cents, COUNT(sr.id) as swap_count,
+			       MIN(sr.created_at) as oldest
+			FROM swap_rebates sr
+			JOIN users u ON u.id = sr.user_id
+			WHERE sr.status = 'pending'
+			GROUP BY u.id
+			ORDER BY total_cents DESC
+		`)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load payouts"})
+			return
+		}
+		defer rows.Close()
+
+		type payoutEntry struct {
+			UserID     int    `json:"user_id"`
+			Name       string `json:"name"`
+			Email      string `json:"email"`
+			Phone      string `json:"phone"`
+			TotalCents int    `json:"total_cents"`
+			SwapCount  int    `json:"swap_count"`
+			OldestSwap string `json:"oldest_swap"`
+		}
+		payouts := []payoutEntry{}
+		for rows.Next() {
+			var p payoutEntry
+			if err := rows.Scan(&p.UserID, &p.Name, &p.Email, &p.Phone, &p.TotalCents, &p.SwapCount, &p.OldestSwap); err != nil {
+				log.Printf("[admin-payouts] scan error: %v", err)
+				continue
+			}
+			payouts = append(payouts, p)
+		}
+		writeJSON(w, http.StatusOK, payouts)
+
+	case http.MethodPost:
+		var req struct {
+			UserID int `json:"user_id"`
+		}
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		if req.UserID == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user_id is required"})
+			return
+		}
+
+		result, err := s.db.Exec(
+			"UPDATE swap_rebates SET status = 'issued' WHERE user_id = ? AND status = 'pending'",
+			req.UserID,
+		)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update payouts"})
+			return
+		}
+		affected, _ := result.RowsAffected()
+		log.Printf("[admin-payouts] marked %d rebates as issued for user %d", affected, req.UserID)
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "updated": affected})
+
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
+	}
 }
 
 // legalPageHTML wraps legal page content in a simple styled HTML shell.

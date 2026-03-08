@@ -28,6 +28,7 @@ type Config struct {
 	TestMode            bool
 	GoogleClientID      string
 	SendGridAPIKey      string
+	BlueCartAPIKey      string
 }
 
 // =============================================================================
@@ -97,6 +98,8 @@ type ParseResponse struct {
 	Message              string                `json:"message,omitempty"`
 	BrandDisambiguations []BrandDisambiguation `json:"brand_disambiguations,omitempty"`
 	SavedLists           []SavedListSummary    `json:"saved_lists,omitempty"`
+	PendingSwap          *PendingSwap          `json:"pending_swap,omitempty"`
+	SwapCreditsCents     int                   `json:"swap_credits_cents,omitempty"`
 }
 
 // BrandDisambiguation represents a brand choice the user needs to make.
@@ -127,6 +130,7 @@ type Server struct {
 	twilio       TwilioClient
 	parseItems   func(apiKey, text string, images []string) ([]ParsedItem, error)
 	parseCommand func(apiKey, text string, items []ListItem, name string) (*ParsedCommand, error)
+	parseReceipt func(apiKey string, images []string, currentItems []ListItem) ([]string, error)
 	smsBuffer    *messageBuffer
 	logoCache    sync.Map // domain -> *cachedLogo
 	parseCache   sync.Map // normalized text -> *parseCacheEntry
@@ -144,6 +148,72 @@ type Server struct {
 	parseLimiter sync.Map
 	// Per-IP email login rate limiter: IP -> []time.Time (sliding window, 10 req/10min)
 	emailLoginIPLimiter sync.Map
+}
+
+// BrandDeal represents an active swap deal from the brand_deals table.
+type BrandDeal struct {
+	ID                  int    `json:"id"`
+	CompetitorProduct   string `json:"competitor_product"`
+	OfferBrand          string `json:"offer_brand"`
+	OfferProduct        string `json:"offer_product"`
+	DiscountCents       int    `json:"discount_cents"`
+	TotalBudgetCents    int    `json:"daily_budget_cents"` // JSON tag kept for backward compat (was daily_budget_cents, renamed B15)
+	BudgetSpentCents    int    `json:"budget_spent_cents"`
+	Status              string `json:"status"`
+	StartsAt            string `json:"starts_at"`
+	EndsAt              string `json:"ends_at"`
+	CreatedAt           string `json:"created_at"`
+	// Price comparison & why data (M1 swap card redesign)
+	OfferPriceCents     int    `json:"offer_price_cents"`
+	CompetitorPriceCents int   `json:"competitor_price_cents"`
+	OfferSize           string `json:"offer_size"`
+	CompetitorSize      string `json:"competitor_size"`
+	OfferUnitPrice      string `json:"offer_unit_price"`
+	CompetitorUnitPrice string `json:"competitor_unit_price"`
+	UnitLabel           string `json:"unit_label"`
+	WhyBullets          string `json:"why_bullets"`
+	AllergenNotes       string `json:"allergen_notes"`
+	// Sprint 3: swap type expansion
+	DealType         string `json:"deal_type"`
+	QuantityOffered  int    `json:"quantity_offered"`
+	TrialProductName string `json:"trial_product_name"`
+	TrialSize        string `json:"trial_size"`
+	CampaignTag      string `json:"campaign_tag"`
+}
+
+// PendingSwap represents a swap offer matched to a list item.
+type PendingSwap struct {
+	DealID        int    `json:"deal_id"`
+	ItemID        int    `json:"item_id"`
+	OfferBrand    string `json:"offer_brand"`
+	OfferProduct  string `json:"offer_product"`
+	DiscountCents int    `json:"discount_cents"`
+	// Price comparison fields (zero values = graceful degradation)
+	OfferPriceCents    int    `json:"offer_price_cents"`
+	OriginalPriceCents int    `json:"original_price_cents"`
+	OfferSize          string `json:"offer_size"`
+	OriginalSize       string `json:"original_size"`
+	OfferUnitPrice     string `json:"offer_unit_price"`
+	OriginalUnitPrice  string `json:"original_unit_price"`
+	SavingsPercent     int    `json:"savings_percent"`
+	// Why panel
+	WhyBullets      []string `json:"why_bullets"`
+	AllergenWarning string   `json:"allergen_warning,omitempty"`
+	// Sprint 3: swap type expansion
+	DealType         string `json:"deal_type"`
+	QuantityOffered  int    `json:"quantity_offered,omitempty"`
+	TrialProductName string `json:"trial_product_name,omitempty"`
+	TrialSize        string `json:"trial_size,omitempty"`
+	CampaignTag      string `json:"campaign_tag,omitempty"`
+	EndsAt           string `json:"ends_at,omitempty"`
+}
+
+// ProfilePhoto represents a user's avatar image stored as a BLOB.
+type ProfilePhoto struct {
+	UserID      int    `json:"user_id"`
+	PhotoData   []byte `json:"-"`
+	ContentType string `json:"content_type"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 // itemData is an internal helper for collecting items to save to a saved list.

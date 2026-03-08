@@ -29,7 +29,7 @@ func (s *Server) handleSavedLists(w http.ResponseWriter, r *http.Request) {
 		case http.MethodPost:
 			s.handleSavedListsCreate(w, r)
 		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
 		}
 		return
 	}
@@ -37,7 +37,7 @@ func (s *Server) handleSavedLists(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(tail, "/")
 	id, err := strconv.Atoi(parts[0])
 	if err != nil {
-		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid ID"})
 		return
 	}
 
@@ -56,7 +56,7 @@ func (s *Server) handleSavedLists(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Error(w, "Not found", http.StatusNotFound)
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": "Not found"})
 }
 
 // handleSavedListsGet handles GET /api/saved-lists

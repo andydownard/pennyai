@@ -287,8 +287,43 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		s.db.Exec("UPDATE users SET referral_points = COALESCE(referral_points, 0) + ? WHERE id = ?", referralPointsPerInvite, createdBy)
 		log.Printf("[invite] awarded %d points to user %d for household invite", referralPointsPerInvite, createdBy)
 	}
+	// M2d: Track referral source
+	s.db.Exec("UPDATE users SET referral_source = 'invite' WHERE id = ? AND referral_source = ''", session.UserID)
 
-	resp := map[string]interface{}{"success": true}
+	// M2a: Notify inviter via SMS (dedup via notified flag)
+	if s.config.TwilioPhoneNumber != "" {
+		var inviterPhone sql.NullString
+		var inviterName string
+		s.db.QueryRow("SELECT COALESCE(u.phone_number,''), COALESCE(u.name,'') FROM users u WHERE u.id = ?", createdBy).Scan(&inviterPhone, &inviterName)
+		var joinerName string
+		s.db.QueryRow("SELECT COALESCE(name,'') FROM users WHERE id = ?", session.UserID).Scan(&joinerName)
+		if inviterPhone.Valid && inviterPhone.String != "" {
+			// Atomically set notified=1 — only sends if not already notified
+			res, _ := s.db.Exec("UPDATE invites SET notified = 1 WHERE id = ? AND notified = 0", inviteID)
+			if rows, _ := res.RowsAffected(); rows > 0 {
+				who := joinerName
+				if who == "" {
+					who = "Someone"
+				}
+				smsBody := fmt.Sprintf("%s just joined your Thriftly list!", who)
+				if err := s.twilio.SendSMS(s.config.TwilioPhoneNumber, inviterPhone.String, smsBody); err != nil {
+					log.Printf("[join] failed to notify inviter %d: %v", createdBy, err)
+				} else {
+					log.Printf("[join] notified inviter %d that user %d joined", createdBy, session.UserID)
+				}
+			}
+		}
+	}
+
+	// M2b: Penny acknowledges new household member
+	var joinerName string
+	s.db.QueryRow("SELECT COALESCE(name,'') FROM users WHERE id = ?", session.UserID).Scan(&joinerName)
+	pennyMsg := "Welcome to the family! You're all sharing one list now."
+	if joinerName != "" {
+		pennyMsg = fmt.Sprintf("Welcome aboard, %s! You're all sharing one list now.", joinerName)
+	}
+
+	resp := map[string]interface{}{"success": true, "penny_message": pennyMsg}
 	if leavingHousehold {
 		resp["warning"] = "You left your previous household to join this one."
 	}

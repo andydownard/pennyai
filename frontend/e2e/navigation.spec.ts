@@ -1,52 +1,70 @@
 import { test, expect } from '@playwright/test'
-import { login } from './helpers'
-
-async function openHamburger(page: import('@playwright/test').Page) {
-  // Find the hamburger by its unique SVG path content (three horizontal lines)
-  await page.evaluate(() => {
-    const paths = document.querySelectorAll('svg path')
-    for (const p of paths) {
-      const d = p.getAttribute('d')
-      if (d && d.includes('M3 5h14') && d.includes('M3 10h14')) {
-        const btn = p.closest('button')
-        if (btn) { btn.click(); return }
-      }
-    }
-    throw new Error('Hamburger button not found')
-  })
-}
+import { login, navigateTo, openMenu } from './helpers'
 
 test.describe('Navigation', () => {
   test.beforeEach(async ({ page }) => {
     await login(page)
   })
 
-  test('navigate to settings from hamburger menu', async ({ page }) => {
-    await expect(page.getByText('Your list is empty.')).toBeVisible()
-    await openHamburger(page)
-    await page.getByRole('button', { name: 'Settings' }).click()
-    await expect(page.getByText('Profile')).toBeVisible()
+  test('hamburger menu opens and shows all nav items', async ({ page }) => {
+    await openMenu(page)
+    await expect(page.getByRole('button', { name: 'Shopping List' })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Share/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Penny' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Profile' })).toBeVisible()
   })
 
-  test('navigate to share page', async ({ page }) => {
-    await expect(page.getByText('Your list is empty.')).toBeVisible()
-    await openHamburger(page)
-    await page.getByRole('button', { name: /Share/ }).click()
-    await expect(page.getByText('Share & Earn')).toBeVisible()
+  test('navigate to Penny settings', async ({ page }) => {
+    await navigateTo(page, 'Penny')
+    await expect(page.getByText('Learn from my choices')).toBeVisible()
+  })
+
+  test('navigate to Share & Earn', async ({ page }) => {
+    await navigateTo(page, /Share/)
+    await expect(page.getByText('Shared List')).toBeVisible()
+  })
+
+  test('navigate to Profile', async ({ page }) => {
+    await navigateTo(page, 'Profile')
+    await expect(page.getByPlaceholder('First')).toBeVisible()
+    await expect(page.getByText('Sign Out')).toBeVisible()
   })
 
   test('browser back button works', async ({ page }) => {
-    await expect(page.getByText('Your list is empty.')).toBeVisible()
-    await openHamburger(page)
-    await page.getByRole('button', { name: 'Settings' }).click()
-    await expect(page.getByText('Profile')).toBeVisible()
+    await navigateTo(page, 'Profile')
+    await expect(page.getByPlaceholder('First')).toBeVisible()
 
     await page.goBack()
     await expect(page.locator('textarea[placeholder*="Tell Penny"]')).toBeVisible()
   })
 
-  test('deep link to /settings/profile works when logged in', async ({ page }) => {
-    await page.goto('/settings/profile')
+  test('deep link to /profile works when logged in', async ({ page }) => {
+    await page.goto('/profile')
     await expect(page.getByPlaceholder('First')).toBeVisible({ timeout: 10_000 })
+  })
+
+  test('deep link to /penny works when logged in', async ({ page }) => {
+    await page.goto('/penny')
+    await expect(page.getByText('Learn from my choices')).toBeVisible({ timeout: 10_000 })
+  })
+
+  test('deep link to /share works when logged in', async ({ page }) => {
+    await page.goto('/share')
+    await expect(page.getByText('Shared List')).toBeVisible({ timeout: 10_000 })
+  })
+
+  test('unknown route redirects to home', async ({ page }) => {
+    await page.goto('/nonexistent-page')
+    // Should end up on home screen
+    await expect(page.locator('textarea[placeholder*="Tell Penny"]')).toBeVisible({ timeout: 10_000 })
+  })
+
+  test('clicking wordmark returns to home', async ({ page }) => {
+    await navigateTo(page, 'Profile')
+    await expect(page.getByPlaceholder('First')).toBeVisible()
+
+    // Click the "thriftly" wordmark
+    await page.getByText('thriftly').click()
+    await expect(page.locator('textarea[placeholder*="Tell Penny"]')).toBeVisible()
   })
 })

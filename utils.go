@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"time"
 )
 
 func setSessionCookie(w http.ResponseWriter, cfg Config, token string) {
@@ -73,6 +75,89 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v interface{}) bool {
 		return false
 	}
 	return true
+}
+
+// checkRateLimit checks a sync.Map-based sliding window rate limiter.
+// Values are stored as []time.Time. Returns true if the request should be blocked.
+func checkRateLimit(store *sync.Map, key string, window time.Duration, maxCount int) bool {
+	now := time.Now()
+	if raw, ok := store.Load(key); ok {
+		times := raw.([]time.Time)
+		recent := make([]time.Time, 0, len(times))
+		for _, t := range times {
+			if now.Sub(t) < window {
+				recent = append(recent, t)
+			}
+		}
+		if len(recent) >= maxCount {
+			store.Store(key, recent)
+			return true
+		}
+		store.Store(key, append(recent, now))
+	} else {
+		store.Store(key, []time.Time{now})
+	}
+	return false
+}
+
+// checkRateLimitBucket checks a rateBucket-based rate limiter with mutex.
+// Returns true if the request should be blocked.
+func checkRateLimitBucket(store *sync.Map, key any, window time.Duration, maxCount int) bool {
+	now := time.Now()
+	val, _ := store.LoadOrStore(key, &rateBucket{})
+	bucket := val.(*rateBucket)
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
+	recent := make([]time.Time, 0, len(bucket.times))
+	for _, t := range bucket.times {
+		if now.Sub(t) < window {
+			recent = append(recent, t)
+		}
+	}
+	if len(recent) >= maxCount {
+		bucket.times = recent
+		return true
+	}
+	bucket.times = append(recent, now)
+	return false
+}
+
+// pruneTimeLimiter removes stale entries from a sync.Map-based []time.Time rate limiter.
+func pruneTimeLimiter(store *sync.Map, maxAge time.Duration) {
+	cutoff := time.Now().Add(-maxAge)
+	store.Range(func(key, val any) bool {
+		times := val.([]time.Time)
+		recent := 0
+		for _, t := range times {
+			if t.After(cutoff) {
+				recent++
+			}
+		}
+		if recent == 0 {
+			store.Delete(key)
+		}
+		return true
+	})
+}
+
+// pruneBucketLimiter removes stale entries from a sync.Map-based *rateBucket rate limiter.
+func pruneBucketLimiter(store *sync.Map, maxAge time.Duration) {
+	cutoff := time.Now().Add(-maxAge)
+	store.Range(func(key, val any) bool {
+		rb := val.(*rateBucket)
+		rb.mu.Lock()
+		recent := 0
+		for _, t := range rb.times {
+			if t.After(cutoff) {
+				recent++
+			}
+		}
+		rb.mu.Unlock()
+		if recent == 0 {
+			store.Delete(key)
+		}
+		return true
+	})
 }
 
 // serveWithOGTags serves index.html with dynamic Open Graph meta tags injected

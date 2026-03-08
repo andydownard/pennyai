@@ -9,6 +9,19 @@ Thriftly is an AI-powered grocery shopping list app with a personality-driven as
 - **Auth**: Multi-auth (phone/SMS via Twilio, Google OAuth, email/password with bcrypt, magic link)
 - **Database**: SQLite with inline migrations in `initDB()`
 
+## Notification & Communication Safety — HARD RULE
+
+**Duplicate notifications and inadvertent outbound messages must NEVER happen.** This is a trust-destroying, potentially app-deleting event. The bar for any code that sends SMS, emails, or triggers user-visible prompts (NPS, modals, push) is significantly higher than normal code.
+
+**Rules:**
+1. **No duplicate sends.** Every outbound SMS, email, or notification must have a dedup mechanism (idempotency key, "already sent" flag, or equivalent). Test the dedup path explicitly.
+2. **No inadvertent sends.** Code that triggers Twilio SMS, SendGrid email, or any external communication must be gated behind explicit user action or a well-tested automated trigger. Never send as a side effect of a refactor, migration, or data backfill.
+3. **No re-prompting dismissed UI.** Any dismissible prompt (NPS survey, onboarding modal, feature announcement) must persist its dismissed state. Dismissal must survive page reload and navigation within the same session at minimum. Never rely solely on React state for "has the user seen this" — use sessionStorage/localStorage or a server-side flag.
+4. **Rate limit all outbound channels.** SMS and email sends must have server-side rate limits that cannot be bypassed by client-side bugs (rapid polling, useEffect loops, retry storms).
+5. **Test the negative path.** When writing tests for notification/prompt features, always include: "after dismiss, does NOT show again", "after submit, does NOT send again", "rapid calls do NOT produce duplicates."
+
+**Before shipping any change to SMS, email, NPS, or notification code:** manually trace every code path that could trigger an outbound message or user prompt. If you can't prove it won't duplicate or fire inadvertently, add a guard.
+
 ## Refactoring Rules
 
 ### What IS allowed
@@ -126,6 +139,7 @@ Thriftly is an AI-powered grocery shopping list app with a personality-driven as
 9. `email-register` — Email registration
 10. `forgot-password` — Password recovery
 11. `reset-password` — Password reset with token
+12. `shared-list` — Read-only shared list view (no auth required)
 
 ## API Contract (all endpoints must remain with same paths and JSON shapes)
 
@@ -157,6 +171,10 @@ Thriftly is an AI-powered grocery shopping list app with a personality-driven as
 - `POST /api/list/parse`
 - `GET /api/list/{id}/history`
 - `POST /api/list/brand-resolve`
+- `POST /api/list/share`
+
+### Shared List
+- `GET /api/shared/{code}`
 
 ### Saved Lists
 - `GET /api/saved-lists`
@@ -207,6 +225,8 @@ Thriftly is an AI-powered grocery shopping list app with a personality-driven as
 ### Admin
 - `GET /api/admin/dashboard`
 - `GET /api/admin/analytics`
+- `GET /api/admin/payouts`
+- `POST /api/admin/payouts`
 
 ### Legal
 - `GET /privacy`
@@ -234,6 +254,7 @@ Thriftly is an AI-powered grocery shopping list app with a personality-driven as
 18. `shopping_trips`
 19. `brand_choices`
 20. `brand_preferences`
+21. `shared_links`
 
 Schema migrations must remain backward-compatible. Use `ALTER TABLE ADD COLUMN` for new columns — never drop and recreate tables with existing data.
 
@@ -241,19 +262,35 @@ Schema migrations must remain backward-compatible. Use `ALTER TABLE ADD COLUMN` 
 
 After any refactor:
 - All existing Go tests must pass (`go test ./...`)
+- All Playwright E2E tests must pass (`cd frontend && npx playwright test`)
 - All HTTP endpoints must respond with the same status codes and JSON shapes
 - All frontend screens must render and be navigable
 - Database migrations must run cleanly on existing databases
 - No functionality listed in "Must-Have Features" may be missing or broken
 
+### Definition of Done
+
+A feature or change is "done" when ALL of the following are true:
+1. Go unit/integration tests written and passing (target 1.3x test:code ratio)
+2. Playwright E2E tests written and passing for any new UI flow or screen change
+3. `go test ./...` passes with zero failures
+4. `cd frontend && npx playwright test` passes with zero failures
+5. No regressions in existing functionality
+
 ## Automated UAT
 
-When the server is running locally (`http://localhost:8080`), run automated UAT by launching 4 parallel agents:
+UAT runs automatically via `go test ./...` — no live server or manual approval needed. The test suite covers:
 
-1. **New user onboarding** — Test all 3 auth flows (phone, Google, email), registration, login, session management, rate limiting
-2. **Core list features** — Create a test user, test all list CRUD, parse, saved lists, settings. Include edge cases: empty bodies, long strings, special chars, SQL injection, XSS payloads, cross-user access
-3. **Sharing & invite flow** — Create 2 users, test invite generation, join, household sharing, leave, referral system, admin auth gating, NPS
-4. **Frontend & assets** — Check HTML structure, JS bundle, favicons, security headers, SPA fallback, PWA manifest
+1. **Auth flows** — phone/SMS, Google OAuth, email/password, magic link, session management, rate limiting
+2. **List CRUD** — add, edit, delete, toggle, urgent, claim, clear, restore, parse, brand resolve
+3. **Edge cases** — empty bodies, long strings, special chars, SQL injection payloads, XSS payloads, cross-user access, invalid IDs, boundary values
+4. **Sharing & invites** — invite generation, join, household sharing, leave, referral system, admin auth gating, NPS
+5. **Swaps** — deal matching, accept/decline, suppression, budget exhaustion, auto-pause, rebate ledger
+6. **Settings** — all fields, slider clamping, brand mode validation, autotune/deals toggles
+7. **Saved lists** — CRUD, load, empty names, nonexistent lists, special chars
+8. **Trips** — CRUD, date validation, time labels, idempotent delete
+
+After any significant work, run `go test -count=1 ./...` to verify. All tests must pass. When gaps are found, add new Go tests rather than relying on manual testing.
 
 Add any new bugs found to the "Bugs" section in ROADMAP.md with the same format (B-number, description, file references, fix guidance). Bugs in the Bugs section are safe to fix without supervision — they are well-scoped and low-risk.
 
@@ -270,9 +307,11 @@ Add any new bugs found to the "Bugs" section in ROADMAP.md with the same format 
 ## UI/UX Rules
 
 ### Penny Settings Page Layout (top to bottom)
-1. **Settings section** — "Learn from my choices" toggle, conditional slider (only visible when autotune OFF), "I want to text with Penny" toggle (only visible if user has phone/SMS)
-2. **Divider line** — subtle 1px separator between settings and contact
-3. **Contact section** — Penny avatar + name, icon-only action buttons (text, email, add to contacts) on the right
+1. **Contact section** — Penny avatar + name, icon-only action buttons (text, email, add to contacts) on the right
+2. **Divider line** — subtle 1px separator between contact and settings
+3. **"I want to text with Penny" toggle** (only visible if user has phone/SMS)
+4. **"Learn from my choices" toggle**
+5. **Convenience/savings slider** — at the bottom (only visible when autotune OFF), so expanding it doesn't shift anything above
 
 ### Conditional UI Behavior
 - When "Learn from my choices" is ON → the convenience/savings slider is hidden (Penny auto-tunes)
@@ -298,71 +337,54 @@ Add any new bugs found to the "Bugs" section in ROADMAP.md with the same format 
 5. Profile (contains sign out)
 6. Dashboard (admin only — only visible to admins, always last)
 
-## Engineering Preferences
+## Shared Ground Rules, Engineering Standards
 
-* DRY is important — flag repetition aggressively.
-* Well-tested code is non-negotiable; test:code ratio target is 1.3x or higher.
-* Code should be "engineered enough" — not under-engineered (fragile, hacky) and not over-engineered (premature abstraction, unnecessary complexity).
-* Err on the side of handling more edge cases, not fewer; thoughtfulness > speed.
-* Bias toward explicit over clever.
-* Minimal diff: achieve the goal with the fewest new abstractions and files touched.
-* Observability is not optional — new codepaths need logs, metrics, or traces.
-* Security is not optional — new codepaths need threat modeling.
-* ASCII diagrams in code comments for complex designs.
+> **⚠️ REQUIRED:** Before starting any work, verify that `../shared_ground_rules.md` and `../ENGINEERING_STANDARDS.md` exist. If either file is missing, STOP and alert the user — do not proceed without shared engineering standards.
+>
+> See `../shared_ground_rules.md` for: Secret Keys — Hard Rule, Engineering Preferences, Test-Driven Development (Iron Law — 100% TDD mandate), Parallel Development & Branching Strategy (max 3 parallel workstreams, git worktrees required), Sprint Planning Format (1-page plans, user stories with child ACs, atomic task decomposition, epic chunking), Plan Review Mode (Garry Tan Mega Review), Product Team (7 agent roles), Focus Groups protocol, Pattern Detection rules.
+>
+> See `../ENGINEERING_STANDARDS.md` for: Idempotency & Mutation Safety audit checklist, anti-patterns from B11/B14/B16/B17, handler audit template.
 
-## Plan Review Mode (Mega Review)
+### PennyAI-Specific Mutation Safety Notes
 
-When reviewing implementation plans, use the following framework. Three modes:
+PennyAI has the highest density of state-mutating handlers of any project (swap accept, budget deduction, rebate tracking, NPS, notifications). Run the `ENGINEERING_STANDARDS.md` handler audit on every new endpoint that touches `swap_events`, `brand_deals`, `swap_rebates`, or any Twilio/SendGrid call path.
 
-- **SCOPE EXPANSION:** Build the cathedral. Push scope UP. Ask "what would make this 10x better for 2x the effort?"
-- **HOLD SCOPE:** Rigorous review. The plan's scope is accepted. Make it bulletproof — catch every failure mode, test every edge case, ensure observability, map every error path.
-- **SCOPE REDUCTION:** Surgeon mode. Find the minimum viable version. Cut everything else. Be ruthless.
+## Product Team (Agent Roles)
 
-Context-dependent defaults:
-- Greenfield feature → default EXPANSION
-- Bug fix or hotfix → default HOLD SCOPE
-- Refactor → default HOLD SCOPE
-- Plan touching >15 files → suggest REDUCTION unless user pushes back
+> The 7-role product team and convene rules are defined in `../shared_ground_rules.md` and inherited automatically.
+> This section documents PennyAI-specific convene guidance only.
 
-Once a mode is selected, COMMIT to it. Do not silently drift.
+### UX Designer / Reviewer
 
-### Prime Directives
+**Role:** Reviews every user-facing feature spec before implementation. Produces detailed UX specifications covering:
+- **Edge cases:** empty states, error states, loading states, offline behavior
+- **Scroll & layout:** overflow behavior, overscroll, momentum scrolling, safe areas, keyboard interactions
+- **Touch targets:** minimum 44x44px, spacing to prevent fat-fingering, hover/active/focus states
+- **Animation & timing:** transitions, typewriter timing, skeleton loaders, perceived performance
+- **Accessibility:** screen reader flow, contrast ratios, focus management, aria labels
+- **Mobile-specific:** bottom sheet heights, swipe gestures, pull-to-refresh, orientation changes
 
-1. **Zero silent failures.** Every failure mode must be visible — to the system, to the team, to the user.
-2. **Every error has a name.** Don't say "handle errors." Name the specific exception, what triggers it, what rescues it, what the user sees, and whether it's tested.
-3. **Data flows have shadow paths.** Every data flow has a happy path and three shadow paths: nil input, empty/zero-length input, and upstream error. Trace all four.
-4. **Interactions have edge cases.** Every user-visible interaction: double-click, navigate-away-mid-action, slow connection, stale state, back button. Map them.
-5. **Observability is scope, not afterthought.** Dashboards, alerts, and runbooks are first-class deliverables.
-6. **Diagrams are mandatory.** No non-trivial flow goes undiagrammed. ASCII art for data flows, state machines, pipelines, dependency graphs.
-7. **Everything deferred must be written down.** Vague intentions are lies. TODOS.md or it doesn't exist.
-8. **Optimize for the 6-month future, not just today.**
-9. **You have permission to say "scrap it and do this instead."**
+**Workflow:** The UX Designer reviews the feature requirements and produces a detailed UX spec. The PM synthesizes the UX spec with product requirements before implementation begins. No user-facing feature ships without UX review.
 
-### Review Sections (when doing plan review)
+**PennyAI-specific:** Always convene before changes to Penny's personality (typewriter effect, chime-ins, quotes, nudges), the brand system (logo caching, brand preferences), or household sharing flows.
 
-1. **Architecture Review** — system design, data flows (all 4 paths: happy/nil/empty/error), state machines, coupling, scaling, security, rollback posture
-2. **Error & Rescue Map** — for every method that can fail: what goes wrong, exception class, rescued?, rescue action, what user sees
-3. **Security & Threat Model** — attack surface, input validation, authorization, secrets, injection vectors, audit logging
-4. **Data Flow & Interaction Edge Cases** — trace inputs through validation→transform→persist→output with shadow paths; map UI edge cases (double-click, navigate-away, slow connection, stale state)
-5. **Code Quality Review** — DRY violations, naming, error handling patterns, missing edge cases, over/under-engineering, cyclomatic complexity
-6. **Test Review** — diagram all new UX flows, data flows, codepaths, async work, integrations, error paths. For each: what type of test covers it? Happy path test? Failure path test? Edge case test?
-7. **Performance Review** — N+1 queries, memory usage, indexes, caching, background job sizing, slow paths, connection pool pressure
-8. **Observability & Debuggability** — logging, metrics, tracing, alerting, dashboards, debuggability, admin tooling, runbooks
-9. **Deployment & Rollout** — migration safety, feature flags, rollout order, rollback plan, deploy-time risk, post-deploy verification
-10. **Long-Term Trajectory** — tech debt introduced, path dependency, knowledge concentration, reversibility (1-5 scale), ecosystem fit
+## Focus Group (Customer Panel)
 
-### Required Review Outputs
+For any **user-facing feature** (new UI, new interaction, changed flow), simulate a panel of 7 customers before building. Protocol (Rounds 1–4) is defined in `../shared_ground_rules.md`.
 
-- **"NOT in scope" section** — work considered and explicitly deferred
-- **"What already exists" section** — existing code that partially solves sub-problems
-- **Error & Rescue Registry** — complete table of every method that can fail
-- **Failure Modes Registry** — codepath, failure mode, rescued?, tested?, user sees?, logged?
-- **TODOS.md updates** — deferred work with what/why/context/effort/priority
-- **Diagrams** — system architecture, data flow, state machines, error flow, deployment sequence, rollback flowchart
+### Panel members
 
-### For Each Issue Found
+| Name | Persona | Key concern |
+|------|---------|-------------|
+| **Linda** (58) | Budget optimizer, coupon clipper | Price accuracy, clear savings, no tricks |
+| **Devon** (34) | Tech-savvy early adopter, shares finds with friends | Clean UI, data transparency, power-user features, referral motivation |
+| **Marcus** (41) | Skeptical about app tracking | Privacy, proof it's real, no dark patterns |
+| **Tamika** (29) | Single mom, two kids, juggles work + school | Speed, simplicity, Penny should anticipate needs, zero tolerance for extra steps |
+| **James** (45) | Household coordinator, shares list with wife | Household clarity, simple actions, coordination |
+| **Priya** (31) | Health-conscious, reads every label | Dietary safety, ingredient info, no allergen-blind suggestions |
+| **Nadia** (62) | Retired teacher, not tech-savvy, lives alone | Large text, clear instructions, no jargon, feels cared for |
 
-- Describe concretely with file and line references
-- Present 2-3 options including "do nothing"
-- Lead with recommendation as a directive
-- For each option: effort, risk, maintenance burden in one line
+## Pattern Detection
+
+> Pattern detection rules are defined in `../shared_ground_rules.md` and inherited automatically.
+> Idempotency audit checklist and anti-patterns (B11, B14, B16, B17) are in `../ENGINEERING_STANDARDS.md`.

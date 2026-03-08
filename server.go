@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/getsentry/sentry-go"
 	_ "modernc.org/sqlite"
 )
 
@@ -93,6 +94,7 @@ func loadConfig() Config {
 		TestMode:            os.Getenv("TEST_MODE") == "true",
 		GoogleClientID:      os.Getenv("GOOGLE_CLIENT_ID"),
 		SendGridAPIKey:      os.Getenv("SENDGRID_API_KEY"),
+		BlueCartAPIKey:      os.Getenv("BLUECART_API_KEY"),
 	}
 }
 
@@ -112,6 +114,20 @@ func (r *statusRecorder) WriteHeader(code int) {
 
 func main() {
 	cfg := loadConfig()
+
+	// Sentry error monitoring — gracefully skipped if DSN not set
+	if dsn := os.Getenv("SENTRY_DSN"); dsn != "" {
+		if err := sentry.Init(sentry.ClientOptions{
+			Dsn:              dsn,
+			Environment:      os.Getenv("RAILWAY_ENVIRONMENT_NAME"),
+			TracesSampleRate: 0.1,
+		}); err != nil {
+			log.Printf("[sentry] init failed: %v", err)
+		} else {
+			log.Println("[sentry] initialized")
+			defer sentry.Flush(2 * time.Second)
+		}
+	}
 
 	if !cfg.TestMode && (cfg.TwilioAccountSID == "" || cfg.TwilioAuthToken == "" || cfg.TwilioVerifyService == "") {
 		log.Fatal(`
@@ -143,6 +159,7 @@ Get these from https://console.twilio.com (see README for full setup).
 		},
 		parseItems:   parseItemsWithClaude,
 		parseCommand: parseCommandWithClaude,
+		parseReceipt: parseReceiptWithClaude,
 		smsBuffer:    newMessageBuffer(defaultSMSBufferDuration),
 	}
 
@@ -175,6 +192,9 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/list/", server.handleList)
 	http.HandleFunc("/api/list/clear", server.handleListClear)
 	http.HandleFunc("/api/list/restore", server.handleListRestore)
+	http.HandleFunc("/api/list/share", server.handleShareList)
+	http.HandleFunc("/api/list/swaps", server.handleListSwaps)
+	http.HandleFunc("/api/shared/", server.handleSharedView)
 	http.HandleFunc("/api/list/brand-resolve", server.handleBrandResolve)
 	http.HandleFunc("/api/saved-lists", server.handleSavedLists)
 	http.HandleFunc("/api/saved-lists/", server.handleSavedLists)
@@ -190,14 +210,49 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/referral", server.handleReferral)
 	http.HandleFunc("/api/referral/redeem", server.handleReferralRedeem)
 	http.HandleFunc("/api/referral/claim", server.handleReferralClaim)
+	http.HandleFunc("/api/rebates", server.handleRebates)
 	http.HandleFunc("/api/nps/check", server.handleNPSCheck)
 	http.HandleFunc("/api/nps", server.handleNPS)
 	http.HandleFunc("/api/penny/quote", server.handlePennyQuote)
 	http.HandleFunc("/api/admin/dashboard", server.handleAdminDashboard)
 	http.HandleFunc("/api/admin/analytics", server.handleAdminAnalytics)
+	http.HandleFunc("/api/admin/deals", server.handleAdminDeals)
+	http.HandleFunc("/api/admin/deals/", server.handleAdminDeals)
+	http.HandleFunc("/api/admin/payouts", server.handleAdminPayouts)
+
+	// --- A/B Testing ---
+	http.HandleFunc("GET /api/ab/variant", handleGetVariant(server))
+	http.HandleFunc("POST /api/ab/event", handleTrackABEvent(server))
+	http.HandleFunc("GET /api/admin/ab-tests", handleListABTests(server))
+	http.HandleFunc("POST /api/admin/ab-tests", handleCreateABTest(server))
+	http.HandleFunc("GET /api/admin/ab-tests/{name}/results", handleABTestResults(server))
+	http.HandleFunc("POST /api/admin/ab-tests/{name}/resolve", handleResolveABTest(server))
+
+	// --- Brand Portal (M4) ---
+	http.HandleFunc("/brand/register", server.handleBrandRegister)
+	http.HandleFunc("/brand/login", server.handleBrandLogin)
+	http.HandleFunc("/brand/me", server.handleBrandMe)
+	http.HandleFunc("/brand/logout", server.handleBrandLogout)
+	http.HandleFunc("/brand/dashboard", server.handleBrandDashboard)
+	http.HandleFunc("/brand/deals", server.handleBrandDeals)
+	http.HandleFunc("/brand/deals/", server.handleBrandDeals)
+	http.HandleFunc("/brand/category-intel/", server.handleCategoryIntel)
+	http.HandleFunc("/brand/transactions", server.handleBrandTransactions)
+	http.HandleFunc("/brand/deposit", server.handleBrandDeposit)
+	http.HandleFunc("/brand/stripe-webhook", server.handleStripeWebhook)
+
+	http.HandleFunc("/api/avatar", server.handleAvatar)
+	http.HandleFunc("/api/avatar/", server.handleAvatar)
 	http.HandleFunc("/api/brands", server.handleBrands)
 	http.HandleFunc("/api/logo", server.handleLogoProxy)
 	http.HandleFunc("/api/trips", server.handleTrips)
+	http.HandleFunc("/api/bug-report", server.handleBugReport)
+
+	// --- Receipt Reading (M7) ---
+	http.HandleFunc("/api/receipts", server.handleReceipts)
+	http.HandleFunc("/api/receipts/", server.handleReceiptRouting)
+	http.HandleFunc("/api/receipts/claims", server.handleSwapClaims)
+
 	http.HandleFunc("/privacy", handlePrivacyPolicy)
 	http.HandleFunc("/terms", handleTerms)
 
@@ -218,7 +273,7 @@ Get these from https://console.twilio.com (see README for full setup).
 			return
 		}
 		// B2: Inject dynamic OG tags for referral and invite links
-		if strings.HasPrefix(r.URL.Path, "/r/") || strings.HasPrefix(r.URL.Path, "/join/") {
+		if strings.HasPrefix(r.URL.Path, "/r/") || strings.HasPrefix(r.URL.Path, "/join/") || strings.HasPrefix(r.URL.Path, "/shared/") {
 			serveWithOGTags(w, r)
 			return
 		}
@@ -230,6 +285,8 @@ Get these from https://console.twilio.com (see README for full setup).
 		defer func() {
 			if rv := recover(); rv != nil {
 				log.Printf("[panic] %s %s: %v", r.Method, r.URL.Path, rv)
+				sentry.CurrentHub().Recover(rv)
+				sentry.Flush(2 * time.Second)
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 			}
 		}()
@@ -259,47 +316,9 @@ Get these from https://console.twilio.com (see README for full setup).
 				}
 				return true
 			})
-			server.otpIPLimiter.Range(func(k, v any) bool {
-				times := v.([]time.Time)
-				recent := 0
-				for _, t := range times {
-					if time.Since(t) < 10*time.Minute {
-						recent++
-					}
-				}
-				if recent == 0 {
-					server.otpIPLimiter.Delete(k)
-				}
-				return true
-			})
-			server.emailLoginIPLimiter.Range(func(k, v any) bool {
-				times := v.([]time.Time)
-				recent := 0
-				for _, t := range times {
-					if time.Since(t) < 10*time.Minute {
-						recent++
-					}
-				}
-				if recent == 0 {
-					server.emailLoginIPLimiter.Delete(k)
-				}
-				return true
-			})
-			server.parseLimiter.Range(func(k, v any) bool {
-				bucket := v.(*rateBucket)
-				bucket.mu.Lock()
-				recent := 0
-				for _, t := range bucket.times {
-					if time.Since(t) < time.Hour {
-						recent++
-					}
-				}
-				bucket.mu.Unlock()
-				if recent == 0 {
-					server.parseLimiter.Delete(k)
-				}
-				return true
-			})
+			pruneTimeLimiter(&server.otpIPLimiter, 10*time.Minute)
+			pruneTimeLimiter(&server.emailLoginIPLimiter, 10*time.Minute)
+			pruneBucketLimiter(&server.parseLimiter, time.Hour)
 		}
 	}()
 
