@@ -26,7 +26,20 @@ var githubHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
 // isFeedbackUser returns true for all authenticated users.
 func (s *Server) isFeedbackUser(session Session) bool {
-	return session.UserID > 0
+	if session.UserID == 0 {
+		return false
+	}
+	// If no FEEDBACK_PHONES configured, no one gets the widget
+	if len(s.config.FeedbackPhones) == 0 {
+		return false
+	}
+	// Check if user's phone number is in the approved list
+	for _, p := range s.config.FeedbackPhones {
+		if session.PhoneNumber != "" && session.PhoneNumber == p {
+			return true
+		}
+	}
+	return false
 }
 
 // requireFeedbackUser checks for a valid session and feedback privileges.

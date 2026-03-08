@@ -423,6 +423,7 @@ function AppInner() {
 
   // --- Admin state ---
   const [isAdmin, setIsAdmin] = useState(false)
+  const [canSubmitFeedback, setCanSubmitFeedback] = useState(false)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [authMethods, setAuthMethods] = useState<string[]>([])
 
@@ -752,8 +753,9 @@ function AppInner() {
     fetch('/auth/me')
       .then(res => {
         if (res.ok) {
-          res.clone().json().then((data: { is_admin?: boolean; user_id?: number; login_count?: number; name?: string; auth_methods?: string[] }) => {
+          res.clone().json().then((data: { is_admin?: boolean; user_id?: number; login_count?: number; name?: string; auth_methods?: string[]; can_submit_feedback?: boolean }) => {
             if (data.is_admin) setIsAdmin(true)
+            if (data.can_submit_feedback) setCanSubmitFeedback(true)
             if (data.user_id) { setCurrentUserId(data.user_id); identify(data.user_id) }
             if (data.login_count != null) setLoginCount(data.login_count)
             if (data.auth_methods) setAuthMethods(data.auth_methods)
@@ -3717,8 +3719,8 @@ const handleCodeChange = (index: number, value: string) => {
         </ActionSheet>
       )}
 
-      {/* Beta feedback FAB — visible on authenticated screens */}
-      {!AUTH_SCREENS.includes(screen) && screen !== 'shared-list' && (
+      {/* Feedback FAB — approved phone numbers only, visible on every page */}
+      {canSubmitFeedback && screen !== 'shared-list' && (
         <FeedbackWidget onSubmit={handleFeedbackSubmit} />
       )}
     </div>

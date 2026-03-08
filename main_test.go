@@ -102,7 +102,7 @@ func newTestServer(t *testing.T, mock *MockTwilioClient) *Server {
 	t.Cleanup(func() { db.Close() })
 
 	server := &Server{
-		config:   Config{Port: "8080", AnthropicAPIKey: "test-key", TwilioPhoneNumber: "+10000000000", AdminPhone: "3104861833"},
+		config:   Config{Port: "8080", AnthropicAPIKey: "test-key", TwilioPhoneNumber: "+10000000000", AdminPhone: "3104861833", FeedbackPhones: []string{"5551234567"}},
 		db:       db,
 		sessions: NewSessionStore(db),
 		twilio:   mock,
@@ -19402,6 +19402,17 @@ func TestFeedback_SubmitNoAuth(t *testing.T) {
 	}
 }
 
+func TestFeedback_SubmitForbiddenForNonApprovedPhone(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559999999") // not in FeedbackPhones
+
+	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
+		map[string]string{"body": "test", "type": "bug"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-approved phone, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestFeedback_DefaultTypeAndUrgency(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 	cookie, userID := loginUser(t, server, "5551234567")
@@ -19742,13 +19753,27 @@ func TestFeedback_SQLInjection(t *testing.T) {
 func TestIsFeedbackUser(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
-	// Valid user
-	if !server.isFeedbackUser(Session{UserID: 1}) {
-		t.Error("expected true for user with ID > 0")
+	// Approved phone number
+	if !server.isFeedbackUser(Session{UserID: 1, PhoneNumber: "5551234567"}) {
+		t.Error("expected true for approved phone number")
+	}
+	// Non-approved phone number
+	if server.isFeedbackUser(Session{UserID: 1, PhoneNumber: "5559999999"}) {
+		t.Error("expected false for non-approved phone number")
+	}
+	// No phone number
+	if server.isFeedbackUser(Session{UserID: 1}) {
+		t.Error("expected false for user with no phone number")
 	}
 	// No user
 	if server.isFeedbackUser(Session{UserID: 0}) {
 		t.Error("expected false for user with ID 0")
+	}
+	// No feedback phones configured
+	server2 := newTestServer(t, &MockTwilioClient{})
+	server2.config.FeedbackPhones = nil
+	if server2.isFeedbackUser(Session{UserID: 1, PhoneNumber: "5551234567"}) {
+		t.Error("expected false when no feedback phones configured")
 	}
 }
 
