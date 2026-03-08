@@ -41,6 +41,8 @@ import { AdminScreen } from './components/AdminScreen'
 import { SharedListScreen } from './components/SharedListScreen'
 import { FeedbackWidget } from './components/FeedbackWidget'
 import { DoneSummaryModal } from './components/DoneSummaryModal'
+import { JoinPrompt } from './components/JoinPrompt'
+import { PostSwapShareCard } from './components/PostSwapShareCard'
 import { ToggleSwitch } from './components/ToggleSwitch'
 import { type ItemModification } from './types'
 import {
@@ -3546,40 +3548,12 @@ const handleCodeChange = (index: number, value: string) => {
 
       {/* Post-swap share prompt — floating card after swap accept */}
       {postSwapShare && (
-        <div style={{
-          padding: '12px 16px', margin: '8px 16px', borderRadius: '12px',
-          backgroundColor: '#F0FFF0', border: '1px solid #C8E6C9',
-          display: 'flex', alignItems: 'center', gap: '12px',
-          animation: 'fadeInUp 0.3s ease',
-        }}>
-          <div style={{ fontSize: '24px' }}>🎉</div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>
-              You saved ${(postSwapShare.savings / 100).toFixed(2)}!
-            </div>
-            <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-              Share your smart swap with friends
-            </div>
-          </div>
-          <button onClick={() => {
-            const text = `I just saved $${(postSwapShare.savings / 100).toFixed(2)} by swapping to ${postSwapShare.brand} on Thriftly! 🔄`
-            track('post_swap_share_tapped', { brand: postSwapShare.brand, savings: postSwapShare.savings })
-            if (navigator.share) {
-              navigator.share({ text }).catch(() => {})
-            } else {
-              navigator.clipboard?.writeText(text)
-              showToast('Copied to clipboard!')
-            }
-            setPostSwapShare(null)
-          }} style={{
-            backgroundColor: 'var(--brand)', color: '#FFF', border: 'none', borderRadius: '8px',
-            fontFamily: FONT, fontSize: '13px', fontWeight: 600, padding: '8px 14px', cursor: 'pointer',
-          }}>Share</button>
-          <button onClick={() => setPostSwapShare(null)} style={{
-            background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '18px',
-            cursor: 'pointer', padding: '4px', lineHeight: 1,
-          }}>×</button>
-        </div>
+        <PostSwapShareCard
+          brand={postSwapShare.brand}
+          savings={postSwapShare.savings}
+          showToast={showToast}
+          onDismiss={() => setPostSwapShare(null)}
+        />
       )}
 
       {/* Penny text + disambiguation + chat input */}
@@ -3630,46 +3604,13 @@ const handleCodeChange = (index: number, value: string) => {
 
       {/* Post-auth join prompt from shared list link */}
       {showJoinPrompt && (
-        <div role="presentation" style={{ position: 'fixed', inset: 0, zIndex: 9999, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div role="dialog" aria-modal="true" aria-label="Join shared list" style={{ backgroundColor: 'var(--surface)', borderRadius: '16px', padding: '32px 24px', maxWidth: '360px', width: '100%', textAlign: 'center' }}>
-            <PennyAvatar size={64} />
-            <h2 style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: 'var(--text)', margin: '16px 0 8px' }}>
-              {joinPromptName ? `${joinPromptName} wants to shop together!` : 'Shop together!'}
-            </h2>
-            <p style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', margin: '0 0 24px', lineHeight: 1.5 }}>
-              You'll share one shopping list — items either of you add will show up for both of you.
-            </p>
-            <button
-              onClick={async () => {
-                try {
-                  const res = await fetch('/api/join', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ code: joinPromptCode }),
-                  })
-                  const data = await res.json().catch(() => null)
-                  if (res.ok) {
-                    typePennyHome(data?.penny_message || `You joined ${joinPromptName ? joinPromptName + "'s" : 'the shared'} list!`)
-                  } else {
-                    showToast(data?.error || 'Could not join — the invite may have expired', 'error')
-                  }
-                } catch {
-                  showToast('Could not join right now', 'error')
-                }
-                setShowJoinPrompt(false)
-              }}
-              style={{ backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '10px', padding: '14px 0', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer', width: '100%', marginBottom: '12px' }}
-            >
-              Shop together{joinPromptName ? ` with ${joinPromptName}` : ''}
-            </button>
-            <button
-              onClick={() => setShowJoinPrompt(false)}
-              style={{ background: 'none', border: 'none', fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', cursor: 'pointer', padding: '8px' }}
-            >
-              Start my own list
-            </button>
-          </div>
-        </div>
+        <JoinPrompt
+          name={joinPromptName}
+          code={joinPromptCode}
+          onJoined={(msg) => typePennyHome(msg)}
+          onError={(msg) => showToast(msg, 'error')}
+          onClose={() => setShowJoinPrompt(false)}
+        />
       )}
 
       {/* Item detail sheet */}
