@@ -23,6 +23,14 @@ export default defineConfig({
   build: {
     outDir: '../static',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Separate React into its own cacheable vendor chunk
+          vendor: ['react', 'react-dom'],
+        },
+      },
+    },
   },
 
   // During local development, proxy API calls to the Go backend
