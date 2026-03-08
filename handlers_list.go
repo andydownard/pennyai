@@ -1351,6 +1351,16 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 			if resp.Message == "" {
 				resp.Message = "Nice trip! Want to snap a photo of your receipt? I'll check off what you got."
 			}
+		case "search":
+			resp.Action = "search"
+			resp.Message = cmd.Message
+			// Search may also include items to add (e.g., recipe ingredients)
+			if len(cmd.Items) > 0 {
+				added, skippedItems := addParsedItems(s.db, session.UserID, cmd.Items, "app")
+				resp.Items = added
+				resp.Skipped = skippedItems
+				resp.Added = len(added)
+			}
 		case "update_preference":
 			for _, item := range cmd.Items {
 				if item.Brand != "" && item.Name != "" {

@@ -100,7 +100,7 @@ type ParsedItem struct {
 
 // ParsedCommand is the top-level response from Claude for natural language list operations.
 type ParsedCommand struct {
-	Action        string       `json:"action"`          // add, remove, update, check, uncheck, save, clear, load_saved_list
+	Action        string       `json:"action"`          // add, remove, update, check, uncheck, save, clear, load_saved_list, search
 	Items         []ParsedItem `json:"items"`           // items to act on
 	SaveName      string       `json:"save_name"`       // for "save" action
 	SavedListName string       `json:"saved_list_name"` // for "load_saved_list" action
@@ -154,6 +154,69 @@ func callClaude(apiKey, system string, content interface{}, maxTokens int) (stri
 		return "", fmt.Errorf("empty response from Claude")
 	}
 	return strings.TrimSpace(apiResp.Content[0].Text), nil
+}
+
+// callClaudeWithSearch is like callClaude but includes the web search tool.
+// Claude can search the web to answer questions about recipes, products, nutrition, prices, etc.
+func callClaudeWithSearch(apiKey, system string, content interface{}, maxTokens int) (string, error) {
+	reqBody := map[string]interface{}{
+		"model":      "claude-haiku-4-5-20251001",
+		"max_tokens": maxTokens,
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": content},
+		},
+		"tools": []map[string]interface{}{
+			{"type": "web_search_20250305", "name": "web_search", "max_uses": 3},
+		},
+	}
+	if system != "" {
+		reqBody["system"] = system
+	}
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("marshaling request: %w", err)
+	}
+	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return "", fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	resp, err := claudeHTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("calling Anthropic: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		// If web search fails (unsupported, billing, etc.), fall back to regular call
+		log.Printf("[penny] web search call failed (%d), falling back: %s", resp.StatusCode, string(body))
+		return callClaude(apiKey, system, content, maxTokens)
+	}
+
+	var apiResp struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return "", fmt.Errorf("decoding response: %w", err)
+	}
+	// Extract text blocks (skip tool_use and web_search_tool_result blocks)
+	var texts []string
+	for _, block := range apiResp.Content {
+		if block.Type == "text" && block.Text != "" {
+			texts = append(texts, block.Text)
+		}
+	}
+	if len(texts) == 0 {
+		return "", fmt.Errorf("no text content in search response")
+	}
+	return strings.TrimSpace(strings.Join(texts, "\n")), nil
 }
 
 // parseItemsWithClaude sends the user's raw text (and optional image) to Claude
@@ -322,6 +385,7 @@ Actions you can take:
 - "load_saved_list": User wants to load, open, or use a previously saved list. Triggered by phrases like "load my weekly groceries", "open a saved list", "use my party list", "what lists do I have", "pull up my saved lists". If the user mentions a specific list name, include it in "saved_list_name". If they just ask about saved lists generally, leave "saved_list_name" empty and I'll show them their options.
 - "delete_saved_list": User wants to delete a previously saved list. Triggered by phrases like "delete my weekly list", "remove my party list". Include the list name in "saved_list_name".
 - "done_shopping": User is done shopping or at checkout. Triggered by phrases like "I'm done", "done shopping", "finished shopping", "at checkout", "all done", "heading to checkout". No items needed.
+- "search": User is asking a question that needs web search — recipes, product info, nutrition facts, meal ideas, cooking tips, store hours, ingredient substitutions, dietary info. For search: populate "message" with the answer. If the answer contains items to add, ALSO include them in "items" with action "add". You have web search capability — use it to give accurate, current answers.
 
 For add items, include full item details:
 - "name": specific product name WITHOUT the brand, preserving flavor/variety. NEVER change defining characteristics like flavor, type, variety, or style. Only fix obvious misspellings.
@@ -378,10 +442,13 @@ Examples:
 - "delete my weekly groceries list" → {"action":"delete_saved_list","items":[],"saved_list_name":"Weekly Groceries","message":"Deleted your Weekly Groceries list!"}
 - "I'm done shopping" → {"action":"done_shopping","items":[],"message":"Nice trip! Want to snap a photo of your receipt? I'll check off what you got."}
 - "at checkout" → {"action":"done_shopping","items":[],"message":"Almost done! Snap your receipt and I'll cross off the items."}
+- "what's a good recipe for chicken tacos" → {"action":"search","items":[{"name":"Chicken Breast","department":"Meat & Seafood",...},{"name":"Corn Tortillas",...},...],"message":"Here's a quick chicken taco recipe: Season chicken with cumin..."}
+- "is oat milk healthier than almond milk" → {"action":"search","items":[],"message":"Both are great options! Oat milk has more fiber and calories..."}
 
 Return ONLY the JSON object, no markdown, no code fences.`, listContext.String(), nameInstruction, learningSection)
 
-	text, err := callClaude(apiKey, systemPrompt, userText, 4096)
+	// Use web-search-enabled call so Penny can look up recipes, product info, etc.
+	text, err := callClaudeWithSearch(apiKey, systemPrompt, userText, 4096)
 	if err != nil {
 		return nil, err
 	}

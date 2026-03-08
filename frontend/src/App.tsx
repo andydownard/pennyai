@@ -1857,6 +1857,13 @@ function AppInner() {
             ])
           }
           return // typePennyHome already handles the message
+        } else if (action === 'search') {
+          // Search result — Penny answers a question (may also add items like recipe ingredients)
+          typePennyHome(pennyMsg || 'Here\'s what I found!')
+          if (addedItems.length > 0) {
+            reloadList()
+          }
+          return
         } else if (action === 'done_shopping') {
           typePennyHome(pennyMsg || 'Nice trip! Snap your receipt and I\'ll check off what you got.', [
             {
