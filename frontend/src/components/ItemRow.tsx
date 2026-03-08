@@ -30,6 +30,7 @@ interface ItemRowProps {
   onToggle: (id: number) => void
   onTap: (item: ListItem) => void
   onDelete: (id: number) => void
+  onLongPress: (id: number) => void
   onSwapAccept: (dealId: number, itemId: number) => void
   onSwapDecline: (dealId: number, itemId: number) => void
 }
@@ -108,21 +109,34 @@ const styles = {
 const DELETE_THRESHOLD = 80
 const REDUCED_MOTION = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
-export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onDelete, onSwapAccept, onSwapDecline }: ItemRowProps) {
+export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onDelete, onLongPress, onSwapAccept, onSwapDecline }: ItemRowProps) {
   const ts = relativeTimestamp(item.created_at)
   const [swipeX, setSwipeX] = useState(0)
   const touchRef = useRef<{ startX: number; startY: number; swiping: boolean } | null>(null)
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longPressFired = useRef(false)
 
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     const t = e.touches[0]
     touchRef.current = { startX: t.clientX, startY: t.clientY, swiping: false }
-  }, [])
+    longPressFired.current = false
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true
+      touchRef.current = null // prevent swipe after long-press
+      onLongPress(item.id)
+    }, 500)
+  }, [onLongPress, item.id])
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
     if (!touchRef.current) return
     const t = e.touches[0]
     const dx = t.clientX - touchRef.current.startX
     const dy = t.clientY - touchRef.current.startY
+
+    // Cancel long-press on any movement
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+      if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
+    }
 
     // Decide direction on first significant move
     if (!touchRef.current.swiping && Math.abs(dx) < 10 && Math.abs(dy) < 10) return
@@ -137,6 +151,8 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onD
   }, [])
 
   const onTouchEnd = useCallback(() => {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
+    if (longPressFired.current) { longPressFired.current = false; return }
     if (!touchRef.current?.swiping) { touchRef.current = null; return }
     touchRef.current = null
     if (swipeX <= -DELETE_THRESHOLD) {

@@ -1855,6 +1855,7 @@ function AppInner() {
   }
 
   const handleUrgentToggle = async (id: number) => {
+    haptic.double()
     const was = items.find(i => i.id === id)?.urgent
     updateItem(id, { urgent: !was })
     try {
@@ -1862,7 +1863,7 @@ function AppInner() {
       if (data) {
         const updated = data as ListItem
         updateItem(updated.id, updated)
-        if (updated.urgent) showChimeIn(`Marked ${updated.name} as urgent!`, 3000)
+        showChimeIn(updated.urgent ? `Marked ${updated.name} as urgent!` : `${updated.name} back to normal`, 3000)
       } else {
         updateItem(id, { urgent: was })
         showToast('Couldn\'t update that item — please try again', 'error')
@@ -3709,6 +3710,7 @@ const handleCodeChange = (index: number, value: string) => {
                     onToggle={handleToggle}
                     onTap={openDetail}
                     onDelete={handleSwipeDelete}
+                    onLongPress={handleUrgentToggle}
                     onSwapAccept={handleSwapAccept}
                     onSwapDecline={handleSwapDecline}
                   />
