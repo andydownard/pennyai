@@ -16,6 +16,7 @@ Claude Code should evaluate these when planning future work.
 - ~~[NORMAL] 2026-03-09 12:09 UTC — Share button text unclear~~ — Fixed: "Invite someone to your shared grocery list"
 - ~~[NORMAL] 2026-03-09 12:13 UTC — Shared list says "Someone's shopping list"~~ — Fixed: shows "Shopping List" when no sharer name, shows "[Name]'s Shopping List" when name available
 - ~~[NORMAL] 2026-03-09 12:11 UTC — Share list should let recipient join without leaving page~~ — Fixed: inline phone auth flow on shared list page (enter phone → verify code → auto-join household)
+- ~~[NORMAL] 2026-03-09 12:06 UTC — Bug reporting button on all pages~~ — Fixed: BugReportFAB component (subtle bug icon bottom-left) on all authenticated screens, bottom sheet bug report form
 
 ## Remaining
 
@@ -61,12 +62,6 @@ pull correct logo from the kroger mcp.  https://www.dropbox.com/scl/fi/ajkxjmmzm
 _Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 17_
 _Submitted: 2026-03-09 12:03 UTC_
 
-## [NORMAL] 2026-03-09 12:06 UTC
-have bug reporting button on all pages
-
----
-_Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 18_
-_Submitted: 2026-03-09 12:06 UTC_
 
 ## [NORMAL] 2026-03-09 12:14 UTC
 add scout to the share page as 4th option to help get folks to get us to our ICPs (consumers and brand managers)
