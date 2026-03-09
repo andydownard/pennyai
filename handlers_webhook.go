@@ -76,7 +76,7 @@ func (s *Server) handleEmailWebhook(w http.ResponseWriter, r *http.Request) {
 		secret := r.URL.Query().Get("secret")
 		if secret == "" || secret != s.config.TwilioAuthToken {
 			log.Printf("[email] invalid webhook secret — rejecting request")
-			http.Error(w, "Forbidden", http.StatusForbidden)
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden"})
 			return
 		}
 	}
@@ -252,14 +252,14 @@ func (s *Server) handleSMSWebhook(w http.ResponseWriter, r *http.Request) {
 	if s.config.WebhookBaseURL != "" {
 		if !validateTwilioSignature(r, s.config.TwilioAuthToken, s.config.WebhookBaseURL) {
 			log.Printf("[sms] invalid Twilio signature — rejecting request")
-			http.Error(w, "Forbidden", http.StatusForbidden)
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden"})
 			return
 		}
 	}
 
 	if err := r.ParseForm(); err != nil {
 		log.Printf("[sms] error parsing form: %v", err)
-		http.Error(w, "Bad request", http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Bad request"})
 		return
 	}
 

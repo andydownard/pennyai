@@ -43,13 +43,13 @@ func (s *Server) handleLogoProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if domain == "" {
-		http.Error(w, "Missing domain or brand parameter", http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Missing domain or brand parameter"})
 		return
 	}
 	// Sanitize: only allow alphanumeric, dots, hyphens
 	for _, c := range domain {
 		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-') {
-			http.Error(w, "Invalid domain", http.StatusBadRequest)
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid domain"})
 			return
 		}
 	}
