@@ -6412,3 +6412,202 @@ func TestBrandDeals_GetEmptyList(t *testing.T) {
 		t.Errorf("expected empty deals list, got %d", len(deals))
 	}
 }
+
+// =============================================================================
+// Batch 8: PricingTiers, CategoryReport, BrandDigest, BrandDeals routing
+// =============================================================================
+
+func TestPricingTiers_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handlePricingTiers, "POST", "/brand/pricing-tiers", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestPricingTiers_NoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handlePricingTiers, "GET", "/brand/pricing-tiers", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestPricingTiers_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "tiers@brand.com", "password1234", "TiersCo")
+
+	rr := doRequest(server.handlePricingTiers, "GET", "/brand/pricing-tiers", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	// Should return array (may be empty or seeded)
+	var tiers []interface{}
+	json.Unmarshal(rr.Body.Bytes(), &tiers)
+	// Just verify it's a valid JSON array
+	if tiers == nil {
+		t.Error("expected non-nil tiers array")
+	}
+}
+
+func TestCategoryReport_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleCategoryReport, "POST", "/brand/category-report/Dairy", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestCategoryReport_NoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleCategoryReport, "GET", "/brand/category-report/Dairy", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestCategoryReport_MissingCategory(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "cat@brand.com", "password1234", "CatCo")
+
+	req := httptest.NewRequest("GET", "/brand/category-report/", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleCategoryReport(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestCategoryReport_FreeTierBasic(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "free@brand.com", "password1234", "FreeCo")
+
+	req := httptest.NewRequest("GET", "/brand/category-report/Dairy", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleCategoryReport(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	if body["tier"] != "free" {
+		t.Errorf("expected tier=free, got %v", body["tier"])
+	}
+	if body["upgrade_prompt"] == nil {
+		t.Error("expected upgrade_prompt for free tier")
+	}
+}
+
+func TestCategoryReport_PremiumTierFull(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, brandUserID := brandRegister(t, server, "premium@brand.com", "password1234", "PremiumCo")
+
+	// Give premium subscription
+	server.db.Exec("INSERT INTO brand_subscriptions (brand_user_id, tier) VALUES (?, 'premium')", brandUserID)
+
+	req := httptest.NewRequest("GET", "/brand/category-report/Beverages", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleCategoryReport(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	if body["tier"] != "premium" {
+		t.Errorf("expected tier=premium, got %v", body["tier"])
+	}
+	// Premium should have acceptance rate fields
+	if _, ok := body["avg_acceptance_rate"]; !ok {
+		t.Error("expected avg_acceptance_rate in premium report")
+	}
+}
+
+// --- handleBrandDeals full CRUD ---
+
+func TestBrandDeals_CreateAndGet(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "crud@brand.com", "password1234", "CrudCo")
+
+	// Create a deal
+	dealID := createTestDeal(t, server, cookie)
+	if dealID == 0 {
+		t.Fatal("expected non-zero deal ID")
+	}
+
+	// Get deals
+	rr := doRequest(server.handleBrandDeals, "GET", "/brand/deals", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	var deals []interface{}
+	json.Unmarshal(rr.Body.Bytes(), &deals)
+	if len(deals) != 1 {
+		t.Errorf("expected 1 deal, got %d", len(deals))
+	}
+}
+
+func TestBrandDeals_DeleteAndVerify(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "del@brand.com", "password1234", "DelCo")
+
+	dealID := createTestDeal(t, server, cookie)
+
+	// Delete via PUT with status=deleted
+	req := httptest.NewRequest("DELETE", fmt.Sprintf("/brand/deals/%d", dealID), nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleBrandDeals(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("DELETE: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Get deals - should be empty (deleted deals excluded)
+	rr = doRequest(server.handleBrandDeals, "GET", "/brand/deals", nil, []*http.Cookie{cookie})
+	var deals []interface{}
+	json.Unmarshal(rr.Body.Bytes(), &deals)
+	if len(deals) != 0 {
+		t.Errorf("expected 0 deals after delete, got %d", len(deals))
+	}
+}
+
+func TestBrandDeals_UpdateAndVerify(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "upd@brand.com", "password1234", "UpdCo")
+
+	dealID := createTestDeal(t, server, cookie)
+
+	// Update status to paused
+	status := "paused"
+	body, _ := json.Marshal(map[string]interface{}{"status": status})
+	req := httptest.NewRequest("PUT", fmt.Sprintf("/brand/deals/%d", dealID), bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleBrandDeals(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PUT: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify status changed
+	var dbStatus string
+	server.db.QueryRow("SELECT status FROM brand_deals WHERE id = ?", dealID).Scan(&dbStatus)
+	if dbStatus != "paused" {
+		t.Errorf("expected status=paused, got %s", dbStatus)
+	}
+}
+
+// --- BrandDigest ---
+
+func TestSendPendingBrandDigests_NoBrandUsers(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// Should not panic with no brand users
+	server.sendPendingBrandDigests()
+}
+
+func TestSendPendingBrandDigests_UserWithNoDeals(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	brandRegister(t, server, "digest@brand.com", "password1234", "DigestCo")
+	// Should not panic or error — just no digests to send
+	server.sendPendingBrandDigests()
+}
