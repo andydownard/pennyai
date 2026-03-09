@@ -370,13 +370,43 @@ func (s *Server) getBrandDeals(w http.ResponseWriter, r *http.Request, bs BrandS
 	}
 	rows.Close()
 
-	// Enrich with swap event metrics (must be done after rows.Close to avoid SQLite deadlock)
-	for i, dm := range deals {
-		s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE deal_id = ? AND action = 'offered'", dm.ID).Scan(&deals[i].Offered)
-		s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE deal_id = ? AND action = 'accepted'", dm.ID).Scan(&deals[i].Accepted)
-		s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE deal_id = ? AND action = 'declined'", dm.ID).Scan(&deals[i].Declined)
-		if deals[i].Offered > 0 {
-			deals[i].AcceptRate = (deals[i].Accepted * 100) / deals[i].Offered
+	// Enrich with swap event metrics — single query instead of 3N queries
+	if len(deals) > 0 {
+		dealIDs := make([]interface{}, len(deals))
+		placeholders := make([]string, len(deals))
+		dealIdx := map[int]int{} // deal_id -> index in deals slice
+		for i, dm := range deals {
+			dealIDs[i] = dm.ID
+			placeholders[i] = "?"
+			dealIdx[dm.ID] = i
+		}
+		swapRows, err := s.db.Query(
+			"SELECT deal_id, action, COUNT(*) FROM swap_events WHERE deal_id IN ("+strings.Join(placeholders, ",")+") GROUP BY deal_id, action",
+			dealIDs...,
+		)
+		if err == nil {
+			defer swapRows.Close()
+			for swapRows.Next() {
+				var dID, cnt int
+				var action string
+				if swapRows.Scan(&dID, &action, &cnt) == nil {
+					if idx, ok := dealIdx[dID]; ok {
+						switch action {
+						case "offered":
+							deals[idx].Offered = cnt
+						case "accepted":
+							deals[idx].Accepted = cnt
+						case "declined":
+							deals[idx].Declined = cnt
+						}
+					}
+				}
+			}
+		}
+		for i := range deals {
+			if deals[i].Offered > 0 {
+				deals[i].AcceptRate = (deals[i].Accepted * 100) / deals[i].Offered
+			}
 		}
 	}
 
@@ -1014,11 +1044,13 @@ func (s *Server) handleOptimizeDeal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Collect performance metrics
+	// Collect performance metrics — single query
 	var offered, accepted, declined int
-	s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE deal_id = ? AND action = 'offered'", dealID).Scan(&offered)
-	s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE deal_id = ? AND action = 'accepted'", dealID).Scan(&accepted)
-	s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE deal_id = ? AND action = 'declined'", dealID).Scan(&declined)
+	s.db.QueryRow(`
+		SELECT COALESCE(SUM(CASE WHEN action='offered' THEN 1 END), 0),
+		       COALESCE(SUM(CASE WHEN action='accepted' THEN 1 END), 0),
+		       COALESCE(SUM(CASE WHEN action='declined' THEN 1 END), 0)
+		FROM swap_events WHERE deal_id = ?`, dealID).Scan(&offered, &accepted, &declined)
 
 	// Top decline reasons
 	type reasonCount struct {

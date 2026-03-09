@@ -241,11 +241,13 @@ func (s *Server) processDailyMetrics(dateStr string) {
 	var newUsers int
 	s.db.QueryRow("SELECT COUNT(*) FROM users WHERE DATE(created_at) = ?", dateStr).Scan(&newUsers)
 
-	// Swap counts for dateStr
+	// Swap counts for dateStr — single query
 	var swapsOffered, swapsAccepted, swapsDeclined int
-	s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'offered' AND DATE(created_at) = ?", dateStr).Scan(&swapsOffered)
-	s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'accepted' AND DATE(created_at) = ?", dateStr).Scan(&swapsAccepted)
-	s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'declined' AND DATE(created_at) = ?", dateStr).Scan(&swapsDeclined)
+	s.db.QueryRow(`
+		SELECT COALESCE(SUM(CASE WHEN action='offered' THEN 1 END), 0),
+		       COALESCE(SUM(CASE WHEN action='accepted' THEN 1 END), 0),
+		       COALESCE(SUM(CASE WHEN action='declined' THEN 1 END), 0)
+		FROM swap_events WHERE DATE(created_at) = ?`, dateStr).Scan(&swapsOffered, &swapsAccepted, &swapsDeclined)
 
 	acceptanceRate := 0.0
 	if swapsOffered > 0 {

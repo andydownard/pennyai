@@ -164,11 +164,13 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		npsResponses = []npsEntry{}
 	}
 
-	// Swap deal stats
+	// Swap deal stats — single query
 	var swapOffered, swapAccepted, swapDeclined int
-	db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'offered' AND created_at >= datetime('now', ?)", modifier).Scan(&swapOffered)
-	db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'accepted' AND created_at >= datetime('now', ?)", modifier).Scan(&swapAccepted)
-	db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE action = 'declined' AND created_at >= datetime('now', ?)", modifier).Scan(&swapDeclined)
+	db.QueryRow(`
+		SELECT COALESCE(SUM(CASE WHEN action='offered' THEN 1 END), 0),
+		       COALESCE(SUM(CASE WHEN action='accepted' THEN 1 END), 0),
+		       COALESCE(SUM(CASE WHEN action='declined' THEN 1 END), 0)
+		FROM swap_events WHERE created_at >= datetime('now', ?)`, modifier).Scan(&swapOffered, &swapAccepted, &swapDeclined)
 	var swapAcceptRate float64
 	if swapOffered > 0 {
 		swapAcceptRate = float64(swapAccepted) / float64(swapOffered) * 100

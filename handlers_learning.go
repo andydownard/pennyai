@@ -113,14 +113,13 @@ func (s *Server) handlePennyInsights(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Swap behavior stats
+	// Swap behavior stats — single query
 	var swapsOffered, swapsAccepted, swapsDeclined int
-	s.db.QueryRow(`SELECT COUNT(*) FROM swap_events WHERE user_id = ? AND action = 'offered'`,
-		session.UserID).Scan(&swapsOffered)
-	s.db.QueryRow(`SELECT COUNT(*) FROM swap_events WHERE user_id = ? AND action = 'accepted'`,
-		session.UserID).Scan(&swapsAccepted)
-	s.db.QueryRow(`SELECT COUNT(*) FROM swap_events WHERE user_id = ? AND action = 'declined'`,
-		session.UserID).Scan(&swapsDeclined)
+	s.db.QueryRow(`
+		SELECT COALESCE(SUM(CASE WHEN action='offered' THEN 1 END), 0),
+		       COALESCE(SUM(CASE WHEN action='accepted' THEN 1 END), 0),
+		       COALESCE(SUM(CASE WHEN action='declined' THEN 1 END), 0)
+		FROM swap_events WHERE user_id = ?`, session.UserID).Scan(&swapsOffered, &swapsAccepted, &swapsDeclined)
 
 	swapRate := 0
 	if swapsOffered > 0 {
