@@ -1,5 +1,5 @@
 import { LegalLinks } from './LegalLinks'
-import { FONT, FONT_BASE, FONT_XL, formatPhone, authStyles } from '../styles'
+import { FONT, FONT_BASE, FONT_XL, formatPhone, authStyles, layout } from '../styles'
 
 interface CodeScreenProps {
   phone: string
@@ -37,7 +37,7 @@ export function CodeScreen({
         </div>
 
         {/* Code boxes */}
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', width: '100%', justifyContent: 'center' }}>
+        <div style={{ ...layout.rowCenter, gap: '8px', marginBottom: '16px', width: '100%' }}>
           {code.map((digit, i) => (
             <input
               key={i}
@@ -78,7 +78,7 @@ export function CodeScreen({
         {error && <p role="alert" style={{ ...authStyles.error, width: '100%', textAlign: 'center' as const }}>{error}</p>}
 
         {/* Helper links */}
-        <div style={{ display: 'flex', gap: '16px', marginTop: '8px' }}>
+        <div style={{ ...layout.row, gap: '16px', marginTop: '8px' }}>
           <button
             onClick={() => { onResendCode(phone) }}
             disabled={loading}
@@ -90,7 +90,7 @@ export function CodeScreen({
           >Use a different number</button>
         </div>
 
-        <div style={{ marginTop: 'auto', paddingTop: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div style={{ ...layout.columnCenter, marginTop: 'auto', paddingTop: '16px' }}>
           <LegalLinks />
         </div>
       </div>

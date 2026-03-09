@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { FONT, FONT_XS, FONT_BASE, FONT_MD, FONT_LG } from '../styles'
+import { FONT, FONT_XS, FONT_BASE, FONT_MD, FONT_LG, layout } from '../styles'
 
 interface FeedbackWidgetProps {
   onSubmit: (body: string, type: string, urgency: string) => Promise<boolean>
@@ -119,7 +119,7 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
           }}
         >
           {/* Drag handle */}
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px' }}>
+          <div style={{ ...layout.rowCenter, marginBottom: '12px' }}>
             <div style={{ width: '36px', height: '4px', borderRadius: '2px', backgroundColor: 'var(--border)' }} />
           </div>
 
@@ -145,7 +145,7 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
               </div>
 
               {/* Category chips */}
-              <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+              <div style={{ ...layout.rowGap, marginBottom: '14px' }}>
                 {TYPES.map(t => (
                   <button
                     key={t.key}
@@ -223,7 +223,7 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
                 ))}
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={layout.rowGap}>
                 <button
                   onClick={handleSubmit}
                   disabled={!canSend}

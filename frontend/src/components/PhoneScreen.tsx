@@ -1,7 +1,7 @@
 import { PennyAvatar } from './PennyAvatar'
 import { FloatingLabelField } from './FloatingLabelField'
 import { LegalLinks } from './LegalLinks'
-import { FONT, FONT_2XS, formatPhone, authStyles, pageStyles } from '../styles'
+import { FONT, formatPhone, authStyles, pageStyles, layout, text } from '../styles'
 
 interface PhoneScreenProps {
   phone: string
@@ -29,7 +29,7 @@ export function PhoneScreen({
       <div style={authStyles.innerFlex}>
 
         {/* Penny hero */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '28px', width: '100%' }}>
+        <div style={{ ...layout.columnCenter, marginBottom: '28px', width: '100%' }}>
           <PennyAvatar size={130} />
           <div style={{
             fontFamily: FONT, fontSize: '1.125rem', fontWeight: 500,
@@ -69,7 +69,7 @@ export function PhoneScreen({
             onChange={e => onSmsOptInChange(e.target.checked)}
             style={{ accentColor: 'var(--brand)', width: '16px', height: '16px', flexShrink: 0, marginTop: '1px' }}
           />
-          <span style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', lineHeight: 1.5, whiteSpace: 'nowrap' }}>
+          <span style={{ ...text.caption, lineHeight: 1.5, whiteSpace: 'nowrap' }}>
             I want to SMS with Penny
           </span>
         </label>
@@ -99,7 +99,7 @@ export function PhoneScreen({
         </div>
 
         {googleClientId && (
-          <div id="google-signin-btn" style={{ width: '100%', display: 'flex', justifyContent: 'center', marginBottom: '12px' }} />
+          <div id="google-signin-btn" style={{ ...layout.rowCenter, width: '100%', marginBottom: '12px' }} />
         )}
 
         <button
@@ -107,7 +107,7 @@ export function PhoneScreen({
           style={authStyles.subtleLink}
         >Use email instead</button>
 
-        <div style={{ marginTop: 'auto', paddingTop: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div style={{ ...layout.columnCenter, marginTop: 'auto', paddingTop: '16px' }}>
           <LegalLinks />
         </div>
       </div>

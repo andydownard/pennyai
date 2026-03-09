@@ -4,7 +4,7 @@ import { FloatingLabelField } from './FloatingLabelField'
 import { LegalLinks } from './LegalLinks'
 import {
   FONT, FONT_SM, FONT_BASE,
-  authStyles, pageStyles,
+  authStyles, pageStyles, layout,
 } from '../styles'
 
 interface EmailLoginScreenProps {
@@ -34,7 +34,7 @@ export function EmailLoginScreen({
     <div style={authStyles.pageCenter}>
       <div style={authStyles.inner}>
         {/* Penny hero */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '24px', width: '100%' }}>
+        <div style={{ ...layout.columnCenter, marginBottom: '24px', width: '100%' }}>
           <PennyAvatar size={80} />
           <div style={{
             fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 500,
@@ -89,7 +89,7 @@ export function EmailLoginScreen({
           {loading ? 'Signing in…' : 'Sign in'}
         </button>
 
-        <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
+        <div style={{ ...layout.row, gap: '16px', marginBottom: '16px' }}>
           <button onClick={() => { setError(''); setMagicLinkSent(false); onNavigate('forgot-password') }} style={authStyles.subtleLink}>Forgot password?</button>
           <button onClick={onMagicLink} disabled={loading} style={{ ...authStyles.subtleLink, opacity: loading ? 0.5 : 1 }}>Email me a sign-in link</button>
           <button onClick={() => { setError(''); setMagicLinkSent(false); onNavigate('email-register') }} style={authStyles.subtleLink}>Create an account</button>
@@ -103,7 +103,7 @@ export function EmailLoginScreen({
         </div>
 
         {googleClientId && (
-          <div id="google-signin-btn" style={{ width: '100%', display: 'flex', justifyContent: 'center', marginBottom: '12px' }} />
+          <div id="google-signin-btn" style={{ ...layout.rowCenter, width: '100%', marginBottom: '12px' }} />
         )}
 
         <button onClick={() => { setError(''); onNavigate('phone') }} style={authStyles.subtleLink}>Use phone number instead</button>
