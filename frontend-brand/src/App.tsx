@@ -147,6 +147,9 @@ export function App() {
   const [editDiscountVal, setEditDiscountVal] = useState('')
   const [editSaving, setEditSaving] = useState(false)
 
+  // Deals filter
+  const [dealFilter, setDealFilter] = useState<'all' | 'active' | 'paused'>('all')
+
   // Mobile nav
   const [navOpen, setNavOpen] = useState(false)
 
@@ -559,19 +562,33 @@ export function App() {
         {/* ================================================================ */}
         {/* DEALS LIST */}
         {/* ================================================================ */}
-        {screen === 'deals' && (
+        {screen === 'deals' && (() => {
+          const filtered = dealFilter === 'all' ? deals : deals.filter(d => d.status === dealFilter)
+          return (
           <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
               <h1 style={h1Style}>Your Deals</h1>
               <button onClick={() => setScreen('create-deal')} style={primaryBtn}>New Deal</button>
             </div>
+            {deals.length > 0 && (
+              <div style={{ display: 'flex', gap: '6px', marginTop: '12px' }}>
+                {(['all', 'active', 'paused'] as const).map(f => (
+                  <button key={f} onClick={() => setDealFilter(f)} style={{
+                    padding: '4px 12px', borderRadius: '6px', fontFamily: FONT, fontSize: '13px', fontWeight: 600,
+                    cursor: 'pointer', border: `1px solid ${dealFilter === f ? BRAND : BORDER}`,
+                    backgroundColor: dealFilter === f ? BRAND_LIGHT : 'transparent', color: dealFilter === f ? BRAND : TEXT_SEC,
+                    textTransform: 'capitalize',
+                  }}>{f} {f === 'all' ? `(${deals.length})` : `(${deals.filter(d => d.status === f).length})`}</button>
+                ))}
+              </div>
+            )}
             {deals.length === 0 && (
               <div style={{ ...cardStyle, marginTop: '16px', textAlign: 'center', padding: '48px 24px' }}>
                 <div style={{ fontFamily: FONT, fontSize: '16px', color: TEXT_SEC }}>No deals yet. Create your first deal to start reaching shoppers.</div>
                 <button onClick={() => setScreen('create-deal')} style={{ ...primaryBtn, marginTop: '16px' }}>Create First Deal</button>
               </div>
             )}
-            {deals.map(deal => (
+            {filtered.map(deal => (
               <div key={deal.id} style={{ ...cardStyle, marginTop: '12px', cursor: 'pointer', transition: 'box-shadow 0.15s' }} onClick={() => openDealDetail(deal.id)}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
@@ -605,7 +622,8 @@ export function App() {
               </div>
             ))}
           </>
-        )}
+          )
+        })()}
 
         {/* ================================================================ */}
         {/* DEAL DETAIL */}
@@ -777,18 +795,26 @@ export function App() {
         {/* ================================================================ */}
         {/* TRANSACTIONS / BILLING */}
         {/* ================================================================ */}
-        {screen === 'transactions' && (
+        {screen === 'transactions' && (() => {
+          const totalDeposits = transactions.filter(t => t.type === 'deposit').reduce((s, t) => s + t.amount_cents, 0)
+          const totalCharges = transactions.filter(t => t.type !== 'deposit').reduce((s, t) => s + t.amount_cents, 0)
+          return (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h1 style={h1Style}>Billing</h1>
               <button onClick={() => setScreen('deposit')} style={primaryBtn}>Add Funds</button>
             </div>
-            <div style={{ ...cardStyle, marginTop: '16px' }}>
-              <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SEC }}>Current Balance</div>
-              <div style={{ fontFamily: FONT, fontSize: '28px', fontWeight: 700, color: TEXT }}>{formatCents(user?.balance_cents || 0)}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginTop: '16px' }}>
+              <MetricCard label="Current Balance" value={formatCents(user?.balance_cents || 0)} />
+              <MetricCard label="Total Deposited" value={formatCents(totalDeposits)} />
+              <MetricCard label="Total Spent" value={formatCents(totalCharges)} />
             </div>
             {transactions.length === 0 ? (
-              <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SEC, marginTop: '16px', textAlign: 'center' }}>No transactions yet</div>
+              <div style={{ ...cardStyle, marginTop: '16px', textAlign: 'center', padding: '48px 24px' }}>
+                <div style={{ fontFamily: FONT, fontSize: '16px', color: TEXT_SEC }}>No transactions yet</div>
+                <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC, marginTop: '8px' }}>Add funds to start running deals.</div>
+                <button onClick={() => setScreen('deposit')} style={{ ...primaryBtn, marginTop: '16px' }}>Add Funds</button>
+              </div>
             ) : (
               <table style={{ width: '100%', marginTop: '16px', borderCollapse: 'collapse', fontFamily: FONT, fontSize: '14px' }}>
                 <thead>
@@ -812,7 +838,8 @@ export function App() {
               </table>
             )}
           </>
-        )}
+          )
+        })()}
 
         {/* ================================================================ */}
         {/* DEPOSIT */}
