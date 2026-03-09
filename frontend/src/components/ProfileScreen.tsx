@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { FloatingLabelField } from './FloatingLabelField'
 import { ToggleSwitch } from './ToggleSwitch'
 import { ScreenTransition } from './ScreenTransition'
+import { fetchAPI } from '../api'
 import {
   FONT, FONT_2XS, FONT_XS, FONT_SM, FONT_BASE, pageStyles, formatPhone,
 } from '../styles'
@@ -31,7 +32,6 @@ interface ProfileScreenProps {
   showToast: (msg: string, type?: 'success' | 'error') => void
   onSessionExpired: () => void
   // Address autocomplete
-  fetchAPI: (url: string, options?: RequestInit) => Promise<Record<string, unknown> | unknown[] | null>
   placesReady: boolean
   // Theme
   darkMode: boolean
@@ -50,7 +50,7 @@ export function ProfileScreen({
   onAutoSave,
   authMethods, onAuthMethodAdded, currentUserId, isAdmin,
   onNavigate, onLogout, showToast, onSessionExpired,
-  fetchAPI, placesReady,
+  placesReady,
   darkMode, onToggleDarkMode,
   renderHeader, renderBottomTabs, transitionStyle,
 }: ProfileScreenProps) {
@@ -122,8 +122,8 @@ export function ProfileScreen({
       return
     }
     try {
-      const data = await fetchAPI(`/api/places/autocomplete?input=${encodeURIComponent(input)}`)
-      const items = (data as { description: string; placeId: string }[]) || []
+      const data = await fetchAPI<{ description: string; placeId: string }[]>(`/api/places/autocomplete?input=${encodeURIComponent(input)}`)
+      const items = data || []
       setAddressSuggestions(items)
       setShowAddressSuggestions(items.length > 0)
     } catch {
@@ -135,8 +135,8 @@ export function ProfileScreen({
   const selectAddressSuggestion = async (placeId: string) => {
     setShowAddressSuggestions(false)
     try {
-      const data = await fetchAPI(`/api/places/detail?place_id=${encodeURIComponent(placeId)}`)
-      const addr = (data as { address: string })?.address
+      const data = await fetchAPI<{ address: string }>(`/api/places/detail?place_id=${encodeURIComponent(placeId)}`)
+      const addr = data?.address
       if (addr) {
         onAddressChange(addr)
         onAutoSave()

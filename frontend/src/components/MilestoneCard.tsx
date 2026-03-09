@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { track } from '../analytics'
+import { fetchAPI } from '../api'
 import { FONT, FONT_2XS, FONT_XS, FONT_BASE, FONT_MD } from '../styles'
 // Uses CSS custom properties for dark mode reactivity
 
@@ -12,11 +13,10 @@ interface MilestoneData {
 
 interface MilestoneCardProps {
   milestone: MilestoneData
-  fetchAPI: (path: string, opts?: RequestInit) => Promise<Record<string, unknown> | unknown[] | null>
   onClose: () => void
 }
 
-export function MilestoneCard({ milestone, fetchAPI, onClose }: MilestoneCardProps) {
+export function MilestoneCard({ milestone, onClose }: MilestoneCardProps) {
   const [shared, setShared] = useState(false)
 
   const handleShare = () => {

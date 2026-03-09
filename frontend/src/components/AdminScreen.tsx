@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
 import { ScreenTransition } from './ScreenTransition'
 import { BrandDealDeepDive } from './BrandDealDeepDive'
+import { fetchAPI } from '../api'
 import {
   FONT,
   pageStyles,
 } from '../styles'
 
 interface AdminScreenProps {
-  fetchAPI: (url: string, options?: RequestInit) => Promise<Record<string, unknown> | unknown[] | null>
   showToast: (msg: string, type?: 'success' | 'error') => void
   renderHeader: () => React.ReactNode
   renderToast: () => React.ReactNode
@@ -194,7 +194,7 @@ function BarChart({ values, labels, width = 280, height = 80, color = 'var(--bra
 }
 
 export function AdminScreen({
-  fetchAPI, showToast, renderHeader, renderToast, renderBottomTabs, transitionStyle,
+  showToast, renderHeader, renderToast, renderBottomTabs, transitionStyle,
 }: AdminScreenProps) {
   const [adminDays, setAdminDays] = useState(30)
   const [adminData, setAdminData] = useState<AdminData | null>(null)

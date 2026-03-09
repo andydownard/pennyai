@@ -6,6 +6,7 @@
 // =============================================================================
 
 import React, { useState, useRef, useEffect, useCallback, Suspense, lazy } from 'react'
+import { fetchAPI, fetchAction, setSessionExpiredHandler } from './api'
 import { useToast } from './hooks/useToast'
 import { useConfirmModal } from './hooks/useConfirmModal'
 import { useKeyboardOpen } from './hooks/useKeyboardOpen'
@@ -992,48 +993,18 @@ function AppInner() {
   const sortItems = (arr: ListItem[]) =>
     [...arr].sort((a, b) => a.name.localeCompare(b.name))
 
-  const handleSessionExpired = () => {
+  const handleSessionExpired = useCallback(() => {
     setChatLoading(false)
     setScreen('phone', true)
     setPhone('')
     setError('')
-    showToast('Session expired — please log in again', 'error')
-  }
+    _showToast('Session expired — please log in again', 'error')
+  }, [_showToast])
 
-  // Centralized fetch wrapper: handles 401 session expiry and JSON parsing.
-  // Returns parsed JSON on success, or null on failure.
-  const fetchAPI = async (url: string, options?: RequestInit): Promise<Record<string, unknown> | unknown[] | null> => {
-    let res: Response
-    try {
-      res = await fetch(url, options)
-    } catch {
-      return null // network error
-    }
-    if (res.status === 401) { handleSessionExpired(); return null }
-    if (!res.ok) return null
-    try {
-      return await res.json()
-    } catch {
-      return null // invalid JSON
-    }
-  }
-
-  // Fetch wrapper for actions that don't need a JSON body back (delete, clear, etc.)
-  // Returns { ok, status, error? } — always handles 401.
-  const fetchAction = async (url: string, options?: RequestInit): Promise<{ ok: boolean; status: number; error?: string }> => {
-    let res: Response
-    try {
-      res = await fetch(url, options)
-    } catch {
-      return { ok: false, status: 0, error: 'Network error' }
-    }
-    if (res.status === 401) { handleSessionExpired(); return { ok: false, status: 401 } }
-    if (!res.ok) {
-      const errData = await res.json().catch(() => null)
-      return { ok: false, status: res.status, error: errData?.error || `Error ${res.status}` }
-    }
-    return { ok: true, status: res.status }
-  }
+  // Register session expiry handler once
+  useEffect(() => {
+    setSessionExpiredHandler(handleSessionExpired)
+  }, [handleSessionExpired])
 
   // Update a single item in the items list by id
   const updateItem = (id: number, updates: Partial<ListItem>) =>
@@ -3190,7 +3161,7 @@ const handleCodeChange = (index: number, value: string) => {
         onSliderChange={setPennySlider}
         onAutotuneToggle={toggleAutotune}
         onDealsToggle={toggleDeals}
-        fetchAPI={fetchAPI}
+
         track={track}
         renderHeader={() => renderPageHeader('Penny', 'penny')}
         renderToast={renderPennyToast}
@@ -3226,7 +3197,7 @@ const handleCodeChange = (index: number, value: string) => {
         onLogout={handleLogout}
         showToast={showToast}
         onSessionExpired={handleSessionExpired}
-        fetchAPI={fetchAPI}
+
         placesReady={placesReady}
         darkMode={darkMode}
         onToggleDarkMode={toggleDarkMode}
@@ -3331,7 +3302,7 @@ const handleCodeChange = (index: number, value: string) => {
   if (screen === 'admin') {
     return (
       <AdminScreen
-        fetchAPI={fetchAPI}
+
         showToast={showToast}
         renderHeader={() => renderPageHeader('Dashboard', 'admin')}
         renderToast={renderPennyToast}
@@ -3369,15 +3340,15 @@ const handleCodeChange = (index: number, value: string) => {
           </div>
           <EarningsScreen
             onBack={() => setScreen('home')}
-            fetchAPI={fetchAPI}
+    
             onViewReceipts={() => setScreen('receipts')}
             onGoToList={() => setScreen('home')}
           />
         </div>
         {renderBottomTabs()}
       </div>
-      {showWrapped && <WrappedCard fetchAPI={fetchAPI} onClose={() => setShowWrapped(false)} />}
-      {milestoneData && <MilestoneCard milestone={milestoneData} fetchAPI={fetchAPI} onClose={() => setMilestoneData(null)} />}
+      {showWrapped && <WrappedCard onClose={() => setShowWrapped(false)} />}
+      {milestoneData && <MilestoneCard milestone={milestoneData} onClose={() => setMilestoneData(null)} />}
       </ScreenTransition>
     )
   }
@@ -3393,7 +3364,7 @@ const handleCodeChange = (index: number, value: string) => {
         {renderPageHeader('Receipts', 'receipts')}
         <div style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'none', WebkitOverflowScrolling: 'touch' }}>
           <ReceiptScreen
-            fetchAPI={fetchAPI}
+    
             onSnapReceipt={() => {
               setPendingReceiptMode(true)
               receiptInputRef.current?.click()
@@ -3740,7 +3711,7 @@ const handleCodeChange = (index: number, value: string) => {
           data={doneSummaryData}
           isFirstTrip={isFirstTrip}
           items={items}
-          fetchAPI={fetchAPI}
+  
           typePennyHome={typePennyHome}
           showToast={showToast}
           handleCancelTrip={handleCancelTrip}

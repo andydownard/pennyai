@@ -3,6 +3,7 @@ import { PennyAvatar } from './PennyAvatar'
 import { PennyInsightsCard } from './PennyInsightsCard'
 import { ToggleSwitch } from './ToggleSwitch'
 import { ScreenTransition } from './ScreenTransition'
+import { fetchAPI } from '../api'
 import { FONT, FONT_2XS, FONT_XS, FONT_SM, FONT_MD, pageStyles, formatPhone } from '../styles'
 
 interface PennySettingsScreenProps {
@@ -13,7 +14,6 @@ interface PennySettingsScreenProps {
   onSliderChange: (val: number) => void
   onAutotuneToggle: () => void
   onDealsToggle: () => void
-  fetchAPI: (url: string, options?: RequestInit) => Promise<Record<string, unknown> | unknown[] | null>
   track: (event: string, props?: Record<string, unknown>) => void
   renderHeader: () => React.ReactNode
   renderToast: () => React.ReactNode
@@ -24,7 +24,7 @@ interface PennySettingsScreenProps {
 export function PennySettingsScreen({
   pennyPhone, pennySlider, pennyAutotune, pennyDeals,
   onSliderChange, onAutotuneToggle, onDealsToggle,
-  fetchAPI, track,
+  track,
   renderHeader, renderToast, renderBottomTabs, transitionStyle,
 }: PennySettingsScreenProps) {
   const sliderSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -124,7 +124,6 @@ export function PennySettingsScreen({
                 </button>
               ) : (
                 <PennyInsightsCard
-                  fetchAPI={fetchAPI}
                   onClose={() => setShowInsights(false)}
                   track={track}
                 />

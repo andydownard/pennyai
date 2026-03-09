@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { fetchAPI } from '../api'
 import { RADIUS_LG, SHADOW_SM, FONT } from '../styles'
 
 interface InsightEntry {
@@ -23,7 +24,6 @@ interface InsightsData {
 }
 
 interface PennyInsightsCardProps {
-  fetchAPI: (path: string, opts?: RequestInit) => Promise<Record<string, unknown> | unknown[] | null>
   onClose: () => void
   track: (event: string, props?: Record<string, unknown>) => void
 }
@@ -38,7 +38,7 @@ const INSIGHT_LABELS: Record<string, string> = {
   active_members: 'Active members',
 }
 
-export function PennyInsightsCard({ fetchAPI, onClose, track }: PennyInsightsCardProps) {
+export function PennyInsightsCard({ onClose, track }: PennyInsightsCardProps) {
   const [data, setData] = useState<InsightsData | null>(null)
   const [loading, setLoading] = useState(true)
 

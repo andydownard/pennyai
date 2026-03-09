@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import { PennyAvatar } from './PennyAvatar'
+import { fetchAPI } from '../api'
 import { FONT, FONT_2XS, FONT_XS, FONT_SM, FONT_BASE, FONT_MD } from '../styles'
 import { type ReceiptSummary, type ReceiptLineItem } from '../types'
 
 interface ReceiptScreenProps {
-  fetchAPI: (url: string, options?: RequestInit) => Promise<Record<string, unknown> | unknown[] | null>
   onSnapReceipt: () => void
 }
 
-export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
+export function ReceiptScreen({ onSnapReceipt }: ReceiptScreenProps) {
   const [receipts, setReceipts] = useState<ReceiptSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptSummary | null>(null)

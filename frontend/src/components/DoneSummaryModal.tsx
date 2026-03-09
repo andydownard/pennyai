@@ -1,3 +1,4 @@
+import { fetchAPI } from '../api'
 import { FONT, FONT_XS, FONT_SM, FONT_BASE, FONT_XL } from '../styles'
 import type { ListItem } from './ItemRow'
 
@@ -11,7 +12,6 @@ interface DoneSummaryModalProps {
   data: DoneSummaryData
   isFirstTrip: boolean
   items: ListItem[]
-  fetchAPI: (url: string, options?: RequestInit) => Promise<Record<string, unknown> | unknown[] | null>
   typePennyHome: (msg: string) => void
   showToast: (message: string, type?: 'success' | 'error') => void
   handleCancelTrip: () => Promise<void>
@@ -23,7 +23,7 @@ interface DoneSummaryModalProps {
 }
 
 export function DoneSummaryModal({
-  data, isFirstTrip, items, fetchAPI, typePennyHome,
+  data, isFirstTrip, items, typePennyHome,
   handleCancelTrip, handleClearList, onClose, onFinish, onSnapReceipt,
   hasSwapsToClaim,
 }: DoneSummaryModalProps) {

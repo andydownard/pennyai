@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { PennyAvatar } from './PennyAvatar'
 import { BrandLogo } from './BrandLogo'
 import { StatusBadge } from './StatusBadge'
+import { fetchAPI } from '../api'
 import { FONT, FONT_2XS, FONT_XS, FONT_SM, FONT_BASE, FONT_MD } from '../styles'
 
 interface EarningTransaction {
@@ -26,14 +27,13 @@ interface EarningsData {
 
 interface EarningsScreenProps {
   onBack: () => void
-  fetchAPI: (url: string, options?: RequestInit) => Promise<Record<string, unknown> | unknown[] | null>
   onViewReceipts?: () => void
   onGoToList?: () => void
 }
 
 type DaysFilter = 0 | 7 | 30 | 90
 
-export function EarningsScreen({ fetchAPI, onViewReceipts, onGoToList }: EarningsScreenProps) {
+export function EarningsScreen({ onViewReceipts, onGoToList }: EarningsScreenProps) {
   const [data, setData] = useState<EarningsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [daysFilter, setDaysFilter] = useState<DaysFilter>(0)
