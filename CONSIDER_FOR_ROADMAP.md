@@ -41,3 +41,10 @@ If i've already got a list, have Penny say "What can I add to your list?" vs com
 ---
 _Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 17_
 _Submitted: 2026-03-09 12:01 UTC_
+
+## [NORMAL] 2026-03-09 12:02 UTC
+have penny reach out to brands and let them self serve enter deals to get me to buy their brand
+
+---
+_Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 17_
+_Submitted: 2026-03-09 12:02 UTC_
