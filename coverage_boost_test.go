@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -4842,3 +4843,158 @@ func TestCov2_Join_SetsReferralSourceInvite(t *testing.T) {
 		t.Errorf("Expected referral_source='invite', got %q", source)
 	}
 }
+
+// =============================================================================
+// BATCH 5: Utility Functions Coverage
+// =============================================================================
+
+func TestParseFloat_ValidCases(t *testing.T) {
+	tests := []struct {
+		input string
+		want  float64
+	}{
+		{"3.14", 3.14},
+		{"0", 0},
+		{"100.5", 100.5},
+		{"-2.5", -2.5},
+		{"", 0},
+		{"not_a_number", 0},
+	}
+	for _, tc := range tests {
+		got := parseFloat(tc.input)
+		if got != tc.want {
+			t.Errorf("parseFloat(%q) = %f, want %f", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestPruneTimeLimiter(t *testing.T) {
+	var store sync.Map
+
+	// Add some entries: one fresh, one stale
+	store.Store("fresh", []time.Time{time.Now()})
+	store.Store("stale", []time.Time{time.Now().Add(-2 * time.Hour)})
+	store.Store("mixed", []time.Time{
+		time.Now().Add(-2 * time.Hour), // stale
+		time.Now(),                      // fresh
+	})
+
+	pruneTimeLimiter(&store, 1*time.Hour)
+
+	// Fresh should remain
+	if _, ok := store.Load("fresh"); !ok {
+		t.Error("Expected 'fresh' to remain after pruning")
+	}
+	// Stale should be removed
+	if _, ok := store.Load("stale"); ok {
+		t.Error("Expected 'stale' to be removed after pruning")
+	}
+	// Mixed should remain (has at least one fresh entry)
+	if _, ok := store.Load("mixed"); !ok {
+		t.Error("Expected 'mixed' to remain after pruning (has fresh entries)")
+	}
+}
+
+func TestPruneBucketLimiter(t *testing.T) {
+	var store sync.Map
+
+	fresh := &rateBucket{times: []time.Time{time.Now()}}
+	stale := &rateBucket{times: []time.Time{time.Now().Add(-2 * time.Hour)}}
+
+	store.Store("fresh", fresh)
+	store.Store("stale", stale)
+
+	pruneBucketLimiter(&store, 1*time.Hour)
+
+	if _, ok := store.Load("fresh"); !ok {
+		t.Error("Expected 'fresh' bucket to remain")
+	}
+	if _, ok := store.Load("stale"); ok {
+		t.Error("Expected 'stale' bucket to be removed")
+	}
+}
+
+func TestCachePriceAndGetCachedPrice(t *testing.T) {
+	server := newTestServer(t, nil)
+
+	// Ensure price_cache table exists
+	server.db.Exec(`CREATE TABLE IF NOT EXISTS price_cache (
+		brand TEXT, category TEXT, zip TEXT, price_cents INTEGER,
+		unit_price TEXT, unit_label TEXT, size TEXT,
+		product_name TEXT, store_name TEXT, fetched_at DATETIME,
+		PRIMARY KEY (brand, category, zip)
+	)`)
+
+	p := &BlueCartPrice{
+		Brand:       "TestBrand",
+		Category:    "Ketchup",
+		Zip:         "90210",
+		PriceCents:  499,
+		UnitPrice:   "0.25",
+		UnitLabel:   "per oz",
+		Size:        "20 oz",
+		ProductName: "TestBrand Ketchup 20oz",
+		StoreName:   "TestStore",
+	}
+
+	server.cachePrice(p)
+
+	cached, err := server.getCachedPrice("TestBrand", "Ketchup", "90210")
+	if err != nil {
+		t.Fatalf("getCachedPrice error: %v", err)
+	}
+	if cached.PriceCents != 499 {
+		t.Errorf("PriceCents: got %d, want 499", cached.PriceCents)
+	}
+	if cached.ProductName != "TestBrand Ketchup 20oz" {
+		t.Errorf("ProductName: got %q, want 'TestBrand Ketchup 20oz'", cached.ProductName)
+	}
+
+	// Case insensitive lookup
+	cached2, err := server.getCachedPrice("testbrand", "ketchup", "90210")
+	if err != nil {
+		t.Fatalf("Case-insensitive lookup error: %v", err)
+	}
+	if cached2.PriceCents != 499 {
+		t.Errorf("Case-insensitive: got %d, want 499", cached2.PriceCents)
+	}
+
+	// Non-existent
+	_, err = server.getCachedPrice("NoSuchBrand", "Nothing", "00000")
+	if err == nil {
+		t.Error("Expected error for non-existent cache entry")
+	}
+}
+
+func TestGetUserZip(t *testing.T) {
+	server := newTestServer(t, nil)
+	cookie, _ := loginUser(t, server, "5551110001")
+
+	// Get user ID
+	rr := doRequest(server.handleMe, "GET", "/auth/me", nil, []*http.Cookie{cookie})
+	var me map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &me)
+	userID := int(me["user_id"].(float64))
+
+	// No address set — should return empty
+	zip := server.getUserZip(userID)
+	if zip != "" {
+		t.Errorf("Expected empty zip, got %q", zip)
+	}
+
+	// Set address with zip
+	server.db.Exec("UPDATE users SET address = ? WHERE id = ?", "123 Main St, Beverly Hills, CA 90210", userID)
+	zip = server.getUserZip(userID)
+	if zip != "90210" {
+		t.Errorf("Expected '90210', got %q", zip)
+	}
+
+	// Address without zip
+	server.db.Exec("UPDATE users SET address = ? WHERE id = ?", "Some Place, California", userID)
+	zip = server.getUserZip(userID)
+	if zip != "" {
+		t.Errorf("Expected empty zip for address without 5-digit number, got %q", zip)
+	}
+}
+
+// TestTruncateRunes already exists in admin_test.go

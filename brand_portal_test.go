@@ -1974,5 +1974,258 @@ func TestBrandExport_DefaultType(t *testing.T) {
 }
 
 // =============================================================================
+// Brand Feedback Tests
+// =============================================================================
+
+func TestBrandFeedback_SubmitHappyPath(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "fb@brand.com", "password1234", "FeedbackCo")
+
+	rr := doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]interface{}{
+		"body":    "Please add dark mode to the portal",
+		"type":    "feature",
+		"urgency": "normal",
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["success"] != true {
+		t.Errorf("expected success=true, got %v", body["success"])
+	}
+	if body["id"] == nil || body["id"].(float64) == 0 {
+		t.Error("expected non-zero feedback id")
+	}
+	if body["message"] == nil {
+		t.Error("expected message in response")
+	}
+}
+
+func TestBrandFeedback_EmptyBodyReturns400(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "empty@brand.com", "password1234", "EmptyCo")
+
+	// Empty body string
+	rr := doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]interface{}{
+		"body":    "",
+		"type":    "bug",
+		"urgency": "low",
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty body, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Whitespace-only body
+	rr = doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]interface{}{
+		"body": "   \t\n  ",
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for whitespace-only body, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestBrandFeedback_NoAuthReturns401(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// POST with no cookie
+	rr := doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]interface{}{
+		"body": "Unauthorized feedback",
+	}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("POST no auth: expected 401, got %d", rr.Code)
+	}
+
+	// GET with no cookie
+	rr = doRequest(server.handleBrandFeedback, "GET", "/brand/feedback", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("GET no auth: expected 401, got %d", rr.Code)
+	}
+}
+
+func TestBrandFeedback_DefaultsInvalidTypeAndUrgency(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "defaults@brand.com", "password1234", "DefaultsCo")
+
+	// Submit with invalid type and urgency — should default to "feature" and "normal"
+	rr := doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]interface{}{
+		"body":    "Testing defaults",
+		"type":    "nonexistent_type",
+		"urgency": "super_urgent",
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify defaults by fetching the feedback
+	rr = doRequest(server.handleBrandFeedback, "GET", "/brand/feedback", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET feedback: expected 200, got %d", rr.Code)
+	}
+
+	var items []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &items)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 feedback item, got %d", len(items))
+	}
+	if items[0]["type"] != "feature" {
+		t.Errorf("expected type defaulted to 'feature', got %v", items[0]["type"])
+	}
+	if items[0]["urgency"] != "normal" {
+		t.Errorf("expected urgency defaulted to 'normal', got %v", items[0]["urgency"])
+	}
+}
+
+func TestBrandFeedback_ListEmptyInitially(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "listempty@brand.com", "password1234", "ListEmptyCo")
+
+	rr := doRequest(server.handleBrandFeedback, "GET", "/brand/feedback", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var items []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &items)
+	if len(items) != 0 {
+		t.Errorf("expected 0 feedback items initially, got %d", len(items))
+	}
+}
+
+func TestBrandFeedback_ListReturnsSubmittedItems(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "listfull@brand.com", "password1234", "ListFullCo")
+
+	// Submit two feedback items
+	rr := doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]interface{}{
+		"body":    "First feedback item",
+		"type":    "bug",
+		"urgency": "high",
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("submit 1: expected 201, got %d", rr.Code)
+	}
+
+	rr = doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]interface{}{
+		"body":    "Second feedback item",
+		"type":    "other",
+		"urgency": "low",
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("submit 2: expected 201, got %d", rr.Code)
+	}
+
+	// Fetch feedback list
+	rr = doRequest(server.handleBrandFeedback, "GET", "/brand/feedback", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET feedback: expected 200, got %d", rr.Code)
+	}
+
+	var items []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &items)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 feedback items, got %d", len(items))
+	}
+
+	// Results should be in reverse order (ORDER BY id DESC)
+	if items[0]["body"] != "Second feedback item" {
+		t.Errorf("first item body: got %v, want 'Second feedback item'", items[0]["body"])
+	}
+	if items[0]["type"] != "other" {
+		t.Errorf("first item type: got %v, want 'other'", items[0]["type"])
+	}
+	if items[0]["urgency"] != "low" {
+		t.Errorf("first item urgency: got %v, want 'low'", items[0]["urgency"])
+	}
+	if items[0]["status"] != "new" {
+		t.Errorf("first item status: got %v, want 'new'", items[0]["status"])
+	}
+	if items[1]["body"] != "First feedback item" {
+		t.Errorf("second item body: got %v, want 'First feedback item'", items[1]["body"])
+	}
+	if items[1]["type"] != "bug" {
+		t.Errorf("second item type: got %v, want 'bug'", items[1]["type"])
+	}
+	if items[1]["urgency"] != "high" {
+		t.Errorf("second item urgency: got %v, want 'high'", items[1]["urgency"])
+	}
+
+	// Verify items belong to the correct user (another user should see nothing)
+	cookie2, _ := brandRegister(t, server, "other@brand.com", "password1234", "OtherCo")
+	rr = doRequest(server.handleBrandFeedback, "GET", "/brand/feedback", nil, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET other user feedback: expected 200, got %d", rr.Code)
+	}
+	var otherItems []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &otherItems)
+	if len(otherItems) != 0 {
+		t.Errorf("other user should see 0 items, got %d", len(otherItems))
+	}
+}
+
+func TestBrandFeedback_BodyTooLongReturns400(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "long@brand.com", "password1234", "LongCo")
+
+	longBody := strings.Repeat("a", 10001)
+	rr := doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]interface{}{
+		"body": longBody,
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for body > 10000 chars, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Exactly 10000 should succeed
+	exactBody := strings.Repeat("b", 10000)
+	rr = doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]interface{}{
+		"body": exactBody,
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Errorf("expected 201 for body of exactly 10000 chars, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestBrandFeedback_RateLimit(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "ratelimit@brand.com", "password1234", "RateLimitCo")
+
+	// Submit 10 feedback items (the max per hour)
+	for i := 0; i < 10; i++ {
+		rr := doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]interface{}{
+			"body":    fmt.Sprintf("Feedback item %d", i+1),
+			"type":    "feature",
+			"urgency": "normal",
+		}, []*http.Cookie{cookie})
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("submit %d: expected 201, got %d: %s", i+1, rr.Code, rr.Body.String())
+		}
+	}
+
+	// 11th should be rate limited
+	rr := doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]interface{}{
+		"body":    "This should be rate limited",
+		"type":    "bug",
+		"urgency": "low",
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("expected 429 for 11th submission, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["error"] == nil || body["error"] == "" {
+		t.Error("expected error message in rate limit response")
+	}
+
+	// A different user should NOT be rate limited
+	cookie2, _ := brandRegister(t, server, "ratelimit2@brand.com", "password1234", "RateLimit2Co")
+	rr = doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]interface{}{
+		"body": "Different user feedback",
+	}, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusCreated {
+		t.Errorf("different user should not be rate limited, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
 // Places Endpoint Tests
 // =============================================================================
