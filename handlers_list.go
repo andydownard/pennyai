@@ -1496,19 +1496,18 @@ func (s *Server) handleShareList(w http.ResponseWriter, r *http.Request) {
 	code := hex.EncodeToString(codeBytes)
 
 	// Check if user has a household
-	var householdID sql.NullInt64
-	s.db.QueryRow("SELECT household_id FROM users WHERE id = ?", session.UserID).Scan(&householdID)
+	shareHID := getUserHouseholdID(s.db, session.UserID)
 
 	// Generate an invite code if user has a household
 	var inviteCode string
-	if householdID.Valid {
+	if shareHID != 0 {
 		inviteBytes := make([]byte, 16)
 		if _, err := rand.Read(inviteBytes); err == nil {
 			inviteCode = hex.EncodeToString(inviteBytes)
 			expiresAt := time.Now().Add(inviteExpiry)
 			s.db.Exec(
 				"INSERT INTO invites (household_id, code, created_by, expires_at) VALUES (?, ?, ?, ?)",
-				householdID.Int64, inviteCode, session.UserID, expiresAt,
+				shareHID, inviteCode, session.UserID, expiresAt,
 			)
 		}
 	}
@@ -1517,7 +1516,7 @@ func (s *Server) handleShareList(w http.ResponseWriter, r *http.Request) {
 	expiresAt := time.Now().Add(7 * 24 * time.Hour)
 	_, err := s.db.Exec(
 		"INSERT INTO shared_links (code, user_id, household_id, invite_code, expires_at) VALUES (?, ?, ?, ?, ?)",
-		code, session.UserID, householdID, inviteCode, expiresAt,
+		code, session.UserID, shareHID, inviteCode, expiresAt,
 	)
 	if err != nil {
 		dbError(w, err, "Failed to create share link")

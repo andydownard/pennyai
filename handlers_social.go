@@ -77,21 +77,16 @@ func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get user's household
-	var householdID sql.NullInt64
-	err := s.db.QueryRow("SELECT household_id FROM users WHERE id = ?", session.UserID).Scan(&householdID)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "No household found"})
-		return
-	}
+	invHID := getUserHouseholdID(s.db, session.UserID)
 
 	// Auto-create household if user doesn't have one (legacy users before ALTER TABLE)
-	if !householdID.Valid {
+	if invHID == 0 {
 		hID, err := createSoloHousehold(s.db, session.UserID)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create household"})
 			return
 		}
-		householdID = sql.NullInt64{Int64: int64(hID), Valid: true}
+		invHID = int64(hID)
 	}
 
 	// Generate random invite code
@@ -104,9 +99,9 @@ func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 
 	// Store invite (7-day expiry)
 	expiresAt := time.Now().Add(inviteExpiry)
-	_, err = s.db.Exec(
+	_, err := s.db.Exec(
 		"INSERT INTO invites (household_id, code, created_by, expires_at) VALUES (?, ?, ?, ?)",
-		householdID.Int64, code, session.UserID, expiresAt,
+		invHID, code, session.UserID, expiresAt,
 	)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create invite"})
@@ -225,9 +220,8 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// B7: Check if user is already in the target household (don't burn the invite)
-	var currentHouseholdID sql.NullInt64
-	s.db.QueryRow("SELECT household_id FROM users WHERE id = ?", session.UserID).Scan(&currentHouseholdID)
-	if currentHouseholdID.Valid && int(currentHouseholdID.Int64) == householdID {
+	curHID := getUserHouseholdID(s.db, session.UserID)
+	if curHID != 0 && int(curHID) == householdID {
 		writeJSON(w, http.StatusOK, map[string]string{"message": "You're already in this household."})
 		return
 	}
@@ -235,7 +229,7 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 	// B3: Warn if user is in a different household (they'll be moved)
 	// The frontend can show this warning; here we include it in response
 	// but still proceed since the user explicitly chose to join
-	leavingHousehold := currentHouseholdID.Valid && int(currentHouseholdID.Int64) != householdID
+	leavingHousehold := curHID != 0 && int(curHID) != householdID
 
 	// Move user to the inviter's household — all in one transaction
 	tx, err := s.db.Begin()

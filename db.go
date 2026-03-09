@@ -17,6 +17,14 @@ type dbExecer interface {
 	Query(query string, args ...interface{}) (*sql.Rows, error)
 }
 
+// getUserHouseholdID returns the household_id for a given user. Returns 0 if
+// the user has no household or doesn't exist. Works with both *sql.DB and *sql.Tx.
+func getUserHouseholdID(db dbExecer, userID int) int64 {
+	var hid int64
+	db.QueryRow("SELECT household_id FROM users WHERE id = ?", userID).Scan(&hid)
+	return hid
+}
+
 func initDB(path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -2578,11 +2586,10 @@ func logAccountMerge(ex dbExecer, survivingUser, mergedUser int, provider, provi
 // mergeHouseholds cleans up household membership when two users are merged.
 // Returns a description of what was done for the audit log.
 func mergeHouseholds(tx dbExecer, survivingID, orphanedID int) string {
-	var survivingHH, orphanedHH sql.NullInt64
-	tx.QueryRow("SELECT household_id FROM users WHERE id = ?", survivingID).Scan(&survivingHH)
-	tx.QueryRow("SELECT household_id FROM users WHERE id = ?", orphanedID).Scan(&orphanedHH)
+	survivingHH := getUserHouseholdID(tx, survivingID)
+	orphanedHH := getUserHouseholdID(tx, orphanedID)
 
-	if !orphanedHH.Valid {
+	if orphanedHH == 0 {
 		return "orphaned user had no household"
 	}
 
@@ -2590,10 +2597,10 @@ func mergeHouseholds(tx dbExecer, survivingID, orphanedID int) string {
 	tx.Exec("DELETE FROM household_members WHERE user_id = ?", orphanedID)
 	tx.Exec("UPDATE users SET household_id = NULL WHERE id = ?", orphanedID)
 
-	if survivingHH.Valid && orphanedHH.Int64 == survivingHH.Int64 {
-		return fmt.Sprintf("removed duplicate membership in household %d", orphanedHH.Int64)
+	if survivingHH != 0 && orphanedHH == survivingHH {
+		return fmt.Sprintf("removed duplicate membership in household %d", orphanedHH)
 	}
-	return fmt.Sprintf("removed orphaned membership in household %d", orphanedHH.Int64)
+	return fmt.Sprintf("removed orphaned membership in household %d", orphanedHH)
 }
 
 // mergeUserData transfers data from an orphaned user to the surviving user.

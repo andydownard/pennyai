@@ -24,12 +24,14 @@ func (s *Server) handleTrips(w http.ResponseWriter, r *http.Request) {
 
 	// Get household_id for the user
 	var householdID sql.NullInt64
-	s.db.QueryRow("SELECT household_id FROM users WHERE id = ?", session.UserID).Scan(&householdID)
-	if !householdID.Valid {
+	hid := getUserHouseholdID(s.db, session.UserID)
+	if hid == 0 {
 		// User not in a household — use a synthetic household_id of -userID
 		householdID.Int64 = int64(-session.UserID)
-		householdID.Valid = true
+	} else {
+		householdID.Int64 = hid
 	}
+	householdID.Valid = true
 
 	switch r.Method {
 	case http.MethodGet:
@@ -306,10 +308,9 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 
 	// M2c: Get household list name
 	var listName string
-	var userHouseholdID sql.NullInt64
-	s.db.QueryRow("SELECT household_id FROM users WHERE id = ?", session.UserID).Scan(&userHouseholdID)
-	if userHouseholdID.Valid {
-		s.db.QueryRow("SELECT COALESCE(name,'') FROM households WHERE id = ?", userHouseholdID.Int64).Scan(&listName)
+	uhid := getUserHouseholdID(s.db, session.UserID)
+	if uhid != 0 {
+		s.db.QueryRow("SELECT COALESCE(name,'') FROM households WHERE id = ?", uhid).Scan(&listName)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -456,10 +457,9 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// M2c: Update household list name
 	if req.ListName != nil {
-		var householdID sql.NullInt64
-		s.db.QueryRow("SELECT household_id FROM users WHERE id = ?", session.UserID).Scan(&householdID)
-		if householdID.Valid {
-			if _, err := s.db.Exec("UPDATE households SET name = ? WHERE id = ?", strings.TrimSpace(*req.ListName), householdID.Int64); err != nil {
+		lnHID := getUserHouseholdID(s.db, session.UserID)
+		if lnHID != 0 {
+			if _, err := s.db.Exec("UPDATE households SET name = ? WHERE id = ?", strings.TrimSpace(*req.ListName), lnHID); err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update list name"})
 				return
 			}
