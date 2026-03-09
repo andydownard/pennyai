@@ -55,3 +55,10 @@ load groflo deals if they have an mcp
 ---
 _Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 17_
 _Submitted: 2026-03-09 12:02 UTC_
+
+## [NORMAL] 2026-03-09 12:03 UTC
+pull correct logo from the kroger mcp.  https://www.dropbox.com/scl/fi/ajkxjmmzmnjl5mhni8ggi/Screenshot-2026-03-09-at-7.02.31-AM.png?rlkey=axbqd0w28xmjajz1z5czb7mp4&dl=0
+
+---
+_Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 17_
+_Submitted: 2026-03-09 12:03 UTC_
