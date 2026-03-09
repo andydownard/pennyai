@@ -20268,12 +20268,47 @@ func TestSharedView_NoSensitiveData(t *testing.T) {
 	rrView := httptest.NewRecorder()
 	server.handleSharedView(rrView, req)
 
-	// Verify no sensitive fields (brand, source, user_id, department)
+	// Verify no sensitive fields (source, user_id) — brand and department are OK for logo display
 	respBody := rrView.Body.String()
-	for _, field := range []string{`"brand"`, `"source"`, `"user_id"`, `"department"`} {
+	for _, field := range []string{`"source"`, `"user_id"`} {
 		if bytes.Contains([]byte(respBody), []byte(field)) {
 			t.Errorf("shared view should not expose %s, but response contains it", field)
 		}
+	}
+}
+
+func TestSharedView_IncludesBrandAndDepartment(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5559200010")
+
+	// Add item with brand and department
+	server.db.Exec("INSERT INTO list_items (user_id, name, brand, department) VALUES (?, 'Peanut Butter', 'Skippy', 'Pantry & Dry Goods')", userID)
+
+	// Create share link
+	rr := doRequest(server.handleShareList, "POST", "/api/list/share", nil, []*http.Cookie{cookie})
+	shareResp := parseJSON(rr)
+	code := shareResp["code"].(string)
+
+	// View shared list
+	req := httptest.NewRequest("GET", "/api/shared/"+code, nil)
+	rrView := httptest.NewRecorder()
+	server.handleSharedView(rrView, req)
+	if rrView.Code != 200 {
+		t.Fatalf("expected 200, got %d", rrView.Code)
+	}
+
+	var viewResp map[string]interface{}
+	json.Unmarshal(rrView.Body.Bytes(), &viewResp)
+	items := viewResp["items"].([]interface{})
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	item := items[0].(map[string]interface{})
+	if item["brand"] != "Skippy" {
+		t.Errorf("expected brand 'Skippy', got %v", item["brand"])
+	}
+	if item["department"] != "Pantry & Dry Goods" {
+		t.Errorf("expected department 'Pantry & Dry Goods', got %v", item["department"])
 	}
 }
 

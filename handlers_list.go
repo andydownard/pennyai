@@ -2174,10 +2174,10 @@ func (s *Server) handleSharedView(w http.ResponseWriter, r *http.Request) {
 	var sharerName string
 	s.db.QueryRow("SELECT COALESCE(name, '') FROM users WHERE id = ?", userID).Scan(&sharerName)
 
-	// Get list items (name, quantity, checked only — no IDs or sensitive data)
+	// Get list items (name, brand, department, quantity, checked — no IDs or sensitive data)
 	whereClause, whereArgs := householdItemsWhereClause(s.db, userID)
 	rows, err := s.db.Query(
-		"SELECT name, COALESCE(quantity, 1), checked FROM list_items WHERE "+whereClause+" ORDER BY name",
+		"SELECT name, COALESCE(brand, ''), COALESCE(department, ''), COALESCE(quantity, 1), checked FROM list_items WHERE "+whereClause+" ORDER BY name",
 		whereArgs...,
 	)
 	if err != nil {
@@ -2187,14 +2187,16 @@ func (s *Server) handleSharedView(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type sharedItem struct {
-		Name     string `json:"name"`
-		Quantity int    `json:"quantity"`
-		Checked  bool   `json:"checked"`
+		Name       string `json:"name"`
+		Brand      string `json:"brand,omitempty"`
+		Department string `json:"department,omitempty"`
+		Quantity   int    `json:"quantity"`
+		Checked    bool   `json:"checked"`
 	}
 	items := []sharedItem{}
 	for rows.Next() {
 		var item sharedItem
-		if rows.Scan(&item.Name, &item.Quantity, &item.Checked) == nil {
+		if rows.Scan(&item.Name, &item.Brand, &item.Department, &item.Quantity, &item.Checked) == nil {
 			items = append(items, item)
 		}
 	}

@@ -142,7 +142,7 @@ Results feed directly into swap acceptance rate metrics. Target: 8%→15% accept
 ### M1. Penny Swaps v0 — Consumer Experience
 **Size:** L (2 weeks)
 **Priority:** P0 — Revenue blocker
-**Status:** Planned
+**Status:** Done
 
 **Description:**
 When a user's grocery list contains an item that matches an active brand deal, Penny suggests a swap conversationally. "Hey, I see you have Heinz ketchup — want to try Sir Kensington's? You'd save $1.50." The swap appears inline in the list as a dismissible card below the original item. User taps "Swap" or "No thanks." Penny remembers preferences — if you decline a brand 3 times, she stops suggesting it.
@@ -174,18 +174,18 @@ When a user's grocery list contains an item that matches an active brand deal, P
 
 **Staff Dev Notes:** Fuzzy matching is the hard part. Start with exact UPC/product name match from a curated list. Don't try to match "ketchup" to every ketchup brand — match "Heinz Ketchup 20oz" to the specific deal. Andy seeds the first 10 deals manually via admin dashboard.
 
-**Acceptance Criteria:**
-- Active deal matches trigger a swap suggestion in Penny's response
-- Swap card renders below the matched item with brand logo, product, unit price comparison, savings
-- "Swap" replaces the item on the list and logs `swap_events` with action=accepted
-- "No thanks" dismisses the card, logs action=declined, optionally captures decline reason
-- "Why?" button shows real data (ingredients, unit price, ratings) — never marketing copy
-- "Brand Partner" disclosure label visible on every paid swap card
-- Max 2-3 swap suggestions per session (configurable)
-- 3 declines for same deal = permanent suppression
-- Allergen/dietary conflicts are hard-filtered (never shown)
-- Budget decremented on acceptance; campaign pauses at cap (hard stop, not soft)
-- Admin can create/edit/deactivate deals via `/admin`
+**Acceptance Criteria:** ✅ All met
+- [x] Active deal matches trigger a swap suggestion in Penny's response
+- [x] Swap card renders below the matched item with brand logo, product, unit price comparison, savings
+- [x] "Swap" replaces the item on the list and logs `swap_events` with action=accepted
+- [x] "No thanks" dismisses the card, logs action=declined, optionally captures decline reason
+- [x] "Why?" button shows real data (ingredients, unit price, ratings) — never marketing copy
+- [x] "Brand Partner" disclosure label visible on every paid swap card
+- [x] Max 3 pending swap suggestions (frequency cap in `checkDealsForItems`, resets on accept/decline)
+- [x] 3 declines for same deal = permanent suppression
+- [x] Allergen/dietary conflicts are hard-filtered (never shown)
+- [x] Budget decremented on acceptance; campaign pauses at cap (hard stop, not soft)
+- [x] Admin can create/edit/deactivate deals via `/admin`
 
 **v1 Stretch Goals (merge when brand portal ships product descriptions):**
 - ✅ Extend `brand_deals` with: `product_description`, `key_benefits` (JSON array), `brand_story` (text) — all 3 columns added, brand portal accepts them on deal creation, swap card returns them with graceful degradation (omitempty)
