@@ -97,3 +97,10 @@ when i share a shopping list that is read only, it say's "someone's shopping lis
 ---
 _Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 18_
 _Submitted: 2026-03-09 12:13 UTC_
+
+## [NORMAL] 2026-03-09 12:14 UTC
+add scout to the share page as 4th option to help get folks to get us to our ICPs (consumers and brand managers)
+
+---
+_Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 18_
+_Submitted: 2026-03-09 12:14 UTC_
