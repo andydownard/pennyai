@@ -1407,6 +1407,27 @@ func initDB(path string) (*sql.DB, error) {
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_account_merges_surviving ON account_merges(surviving_user)")
 
+	// Brand portal feedback
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS brand_feedback_requests (
+			id               INTEGER PRIMARY KEY AUTOINCREMENT,
+			brand_user_id    INTEGER NOT NULL REFERENCES brand_users(id),
+			body             TEXT NOT NULL,
+			type             TEXT NOT NULL DEFAULT 'feature',
+			urgency          TEXT NOT NULL DEFAULT 'normal',
+			status           TEXT NOT NULL DEFAULT 'new',
+			admin_notes      TEXT NOT NULL DEFAULT '',
+			github_issue_url TEXT NOT NULL DEFAULT '',
+			created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at       DATETIME
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating brand_feedback_requests table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_brand_feedback_status ON brand_feedback_requests(status)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_brand_feedback_user ON brand_feedback_requests(brand_user_id)")
+
 	return db, nil
 }
 

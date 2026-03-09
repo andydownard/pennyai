@@ -4,15 +4,15 @@ import { useState, useEffect, useCallback } from 'react'
 // DESIGN TOKENS
 // =============================================================================
 
-const BRAND = '#2E7D32'
-const BRAND_LIGHT = '#E8F5E9'
+const BRAND = '#35644F'
+const BRAND_LIGHT = '#EEF7F2'
 const TEXT = '#1A1A1A'
 const TEXT_SEC = '#666'
 const BORDER = '#E0E0E0'
 const WHITE = '#FFF'
 const BG = '#FAFAFA'
 const ERROR = '#D32F2F'
-const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+const FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 // =============================================================================
 // TYPES
@@ -26,6 +26,7 @@ interface BrandUser {
   badge: string
   balance_cents: number
   created_at: string
+  can_submit_feedback?: boolean
 }
 
 interface Deal {
@@ -480,6 +481,11 @@ export function App() {
         {/* ================================================================ */}
         {screen === 'deposit' && <DepositForm user={user} onDeposited={() => { setScreen('transactions'); api<BrandUser>('/brand/me').then(setUser) }} onCancel={() => setScreen('transactions')} />}
       </div>
+
+      {/* Feedback Widget */}
+      {user?.can_submit_feedback && (
+        <BrandFeedbackWidget />
+      )}
     </div>
   )
 }
@@ -732,6 +738,161 @@ function DepositForm({ user, onDeposited, onCancel }: { user: BrandUser | null; 
         </button>
       </form>
     </div>
+  )
+}
+
+function BrandFeedbackWidget() {
+  const [open, setOpen] = useState(false)
+  const [body, setBody] = useState('')
+  const [type, setType] = useState('feature')
+  const [urgency, setUrgency] = useState('normal')
+  const [sending, setSending] = useState(false)
+  const [sent, setSent] = useState(false)
+
+  useEffect(() => {
+    if (sent) {
+      const t = setTimeout(() => { setSent(false); setOpen(false) }, 1800)
+      return () => clearTimeout(t)
+    }
+  }, [sent])
+
+  const handleSubmit = async () => {
+    if (!body.trim() || sending) return
+    setSending(true)
+    try {
+      await api('/brand/feedback', {
+        method: 'POST',
+        body: JSON.stringify({ body: body.trim(), type, urgency }),
+      })
+      setBody('')
+      setType('feature')
+      setUrgency('normal')
+      setSent(true)
+    } catch {
+      // silently fail
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const TYPES = [
+    { key: 'bug', label: 'Bug' },
+    { key: 'feature', label: 'Idea' },
+    { key: 'other', label: 'Other' },
+  ]
+
+  const URGENCIES = [
+    { key: 'low', label: 'Low' },
+    { key: 'normal', label: 'Normal' },
+    { key: 'critical', label: 'Urgent' },
+  ]
+
+  const canSend = !!body.trim() && !sending
+
+  return (
+    <>
+      {/* FAB — bottom-right corner */}
+      {!open && (
+        <button
+          onClick={() => setOpen(true)}
+          aria-label="Send feedback"
+          style={{
+            position: 'fixed', bottom: '24px', right: '24px', zIndex: 50,
+            width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            backgroundColor: BRAND, color: WHITE, border: 'none', borderRadius: '50%',
+            cursor: 'pointer', boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/>
+          </svg>
+        </button>
+      )}
+
+      {/* Modal backdrop */}
+      {open && (
+        <div onClick={() => { if (!sending) setOpen(false) }} style={{ position: 'fixed', inset: 0, zIndex: 9998, backgroundColor: 'rgba(0,0,0,0.3)' }} />
+      )}
+
+      {/* Feedback panel */}
+      {open && (
+        <div style={{
+          position: 'fixed', bottom: '24px', right: '24px', zIndex: 9999,
+          width: '380px', maxWidth: 'calc(100vw - 48px)',
+          backgroundColor: WHITE, borderRadius: '16px', border: `1px solid ${BORDER}`,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.12)', padding: '24px',
+        }}>
+          {sent ? (
+            <div style={{ textAlign: 'center', padding: '16px 0' }}>
+              <div style={{ fontSize: '28px', color: BRAND, marginBottom: '8px' }}>&#10003;</div>
+              <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT }}>Got it!</div>
+              <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC, marginTop: '4px' }}>Your feedback shapes what we build next.</div>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div>
+                  <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 700, color: TEXT }}>Product Feedback</div>
+                  <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SEC, marginTop: '2px' }}>Goes directly to the product team.</div>
+                </div>
+                <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: TEXT_SEC, fontSize: '18px', padding: '4px' }}>&times;</button>
+              </div>
+
+              {/* Type chips */}
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                {TYPES.map(t => (
+                  <button key={t.key} onClick={() => setType(t.key)} style={{
+                    padding: '6px 14px', borderRadius: '16px', fontFamily: FONT, fontSize: '12px', fontWeight: 600,
+                    cursor: 'pointer',
+                    border: type === t.key ? `1.5px solid ${BRAND}` : `1.5px solid ${BORDER}`,
+                    backgroundColor: type === t.key ? BRAND_LIGHT : 'transparent',
+                    color: type === t.key ? BRAND : TEXT_SEC,
+                  }}>{t.label}</button>
+                ))}
+              </div>
+
+              <textarea
+                value={body}
+                onChange={e => setBody(e.target.value)}
+                placeholder={type === 'bug' ? 'What went wrong?' : type === 'feature' ? 'What would make the brand portal better?' : "What's on your mind?"}
+                maxLength={10000}
+                rows={3}
+                style={{
+                  width: '100%', padding: '10px 12px', fontFamily: FONT, fontSize: '14px', color: TEXT,
+                  backgroundColor: BG, border: `1px solid ${BORDER}`, borderRadius: '10px',
+                  outline: 'none', resize: 'none', minHeight: '80px', boxSizing: 'border-box',
+                }}
+              />
+
+              {/* Urgency chips */}
+              <div style={{ display: 'flex', gap: '8px', marginTop: '10px', marginBottom: '14px' }}>
+                {URGENCIES.map(u => (
+                  <button key={u.key} onClick={() => setUrgency(u.key)} style={{
+                    padding: '6px 14px', borderRadius: '16px', fontFamily: FONT, fontSize: '12px', fontWeight: 600,
+                    cursor: 'pointer',
+                    border: urgency === u.key ? `1.5px solid ${BRAND}` : `1.5px solid ${BORDER}`,
+                    backgroundColor: urgency === u.key ? BRAND_LIGHT : 'transparent',
+                    color: urgency === u.key ? BRAND : TEXT_SEC,
+                  }}>{u.label}</button>
+                ))}
+              </div>
+
+              <button
+                onClick={handleSubmit}
+                disabled={!canSend}
+                style={{
+                  ...primaryBtn, width: '100%', padding: '10px',
+                  opacity: canSend ? 1 : 0.5,
+                  cursor: canSend ? 'pointer' : 'default',
+                }}
+              >
+                {sending ? 'Sending...' : 'Send Feedback'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </>
   )
 }
 

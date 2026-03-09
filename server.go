@@ -309,6 +309,7 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/brand/category-alerts", server.handleCategoryAlerts)
 	http.HandleFunc("/brand/category-report/", server.handleCategoryReport)
 	http.HandleFunc("/brand/subscription", server.handleBrandSubscription)
+	http.HandleFunc("/brand/feedback", server.handleBrandFeedback)
 
 	http.HandleFunc("/api/avatar", server.handleAvatar)
 	http.HandleFunc("/api/avatar/", server.handleAvatar)
