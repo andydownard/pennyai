@@ -985,20 +985,20 @@ function CreateDealForm({ onCreated, onCancel }: { onCreated: () => void; onCanc
             <input value={form.offer_product} onChange={e => set('offer_product', e.target.value)} required style={inputStyle} placeholder="e.g. Classic Ketchup" />
           </div>
           <div>
-            <label style={labelStyle}>Discount (cents)</label>
-            <input type="number" value={form.discount_cents} onChange={e => set('discount_cents', parseInt(e.target.value) || 0)} style={inputStyle} />
+            <label style={labelStyle}>Discount per swap ($)</label>
+            <input type="number" step="0.01" value={(form.discount_cents / 100).toFixed(2)} onChange={e => set('discount_cents', Math.round(parseFloat(e.target.value || '0') * 100))} style={inputStyle} />
           </div>
           <div>
-            <label style={labelStyle}>Total Budget (cents)</label>
-            <input type="number" value={form.daily_budget_cents} onChange={e => set('daily_budget_cents', parseInt(e.target.value) || 0)} style={inputStyle} />
+            <label style={labelStyle}>Total Budget ($)</label>
+            <input type="number" step="1" value={(form.daily_budget_cents / 100).toFixed(0)} onChange={e => set('daily_budget_cents', Math.round(parseFloat(e.target.value || '0') * 100))} style={inputStyle} />
           </div>
           <div>
-            <label style={labelStyle}>Your Price (cents)</label>
-            <input type="number" value={form.offer_price_cents} onChange={e => set('offer_price_cents', parseInt(e.target.value) || 0)} style={inputStyle} />
+            <label style={labelStyle}>Your Price ($)</label>
+            <input type="number" step="0.01" value={(form.offer_price_cents / 100).toFixed(2)} onChange={e => set('offer_price_cents', Math.round(parseFloat(e.target.value || '0') * 100))} style={inputStyle} />
           </div>
           <div>
-            <label style={labelStyle}>Competitor Price (cents)</label>
-            <input type="number" value={form.competitor_price_cents} onChange={e => set('competitor_price_cents', parseInt(e.target.value) || 0)} style={inputStyle} />
+            <label style={labelStyle}>Competitor Price ($)</label>
+            <input type="number" step="0.01" value={(form.competitor_price_cents / 100).toFixed(2)} onChange={e => set('competitor_price_cents', Math.round(parseFloat(e.target.value || '0') * 100))} style={inputStyle} />
           </div>
           <div>
             <label style={labelStyle}>Your Size</label>
@@ -1012,8 +1012,10 @@ function CreateDealForm({ onCreated, onCancel }: { onCreated: () => void; onCanc
 
         {/* Why bullets */}
         <div style={{ marginTop: '16px' }}>
-          <label style={labelStyle}>Why Bullets (JSON array)</label>
-          <textarea value={form.why_bullets} onChange={e => set('why_bullets', e.target.value)} style={{ ...inputStyle, height: '60px', resize: 'vertical' as const }} placeholder='["Better ingredients","Higher ratings"]' />
+          <label style={labelStyle}>Why should shoppers switch? (one reason per line)</label>
+          <textarea value={(() => { try { const arr = JSON.parse(form.why_bullets); return Array.isArray(arr) ? arr.join('\n') : '' } catch { return '' } })()}
+            onChange={e => set('why_bullets', JSON.stringify(e.target.value.split('\n').filter(Boolean)))}
+            style={{ ...inputStyle, height: '60px', resize: 'vertical' as const }} placeholder={'Better ingredients\nHigher customer ratings\nNo artificial preservatives'} />
         </div>
 
         {/* Conditional fields */}
