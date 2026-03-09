@@ -905,7 +905,7 @@ This is a **P2** initiative — do incrementally between feature sprints, not as
 ### Accessibility
 - **Screen reader audit** — Full VoiceOver/TalkBack walkthrough of every screen. Fix any missing labels or confusing navigation order. Partially done: FloatingLabelField semantic `<label>`, PennySettingsScreen toggle keyboard/ARIA, ReviewSheet clickable div keyboard/ARIA, ItemRow swipe/long-press gesture accessibility.
 - [x] **Reduced motion** — `prefers-reduced-motion` respected in screen transitions. ✅ Done
-- [x] **Font scaling** — rem-based font scale (FONT_2XS through FONT_3XL) in styles.ts. All user-facing components converted from px to rem. Remaining: AdminScreen, BrandDealDeepDive (admin-only), App.tsx home screen inline styles. ✅ Done
+- [x] **Font scaling** — rem-based font scale (FONT_2XS through FONT_3XL) in styles.ts. All user-facing components + App.tsx converted from px to rem (456→149 occurrences, remaining are admin-only views + decorative emoji sizing). ✅ Done
 - [x] **Color contrast** — WCAG AAA compliance for text colors. ✅ Done: text-secondary 7.23:1, text-tertiary 4.58:1 (AA), info/warning darkened, dark theme brand/tertiary/info improved. All primary text meets AAA; secondary/tertiary meet AA minimum.
 
 ### Performance
