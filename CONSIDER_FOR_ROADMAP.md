@@ -83,3 +83,10 @@ on first button on share scheen, instead of "invite someone to share", "invite s
 ---
 _Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 18_
 _Submitted: 2026-03-09 12:09 UTC_
+
+## [NORMAL] 2026-03-09 12:11 UTC
+when i share the list, show it to the recipient even if they aren't logged in, and popup a cell/texted code to join
+
+---
+_Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 18_
+_Submitted: 2026-03-09 12:11 UTC_
