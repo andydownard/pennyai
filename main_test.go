@@ -10894,6 +10894,118 @@ func TestSwaps_BudgetExhaustedAutopauses(t *testing.T) {
 	}
 }
 
+func TestSwaps_FrequencyCapLimitsPendingOffers(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Add 4 different items with matching deals via parse, each should trigger a swap offer
+	// But with the frequency cap of 3, the 4th should NOT get a swap offer
+	products := []struct{ name, brand string }{
+		{"Peanut Butter", "Skippy"},
+		{"Sparkling Water", "LaCroix"},
+		{"Laundry Detergent", "Tide"},
+		{"Marinara Sauce", "Ragu"},
+	}
+
+	swapCount := 0
+	for i, p := range products {
+		server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
+			return &ParsedCommand{
+				Action:  "add",
+				Items:   []ParsedItem{{Name: p.name, Brand: p.brand, Department: "Pantry & Dry Goods", Quantity: 1}},
+				Message: "Added!",
+			}, nil
+		}
+
+		rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+			map[string]string{"text": p.name}, cookies)
+
+		if rr.Code != 201 {
+			t.Fatalf("item %d: expected 201, got %d: %s", i, rr.Code, rr.Body.String())
+		}
+
+		var resp ParseResponse
+		json.NewDecoder(rr.Body).Decode(&resp)
+		if resp.PendingSwap != nil {
+			swapCount++
+		}
+	}
+
+	// Expect exactly 3 swap offers (capped), not 4
+	if swapCount != 3 {
+		t.Errorf("expected 3 swap offers (frequency cap), got %d", swapCount)
+	}
+}
+
+func TestSwaps_FrequencyCapResetsAfterDecline(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	// Add 3 items to hit the cap
+	products := []struct{ name, brand string }{
+		{"Peanut Butter", "Skippy"},
+		{"Sparkling Water", "LaCroix"},
+		{"Laundry Detergent", "Tide"},
+	}
+
+	var lastDealID, lastItemID int
+	for _, p := range products {
+		server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
+			return &ParsedCommand{
+				Action: "add",
+				Items:  []ParsedItem{{Name: p.name, Brand: p.brand, Department: "Pantry & Dry Goods", Quantity: 1}},
+			}, nil
+		}
+
+		rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+			map[string]string{"text": p.name}, cookies)
+		if rr.Code != 201 {
+			t.Fatalf("expected 201 for %s, got %d", p.name, rr.Code)
+		}
+		var resp ParseResponse
+		json.NewDecoder(rr.Body).Decode(&resp)
+		if resp.PendingSwap != nil {
+			lastDealID = resp.PendingSwap.DealID
+			lastItemID = resp.PendingSwap.ItemID
+		}
+	}
+
+	// Decline one of the pending swaps to free up a slot
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "decline_swap", "swap_deal_id": lastDealID, "swap_item_id": lastItemID}, cookies)
+	if rr.Code != 201 {
+		t.Fatalf("decline expected 201, got %d", rr.Code)
+	}
+
+	// Now add a 4th item — should get a swap offer since we freed a slot
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action: "add",
+			Items:  []ParsedItem{{Name: "Marinara Sauce", Brand: "Ragu", Department: "Pantry & Dry Goods", Quantity: 1}},
+		}, nil
+	}
+
+	rr = doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "marinara sauce"}, cookies)
+	if rr.Code != 201 {
+		t.Fatalf("expected 201, got %d", rr.Code)
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.PendingSwap == nil {
+		t.Error("expected a swap offer after declining one (freed a slot), got nil")
+	}
+}
+
 // =============================================================================
 // DONE SHOPPING TESTS
 // =============================================================================

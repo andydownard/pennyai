@@ -862,7 +862,7 @@ Databricks is enterprise data lakehouse tooling ($10K+/yr, requires a data engin
 - [x] **Code splitting** — 12 screens lazy-loaded via React.lazy for faster initial load (740→486KB main bundle).
 - **Extract inline styles** — All styles are inline objects defined in the component. Move to a shared styles system (CSS modules, styled-components, or at minimum a `styles/` directory).
 - [x] **State management (partial)** — Extracted `useToast`, `useConfirmModal`, `useKeyboardOpen` hooks into `hooks/` directory. Remaining: `useAuth`, `useList`, `useSwaps` (deeply coupled, diminishing returns).
-- **API layer** — Fetch calls are scattered throughout components. Extract into an `api/` module with typed request/response functions.
+- [x] **API layer** — Extracted `fetchAPI`, `fetchAction`, `postJSON`, `patchJSON` into `api.ts` with generic types and configurable session expiry handler. Eliminated fetchAPI prop drilling from 9 components.
 - **Component library** — Buttons, inputs, cards, and modals are re-implemented with inline styles in multiple places. Extract shared UI primitives. Started: StatusBadge (5 semantic variants + bordered mode), SectionHeader (extracted from ActionSheet inline).
 
 ### Testing Refactor

@@ -302,6 +302,25 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 		}
 	}
 
+	// Session-level frequency cap: max 3 pending (offered but not acted on) swaps at a time.
+	// This prevents overwhelming users with too many swap suggestions during a single list-building session.
+	const maxPendingSwaps = 3
+	var pendingCount int
+	s.db.QueryRow(`
+		SELECT COUNT(*) FROM swap_events se
+		WHERE se.user_id = ? AND se.action = 'offered'
+		  AND NOT EXISTS (
+		    SELECT 1 FROM swap_events se2
+		    WHERE se2.user_id = se.user_id AND se2.deal_id = se.deal_id AND se2.item_id = se.item_id
+		      AND se2.action IN ('accepted', 'declined')
+		      AND se2.id > se.id
+		  )
+		  AND se.item_id IN (SELECT id FROM list_items WHERE checked = 0)
+	`, userID).Scan(&pendingCount)
+	if pendingCount >= maxPendingSwaps {
+		return nil
+	}
+
 	// Load active deals with price comparison & why data
 	rows, err := s.db.Query(`
 		SELECT id, competitor_product, offer_brand, offer_product, discount_cents,
@@ -1533,7 +1552,7 @@ func (s *Server) handleListSwaps(w http.ResponseWriter, r *http.Request) {
 		    SELECT 1 FROM swap_events se2
 		    WHERE se2.user_id = se.user_id AND se2.deal_id = se.deal_id AND se2.item_id = se.item_id
 		      AND se2.action IN ('accepted', 'declined')
-		      AND se2.created_at > se.created_at
+		      AND se2.id > se.id
 		  )
 		  AND se.item_id IN (SELECT id FROM list_items WHERE checked = 0)
 		ORDER BY se.created_at DESC
