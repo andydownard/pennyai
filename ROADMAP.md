@@ -6,6 +6,26 @@
 
 ---
 
+## CEO Directive: Vibeflourishing Embed — TOP PRIORITY (2026-03-09)
+
+> **⚠️ THIS IS THE #1 P0. Nothing else ships until this is done.**
+> CEO directive: vibeflourishing.com (the live pitch deck) needs to embed PennyAI directly via iframe. The embed infrastructure is built and waiting. PennyAI is the blocker. This unblocks the Anthology Fund pitch — it is fundraise-critical.
+
+### P0-ZERO — Vibeflourishing Live Embed (DO FIRST — Before All Other P0s)
+
+0. **Enable iframe embedding for vibeflourishing.com** — The live pitch deck at vibeflourishing.com has a Demo/Live toggle ready to show PennyAI live inside the deck. Currently blocked because PennyAI returns `X-Frame-Options: DENY` on all routes.
+   - [x] **Add `/embed` route** — Serve a self-contained, embeddable version of the PennyAI shopping list (can be read-only demo data or sandbox mode). Must be functional within a 300px+ iframe.
+   - [x] **Update `X-Frame-Options` on `/embed` route only** — Replace `DENY` with `Content-Security-Policy: frame-ancestors 'self' https://vibeflourishing.com https://vibeflourishing-production.up.railway.app`. Keep `DENY` on all other routes (no security regression).
+   - [x] **Add CORS header on `/embed`** — `Access-Control-Allow-Origin: https://vibeflourishing.com`
+   - [x] **Test** — `curl -I https://app.thrift.ly/embed | grep -i frame` should NOT show `DENY`
+   - [x] **Notify vibeflourishing** — Once deployed, vibeflourishing team flips `available: true` in server.js line 1217
+   - **Owner:** Andy (CEO directive — do this personally, do not delegate)
+   - **Timeline:** IMMEDIATE. Next coding session. Before any other work.
+   - **Blocks:** Anthology Fund pitch deck going live with real product demos
+   - **Why this matters:** Investors seeing a live, working product inside the pitch deck is the single strongest signal of execution speed. Hardcoded mockups undermine the "we ship fast" narrative.
+
+---
+
 ## CEO Panel Priority Reset (2026-03-09)
 
 Strategic direction from founder + CEO panel focused on three gates: First-5-Minutes Magic, 11-Star Moment ("You never ask 'Did you get milk?' again"), and Data Flywheel compounding.
