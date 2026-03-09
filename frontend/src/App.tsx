@@ -367,6 +367,7 @@ function AppInner() {
   const [saveStoreInput, setSaveStoreInput] = useState('')
   const [storeLists, setStoreLists] = useState<Array<{ id: number; name: string; store_name: string; item_count: number; is_master?: boolean }>>([])
   const [activeStore, setActiveStore] = useState<string | null>(null)
+  const [restockNudges, setRestockNudges] = useState<Array<{ item_name: string; days_overdue: number }>>([])
 
   // --- Confirm modal state ---
   const { confirmModal, openConfirmModal, closeConfirmModal, runConfirmAction } = useConfirmModal()
@@ -1061,12 +1062,20 @@ function AppInner() {
     }
   }
 
+  const loadRestockNudges = async () => {
+    const data = await fetchAPI('/api/penny/nudges')
+    if (data && !Array.isArray(data) && Array.isArray(data.nudges)) {
+      setRestockNudges(data.nudges.slice(0, 5))
+    }
+  }
+
   const npsCheckedRef = useRef(false)
   useEffect(() => {
     if (screen !== 'home') return
     reloadList().catch(e => console.warn('[load] list failed:', e))
     loadTrips().catch(e => console.warn('[load] trips failed:', e))
     loadStoreLists().catch(e => console.warn('[load] store lists failed:', e))
+    loadRestockNudges().catch(e => console.warn('[load] nudges failed:', e))
     // Show account merge message if auth just linked accounts
     const mergeMsg = sessionStorage.getItem('thriftly_merge_msg')
     if (mergeMsg) {
@@ -3611,6 +3620,48 @@ const handleCodeChange = (index: number, value: string) => {
             setShowInstallBanner(false)
             localStorage.setItem('thriftly_install_dismissed', '1')
           }} style={{ ...buttons.reset, color: 'var(--text-secondary)', fontSize: FONT_SM, padding: '4px' }}>×</button>
+        </div>
+      )}
+
+      {/* Restock nudges — 1-tap quick-add for items due for restock */}
+      {restockNudges.length > 0 && items.filter(i => !i.checked).length < 10 && (
+        <div style={{
+          flexShrink: 0, padding: '8px 16px',
+          borderBottom: '1px solid var(--border)', backgroundColor: 'var(--surface)',
+        }}>
+          <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', fontWeight: 600, marginBottom: '6px' }}>
+            Time to restock
+          </div>
+          <div style={{
+            display: 'flex', gap: '6px', flexWrap: 'wrap',
+          }}>
+            {restockNudges.map(nudge => (
+              <button
+                key={nudge.item_name}
+                onClick={async () => {
+                  const result = await fetchAPI('/api/list/parse', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: nudge.item_name }),
+                  })
+                  if (result) {
+                    reloadList()
+                    setRestockNudges(prev => prev.filter(n => n.item_name !== nudge.item_name))
+                    showToast(`Added ${nudge.item_name}`)
+                  }
+                }}
+                style={{
+                  ...buttons.reset, padding: '4px 12px', borderRadius: '14px',
+                  fontFamily: FONT, fontSize: FONT_2XS, fontWeight: 500,
+                  backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)',
+                  color: 'var(--brand)', border: '1px solid color-mix(in srgb, var(--brand) 20%, transparent)',
+                  display: 'flex', alignItems: 'center', gap: '4px',
+                }}
+              >
+                <span style={{ fontSize: '0.75rem' }}>+</span> {nudge.item_name}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
