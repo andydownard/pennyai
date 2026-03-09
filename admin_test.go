@@ -2289,3 +2289,233 @@ func TestABResults_RequiresAdmin(t *testing.T) {
 		t.Errorf("expected 401, got %d", rr.Code)
 	}
 }
+
+// =============================================================================
+// CHURN RISK TESTS
+// =============================================================================
+
+func TestChurnRisk_RequiresAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleChurnRisk, "GET", "/api/admin/churn-risk", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestChurnRisk_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	rr := doRequest(server.handleChurnRisk, "POST", "/api/admin/churn-risk", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestChurnRisk_EmptyResults(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	rr := doRequest(server.handleChurnRisk, "GET", "/api/admin/churn-risk", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	if resp["count"] != float64(0) {
+		t.Errorf("expected count=0, got %v", resp["count"])
+	}
+	users, ok := resp["at_risk_users"].([]interface{})
+	if !ok || len(users) != 0 {
+		t.Errorf("expected empty at_risk_users array")
+	}
+}
+
+func TestChurnRisk_WithSignals(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Create a test user with churn signals
+	_, userID := loginUser(t, server, "5551112222")
+	server.db.Exec(`INSERT INTO churn_signals (user_id, signal_type, signal_value, risk_score, computed_at)
+		VALUES (?, 'days_inactive', 14, 0.8, datetime('now'))`, userID)
+	server.db.Exec(`INSERT INTO churn_signals (user_id, signal_type, signal_value, risk_score, computed_at)
+		VALUES (?, 'decline_streak', 5, 0.6, datetime('now'))`, userID)
+
+	rr := doRequest(server.handleChurnRisk, "GET", "/api/admin/churn-risk", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	if resp["count"] != float64(1) {
+		t.Errorf("expected count=1, got %v", resp["count"])
+	}
+
+	users := resp["at_risk_users"].([]interface{})
+	user := users[0].(map[string]interface{})
+	compositeRisk := user["composite_risk"].(float64)
+	// Average of 0.8 and 0.6 = 0.7
+	if compositeRisk < 0.69 || compositeRisk > 0.71 {
+		t.Errorf("expected composite_risk ~0.7, got %.2f", compositeRisk)
+	}
+	signals := user["signals"].([]interface{})
+	if len(signals) != 2 {
+		t.Errorf("expected 2 signals, got %d", len(signals))
+	}
+}
+
+func TestChurnRisk_LowRiskFilteredOut(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	_, userID := loginUser(t, server, "5551112222")
+	// Insert a low risk signal (below 0.5 threshold)
+	server.db.Exec(`INSERT INTO churn_signals (user_id, signal_type, signal_value, risk_score, computed_at)
+		VALUES (?, 'days_inactive', 3, 0.3, datetime('now'))`, userID)
+
+	rr := doRequest(server.handleChurnRisk, "GET", "/api/admin/churn-risk", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	if resp["count"] != float64(0) {
+		t.Errorf("expected count=0 (low risk filtered), got %v", resp["count"])
+	}
+}
+
+// =============================================================================
+// COHORT ANALYSIS TESTS
+// =============================================================================
+
+func TestCohortAnalysis_RequiresAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleCohortAnalysis, "GET", "/api/admin/cohort-analysis", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestCohortAnalysis_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	rr := doRequest(server.handleCohortAnalysis, "POST", "/api/admin/cohort-analysis", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestCohortAnalysis_EmptyResults(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	rr := doRequest(server.handleCohortAnalysis, "GET", "/api/admin/cohort-analysis", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	cohorts := resp["cohorts"].([]interface{})
+	if len(cohorts) != 0 {
+		t.Errorf("expected empty cohorts, got %d", len(cohorts))
+	}
+}
+
+func TestCohortAnalysis_WithData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Create real users for the cohort data
+	_, user2 := loginUser(t, server, "5551112222")
+	_, user3 := loginUser(t, server, "5553334444")
+	_, user4 := loginUser(t, server, "5555556666")
+
+	// Insert cohort data
+	server.db.Exec(`INSERT INTO user_cohorts (user_id, cohort_week, last_active, total_swaps, total_savings_cents)
+		VALUES (?, '2026-W10', datetime('now'), 5, 750)`, user2)
+	server.db.Exec(`INSERT INTO user_cohorts (user_id, cohort_week, last_active, total_swaps, total_savings_cents)
+		VALUES (?, '2026-W10', datetime('now', '-14 days'), 2, 300)`, user3)
+	server.db.Exec(`INSERT INTO user_cohorts (user_id, cohort_week, last_active, total_swaps, total_savings_cents)
+		VALUES (?, '2026-W09', datetime('now'), 8, 1200)`, user4)
+
+	rr := doRequest(server.handleCohortAnalysis, "GET", "/api/admin/cohort-analysis", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	cohorts := resp["cohorts"].([]interface{})
+	if len(cohorts) != 2 {
+		t.Errorf("expected 2 cohorts, got %d", len(cohorts))
+	}
+	// First should be most recent (W10)
+	first := cohorts[0].(map[string]interface{})
+	if first["cohort_week"] != "2026-W10" {
+		t.Errorf("expected first cohort to be W10, got %v", first["cohort_week"])
+	}
+	if first["user_count"] != float64(2) {
+		t.Errorf("expected 2 users in W10 cohort, got %v", first["user_count"])
+	}
+}
+
+// =============================================================================
+// MARKETPLACE HEALTH TESTS
+// =============================================================================
+
+func TestMarketplaceHealth_RequiresAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleMarketplaceHealth, "GET", "/api/admin/marketplace-health", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestMarketplaceHealth_EmptyResults(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	rr := doRequest(server.handleMarketplaceHealth, "GET", "/api/admin/marketplace-health", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	health := resp["health"].([]interface{})
+	if len(health) != 0 {
+		t.Errorf("expected empty health array, got %d", len(health))
+	}
+}
+
+func TestMarketplaceHealth_WithData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	server.db.Exec(`INSERT INTO marketplace_health (date, supply_score, demand_score, balance_score, revenue_concentration, health_index)
+		VALUES ('2026-03-08', 80.0, 60.0, 75.0, 0.15, 72.5)`)
+	server.db.Exec(`INSERT INTO marketplace_health (date, supply_score, demand_score, balance_score, revenue_concentration, health_index)
+		VALUES ('2026-03-07', 70.0, 55.0, 65.0, 0.20, 65.0)`)
+
+	rr := doRequest(server.handleMarketplaceHealth, "GET", "/api/admin/marketplace-health", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	health := resp["health"].([]interface{})
+	if len(health) != 2 {
+		t.Errorf("expected 2 health records, got %d", len(health))
+	}
+}
+
