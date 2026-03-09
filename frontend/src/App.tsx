@@ -49,6 +49,7 @@ const SharedListScreen = lazy(() => import('./components/SharedListScreen').then
 import { type ItemModification } from './types'
 import {
   FONT, DEPARTMENTS, DEPT_ICONS,
+  FONT_2XS, FONT_XS, FONT_SM, FONT_BASE, FONT_MD, FONT_LG, FONT_XL,
   THEME_CSS, initTheme, getTheme, setTheme,
 } from './styles'
 
@@ -115,7 +116,7 @@ const AUTH_SCREENS: Screen[] = ['phone', 'code', 'email-login', 'email-register'
 function DeptIcon({ dept }: { dept: string }) {
   const icon = DEPT_ICONS[dept]
   if (!icon) return null
-  return <span style={{ fontSize: '16px', lineHeight: 1, flexShrink: 0 }}>{icon}</span>
+  return <span style={{ fontSize: FONT_MD, lineHeight: 1, flexShrink: 0 }}>{icon}</span>
 }
 
 
@@ -209,7 +210,7 @@ function QuantityControl({ value, onChange }: {
         aria-label={`Decrease quantity, currently ${value}`}
         style={{ width: '38px', height: '42px', border: 'none', background: 'none', fontSize: '17px', color: 'var(--brand)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       >−</button>
-      <span aria-live="polite" aria-atomic="true" style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: 'var(--text)', minWidth: '24px', textAlign: 'center' }}>{value}</span>
+      <span aria-live="polite" aria-atomic="true" style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600, color: 'var(--text)', minWidth: '24px', textAlign: 'center' }}>{value}</span>
       <button
         onClick={() => onChange(value + 1)}
         aria-label={`Increase quantity, currently ${value}`}
@@ -2954,7 +2955,7 @@ const handleCodeChange = (index: number, value: string) => {
       <div style={styles.container}>
         <div style={{ ...styles.card, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
           <Logo />
-          <p style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', margin: 0 }}>Loading…</p>
+          <p style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text-secondary)', margin: 0 }}>Loading…</p>
         </div>
       </div>
     )
@@ -3105,7 +3106,7 @@ const handleCodeChange = (index: number, value: string) => {
       border: `1px solid ${toast.type === 'error' ? 'var(--error)' : 'var(--border)'}`,
       boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
       fontFamily: FONT,
-      fontSize: '14px',
+      fontSize: FONT_SM,
       fontWeight: 500,
       animation: 'feedbackSlideDown 0.25s ease-out',
     }}>
@@ -3113,13 +3114,13 @@ const handleCodeChange = (index: number, value: string) => {
       {toast.action && (
         <button
           onClick={() => { toast.action!.onClick(); setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) }}
-          style={{ background: 'var(--brand)', border: 'none', color: '#fff', fontFamily: FONT, fontSize: '12px', fontWeight: 600, cursor: 'pointer', padding: '5px 12px', borderRadius: '12px', flexShrink: 0 }}
+          style={{ background: 'var(--brand)', border: 'none', color: '#fff', fontFamily: FONT, fontSize: FONT_2XS, fontWeight: 600, cursor: 'pointer', padding: '5px 12px', borderRadius: '12px', flexShrink: 0 }}
         >{toast.action.label}</button>
       )}
       <button
         onClick={() => { setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) }}
         aria-label="Dismiss"
-        style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '16px', cursor: 'pointer', padding: '4px', lineHeight: 1, flexShrink: 0, opacity: 0.6 }}
+        style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: FONT_MD, cursor: 'pointer', padding: '4px', lineHeight: 1, flexShrink: 0, opacity: 0.6 }}
       >×</button>
     </div>
   ) : null
@@ -3154,7 +3155,7 @@ const handleCodeChange = (index: number, value: string) => {
             </button>
           ) : (
             <span
-              style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: '17px', fontWeight: 700 }}
+              style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: FONT_LG, fontWeight: 700 }}
               onClick={() => setScreen('home')}
             >thriftly</span>
           )}
@@ -3163,7 +3164,7 @@ const handleCodeChange = (index: number, value: string) => {
             left: '50%',
             transform: 'translateX(-50%)',
             fontFamily: FONT,
-            fontSize: '15px',
+            fontSize: FONT_BASE,
             fontWeight: 600,
             color: 'var(--text)',
             display: 'flex',
@@ -3175,10 +3176,10 @@ const handleCodeChange = (index: number, value: string) => {
             style={{ marginLeft: 'auto', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1 }}
             onClick={() => setScreen('earnings')}
           >
-            <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: 'var(--brand)' }}>
+            <span style={{ fontFamily: FONT, fontSize: FONT_LG, fontWeight: 700, color: 'var(--brand)' }}>
               ${(earningsTotalCents / 100).toFixed(2)}
             </span>
-            <span style={{ fontFamily: FONT, fontSize: '10px', color: 'var(--text-secondary)', marginTop: '1px' }}>swaps</span>
+            <span style={{ fontFamily: FONT, fontSize: '0.625rem', color: 'var(--text-secondary)', marginTop: '1px' }}>swaps</span>
           </span>
         </div>
       </div>
@@ -3389,10 +3390,10 @@ const handleCodeChange = (index: number, value: string) => {
           >
             <span style={{ fontSize: '24px' }}>🎁</span>
             <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: '#FFF' }}>Your Monthly Wrapped</div>
-              <div style={{ fontFamily: FONT, fontSize: '12px', color: 'rgba(255,255,255,0.8)' }}>See your savings recap — share it!</div>
+              <div style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: '#FFF' }}>Your Monthly Wrapped</div>
+              <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'rgba(255,255,255,0.8)' }}>See your savings recap — share it!</div>
             </div>
-            <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '20px' }}>→</span>
+            <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '1.25rem' }}>→</span>
           </div>
           <EarningsScreen
             onBack={() => setScreen('home')}
@@ -3466,7 +3467,7 @@ const handleCodeChange = (index: number, value: string) => {
       <div style={{ flexShrink: 0, backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', position: 'relative' }}>
           <span
-            style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: '17px', fontWeight: 700 }}
+            style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: FONT_LG, fontWeight: 700 }}
             onClick={() => setScreen('home')}
           >thriftly</span>
           {editingListName ? (
@@ -3490,7 +3491,7 @@ const handleCodeChange = (index: number, value: string) => {
               placeholder="Shopping List"
               style={{
                 position: 'absolute', left: '50%', transform: 'translateX(-50%)',
-                fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: 'var(--text)',
+                fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--text)',
                 background: 'transparent', border: 'none', borderBottom: '1.5px solid var(--brand)',
                 outline: 'none', textAlign: 'center', width: '160px', padding: '2px 0',
               }}
@@ -3503,7 +3504,7 @@ const handleCodeChange = (index: number, value: string) => {
                 left: '50%',
                 transform: 'translateX(-50%)',
                 fontFamily: FONT,
-                fontSize: '15px',
+                fontSize: FONT_BASE,
                 fontWeight: 600,
                 color: 'var(--text)',
                 display: 'flex',
@@ -3518,10 +3519,10 @@ const handleCodeChange = (index: number, value: string) => {
             style={{ marginLeft: 'auto', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1 }}
             onClick={() => setScreen('earnings')}
           >
-            <span style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: 'var(--brand)' }}>
+            <span style={{ fontFamily: FONT, fontSize: FONT_LG, fontWeight: 700, color: 'var(--brand)' }}>
               ${(earningsTotalCents / 100).toFixed(2)}
             </span>
-            <span style={{ fontFamily: FONT, fontSize: '10px', color: 'var(--text-secondary)', marginTop: '1px' }}>swaps</span>
+            <span style={{ fontFamily: FONT, fontSize: '0.625rem', color: 'var(--text-secondary)', marginTop: '1px' }}>swaps</span>
           </span>
         </div>
         {/* Progress bar */}
@@ -3547,7 +3548,7 @@ const handleCodeChange = (index: number, value: string) => {
       {isOffline && (
         <div style={{
           flexShrink: 0, padding: '6px 16px', backgroundColor: 'var(--warning-bg, #FEF3C7)',
-          textAlign: 'center', fontFamily: FONT, fontSize: '12px', color: 'var(--warning, #92400E)',
+          textAlign: 'center', fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--warning, #92400E)',
           fontWeight: 500,
         }}>
           You're offline — changes will sync when you're back
@@ -3564,7 +3565,7 @@ const handleCodeChange = (index: number, value: string) => {
               backgroundColor: 'var(--bg)', marginBottom: activeTrips.indexOf(trip) < activeTrips.length - 1 ? '4px' : 0,
             }}>
               {isTripInProgress(trip) && <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--success, #276749)', flexShrink: 0 }} />}
-              <span style={{ flex: 1, fontFamily: FONT, fontSize: '15px', color: 'var(--text)' }}>
+              <span style={{ flex: 1, fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text)' }}>
                 <strong>{trip.is_mine ? 'You' : (trip.user_name || 'Someone')}</strong>
                 {' — '}
                 {isTripInProgress(trip) ? 'Shopping now!' : formatTripTime(trip)}
@@ -3585,7 +3586,7 @@ const handleCodeChange = (index: number, value: string) => {
                         setShowDoneSummary(true)
                       }}
                       style={{
-                        fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: '#fff',
+                        fontFamily: FONT, fontSize: FONT_2XS, fontWeight: 600, color: '#fff',
                         backgroundColor: 'var(--brand)', border: 'none', borderRadius: '12px',
                         padding: '4px 12px', cursor: 'pointer', whiteSpace: 'nowrap' as const,
                       }}
@@ -3623,7 +3624,7 @@ const handleCodeChange = (index: number, value: string) => {
           <div style={{
             position: 'absolute', top: -40, left: 0, right: 0,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            height: '40px', fontFamily: FONT, fontSize: '13px', color: 'var(--text-secondary)',
+            height: '40px', fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)',
           }}>
             {pullRefreshing ? 'Refreshing...' : pullDistance >= 50 ? 'Release to refresh' : 'Pull to refresh'}
           </div>
@@ -3673,7 +3674,7 @@ const handleCodeChange = (index: number, value: string) => {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '16px', justifyContent: 'center', maxWidth: '320px' }}>
               {['milk eggs bread', 'weekly groceries', 'dinner for 4 tonight'].map(example => (
                 <button key={example} onClick={() => { setChatText(example); chatInputRef.current?.focus() }} style={{
-                  fontFamily: FONT, fontSize: '13px', color: 'var(--text-secondary)', backgroundColor: 'var(--bg)',
+                  fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)', backgroundColor: 'var(--bg)',
                   border: '1px solid var(--border)', borderRadius: '16px', padding: '6px 14px', cursor: 'pointer',
                 }}>{example}</button>
               ))}
@@ -3695,7 +3696,7 @@ const handleCodeChange = (index: number, value: string) => {
                   aria-label={`${dept}, ${deptChecked} of ${deptTotal} items checked`}
                 >
                   <span style={{ width: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, paddingLeft: '6px', boxSizing: 'border-box' }} aria-hidden="true">
-                    {deptDone ? <span style={{ color: 'var(--brand)', fontSize: '13px' }}>✓</span> : <DeptIcon dept={dept} />}
+                    {deptDone ? <span style={{ color: 'var(--brand)', fontSize: FONT_XS }}>✓</span> : <DeptIcon dept={dept} />}
                   </span>
                   <span style={deptDone ? { textDecoration: 'line-through', opacity: 0.5 } : undefined}>{dept}</span>
                   <span style={listStyles.deptCount} aria-hidden="true">{deptChecked}/{deptTotal}</span>
@@ -3730,12 +3731,12 @@ const handleCodeChange = (index: number, value: string) => {
           borderTop: '1px solid var(--border)',
           display: 'flex', alignItems: 'center', gap: '10px',
         }}>
-          <span style={{ flex: 1, fontFamily: FONT, fontSize: '14px', color: 'var(--text)' }}>
+          <span style={{ flex: 1, fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text)' }}>
             Ready to shop? <button
               onClick={() => { pushModalState(); setShowTripSheet(true) }}
               style={{
                 background: 'none', border: 'none', color: 'var(--brand)', fontFamily: FONT,
-                fontSize: '14px', fontWeight: 600, cursor: 'pointer', padding: 0,
+                fontSize: FONT_SM, fontWeight: 600, cursor: 'pointer', padding: 0,
                 textDecoration: 'underline', textUnderlineOffset: '2px',
               }}
             >Plan a trip</button>
@@ -3799,11 +3800,11 @@ const handleCodeChange = (index: number, value: string) => {
             }}
             onAnimationEnd={() => setShowDoneOverlay(false)}
           >
-            <span style={{ fontSize: '36px', fontWeight: 700, color: '#fff', fontFamily: FONT, textShadow: '0 2px 12px rgba(0,0,0,0.3)' }}>
+            <span style={{ fontSize: '2.25rem', fontWeight: 700, color: '#fff', fontFamily: FONT, textShadow: '0 2px 12px rgba(0,0,0,0.3)' }}>
               You're done! 🎉
             </span>
             {tripSavings > 0 && (
-              <span style={{ fontSize: '18px', fontWeight: 600, color: '#fff', fontFamily: FONT, textShadow: '0 2px 8px rgba(0,0,0,0.3)', opacity: 0.9 }}>
+              <span style={{ fontSize: '1.125rem', fontWeight: 600, color: '#fff', fontFamily: FONT, textShadow: '0 2px 8px rgba(0,0,0,0.3)', opacity: 0.9 }}>
                 Saved ${(tripSavings / 100).toFixed(2)} with swaps
               </span>
             )}
@@ -3817,7 +3818,7 @@ const handleCodeChange = (index: number, value: string) => {
           position: 'fixed', bottom: '100px', left: '50%', transform: 'translateX(-50%)',
           animation: 'float-up 3000ms cubic-bezier(0.2, 0.6, 0.3, 1) forwards',
           animationDelay: `${i * 600}ms`,
-          fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: 'var(--brand)',
+          fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--brand)',
           backgroundColor: 'var(--surface)', padding: '6px 14px', borderRadius: '20px',
           boxShadow: '0 2px 8px rgba(0,0,0,0.12)', zIndex: 40,
           pointerEvents: 'none', opacity: 0,
@@ -3833,13 +3834,13 @@ const handleCodeChange = (index: number, value: string) => {
           position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
           zIndex: 10000, backgroundColor: 'rgba(0,0,0,0.8)', color: '#fff',
           padding: '16px 24px', borderRadius: '16px', maxWidth: '280px', textAlign: 'center',
-          fontFamily: FONT, fontSize: '16px', fontWeight: 600,
+          fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600,
           animation: 'fade-in 200ms ease',
           pointerEvents: 'none',
         }}>
           {cameraConfirmation === 'Reading...' ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '14px' }}>...</span> Reading photo
+              <span style={{ fontSize: FONT_SM }}>...</span> Reading photo
             </div>
           ) : (
             <div>{cameraConfirmation}</div>
@@ -4122,7 +4123,7 @@ const styles: Record<string, React.CSSProperties> = {
 
   error: {
     fontFamily: FONT,
-    fontSize: '15px',
+    fontSize: FONT_BASE,
     color: 'var(--error)',
     margin: '0 0 12px 0',
     fontWeight: 500,
@@ -4153,7 +4154,7 @@ const listStyles = {
 
   headerWordmark: {
     fontFamily: FONT,
-    fontSize: '22px',
+    fontSize: FONT_XL,
     fontWeight: 700,
     color: 'var(--brand)',
     letterSpacing: '-0.5px',
@@ -4180,14 +4181,14 @@ const listStyles = {
 
   emptyText: {
     fontFamily: FONT,
-    fontSize: '17px',
+    fontSize: FONT_LG,
     fontWeight: 500,
     color: 'var(--text)',
   } as React.CSSProperties,
 
   emptySubtext: {
     fontFamily: FONT,
-    fontSize: '15px',
+    fontSize: FONT_BASE,
     color: 'var(--text-secondary)',
   } as React.CSSProperties,
 
@@ -4206,7 +4207,7 @@ const listStyles = {
     textAlign: 'left' as const,
     gap: '0px',
     fontFamily: FONT,
-    fontSize: '11px',
+    fontSize: '0.6875rem',
     fontWeight: 700,
     color: open ? 'var(--brand)' : 'var(--text-secondary)',
     textTransform: 'uppercase' as const,
@@ -4214,7 +4215,7 @@ const listStyles = {
   }),
 
   deptCount: {
-    fontSize: '10px',
+    fontSize: '0.625rem',
     fontWeight: 600,
     color: 'var(--brand)',
     marginLeft: 'auto',
@@ -4224,7 +4225,7 @@ const listStyles = {
   } as React.CSSProperties,
 
   deptChevron: (open: boolean): React.CSSProperties => ({
-    fontSize: '17px',
+    fontSize: FONT_LG,
     color: open ? 'var(--brand)' : 'var(--text-secondary)',
     transform: open ? 'rotate(90deg)' : 'none',
     transition: 'transform 0.15s, color 0.15s',
@@ -4260,7 +4261,7 @@ const listStyles = {
 
   sheetTitle: {
     fontFamily: FONT,
-    fontSize: '17px',
+    fontSize: FONT_LG,
     fontWeight: 600,
     color: 'var(--text)',
   } as React.CSSProperties,
@@ -4274,7 +4275,7 @@ const listStyles = {
   sheetTextInput: {
     width: '100%',
     padding: '13px 16px',
-    fontSize: '16px',
+    fontSize: FONT_MD,
     fontFamily: FONT,
     color: 'var(--text)',
     backgroundColor: 'var(--bg)',
@@ -4287,7 +4288,7 @@ const listStyles = {
   floatingInput: {
     width: '100%',
     padding: '12px 16px',
-    fontSize: '16px',
+    fontSize: FONT_MD,
     fontFamily: FONT,
     color: 'var(--text)',
     backgroundColor: 'var(--surface)',
@@ -4300,7 +4301,7 @@ const listStyles = {
   floatingSelect: {
     width: '100%',
     padding: '12px 16px',
-    fontSize: '16px',
+    fontSize: FONT_MD,
     fontFamily: FONT,
     color: 'var(--text)',
     backgroundColor: 'var(--surface)',
@@ -4319,7 +4320,7 @@ const listStyles = {
   sheetButton: {
     width: '100%',
     padding: '15px',
-    fontSize: '16px',
+    fontSize: FONT_MD,
     fontFamily: FONT,
     fontWeight: 600,
     color: '#fff',
@@ -4332,7 +4333,7 @@ const listStyles = {
   sheetDeleteBtn: {
     width: '100%',
     padding: '13px',
-    fontSize: '15px',
+    fontSize: FONT_BASE,
     fontFamily: FONT,
     fontWeight: 500,
     color: 'var(--error)',
@@ -4356,7 +4357,7 @@ const listStyles = {
   // Subtle text link (used for "wrong number?", "resend code", etc.)
   subtleLink: {
     fontFamily: FONT,
-    fontSize: '13px',
+    fontSize: FONT_XS,
     color: 'var(--text-secondary)',
     background: 'none',
     border: 'none',
