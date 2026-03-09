@@ -22,9 +22,7 @@ func (s *Server) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Credential string `json:"credential"`
-	}
+	var req GoogleAuthRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
@@ -53,14 +51,7 @@ func (s *Server) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var tokenInfo struct {
-		Sub           string `json:"sub"`
-		Email         string `json:"email"`
-		EmailVerified string `json:"email_verified"`
-		Name          string `json:"name"`
-		Aud           string `json:"aud"`
-		Picture       string `json:"picture"`
-	}
+	var tokenInfo GoogleTokenInfo
 	if err := json.Unmarshal(body, &tokenInfo); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to parse token info"})
 		return
@@ -196,11 +187,7 @@ func (s *Server) handleEmailRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-		Name     string `json:"name"`
-	}
+	var req EmailRegisterRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
@@ -272,10 +259,7 @@ func (s *Server) handleEmailLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
+	var req EmailLoginRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
@@ -342,9 +326,7 @@ func (s *Server) handleEmailForgot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Email string `json:"email"`
-	}
+	var req EmailOnlyRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
@@ -413,9 +395,7 @@ func (s *Server) handleMagicLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Email string `json:"email"`
-	}
+	var req EmailOnlyRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
@@ -591,10 +571,7 @@ func (s *Server) handleEmailReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Token    string `json:"token"`
-		Password string `json:"password"`
-	}
+	var req PasswordResetRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
@@ -670,9 +647,7 @@ func (s *Server) handleSendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		PhoneNumber string `json:"phone_number"`
-	}
+	var req PhoneRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
@@ -735,10 +710,7 @@ func (s *Server) handleVerifyCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		PhoneNumber string `json:"phone_number"`
-		Code        string `json:"code"`
-	}
+	var req VerifyCodeRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
@@ -897,12 +869,7 @@ func (s *Server) handleAuthLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Provider string `json:"provider"`
-		Email    string `json:"email"`
-		Phone    string `json:"phone"`
-		Code     string `json:"code"`
-	}
+	var req AuthLinkRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}

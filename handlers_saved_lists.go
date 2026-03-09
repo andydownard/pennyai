@@ -114,17 +114,7 @@ func (s *Server) handleSavedListsCreate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var req struct {
-		Name  string `json:"name"`
-		Items []struct {
-			Name       string `json:"name"`
-			Brand      string `json:"brand"`
-			Department string `json:"department"`
-			Quantity   int    `json:"quantity"`
-			Size       string `json:"size"`
-			Notes      string `json:"notes"`
-		} `json:"items"`
-	}
+	var req SavedListCreateRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
@@ -350,16 +340,7 @@ func (s *Server) handleSavedListMerge(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
-	var req struct {
-		Items []struct {
-			Name       string `json:"name"`
-			Brand      string `json:"brand"`
-			Department string `json:"department"`
-			Quantity   int    `json:"quantity"`
-			Size       string `json:"size"`
-			Notes      string `json:"notes"`
-		} `json:"items"`
-	}
+	var req SavedListMergeRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}

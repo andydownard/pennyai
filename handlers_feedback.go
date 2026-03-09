@@ -90,11 +90,7 @@ func (s *Server) handleFeedback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Body    string `json:"body"`
-		Type    string `json:"type"`
-		Urgency string `json:"urgency"`
-	}
+	var req FeedbackSubmitRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
@@ -434,10 +430,7 @@ func (s *Server) handleAdminFeedbackByID(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var req struct {
-		Status     *string `json:"status"`
-		AdminNotes *string `json:"admin_notes"`
-	}
+	var req FeedbackTriageRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}

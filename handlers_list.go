@@ -92,17 +92,7 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Text            string   `json:"text"`
-		Image           string   `json:"image"`
-		Images          []string `json:"images"`
-		SwapDealID      int      `json:"swap_deal_id"`
-		SwapItemID      int      `json:"swap_item_id"`
-		IsReceipt       bool     `json:"is_receipt"`
-		DeclineReason   string   `json:"decline_reason"`    // optional: tried_before, dietary, brand_loyal, price, other
-		TimeToActionMs  int      `json:"time_to_action_ms"` // ms from swap card render to accept/decline tap
-		WhyTapped       bool     `json:"why_tapped"`        // true if user tapped "Why?" before deciding
-	}
+	var req ParseAndAddRequest
 	// Decode directly — don't use decodeJSON which would override our 10MB limit with 1MB
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		msg := "Invalid request body"
@@ -981,11 +971,7 @@ func (s *Server) handleListAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Name       string `json:"name"`
-		Department string `json:"department"`
-		Quantity   int    `json:"quantity"`
-	}
+	var req ListAddRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
@@ -1181,14 +1167,7 @@ func (s *Server) handleListEdit(w http.ResponseWriter, r *http.Request, id int) 
 		return
 	}
 
-	var req struct {
-		Name       *string `json:"name"`
-		Brand      *string `json:"brand"`
-		Department *string `json:"department"`
-		Quantity   *int    `json:"quantity"`
-		Size       *string `json:"size"`
-		Notes      *string `json:"notes"`
-	}
+	var req ListEditRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
@@ -1407,11 +1386,7 @@ func (s *Server) handleBrandResolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		ItemID          int    `json:"item_id"`
-		Brand           string `json:"brand"`
-		ProductCategory string `json:"product_category"`
-	}
+	var req BrandResolveRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}

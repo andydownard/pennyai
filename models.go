@@ -293,3 +293,131 @@ type itemData struct {
 	Size       string
 	Notes      string
 }
+
+// =============================================================================
+// REQUEST TYPES — named structs for JSON request decoding
+// =============================================================================
+
+// --- Auth requests ---
+
+type GoogleAuthRequest struct {
+	Credential string `json:"credential"`
+}
+
+type GoogleTokenInfo struct {
+	Sub           string `json:"sub"`
+	Email         string `json:"email"`
+	EmailVerified string `json:"email_verified"`
+	Name          string `json:"name"`
+	Aud           string `json:"aud"`
+	Picture       string `json:"picture"`
+}
+
+type EmailRegisterRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Name     string `json:"name"`
+}
+
+type EmailLoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type EmailOnlyRequest struct {
+	Email string `json:"email"`
+}
+
+type PasswordResetRequest struct {
+	Token    string `json:"token"`
+	Password string `json:"password"`
+}
+
+type PhoneRequest struct {
+	PhoneNumber string `json:"phone_number"`
+}
+
+type VerifyCodeRequest struct {
+	PhoneNumber string `json:"phone_number"`
+	Code        string `json:"code"`
+}
+
+type AuthLinkRequest struct {
+	Provider string `json:"provider"`
+	Email    string `json:"email"`
+	Phone    string `json:"phone"`
+	Code     string `json:"code"`
+}
+
+// --- List requests ---
+
+type ParseAndAddRequest struct {
+	Text           string   `json:"text"`
+	Image          string   `json:"image"`
+	Images         []string `json:"images"`
+	SwapDealID     int      `json:"swap_deal_id"`
+	SwapItemID     int      `json:"swap_item_id"`
+	IsReceipt      bool     `json:"is_receipt"`
+	DeclineReason  string   `json:"decline_reason"`
+	TimeToActionMs int      `json:"time_to_action_ms"`
+	WhyTapped      bool     `json:"why_tapped"`
+}
+
+type ListAddRequest struct {
+	Name       string `json:"name"`
+	Department string `json:"department"`
+	Quantity   int    `json:"quantity"`
+}
+
+type ListEditRequest struct {
+	Name       *string `json:"name"`
+	Brand      *string `json:"brand"`
+	Department *string `json:"department"`
+	Quantity   *int    `json:"quantity"`
+	Size       *string `json:"size"`
+	Notes      *string `json:"notes"`
+}
+
+type BrandResolveRequest struct {
+	ItemID          int    `json:"item_id"`
+	Brand           string `json:"brand"`
+	ProductCategory string `json:"product_category"`
+}
+
+// --- Feedback requests ---
+
+type FeedbackSubmitRequest struct {
+	Body    string `json:"body"`
+	Type    string `json:"type"`
+	Urgency string `json:"urgency"`
+}
+
+type FeedbackTriageRequest struct {
+	Status     *string `json:"status"`
+	AdminNotes *string `json:"admin_notes"`
+}
+
+// --- Saved list requests ---
+
+type SavedListCreateRequest struct {
+	Name  string `json:"name"`
+	Items []struct {
+		Name       string `json:"name"`
+		Brand      string `json:"brand"`
+		Department string `json:"department"`
+		Quantity   int    `json:"quantity"`
+		Size       string `json:"size"`
+		Notes      string `json:"notes"`
+	} `json:"items"`
+}
+
+type SavedListMergeRequest struct {
+	Items []struct {
+		Name       string `json:"name"`
+		Brand      string `json:"brand"`
+		Department string `json:"department"`
+		Quantity   int    `json:"quantity"`
+		Size       string `json:"size"`
+		Notes      string `json:"notes"`
+	} `json:"items"`
+}
