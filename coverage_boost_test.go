@@ -3677,3 +3677,1168 @@ func TestCov_SendCode_DifferentPhonesNoPerPhoneRateLimit(t *testing.T) {
 		t.Errorf("Phone 2: got %d, want 200", rr2.Code)
 	}
 }
+
+// =============================================================================
+// TestCov2_ — COVERAGE BOOST ROUND 2
+// =============================================================================
+
+// --- handleLeaveHousehold (56.5%) ---
+// Already tested: wrong method, unauthenticated, happy path (solo & shared).
+// Uncovered: user with NULL household_id (no household row), verifies old
+// household_members cleaned up, double-leave idempotency.
+
+func TestCov2_LeaveHousehold_NullHouseholdID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5557770001")
+
+	// Force household_id to NULL to simulate a legacy user
+	server.db.Exec("DELETE FROM household_members WHERE user_id = ?", userID)
+	server.db.Exec("UPDATE users SET household_id = NULL WHERE id = ?", userID)
+
+	rr := doRequest(server.handleLeaveHousehold, "POST", "/api/settings/leave-household", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	// Should have a new household now
+	var newHID int
+	server.db.QueryRow("SELECT COALESCE(household_id, 0) FROM users WHERE id = ?", userID).Scan(&newHID)
+	if newHID == 0 {
+		t.Error("User should have a new household after leave even from NULL state")
+	}
+}
+
+func TestCov2_LeaveHousehold_DoubleLeaveSameUser(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5557770002")
+
+	// Leave once
+	rr := doRequest(server.handleLeaveHousehold, "POST", "/api/settings/leave-household", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("First leave: got %d, want 200", rr.Code)
+	}
+	var hid1 int
+	server.db.QueryRow("SELECT household_id FROM users WHERE id = ?", userID).Scan(&hid1)
+
+	// Leave again — idempotent, should succeed with a NEW household
+	rr = doRequest(server.handleLeaveHousehold, "POST", "/api/settings/leave-household", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Second leave: got %d, want 200", rr.Code)
+	}
+	var hid2 int
+	server.db.QueryRow("SELECT household_id FROM users WHERE id = ?", userID).Scan(&hid2)
+	if hid2 == 0 {
+		t.Error("Should have a household after double leave")
+	}
+	if hid2 == hid1 {
+		t.Error("Double leave should create a different household each time")
+	}
+}
+
+func TestCov2_LeaveHousehold_OldMembersCleanedUp(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID1 := loginUser(t, server, "5557770003")
+	cookie2, userID2 := loginUser(t, server, "5557770004")
+
+	// Put user2 into user1's household
+	var hID int
+	server.db.QueryRow("SELECT household_id FROM users WHERE id = ?", userID1).Scan(&hID)
+	server.db.Exec("DELETE FROM household_members WHERE user_id = ?", userID2)
+	server.db.Exec("UPDATE users SET household_id = ? WHERE id = ?", hID, userID2)
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (?, ?, 'member')", hID, userID2)
+
+	// Count members in old household before leave
+	var oldCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM household_members WHERE household_id = ? AND user_id = ?", hID, userID2).Scan(&oldCount)
+	if oldCount != 1 {
+		t.Fatalf("Setup: expected 1 member row for user2 in old household, got %d", oldCount)
+	}
+
+	// User2 leaves
+	rr := doRequest(server.handleLeaveHousehold, "POST", "/api/settings/leave-household", nil, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	// Old membership should be gone
+	var afterCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM household_members WHERE household_id = ? AND user_id = ?", hID, userID2).Scan(&afterCount)
+	if afterCount != 0 {
+		t.Errorf("Old household_members should be cleaned up, got %d rows", afterCount)
+	}
+}
+
+func TestCov2_LeaveHousehold_DBClosed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557770005")
+	server.db.Close()
+
+	rr := doRequest(server.handleLeaveHousehold, "POST", "/api/settings/leave-household", nil, []*http.Cookie{cookie})
+	if rr.Code == http.StatusOK {
+		t.Error("Should fail when DB is closed")
+	}
+}
+
+// --- handleReferralRedeem (69.6%) ---
+// Already tested: insufficient points, exact threshold success.
+// Uncovered: unauthenticated, wrong method, zero points, redeem twice in a row,
+// points deducted correctly after redeem, redemption record created.
+
+func TestCov2_ReferralRedeem_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557780001")
+
+	rr := doRequest(server.handleReferralRedeem, "GET", "/api/referral/redeem", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET should return 405, got %d", rr.Code)
+	}
+}
+
+func TestCov2_ReferralRedeem_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleReferralRedeem, "POST", "/api/referral/redeem", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("No session should return 401, got %d", rr.Code)
+	}
+}
+
+func TestCov2_ReferralRedeem_ZeroPoints(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5557780002")
+
+	// Ensure zero points
+	server.db.Exec("UPDATE users SET referral_points = 0 WHERE id = ?", userID)
+
+	rr := doRequest(server.handleReferralRedeem, "POST", "/api/referral/redeem", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Zero points should return 400, got %d", rr.Code)
+	}
+}
+
+func TestCov2_ReferralRedeem_PointsDeductedCorrectly(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5557780003")
+
+	// Give user 150 points (more than threshold)
+	server.db.Exec("UPDATE users SET referral_points = 150 WHERE id = ?", userID)
+
+	rr := doRequest(server.handleReferralRedeem, "POST", "/api/referral/redeem", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	// Points should be 150 - 100 = 50
+	var remaining int
+	server.db.QueryRow("SELECT COALESCE(referral_points, 0) FROM users WHERE id = ?", userID).Scan(&remaining)
+	if remaining != 50 {
+		t.Errorf("Expected 50 points remaining, got %d", remaining)
+	}
+
+	// Verify redemption record was created
+	var redemptionCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM redemptions WHERE user_id = ?", userID).Scan(&redemptionCount)
+	if redemptionCount != 1 {
+		t.Errorf("Expected 1 redemption record, got %d", redemptionCount)
+	}
+}
+
+func TestCov2_ReferralRedeem_DoubleRedeem(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5557780004")
+
+	// Give exactly threshold points
+	server.db.Exec("UPDATE users SET referral_points = ? WHERE id = ?", referralRedeemThreshold, userID)
+
+	// First redeem succeeds
+	rr := doRequest(server.handleReferralRedeem, "POST", "/api/referral/redeem", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("First redeem: got %d, want 200", rr.Code)
+	}
+
+	// Second redeem should fail (0 points now)
+	rr = doRequest(server.handleReferralRedeem, "POST", "/api/referral/redeem", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Second redeem: got %d, want 400 (no points left)", rr.Code)
+	}
+}
+
+func TestCov2_ReferralRedeem_DBClosed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557780005")
+	server.db.Close()
+
+	rr := doRequest(server.handleReferralRedeem, "POST", "/api/referral/redeem", nil, []*http.Cookie{cookie})
+	if rr.Code == http.StatusOK {
+		t.Error("Should fail when DB is closed")
+	}
+}
+
+// --- handleStorePrices (67.9%) ---
+// Already tested via subroute dispatch.
+// Uncovered: wrong method, unauthenticated, invalid store ID in path,
+// store with price data, store with no prices (empty result).
+
+func TestCov2_StorePrices_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557790001")
+
+	rr := doRequest(server.handleStorePrices, "POST", "/api/stores/1/prices", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST should return 405, got %d", rr.Code)
+	}
+}
+
+func TestCov2_StorePrices_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleStorePrices, "GET", "/api/stores/1/prices", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("No session should return 401, got %d", rr.Code)
+	}
+}
+
+func TestCov2_StorePrices_InvalidStoreID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557790002")
+
+	rr := doRequest(server.handleStorePrices, "GET", "/api/stores/abc/prices", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Invalid store ID should return 400, got %d", rr.Code)
+	}
+}
+
+func TestCov2_StorePrices_InvalidPath(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557790003")
+
+	rr := doRequest(server.handleStorePrices, "GET", "/api/stores/1/notprices", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Invalid path should return 400, got %d", rr.Code)
+	}
+}
+
+func TestCov2_StorePrices_WithData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557790004")
+
+	storeID, err := server.upsertStore("PriceTest Store", "TestChain", "123 Main", "City", "ST", "00000", "", nil, nil)
+	if err != nil {
+		t.Fatalf("upsertStore: %v", err)
+	}
+
+	server.recordStorePrice(storeID, "Milk", "Brand A", 399, 0, "receipt")
+	server.recordStorePrice(storeID, "Bread", "Brand B", 299, 0, "manual")
+
+	rr := doRequest(server.handleStorePrices, "GET",
+		fmt.Sprintf("/api/stores/%d/prices", storeID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	var prices []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&prices)
+	if len(prices) != 2 {
+		t.Errorf("Expected 2 prices, got %d", len(prices))
+	}
+}
+
+func TestCov2_StorePrices_EmptyStore(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557790005")
+
+	storeID, _ := server.upsertStore("Empty Store", "TestChain", "456 Oak", "City", "ST", "00000", "", nil, nil)
+
+	rr := doRequest(server.handleStorePrices, "GET",
+		fmt.Sprintf("/api/stores/%d/prices", storeID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var prices []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&prices)
+	if len(prices) != 0 {
+		t.Errorf("Expected 0 prices for empty store, got %d", len(prices))
+	}
+}
+
+// --- handleStorePriceAverages (73.2%) ---
+// Already tested: basic query, product filter.
+// Uncovered: brand filter, invalid store ID, wrong method, invalid path, both filters.
+
+func TestCov2_StorePriceAverages_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557800001")
+
+	rr := doRequest(server.handleStorePriceAverages, "POST", "/api/stores/1/price-averages", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST should return 405, got %d", rr.Code)
+	}
+}
+
+func TestCov2_StorePriceAverages_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleStorePriceAverages, "GET", "/api/stores/1/price-averages", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("No session should return 401, got %d", rr.Code)
+	}
+}
+
+func TestCov2_StorePriceAverages_InvalidStoreID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557800002")
+
+	rr := doRequest(server.handleStorePriceAverages, "GET", "/api/stores/xyz/price-averages", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Invalid store ID should return 400, got %d", rr.Code)
+	}
+}
+
+func TestCov2_StorePriceAverages_InvalidPath(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557800003")
+
+	rr := doRequest(server.handleStorePriceAverages, "GET", "/api/stores/1/not-price-averages", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Invalid path should return 400, got %d", rr.Code)
+	}
+}
+
+func TestCov2_StorePriceAverages_BrandFilter(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557800004")
+
+	storeID, _ := server.upsertStore("Avg Store", "AvgChain", "789 Pine", "City", "ST", "00000", "", nil, nil)
+	server.recordStorePrice(storeID, "Ketchup", "Heinz", 349, 0, "receipt")
+	server.recordStorePrice(storeID, "Ketchup", "Hunts", 249, 0, "receipt")
+	server.recordStorePrice(storeID, "Mustard", "French's", 199, 0, "receipt")
+
+	rr := doRequest(server.handleStorePriceAverages, "GET",
+		fmt.Sprintf("/api/stores/%d/price-averages?brand=heinz", storeID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var results []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&results)
+	if len(results) != 1 {
+		t.Errorf("Expected 1 result with brand filter 'heinz', got %d", len(results))
+	}
+}
+
+func TestCov2_StorePriceAverages_ProductAndBrandFilter(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557800005")
+
+	storeID, _ := server.upsertStore("Combo Store", "ComboChain", "999 Elm", "City", "ST", "00000", "", nil, nil)
+	server.recordStorePrice(storeID, "Ketchup", "Heinz", 349, 0, "receipt")
+	server.recordStorePrice(storeID, "Ketchup", "Hunts", 249, 0, "receipt")
+	server.recordStorePrice(storeID, "Mustard", "Heinz", 199, 0, "receipt")
+
+	rr := doRequest(server.handleStorePriceAverages, "GET",
+		fmt.Sprintf("/api/stores/%d/price-averages?product=ketchup&brand=heinz", storeID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var results []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&results)
+	if len(results) != 1 {
+		t.Errorf("Expected 1 result with both filters, got %d", len(results))
+	}
+}
+
+func TestCov2_StorePriceAverages_EmptyResults(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557800006")
+
+	storeID, _ := server.upsertStore("EmptyAvg Store", "EmptyChain", "100 Nowhere", "City", "ST", "00000", "", nil, nil)
+
+	rr := doRequest(server.handleStorePriceAverages, "GET",
+		fmt.Sprintf("/api/stores/%d/price-averages", storeID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var results []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&results)
+	if len(results) != 0 {
+		t.Errorf("Expected 0 results for empty store, got %d", len(results))
+	}
+}
+
+// --- handlePriceComparison (77.5%) ---
+// Already tested: across stores, requires product, with brand filter.
+// Uncovered: wrong method, unauthenticated, product only (no brand),
+// user with shopping trips linking to stores, no matching prices.
+
+func TestCov2_PriceComparison_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557810001")
+
+	rr := doRequest(server.handlePriceComparison, "POST", "/api/price-compare?product=milk", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST should return 405, got %d", rr.Code)
+	}
+}
+
+func TestCov2_PriceComparison_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handlePriceComparison, "GET", "/api/price-compare?product=milk", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("No session should return 401, got %d", rr.Code)
+	}
+}
+
+func TestCov2_PriceComparison_NoMatchingPrices(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557810002")
+
+	rr := doRequest(server.handlePriceComparison, "GET",
+		"/api/price-compare?product=nonexistentproduct12345", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var result map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&result)
+	stores := result["stores"].([]interface{})
+	if len(stores) != 0 {
+		t.Errorf("Expected 0 stores for nonexistent product, got %d", len(stores))
+	}
+}
+
+func TestCov2_PriceComparison_WithUserTrips(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5557810003")
+
+	// Create stores
+	store1, _ := server.upsertStore("UserTrip Kroger", "Kroger", "1 A St", "City", "OH", "43215", "", nil, nil)
+	store2, _ := server.upsertStore("UserTrip Walmart", "Walmart", "2 B St", "City", "OH", "43215", "", nil, nil)
+
+	// Record prices
+	server.recordStorePrice(store1, "Eggs Dozen", "Farm Fresh", 299, 0, "receipt")
+	server.recordStorePrice(store2, "Eggs Dozen", "Farm Fresh", 349, 0, "receipt")
+
+	// Create a shopping trip for the user linked to store1
+	var hID int
+	server.db.QueryRow("SELECT household_id FROM users WHERE id = ?", userID).Scan(&hID)
+	server.db.Exec("INSERT INTO shopping_trips (user_id, household_id, trip_date, store_id) VALUES (?, ?, '2026-03-08', ?)",
+		userID, hID, store1)
+
+	rr := doRequest(server.handlePriceComparison, "GET",
+		"/api/price-compare?product=eggs", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	var result map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&result)
+	stores := result["stores"].([]interface{})
+	if len(stores) < 2 {
+		t.Errorf("Expected at least 2 stores, got %d", len(stores))
+	}
+	// Verify user_store_ids includes the user's store
+	userStores := result["user_store_ids"]
+	if userStores == nil {
+		t.Fatal("Expected user_store_ids in response")
+	}
+	userStoreList := userStores.([]interface{})
+	if len(userStoreList) != 1 {
+		t.Errorf("Expected 1 user store, got %d", len(userStoreList))
+	}
+}
+
+func TestCov2_PriceComparison_ProductOnlyNoBrand(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557810004")
+
+	store1, _ := server.upsertStore("NoBrand Store1", "Chain1", "10 A", "City", "ST", "00000", "", nil, nil)
+	server.recordStorePrice(store1, "Butter", "Land O Lakes", 499, 0, "receipt")
+
+	rr := doRequest(server.handlePriceComparison, "GET",
+		"/api/price-compare?product=butter", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var result map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&result)
+	if result["product"] != "butter" {
+		t.Errorf("Expected product='butter', got %q", result["product"])
+	}
+}
+
+// --- handleRegionalSwapPerformance (76.2%) ---
+// Already tested: admin-only, returns data with store-linked swaps.
+// Uncovered: wrong method, empty data, unknown region (no store link).
+
+func TestCov2_RegionalSwapPerformance_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	admin, _ := upsertUser(server.db, "3104861833")
+	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(server.handleRegionalSwapPerformance, "POST", "/api/admin/regional-swaps", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST should return 405, got %d", rr.Code)
+	}
+}
+
+func TestCov2_RegionalSwapPerformance_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleRegionalSwapPerformance, "GET", "/api/admin/regional-swaps", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("No session should return 401, got %d", rr.Code)
+	}
+}
+
+func TestCov2_RegionalSwapPerformance_EmptyData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	admin, _ := upsertUser(server.db, "3104861833")
+	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(server.handleRegionalSwapPerformance, "GET", "/api/admin/regional-swaps", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var results []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&results)
+	if len(results) != 0 {
+		t.Errorf("Expected empty results, got %d", len(results))
+	}
+}
+
+func TestCov2_RegionalSwapPerformance_UnknownRegion(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	admin, _ := upsertUser(server.db, "3104861833")
+	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	// Create swap events with no store link (should appear as "Unknown" region)
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (999, '5559999999')")
+	server.db.Exec("INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status) VALUES (1, 'X', 'Y', 'Z', 100, 10000, 'active')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (999, 1, 'offered')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (999, 1, 'declined')")
+
+	rr := doRequest(server.handleRegionalSwapPerformance, "GET", "/api/admin/regional-swaps", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	var results []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&results)
+	if len(results) == 0 {
+		t.Fatal("Expected at least 1 result for unknown region")
+	}
+
+	// Check that accept_rate is computed correctly (0 accepted / 1 offered = 0)
+	found := false
+	for _, r := range results {
+		if r["state"] == "Unknown" {
+			found = true
+			offered := int(r["total_offered"].(float64))
+			declined := int(r["total_declined"].(float64))
+			if offered != 1 {
+				t.Errorf("Expected 1 offered, got %d", offered)
+			}
+			if declined != 1 {
+				t.Errorf("Expected 1 declined, got %d", declined)
+			}
+			rate := r["accept_rate"].(float64)
+			if rate != 0 {
+				t.Errorf("Expected 0 accept rate, got %f", rate)
+			}
+		}
+	}
+	if !found {
+		t.Error("Expected 'Unknown' region in results")
+	}
+}
+
+// --- adminDB (66.7%) ---
+// Only 2 branches: reportDB is nil vs non-nil.
+
+func TestCov2_AdminDB_NilReportDB(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// reportDB is nil by default in test server
+	db := server.adminDB()
+	if db != server.db {
+		t.Error("adminDB() should return primary DB when reportDB is nil")
+	}
+}
+
+func TestCov2_AdminDB_WithReportDB(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create a separate in-memory DB as the report DB
+	reportDB, err := initDB(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create report DB: %v", err)
+	}
+	t.Cleanup(func() { reportDB.Close() })
+
+	server.reportDB = reportDB
+
+	db := server.adminDB()
+	if db != reportDB {
+		t.Error("adminDB() should return reportDB when it is set")
+	}
+	if db == server.db {
+		t.Error("adminDB() should not return primary DB when reportDB is set")
+	}
+}
+
+// --- handleStores (78.4%) ---
+// Uncovered: chain filter, search query filter, custom limit, stores with lat/lng.
+
+func TestCov2_Stores_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557820001")
+
+	rr := doRequest(server.handleStores, "POST", "/api/stores", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST should return 405, got %d", rr.Code)
+	}
+}
+
+func TestCov2_Stores_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleStores, "GET", "/api/stores", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("No session should return 401, got %d", rr.Code)
+	}
+}
+
+func TestCov2_Stores_EmptyList(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557820002")
+
+	rr := doRequest(server.handleStores, "GET", "/api/stores", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var stores []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&stores)
+	if len(stores) != 0 {
+		t.Errorf("Expected 0 stores, got %d", len(stores))
+	}
+}
+
+func TestCov2_Stores_ChainFilter(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557820003")
+
+	server.upsertStore("Kroger #1", "Kroger", "1 A St", "City", "OH", "43215", "", nil, nil)
+	server.upsertStore("Walmart #1", "Walmart", "2 B St", "City", "OH", "43215", "", nil, nil)
+	server.upsertStore("Kroger #2", "Kroger", "3 C St", "City", "OH", "43215", "", nil, nil)
+
+	rr := doRequest(server.handleStores, "GET", "/api/stores?chain=Kroger", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var stores []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&stores)
+	if len(stores) != 2 {
+		t.Errorf("Expected 2 Kroger stores, got %d", len(stores))
+	}
+}
+
+func TestCov2_Stores_SearchQuery(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557820004")
+
+	server.upsertStore("Target Downtown", "Target", "100 Main", "Springfield", "IL", "62701", "", nil, nil)
+	server.upsertStore("Walmart Supercenter", "Walmart", "200 Oak", "Springfield", "IL", "62701", "", nil, nil)
+
+	rr := doRequest(server.handleStores, "GET", "/api/stores?q=target", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var stores []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&stores)
+	if len(stores) != 1 {
+		t.Errorf("Expected 1 store matching 'target', got %d", len(stores))
+	}
+}
+
+func TestCov2_Stores_CustomLimit(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557820005")
+
+	for i := 0; i < 5; i++ {
+		server.upsertStore(fmt.Sprintf("Store %d", i), "TestChain", fmt.Sprintf("%d Z St", i), "City", "ST", "00000", "", nil, nil)
+	}
+
+	rr := doRequest(server.handleStores, "GET", "/api/stores?limit=2", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var stores []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&stores)
+	if len(stores) != 2 {
+		t.Errorf("Expected 2 stores with limit=2, got %d", len(stores))
+	}
+}
+
+func TestCov2_Stores_InvalidLimit(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557820006")
+
+	server.upsertStore("Only Store", "OnlyChain", "1 Only St", "City", "ST", "00000", "", nil, nil)
+
+	// Non-numeric limit should fall back to default 50
+	rr := doRequest(server.handleStores, "GET", "/api/stores?limit=abc", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var stores []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&stores)
+	if len(stores) != 1 {
+		t.Errorf("Expected 1 store, got %d", len(stores))
+	}
+}
+
+func TestCov2_Stores_WithLatLng(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557820007")
+
+	lat := 39.9612
+	lng := -82.9988
+	server.upsertStore("GeoStore", "GeoChain", "777 Geo Rd", "Columbus", "OH", "43215", "place123", &lat, &lng)
+
+	rr := doRequest(server.handleStores, "GET", "/api/stores", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var stores []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&stores)
+	if len(stores) != 1 {
+		t.Fatalf("Expected 1 store, got %d", len(stores))
+	}
+	if stores[0]["latitude"] == nil {
+		t.Error("Expected non-nil latitude")
+	}
+	if stores[0]["longitude"] == nil {
+		t.Error("Expected non-nil longitude")
+	}
+}
+
+func TestCov2_Stores_SearchByAddress(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557820008")
+
+	server.upsertStore("Some Store", "SomeChain", "742 Evergreen Terrace", "Springfield", "IL", "62701", "", nil, nil)
+
+	rr := doRequest(server.handleStores, "GET", "/api/stores?q=evergreen", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var stores []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&stores)
+	if len(stores) != 1 {
+		t.Errorf("Expected 1 store matching address 'evergreen', got %d", len(stores))
+	}
+}
+
+// --- handleReferralClaim (81.6%) ---
+// Already tested: basic claim flow with referral code.
+// Uncovered: wrong method, unauthenticated, empty code, invalid code,
+// self-referral, idempotent claim (already claimed), referral_source tracking.
+
+func TestCov2_ReferralClaim_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557830001")
+
+	rr := doRequest(server.handleReferralClaim, "GET", "/api/referral/claim", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET should return 405, got %d", rr.Code)
+	}
+}
+
+func TestCov2_ReferralClaim_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleReferralClaim, "POST", "/api/referral/claim",
+		map[string]string{"code": "abc123"}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("No session should return 401, got %d", rr.Code)
+	}
+}
+
+func TestCov2_ReferralClaim_EmptyCode(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557830002")
+
+	rr := doRequest(server.handleReferralClaim, "POST", "/api/referral/claim",
+		map[string]string{"code": ""}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Empty code should return 400, got %d", rr.Code)
+	}
+}
+
+func TestCov2_ReferralClaim_InvalidCode(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5557830003")
+
+	rr := doRequest(server.handleReferralClaim, "POST", "/api/referral/claim",
+		map[string]string{"code": "nonexistent_code_xyz"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Invalid code should return 404, got %d", rr.Code)
+	}
+}
+
+func TestCov2_ReferralClaim_SelfReferral(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5557830004")
+
+	// Generate referral code by calling GET /api/referral
+	doRequest(server.handleReferral, "GET", "/api/referral", nil, []*http.Cookie{cookie})
+	var code string
+	server.db.QueryRow("SELECT referral_code FROM users WHERE id = ?", userID).Scan(&code)
+	if code == "" {
+		t.Fatal("User should have a referral code after GET /api/referral")
+	}
+
+	rr := doRequest(server.handleReferralClaim, "POST", "/api/referral/claim",
+		map[string]string{"code": code}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Self-referral should return 400, got %d", rr.Code)
+	}
+}
+
+func TestCov2_ReferralClaim_IdempotentClaim(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie1, referrerID := loginUser(t, server, "5557830005")
+	cookie2, _ := loginUser(t, server, "5557830006")
+
+	// Generate referral code by calling GET /api/referral
+	doRequest(server.handleReferral, "GET", "/api/referral", nil, []*http.Cookie{cookie1})
+	var code string
+	server.db.QueryRow("SELECT referral_code FROM users WHERE id = ?", referrerID).Scan(&code)
+	if code == "" {
+		t.Fatal("Referrer should have a referral code")
+	}
+
+	// First claim
+	rr := doRequest(server.handleReferralClaim, "POST", "/api/referral/claim",
+		map[string]string{"code": code}, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("First claim: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	// Get referrer points after first claim
+	var pointsAfterFirst int
+	server.db.QueryRow("SELECT COALESCE(referral_points, 0) FROM users WHERE id = ?", referrerID).Scan(&pointsAfterFirst)
+
+	// Second claim — idempotent, should succeed without double-crediting
+	rr = doRequest(server.handleReferralClaim, "POST", "/api/referral/claim",
+		map[string]string{"code": code}, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Second claim (idempotent): got %d, want 200", rr.Code)
+	}
+
+	// Points should not have increased
+	var pointsAfterSecond int
+	server.db.QueryRow("SELECT COALESCE(referral_points, 0) FROM users WHERE id = ?", referrerID).Scan(&pointsAfterSecond)
+	if pointsAfterSecond != pointsAfterFirst {
+		t.Errorf("Idempotent claim should not double-credit: first=%d, second=%d", pointsAfterFirst, pointsAfterSecond)
+	}
+}
+
+func TestCov2_ReferralClaim_SetsReferralSource(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie1, referrerID := loginUser(t, server, "5557830007")
+	cookie2, userID2 := loginUser(t, server, "5557830008")
+
+	// Generate referral code
+	doRequest(server.handleReferral, "GET", "/api/referral", nil, []*http.Cookie{cookie1})
+	var code string
+	server.db.QueryRow("SELECT referral_code FROM users WHERE id = ?", referrerID).Scan(&code)
+
+	rr := doRequest(server.handleReferralClaim, "POST", "/api/referral/claim",
+		map[string]string{"code": code}, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	// Verify referral_source was set
+	var source string
+	server.db.QueryRow("SELECT COALESCE(referral_source, '') FROM users WHERE id = ?", userID2).Scan(&source)
+	if source != "referral" {
+		t.Errorf("Expected referral_source='referral', got %q", source)
+	}
+
+	// Verify referral record exists
+	var refCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM referrals WHERE referrer_id = ? AND referred_id = ?", referrerID, userID2).Scan(&refCount)
+	if refCount != 1 {
+		t.Errorf("Expected 1 referral record, got %d", refCount)
+	}
+}
+
+func TestCov2_ReferralClaim_PointsAwarded(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie1, referrerID := loginUser(t, server, "5557830009")
+	cookie2, _ := loginUser(t, server, "5557830010")
+
+	// Reset referrer points to 0
+	server.db.Exec("UPDATE users SET referral_points = 0 WHERE id = ?", referrerID)
+
+	// Generate referral code
+	doRequest(server.handleReferral, "GET", "/api/referral", nil, []*http.Cookie{cookie1})
+	var code string
+	server.db.QueryRow("SELECT referral_code FROM users WHERE id = ?", referrerID).Scan(&code)
+
+	rr := doRequest(server.handleReferralClaim, "POST", "/api/referral/claim",
+		map[string]string{"code": code}, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	var points int
+	server.db.QueryRow("SELECT COALESCE(referral_points, 0) FROM users WHERE id = ?", referrerID).Scan(&points)
+	if points != referralPointsPerInvite {
+		t.Errorf("Referrer should have %d points, got %d", referralPointsPerInvite, points)
+	}
+}
+
+// --- handleJoin (79.8%) ---
+// Already tested: invalid code, empty code, already used, expired, self-join,
+// happy path with inviter points. Uncovered: already in target household (B7),
+// leaving previous household to join new one (B3 warning), joiner with name
+// vs without name (penny message branch), SMS notification to inviter.
+
+func TestCov2_Join_AlreadyInTargetHousehold(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie1, userID1 := loginUser(t, server, "5557840001")
+	cookie2, userID2 := loginUser(t, server, "5557840002")
+
+	// Put user2 into user1's household
+	var hID int
+	server.db.QueryRow("SELECT household_id FROM users WHERE id = ?", userID1).Scan(&hID)
+	server.db.Exec("DELETE FROM household_members WHERE user_id = ?", userID2)
+	server.db.Exec("UPDATE users SET household_id = ? WHERE id = ?", hID, userID2)
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (?, ?, 'member')", hID, userID2)
+
+	// Create an invite from user1
+	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
+		map[string]string{"phone": ""}, []*http.Cookie{cookie1})
+	body := parseJSON(rr)
+	code := body["code"].(string)
+
+	// User2 tries to join — already in target household (B7)
+	rr = doRequest(server.handleJoin, "POST", "/api/join",
+		map[string]string{"code": code}, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Already in household should return 200, got %d; body=%s", rr.Code, rr.Body.String())
+	}
+	body = parseJSON(rr)
+	msg, _ := body["message"].(string)
+	if !strings.Contains(msg, "already") {
+		t.Errorf("Expected 'already in this household' message, got %q", msg)
+	}
+
+	// Invite should NOT be consumed
+	var usedBy interface{}
+	server.db.QueryRow("SELECT used_by FROM invites WHERE code = ?", code).Scan(&usedBy)
+	if usedBy != nil {
+		t.Error("Invite should not be consumed when user is already in household")
+	}
+}
+
+func TestCov2_Join_LeavePreviousHousehold(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie1, _ := loginUser(t, server, "5557840003")
+	cookie2, userID2 := loginUser(t, server, "5557840004")
+	_, userID3 := loginUser(t, server, "5557840005")
+
+	// Put user2 and user3 in a shared household
+	var hID2 int
+	server.db.QueryRow("SELECT household_id FROM users WHERE id = ?", userID2).Scan(&hID2)
+	server.db.Exec("DELETE FROM household_members WHERE user_id = ?", userID3)
+	server.db.Exec("UPDATE users SET household_id = ? WHERE id = ?", hID2, userID3)
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (?, ?, 'member')", hID2, userID3)
+
+	// User1 creates invite
+	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
+		map[string]string{"phone": ""}, []*http.Cookie{cookie1})
+	body := parseJSON(rr)
+	code := body["code"].(string)
+
+	// User2 joins user1's household (leaving their own)
+	rr = doRequest(server.handleJoin, "POST", "/api/join",
+		map[string]string{"code": code}, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Join: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	body = parseJSON(rr)
+	warning, _ := body["warning"].(string)
+	if !strings.Contains(warning, "previous household") {
+		t.Errorf("Expected warning about leaving previous household, got %q", warning)
+	}
+
+	// Verify user2 is in user1's household now
+	var newHID int
+	server.db.QueryRow("SELECT household_id FROM users WHERE id = ?", userID2).Scan(&newHID)
+	var hID1 int
+	server.db.QueryRow("SELECT household_id FROM users WHERE id = ?", userID2).Scan(&hID1)
+	if newHID == hID2 {
+		t.Error("User2 should have moved to a new household")
+	}
+}
+
+func TestCov2_Join_JoinerWithName(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie1, _ := loginUser(t, server, "5557840006")
+	cookie2, userID2 := loginUser(t, server, "5557840007")
+
+	// Set user2's name
+	server.db.Exec("UPDATE users SET name = 'Alice' WHERE id = ?", userID2)
+
+	// Create invite
+	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
+		map[string]string{"phone": ""}, []*http.Cookie{cookie1})
+	body := parseJSON(rr)
+	code := body["code"].(string)
+
+	// User2 joins
+	rr = doRequest(server.handleJoin, "POST", "/api/join",
+		map[string]string{"code": code}, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+	body = parseJSON(rr)
+	pennyMsg, _ := body["penny_message"].(string)
+	if !strings.Contains(pennyMsg, "Alice") {
+		t.Errorf("Penny message should include joiner name 'Alice', got %q", pennyMsg)
+	}
+}
+
+func TestCov2_Join_JoinerWithoutName(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie1, _ := loginUser(t, server, "5557840008")
+	cookie2, userID2 := loginUser(t, server, "5557840009")
+
+	// Ensure user2 has no name
+	server.db.Exec("UPDATE users SET name = '' WHERE id = ?", userID2)
+
+	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
+		map[string]string{"phone": ""}, []*http.Cookie{cookie1})
+	body := parseJSON(rr)
+	code := body["code"].(string)
+
+	rr = doRequest(server.handleJoin, "POST", "/api/join",
+		map[string]string{"code": code}, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+	body = parseJSON(rr)
+	pennyMsg, _ := body["penny_message"].(string)
+	if !strings.Contains(pennyMsg, "Welcome to the family") {
+		t.Errorf("Penny message without name should be generic, got %q", pennyMsg)
+	}
+}
+
+func TestCov2_Join_InviterSMSNotification(t *testing.T) {
+	mock := &MockTwilioClient{}
+	server := newTestServer(t, mock)
+	cookie1, userID1 := loginUser(t, server, "5557840010")
+	cookie2, userID2 := loginUser(t, server, "5557840011")
+
+	// Set joiner's name
+	server.db.Exec("UPDATE users SET name = 'Bob' WHERE id = ?", userID2)
+
+	// Create invite
+	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
+		map[string]string{"phone": ""}, []*http.Cookie{cookie1})
+	body := parseJSON(rr)
+	code := body["code"].(string)
+
+	// User2 joins — inviter should receive SMS notification
+	rr = doRequest(server.handleJoin, "POST", "/api/join",
+		map[string]string{"code": code}, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	// Check that SMS was sent to inviter
+	smsTo, smsBody := mock.GetLastSMS()
+	if smsTo == "" {
+		t.Error("Expected SMS notification to inviter")
+	}
+	if !strings.Contains(smsBody, "Bob") {
+		t.Errorf("SMS should mention joiner name 'Bob', got %q", smsBody)
+	}
+	if !strings.Contains(smsBody, "joined") {
+		t.Errorf("SMS should mention joining, got %q", smsBody)
+	}
+
+	_ = userID1
+}
+
+func TestCov2_Join_InviterNotificationDedup(t *testing.T) {
+	mock := &MockTwilioClient{}
+	server := newTestServer(t, mock)
+	cookie1, _ := loginUser(t, server, "5557840012")
+	cookie2, _ := loginUser(t, server, "5557840013")
+
+	// Create invite
+	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
+		map[string]string{"phone": ""}, []*http.Cookie{cookie1})
+	body := parseJSON(rr)
+	code := body["code"].(string)
+
+	// User2 joins
+	rr = doRequest(server.handleJoin, "POST", "/api/join",
+		map[string]string{"code": code}, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	// Verify notified flag is set (preventing duplicate SMS)
+	var notified int
+	server.db.QueryRow("SELECT notified FROM invites WHERE code = ?", code).Scan(&notified)
+	if notified != 1 {
+		t.Errorf("Expected notified=1, got %d", notified)
+	}
+}
+
+func TestCov2_Join_SetsReferralSourceInvite(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie1, _ := loginUser(t, server, "5557840014")
+	cookie2, userID2 := loginUser(t, server, "5557840015")
+
+	// Ensure referral_source is empty initially
+	server.db.Exec("UPDATE users SET referral_source = '' WHERE id = ?", userID2)
+
+	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
+		map[string]string{"phone": ""}, []*http.Cookie{cookie1})
+	body := parseJSON(rr)
+	code := body["code"].(string)
+
+	rr = doRequest(server.handleJoin, "POST", "/api/join",
+		map[string]string{"code": code}, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var source string
+	server.db.QueryRow("SELECT COALESCE(referral_source, '') FROM users WHERE id = ?", userID2).Scan(&source)
+	if source != "invite" {
+		t.Errorf("Expected referral_source='invite', got %q", source)
+	}
+}
