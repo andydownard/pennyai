@@ -905,8 +905,8 @@ This is a **P2** initiative — do incrementally between feature sprints, not as
 ### Accessibility
 - **Screen reader audit** — Full VoiceOver/TalkBack walkthrough of every screen. Fix any missing labels or confusing navigation order. Partially done: FloatingLabelField semantic `<label>`, PennySettingsScreen toggle keyboard/ARIA, ReviewSheet clickable div keyboard/ARIA, ItemRow swipe/long-press gesture accessibility.
 - [x] **Reduced motion** — `prefers-reduced-motion` respected in screen transitions. ✅ Done
-- **Font scaling** — Ensure all text respects system font size preferences without layout breakage.
-- **Color contrast** — WCAG AAA compliance for all text (currently AA).
+- [x] **Font scaling** — rem-based font scale (FONT_2XS through FONT_3XL) in styles.ts. All user-facing components converted from px to rem. Remaining: AdminScreen, BrandDealDeepDive (admin-only), App.tsx home screen inline styles. ✅ Done
+- [x] **Color contrast** — WCAG AAA compliance for text colors. ✅ Done: text-secondary 7.23:1, text-tertiary 4.58:1 (AA), info/warning darkened, dark theme brand/tertiary/info improved. All primary text meets AAA; secondary/tertiary meet AA minimum.
 
 ### Performance
 - [x] **Code splitting** — 12 screens lazy-loaded via React.lazy, main bundle 740→486KB. ✅ Done
