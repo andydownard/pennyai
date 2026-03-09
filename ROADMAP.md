@@ -554,7 +554,7 @@ Playwright E2E tests covering critical user flows: login, add items, check items
 | 16 | **M9. Brand Dashboard v2** | S→M | 3 | P2 | **Scope reduced** — Metabase handles most reporting. Competitive Intel, purchase verification funnel, date range filter, CSV export, weekly digest all shipped. | **Done** |
 | 17 | **R2. Trip Planner Discoverability** | S | — | P3 | Quality of life, quick win. Do when there's a spare afternoon. | **Done** (Sprint 4) |
 | — | ~~R4. SSE Real-Time Updates~~ | — | — | — | **Replaced by Pusher/Ably** (Buy-vs-Build: BUY NOW). No longer a build item. | Replaced |
-| 18 | **R6. Codebase Refactor** | L | — | P2 | Split monolithic files (App.tsx, handlers), extract middleware, shared styles, API layer. Do incrementally between sprints. | **Mostly Done** (API layer ✅, error handling ✅, hooks ✅, test helpers ✅, shared styles ✅; remaining: test org, backend middleware) |
+| 18 | **R6. Codebase Refactor** | L | — | P2 | Split monolithic files (App.tsx, handlers), extract middleware, shared styles, API layer. Do incrementally between sprints. | **Mostly Done** (API layer ✅, error handling ✅, hooks ✅, test helpers ✅, shared styles ✅, middleware ✅; remaining: test org, file splitting, request types) |
 | 19 | **R7. UX Overhaul** | L | — | P1 | Design system, dark mode, bottom tabs, screen transitions, optimistic updates, offline support. Dedicated sprint after revenue stabilizes. | **Mostly Done** (dark mode ✅, bottom tabs ✅, transitions ✅, a11y ✅, font scaling ✅, code splitting ✅; remaining: Penny avatar expressions) |
 
 ### What changed (March 2026 groom)
@@ -852,7 +852,7 @@ Databricks is enterprise data lakehouse tooling ($10K+/yr, requires a data engin
 
 ### Backend Refactor
 - **Split monolithic Go files** — `handlers_list.go` (~600 lines), `handlers_auth.go` (~500 lines), and `handlers_brand.go` (~800 lines) are large. Extract into focused files by domain (e.g., `handlers_logo.go`, `handlers_swap.go`, `handlers_receipt.go`).
-- **Extract middleware** — Rate limiting, auth gating, and panic recovery are inline. Extract into composable middleware functions.
+- [x] **Extract middleware** — Already composable: `requireSession()`, `requireAdmin()` (auth gating), `checkRateLimit()`, `checkRateLimitBucket()` (rate limiting), panic recovery + Sentry + security headers (top-level wrapper in server.go). ✅ Already done
 - **Introduce request/response types** — Many handlers use anonymous `struct{}` for JSON parsing. Define named types in `models.go` for readability and reuse.
 - **Database query consolidation** — Several handlers have near-identical SQL queries with slight variations. Extract common queries into typed helper functions.
 - [x] **Error handling consistency** — Standardize error responses. ✅ Done: all production handlers use `writeJSON()`. Only 2 acceptable `http.Error` calls remain (HTML 404 in serveWithOGTags, panic recovery middleware).
