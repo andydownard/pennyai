@@ -605,7 +605,17 @@ export function App() {
                   <div>
                     <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT }}>{deal.offer_brand} {deal.offer_product}</div>
                     <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC, marginTop: '2px' }}>replaces: {deal.competitor_product}</div>
-                    <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC }}>Discount: {formatCents(deal.discount_cents)} | Budget: {formatCents(deal.daily_budget_cents)} | Spent: {formatCents(deal.budget_spent_cents)}</div>
+                    <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC }}>Discount: {formatCents(deal.discount_cents)} | Budget: {formatCents(deal.daily_budget_cents)}</div>
+                    {deal.daily_budget_cents > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                        <div style={{ flex: 1, height: '4px', backgroundColor: BORDER, borderRadius: '2px', overflow: 'hidden', maxWidth: '120px' }}>
+                          <div style={{ height: '100%', borderRadius: '2px', width: `${Math.min((deal.budget_spent_cents / deal.daily_budget_cents) * 100, 100)}%`,
+                            backgroundColor: (deal.budget_spent_cents / deal.daily_budget_cents) > 0.9 ? '#E57373' : (deal.budget_spent_cents / deal.daily_budget_cents) > 0.7 ? '#FFB74D' : BRAND,
+                          }} />
+                        </div>
+                        <span style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SEC }}>{Math.round((deal.budget_spent_cents / deal.daily_budget_cents) * 100)}% used</span>
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <span style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, padding: '4px 8px', borderRadius: '4px', backgroundColor: deal.status === 'active' ? BRAND_LIGHT : '#FFF3E0', color: deal.status === 'active' ? BRAND : '#E65100' }}>{deal.status}</span>
