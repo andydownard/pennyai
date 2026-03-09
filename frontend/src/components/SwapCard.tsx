@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { FONT } from '../styles'
+import { FONT, FONT_2XS, FONT_XS, FONT_SM, FONT_BASE } from '../styles'
 import { BrandLogo } from './BrandLogo'
 import type { DealType } from '../types'
 
@@ -137,7 +137,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
       }}>
         <span style={{
           fontFamily: FONT,
-          fontSize: '11px',
+          fontSize: '0.6875rem',
           fontWeight: 500,
           color: 'var(--text-secondary)',
           letterSpacing: '0.3px',
@@ -147,7 +147,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
         </span>
         {isBogo && (
           <span style={{
-            fontFamily: FONT, fontSize: '10px', fontWeight: 700,
+            fontFamily: FONT, fontSize: '0.625rem', fontWeight: 700,
             color: '#fff', backgroundColor: 'var(--warning)',
             padding: '2px 6px', borderRadius: '4px',
             letterSpacing: '0.3px', textTransform: 'uppercase' as const,
@@ -155,7 +155,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
         )}
         {isTrial && (
           <span style={{
-            fontFamily: FONT, fontSize: '10px', fontWeight: 700,
+            fontFamily: FONT, fontSize: '0.625rem', fontWeight: 700,
             color: '#fff', backgroundColor: 'var(--success)',
             padding: '2px 6px', borderRadius: '4px',
             letterSpacing: '0.3px', textTransform: 'uppercase' as const,
@@ -163,7 +163,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
         )}
         {deadlineText && (
           <span style={{
-            fontFamily: FONT, fontSize: '10px', fontWeight: 700,
+            fontFamily: FONT, fontSize: '0.625rem', fontWeight: 700,
             color: '#fff', backgroundColor: 'var(--error)',
             padding: '2px 6px', borderRadius: '4px',
             letterSpacing: '0.3px',
@@ -180,7 +180,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
             {/* Product name */}
             <div style={{
               fontFamily: FONT,
-              fontSize: '15px',
+              fontSize: FONT_BASE,
               fontWeight: 600,
               color: 'var(--text)',
               lineHeight: 1.3,
@@ -193,7 +193,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
               }
             </div>
             {isTrial && swap.trial_size && (
-              <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+              <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '2px' }}>
                 {swap.trial_size} — keep your original item
               </div>
             )}
@@ -202,7 +202,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
             {offerPriceLine && (
               <div style={{
                 fontFamily: FONT,
-                fontSize: '13px',
+                fontSize: FONT_XS,
                 color: 'var(--text)',
                 marginTop: '2px',
               }}>
@@ -221,7 +221,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
                 {originalPriceLine && (
                   <span style={{
                     fontFamily: FONT,
-                    fontSize: '13px',
+                    fontSize: FONT_XS,
                     color: 'var(--text-secondary)',
                   }}>
                     {originalPriceLine}
@@ -237,7 +237,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
                       border: 'none',
                       color: 'var(--brand)',
                       fontFamily: FONT,
-                      fontSize: '13px',
+                      fontSize: FONT_XS,
                       fontWeight: 600,
                       cursor: 'pointer',
                       padding: '2px 0',
@@ -269,7 +269,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
           }}>
             <div style={{
               fontFamily: FONT,
-              fontSize: '12px',
+              fontSize: FONT_2XS,
               fontWeight: 600,
               color: 'var(--text-secondary)',
               marginBottom: '6px',
@@ -279,7 +279,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
             {swap.why_bullets?.map((bullet, i) => (
               <div key={i} style={{
                 fontFamily: FONT,
-                fontSize: '13px',
+                fontSize: FONT_XS,
                 color: 'var(--text)',
                 lineHeight: 1.5,
                 paddingLeft: '12px',
@@ -291,7 +291,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
             {hasAllergen && (
               <div role="alert" style={{
                 fontFamily: FONT,
-                fontSize: '12px',
+                fontSize: FONT_2XS,
                 fontWeight: 600,
                 color: 'var(--error)',
                 marginTop: '6px',
@@ -319,7 +319,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
               border: 'none',
               borderRadius: '10px',
               fontFamily: FONT,
-              fontSize: '14px',
+              fontSize: FONT_SM,
               fontWeight: 600,
               cursor: 'pointer',
               display: 'flex',
@@ -331,12 +331,12 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
           >
             <span>{isTrial ? 'Add Free Trial' : isBogo ? 'Get BOGO' : `Try it — save ${formatPrice(swap.discount_cents)}`}</span>
             {!isTrial && !isBogo && swap.savings_percent > 0 && (
-              <span style={{ fontSize: '12px', fontWeight: 400, opacity: 0.9 }}>
+              <span style={{ fontSize: FONT_2XS, fontWeight: 400, opacity: 0.9 }}>
                 {swap.savings_percent}% less than {swap.original_size || 'yours'}
               </span>
             )}
             {(isTrial || isBogo) && (
-              <span style={{ fontSize: '12px', fontWeight: 400, opacity: 0.9 }}>
+              <span style={{ fontSize: FONT_2XS, fontWeight: 400, opacity: 0.9 }}>
                 Save {formatPrice(swap.discount_cents)}
               </span>
             )}
@@ -353,7 +353,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
               border: '1px solid var(--border)',
               borderRadius: '10px',
               fontFamily: FONT,
-              fontSize: '18px',
+              fontSize: '1.125rem',
               cursor: 'pointer',
               padding: 0,
               display: 'flex',

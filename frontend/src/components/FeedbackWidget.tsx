@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { FONT } from '../styles'
+import { FONT, FONT_XS, FONT_BASE, FONT_MD, FONT_LG } from '../styles'
 
 interface FeedbackWidgetProps {
   onSubmit: (body: string, type: string, urgency: string) => Promise<boolean>
@@ -126,20 +126,20 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
           {sent ? (
             <div style={{ textAlign: 'center', padding: '24px 0' }}>
               <div style={{ fontSize: '32px', marginBottom: '12px', color: 'var(--brand)' }}>&#10003;</div>
-              <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: 'var(--text)' }}>
+              <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600, color: 'var(--text)' }}>
                 Got it!
               </div>
-              <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              <div style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)', marginTop: '4px' }}>
                 Your voice shapes what we build next.
               </div>
             </div>
           ) : (
             <>
               <div style={{ marginBottom: '16px' }}>
-                <div style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
+                <div style={{ fontFamily: FONT, fontSize: FONT_LG, fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
                   Help shape Penny
                 </div>
-                <p style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
+                <p style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
                   Your feedback goes directly to our product team.
                 </p>
               </div>
@@ -154,7 +154,7 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
                       padding: '7px 14px',
                       borderRadius: '16px',
                       fontFamily: FONT,
-                      fontSize: '13px',
+                      fontSize: FONT_XS,
                       fontWeight: 600,
                       cursor: 'pointer',
                       border: type === t.key ? '1.5px solid var(--brand)' : '1.5px solid var(--border)',
@@ -183,7 +183,7 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
                   width: '100%',
                   padding: '12px 14px',
                   fontFamily: FONT,
-                  fontSize: '15px',
+                  fontSize: FONT_BASE,
                   color: 'var(--text)',
                   backgroundColor: 'var(--bg)',
                   border: '1.5px solid var(--border)',
@@ -209,7 +209,7 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
                       padding: '7px 14px',
                       borderRadius: '16px',
                       fontFamily: FONT,
-                      fontSize: '13px',
+                      fontSize: FONT_XS,
                       fontWeight: 600,
                       cursor: 'pointer',
                       border: urgency === u.key ? '1.5px solid var(--brand)' : '1.5px solid var(--border)',
@@ -235,7 +235,7 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
                     border: 'none',
                     borderRadius: '12px',
                     fontFamily: FONT,
-                    fontSize: '15px',
+                    fontSize: FONT_BASE,
                     fontWeight: 600,
                     cursor: canSend ? 'pointer' : 'default',
                     transition: 'background-color 0.15s, color 0.15s',

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { PennyAvatar } from './PennyAvatar'
-import { FONT } from '../styles'
+import { FONT, FONT_2XS, FONT_XS, FONT_SM, FONT_BASE, FONT_MD } from '../styles'
 import { type ReceiptSummary, type ReceiptLineItem } from '../types'
 
 interface ReceiptScreenProps {
@@ -97,7 +97,7 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
           onClick={() => { setSelectedReceipt(null); setLineItems([]) }}
           style={{
             background: 'none', border: 'none', padding: '12px 0', cursor: 'pointer',
-            fontFamily: FONT, fontSize: '14px', color: 'var(--brand)', fontWeight: 500,
+            fontFamily: FONT, fontSize: FONT_SM, color: 'var(--brand)', fontWeight: 500,
             display: 'flex', alignItems: 'center', gap: '4px',
           }}
         >
@@ -112,21 +112,21 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
           backgroundColor: 'var(--surface)', borderRadius: '10px', padding: '16px',
           border: '1px solid var(--border)', marginBottom: '12px',
         }}>
-          <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: 'var(--text)' }}>
+          <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600, color: 'var(--text)' }}>
             {selectedReceipt.store_name || 'Receipt'}
           </div>
-          <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+          <div style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)', marginTop: '4px' }}>
             {formatDate(selectedReceipt.transaction_date || selectedReceipt.created_at)}
           </div>
           <div style={{ display: 'flex', gap: '16px', marginTop: '10px' }}>
-            <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text-secondary)' }}>
+            <div style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)' }}>
               {selectedReceipt.items_found} items found
             </div>
-            <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text-secondary)' }}>
+            <div style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)' }}>
               {selectedReceipt.items_matched} matched
             </div>
             {selectedReceipt.total_cents > 0 && (
-              <div style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+              <div style={{ fontFamily: FONT, fontSize: FONT_XS, fontWeight: 600, color: 'var(--text)' }}>
                 {formatPrice(selectedReceipt.total_cents)}
               </div>
             )}
@@ -139,7 +139,7 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12"/>
               </svg>
-              <span style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: 'var(--success)' }}>
+              <span style={{ fontFamily: FONT, fontSize: FONT_2XS, fontWeight: 600, color: 'var(--success)' }}>
                 {selectedReceipt.swaps_verified} swap{selectedReceipt.swaps_verified !== 1 ? 's' : ''} verified
               </span>
             </div>
@@ -152,10 +152,10 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
             backgroundColor: 'var(--warning-bg)', borderRadius: '10px', padding: '14px 16px',
             border: '1px solid color-mix(in srgb, var(--warning) 30%, transparent)', marginBottom: '12px',
           }}>
-            <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--warning)', marginBottom: '8px' }}>
+            <div style={{ fontFamily: FONT, fontSize: FONT_SM, fontWeight: 600, color: 'var(--warning)', marginBottom: '8px' }}>
               Help Penny learn
             </div>
-            <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text)', lineHeight: '1.5', marginBottom: '12px' }}>
+            <div style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text)', lineHeight: '1.5', marginBottom: '12px' }}>
               I found {lowConfidenceItems.length} item{lowConfidenceItems.length !== 1 ? 's' : ''} I'm not sure about. Can you confirm?
             </div>
             {lowConfidenceItems.map(item => (
@@ -164,10 +164,10 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
                 padding: '8px 0', borderTop: '1px solid color-mix(in srgb, var(--warning) 30%, transparent)',
               }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text)', fontWeight: 500 }}>
+                  <div style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text)', fontWeight: 500 }}>
                     "{item.raw_text}"
                   </div>
-                  <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '2px' }}>
                     = {item.matched_name}?
                   </div>
                 </div>
@@ -209,7 +209,7 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
               style={{
                 width: '100%', marginTop: '12px', padding: '10px', borderRadius: '8px',
                 border: 'none', backgroundColor: 'var(--brand)', color: '#fff',
-                fontFamily: FONT, fontSize: '14px', fontWeight: 600,
+                fontFamily: FONT, fontSize: FONT_SM, fontWeight: 600,
                 cursor: submitting ? 'default' : 'pointer',
                 opacity: submitting ? 0.6 : 1,
               }}
@@ -222,7 +222,7 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
         {/* Line items list */}
         {lineItemsLoading ? (
           <div style={{ padding: '20px', textAlign: 'center' }}>
-            <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)' }}>
+            <div style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)' }}>
               Loading items...
             </div>
           </div>
@@ -236,19 +236,19 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
               }}>
                 <div style={{ flex: 1 }}>
                   <div style={{
-                    fontFamily: FONT, fontSize: '14px', color: 'var(--text)', fontWeight: 500,
+                    fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text)', fontWeight: 500,
                     display: 'flex', alignItems: 'center', gap: '6px',
                   }}>
                     {item.raw_text}
                     {item.quantity > 1 && (
-                      <span style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)' }}>
+                      <span style={{ fontFamily: FONT, fontSize: '0.6875rem', color: 'var(--text-secondary)' }}>
                         x{item.quantity}
                       </span>
                     )}
                   </div>
                   {item.matched_name && (
                     <div style={{
-                      fontFamily: FONT, fontSize: '12px', marginTop: '2px',
+                      fontFamily: FONT, fontSize: FONT_2XS, marginTop: '2px',
                       color: item.confidence === 'high' ? 'var(--success)' :
                              item.confidence === 'medium' ? 'var(--warning)' :
                              item.confidence === 'rejected' ? 'var(--error)' : 'var(--text-secondary)',
@@ -258,14 +258,14 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
                     </div>
                   )}
                 </div>
-                <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)', flexShrink: 0, marginLeft: '12px' }}>
+                <div style={{ fontFamily: FONT, fontSize: FONT_SM, fontWeight: 600, color: 'var(--text)', flexShrink: 0, marginLeft: '12px' }}>
                   {item.price_cents > 0 ? formatPrice(item.price_cents) : ''}
                 </div>
               </div>
             ))}
             {lineItems.length === 0 && (
               <div style={{ padding: '20px', textAlign: 'center' }}>
-                <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)' }}>
+                <div style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)' }}>
                   No line items extracted yet. Processing may still be in progress.
                 </div>
               </div>
@@ -280,7 +280,7 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
   if (loading) {
     return (
       <div style={{ padding: '40px 20px', textAlign: 'center' }}>
-        <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)' }}>Loading receipts...</div>
+        <div style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)' }}>Loading receipts...</div>
       </div>
     )
   }
@@ -292,10 +292,10 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
         padding: '40px 20px', gap: '16px',
       }}>
         <PennyAvatar size={48} />
-        <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: 'var(--text)', textAlign: 'center' }}>
+        <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600, color: 'var(--text)', textAlign: 'center' }}>
           No receipts yet
         </div>
-        <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
+        <div style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
           Snap a photo of your grocery receipt and I'll match the items to your list and verify your swaps.
         </div>
         <button
@@ -303,7 +303,7 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
           style={{
             marginTop: '8px', padding: '12px 24px', borderRadius: '10px',
             border: 'none', backgroundColor: 'var(--brand)', color: '#fff',
-            fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+            fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, cursor: 'pointer',
             display: 'flex', alignItems: 'center', gap: '8px',
           }}
         >
@@ -325,7 +325,7 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
         style={{
           width: '100%', margin: '12px 0', padding: '12px', borderRadius: '10px',
           border: '1px solid var(--brand)', backgroundColor: 'color-mix(in srgb, var(--brand) 3%, transparent)',
-          fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: 'var(--brand)',
+          fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--brand)',
           cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
         }}
       >
@@ -349,19 +349,19 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>
+                <div style={{ fontFamily: FONT, fontSize: FONT_SM, fontWeight: 600, color: 'var(--text)' }}>
                   {receipt.store_name || 'Receipt'}
                 </div>
-                <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginTop: '3px' }}>
+                <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '3px' }}>
                   {formatDate(receipt.transaction_date || receipt.created_at)}
                 </div>
-                <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '2px' }}>
                   {receipt.items_found} items · {receipt.items_matched} matched
                 </div>
               </div>
               <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '12px' }}>
                 {receipt.total_cents > 0 && (
-                  <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+                  <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 700, color: 'var(--text)' }}>
                     {formatPrice(receipt.total_cents)}
                   </div>
                 )}
@@ -373,7 +373,7 @@ export function ReceiptScreen({ fetchAPI, onSnapReceipt }: ReceiptScreenProps) {
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="20 6 9 17 4 12"/>
                     </svg>
-                    <span style={{ fontFamily: FONT, fontSize: '11px', fontWeight: 600, color: 'var(--success)' }}>
+                    <span style={{ fontFamily: FONT, fontSize: '0.6875rem', fontWeight: 600, color: 'var(--success)' }}>
                       {receipt.swaps_verified} verified
                     </span>
                   </div>

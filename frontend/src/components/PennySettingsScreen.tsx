@@ -3,7 +3,7 @@ import { PennyAvatar } from './PennyAvatar'
 import { PennyInsightsCard } from './PennyInsightsCard'
 import { ToggleSwitch } from './ToggleSwitch'
 import { ScreenTransition } from './ScreenTransition'
-import { FONT, pageStyles, formatPhone } from '../styles'
+import { FONT, FONT_2XS, FONT_XS, FONT_SM, FONT_MD, pageStyles, formatPhone } from '../styles'
 
 interface PennySettingsScreenProps {
   pennyPhone: string
@@ -56,8 +56,8 @@ export function PennySettingsScreen({
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
             <PennyAvatar size={52} />
             <div>
-              <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: 'var(--text)' }}>Penny</div>
-              <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>Your household's AI shopping assistant</div>
+              <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600, color: 'var(--text)' }}>Penny</div>
+              <div style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)', marginTop: '2px' }}>Your household's AI shopping assistant</div>
             </div>
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
               {pennyPhoneFormatted && (
@@ -84,8 +84,8 @@ export function PennySettingsScreen({
                 <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>
               </svg>
               <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text)' }}>I want to SMS with Penny</div>
-                <div style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', marginTop: '1px' }}>Penny texts you about deals and savings she finds</div>
+                <div style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text)' }}>I want to SMS with Penny</div>
+                <div style={{ fontFamily: FONT, fontSize: '0.6875rem', color: 'var(--text-secondary)', marginTop: '1px' }}>Penny texts you about deals and savings she finds</div>
               </div>
               <ToggleSwitch value={pennyDeals} onChange={onDealsToggle} />
             </div>
@@ -97,8 +97,8 @@ export function PennySettingsScreen({
               <path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><path d="M9 21h6"/><path d="M10 17v-2.5"/><path d="M14 17v-2.5"/>
             </svg>
             <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text)' }}>Learn from my choices</div>
-              <div style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', marginTop: '1px' }}>Penny remembers your brand preferences over time</div>
+              <div style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text)' }}>Learn from my choices</div>
+              <div style={{ fontFamily: FONT, fontSize: '0.6875rem', color: 'var(--text-secondary)', marginTop: '1px' }}>Penny remembers your brand preferences over time</div>
             </div>
             <ToggleSwitch value={pennyAutotune} onChange={onAutotuneToggle} />
           </div>
@@ -114,7 +114,7 @@ export function PennySettingsScreen({
                     background: 'none', border: '1px solid var(--border)',
                     borderRadius: '10px', cursor: 'pointer',
                     display: 'flex', alignItems: 'center', gap: '8px',
-                    fontFamily: FONT, fontSize: '13px', color: 'var(--brand)',
+                    fontFamily: FONT, fontSize: FONT_XS, color: 'var(--brand)',
                   }}
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -146,14 +146,14 @@ export function PennySettingsScreen({
                   <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
                 </svg>
                 <div>
-                  <div style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>Convenience</div>
-                  <div style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)' }}>Just grab my usual</div>
+                  <div style={{ fontFamily: FONT, fontSize: FONT_XS, fontWeight: 600, color: 'var(--text)' }}>Convenience</div>
+                  <div style={{ fontFamily: FONT, fontSize: '0.6875rem', color: 'var(--text-secondary)' }}>Just grab my usual</div>
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>Savings</div>
-                  <div style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)' }}>Help me save</div>
+                  <div style={{ fontFamily: FONT, fontSize: FONT_XS, fontWeight: 600, color: 'var(--text)' }}>Savings</div>
+                  <div style={{ fontFamily: FONT, fontSize: '0.6875rem', color: 'var(--text-secondary)' }}>Help me save</div>
                 </div>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/><text x="13" y="11" fontSize="7" fontWeight="bold" fill="var(--text)" stroke="none" fontFamily="sans-serif">%</text>
@@ -174,7 +174,7 @@ export function PennySettingsScreen({
                 padding: '10px 0', margin: 0,
               }}
             />
-            <p style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px', textAlign: 'center' as const }}>
+            <p style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '8px', textAlign: 'center' as const }}>
               {pennySlider <= 30
                 ? 'Penny sticks to your usual picks'
                 : pennySlider <= 60
