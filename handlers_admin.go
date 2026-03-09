@@ -549,7 +549,7 @@ func legalPageHTML(title, body string) string {
 body{font-family:'Avenir','Avenir Next',-apple-system,'Segoe UI',sans-serif;color:#2A2A2A;background:#F7F6F3;line-height:1.6}
 .wrap{max-width:640px;margin:0 auto;padding:40px 20px}
 h1{font-size:24px;font-weight:700;margin-bottom:8px}
-.updated{font-size:13px;color:#6B6B6B;margin-bottom:32px}
+.updated{font-size:13px;color:#525252;margin-bottom:32px}
 h2{font-size:18px;font-weight:600;margin:28px 0 8px}
 p,ul{font-size:15px;margin-bottom:12px}
 ul{padding-left:20px}

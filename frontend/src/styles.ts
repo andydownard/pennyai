@@ -13,7 +13,7 @@ export const BRAND = '#35644F'
 export const BRAND_LIGHT = '#35644F15'
 export const BG = '#F7F6F3'
 export const TEXT = '#2A2A2A'
-export const TEXT_SECONDARY = '#6B6B6B'
+export const TEXT_SECONDARY = '#525252'
 export const BORDER = '#E0DDD6'
 export const WHITE = '#FFFFFF'
 
@@ -41,17 +41,17 @@ export const THEME_CSS = `
     --brand: #35644F;
     --bg: #F7F6F3;
     --text: #2A2A2A;
-    --text-secondary: #6B6B6B;
-    --text-tertiary: #999999;
+    --text-secondary: #525252;
+    --text-tertiary: #707070;
     --border: #E0DDD6;
     --surface: #FFFFFF;
     --error: #C53030;
     --error-bg: #FEF2F2;
     --success: #276749;
     --success-bg: #F0FFF4;
-    --warning: #D97706;
+    --warning: #92400E;
     --warning-bg: #FEF3C7;
-    --info: #2563EB;
+    --info: #1E40AF;
     --info-bg: #DBEAFE;
     --neutral-bg: #E5E7EB;
     --skeleton: #E8E6E1;
@@ -61,11 +61,11 @@ export const THEME_CSS = `
   }
 
   [data-theme="dark"] {
-    --brand: #4a9470;
+    --brand: #377256;
     --bg: #121212;
     --text: #E8E6E1;
     --text-secondary: #9CA3AF;
-    --text-tertiary: #666666;
+    --text-tertiary: #8A8A8A;
     --border: #2D2D2D;
     --surface: #1E1E1E;
     --error: #F87171;
@@ -74,7 +74,7 @@ export const THEME_CSS = `
     --success-bg: #14291A;
     --warning: #F59E0B;
     --warning-bg: #331F12;
-    --info: #60A5FA;
+    --info: #93C5FD;
     --info-bg: #1E3A5F;
     --neutral-bg: #374151;
     --skeleton: #2D2D2D;
@@ -166,7 +166,7 @@ export const DEPT_ICONS: Record<string, string> = {
 }
 
 export const CONFETTI_COLORS = [
-  '#35644F', '#4a9470', '#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#FF6F91',
+  '#35644F', '#377256', '#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#FF6F91',
 ]
 
 // Utility: format phone digits as (555) 123-4567

@@ -3563,7 +3563,7 @@ const handleCodeChange = (index: number, value: string) => {
               borderLeft: `3px solid ${trip.is_mine ? 'var(--brand)' : 'var(--border)'}`, borderRadius: '4px',
               backgroundColor: 'var(--bg)', marginBottom: activeTrips.indexOf(trip) < activeTrips.length - 1 ? '4px' : 0,
             }}>
-              {isTripInProgress(trip) && <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--success, #4a9470)', flexShrink: 0 }} />}
+              {isTripInProgress(trip) && <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--success, #276749)', flexShrink: 0 }} />}
               <span style={{ flex: 1, fontFamily: FONT, fontSize: '15px', color: 'var(--text)' }}>
                 <strong>{trip.is_mine ? 'You' : (trip.user_name || 'Someone')}</strong>
                 {' — '}
