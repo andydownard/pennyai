@@ -903,7 +903,7 @@ This is a **P2** initiative — do incrementally between feature sprints, not as
 - [x] **Celebration moments** — Confetti on first swap, "You're done!" overlay with savings total, fireworks on all-done, haptic feedback on department completion. ✅ Done
 
 ### Accessibility
-- **Screen reader audit** — Full VoiceOver/TalkBack walkthrough of every screen. Fix any missing labels or confusing navigation order. Partially done: FloatingLabelField semantic `<label>`, PennySettingsScreen toggle keyboard/ARIA, ReviewSheet clickable div keyboard/ARIA, ItemRow swipe/long-press gesture accessibility, skip navigation link, main landmark, EarningsScreen aria-live, ProfileScreen input labels, PennyBar contextual aria-labels.
+- [x] **Screen reader audit** — Full VoiceOver/TalkBack walkthrough of every screen. All interactive elements have aria-labels, all modals/sheets have focus traps and role/aria-modal, skip navigation link, main landmark, contextual aria-labels throughout. No icon-only buttons without labels, no unlabeled inputs, no clickable divs without role/tabIndex. ✅ Done
 - [x] **Reduced motion** — `prefers-reduced-motion` respected in screen transitions. ✅ Done
 - [x] **Font scaling** — rem-based font scale (FONT_2XS through FONT_3XL) in styles.ts. All user-facing components + App.tsx converted from px to rem (456→149 occurrences, remaining are admin-only views + decorative emoji sizing). ✅ Done
 - [x] **Color contrast** — WCAG AAA compliance for text colors. ✅ Done: text-secondary 7.23:1, text-tertiary 4.58:1 (AA), info/warning darkened, dark theme brand/tertiary/info improved. All primary text meets AAA; secondary/tertiary meet AA minimum.
