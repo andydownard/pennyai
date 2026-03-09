@@ -90,3 +90,10 @@ when i share the list, show it to the recipient even if they aren't logged in, a
 ---
 _Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 18_
 _Submitted: 2026-03-09 12:11 UTC_
+
+## [NORMAL] 2026-03-09 12:13 UTC
+when i share a shopping list that is read only, it say's "someone's shopping list".  have it say "shopping list".  and if you look up my name on wattdata, say "Tim + Wendy's shopping list"
+
+---
+_Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 18_
+_Submitted: 2026-03-09 12:13 UTC_
