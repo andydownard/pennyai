@@ -93,7 +93,7 @@ interface DeclineReason {
   count: number
 }
 
-type Screen = 'landing' | 'login' | 'register' | 'dashboard' | 'deals' | 'create-deal' | 'deal-detail' | 'intel' | 'transactions' | 'deposit'
+type Screen = 'landing' | 'login' | 'register' | 'dashboard' | 'deals' | 'create-deal' | 'deal-detail' | 'intel' | 'transactions' | 'deposit' | 'account'
 
 // =============================================================================
 // API HELPERS
@@ -140,6 +140,13 @@ export function App() {
   const [dealDeclineReasons, setDealDeclineReasons] = useState<DeclineReason[]>([])
   const [dealDetailLoading, setDealDetailLoading] = useState(false)
 
+  // Deal editing
+  const [editingBudget, setEditingBudget] = useState(false)
+  const [editBudgetVal, setEditBudgetVal] = useState('')
+  const [editingDiscount, setEditingDiscount] = useState(false)
+  const [editDiscountVal, setEditDiscountVal] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+
   // Mobile nav
   const [navOpen, setNavOpen] = useState(false)
 
@@ -183,6 +190,18 @@ export function App() {
       setDealRecs(opt.recommendations || [])
       setDealDeclineReasons(opt.decline_reasons || [])
     }).finally(() => setDealDetailLoading(false))
+  }, [])
+
+  const saveDealField = useCallback(async (dealId: number, field: string, value: number) => {
+    setEditSaving(true)
+    try {
+      await api(`/brand/deals/${dealId}`, { method: 'PUT', body: JSON.stringify({ [field]: value }) })
+      loadDashboard()
+    } finally {
+      setEditSaving(false)
+      setEditingBudget(false)
+      setEditingDiscount(false)
+    }
   }, [])
 
   // Auth handlers
@@ -404,9 +423,8 @@ export function App() {
           <NavLink active={screen === 'deals' || screen === 'create-deal' || screen === 'deal-detail'} onClick={() => setScreen('deals')}>Deals</NavLink>
           <NavLink active={screen === 'intel'} onClick={() => setScreen('intel')}>Intel</NavLink>
           <NavLink active={screen === 'transactions' || screen === 'deposit'} onClick={() => setScreen('transactions')}>Billing</NavLink>
-          <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC }}>{user?.company_name}</div>
+          <NavLink active={screen === 'account'} onClick={() => setScreen('account')}>Account</NavLink>
           {user?.badge === 'founding' && <span style={{ fontFamily: FONT, fontSize: '10px', fontWeight: 700, color: WHITE, backgroundColor: '#FF9800', padding: '2px 6px', borderRadius: '4px' }}>FOUNDING BRAND</span>}
-          <button onClick={handleLogout} style={linkBtn}>Sign Out</button>
         </div>
         {/* Mobile hamburger */}
         <button onClick={() => setNavOpen(!navOpen)} className="brand-nav-mobile-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px', display: 'none' }}>
@@ -421,6 +439,7 @@ export function App() {
             { label: 'Deals', s: 'deals' as Screen, match: screen === 'deals' || screen === 'create-deal' || screen === 'deal-detail' },
             { label: 'Intel', s: 'intel' as Screen, match: screen === 'intel' },
             { label: 'Billing', s: 'transactions' as Screen, match: screen === 'transactions' || screen === 'deposit' },
+            { label: 'Account', s: 'account' as Screen, match: screen === 'account' },
           ].map(n => (
             <button key={n.label} onClick={() => { setScreen(n.s); setNavOpen(false) }} style={{
               background: 'none', border: 'none', textAlign: 'left', padding: '10px 0',
@@ -428,10 +447,6 @@ export function App() {
               color: n.match ? BRAND : TEXT, cursor: 'pointer', borderBottom: `1px solid ${BORDER}`,
             }}>{n.label}</button>
           ))}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0' }}>
-            <span style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC }}>{user?.company_name}</span>
-            <button onClick={() => { handleLogout(); setNavOpen(false) }} style={{ ...linkBtn, fontSize: '13px' }}>Sign Out</button>
-          </div>
         </div>
       )}
 
@@ -612,7 +627,44 @@ export function App() {
                 <MetricCard label="Accepted" value={String(deal.accepted)} />
                 <MetricCard label="Declined" value={String(deal.declined)} />
                 <MetricCard label="Accept Rate" value={`${deal.accept_rate}%`} highlight={deal.accept_rate >= 8} />
-                <MetricCard label="Budget" value={formatCents(deal.daily_budget_cents)} />
+                {/* Editable budget */}
+                <div style={{ ...cardStyle, padding: '16px' }}>
+                  <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC }}>Budget</div>
+                  {editingBudget ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
+                      <span style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 700, color: TEXT }}>$</span>
+                      <input type="number" value={editBudgetVal} onChange={e => setEditBudgetVal(e.target.value)} autoFocus
+                        onKeyDown={e => { if (e.key === 'Enter') saveDealField(deal.id, 'daily_budget_cents', Math.round(parseFloat(editBudgetVal) * 100)); if (e.key === 'Escape') setEditingBudget(false) }}
+                        style={{ ...inputStyle, padding: '4px 6px', fontSize: '18px', fontWeight: 700, width: '90px' }} />
+                      <button onClick={() => saveDealField(deal.id, 'daily_budget_cents', Math.round(parseFloat(editBudgetVal) * 100))} disabled={editSaving} style={{ ...smallBtn, color: BRAND }}>Save</button>
+                      <button onClick={() => setEditingBudget(false)} style={{ ...smallBtn, color: TEXT_SEC }}>Cancel</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', cursor: 'pointer' }} onClick={() => { setEditBudgetVal((deal.daily_budget_cents / 100).toFixed(2)); setEditingBudget(true) }}>
+                      <span style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>{formatCents(deal.daily_budget_cents)}</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={TEXT_SEC} strokeWidth="2" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </div>
+                  )}
+                </div>
+                {/* Editable discount */}
+                <div style={{ ...cardStyle, padding: '16px' }}>
+                  <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC }}>Discount</div>
+                  {editingDiscount ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
+                      <span style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 700, color: TEXT }}>$</span>
+                      <input type="number" value={editDiscountVal} onChange={e => setEditDiscountVal(e.target.value)} autoFocus
+                        onKeyDown={e => { if (e.key === 'Enter') saveDealField(deal.id, 'discount_cents', Math.round(parseFloat(editDiscountVal) * 100)); if (e.key === 'Escape') setEditingDiscount(false) }}
+                        style={{ ...inputStyle, padding: '4px 6px', fontSize: '18px', fontWeight: 700, width: '90px' }} />
+                      <button onClick={() => saveDealField(deal.id, 'discount_cents', Math.round(parseFloat(editDiscountVal) * 100))} disabled={editSaving} style={{ ...smallBtn, color: BRAND }}>Save</button>
+                      <button onClick={() => setEditingDiscount(false)} style={{ ...smallBtn, color: TEXT_SEC }}>Cancel</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', cursor: 'pointer' }} onClick={() => { setEditDiscountVal((deal.discount_cents / 100).toFixed(2)); setEditingDiscount(true) }}>
+                      <span style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: TEXT }}>{formatCents(deal.discount_cents)}</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={TEXT_SEC} strokeWidth="2" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </div>
+                  )}
+                </div>
                 <MetricCard label="Spent" value={formatCents(deal.budget_spent_cents)} />
               </div>
 
@@ -766,6 +818,50 @@ export function App() {
         {/* DEPOSIT */}
         {/* ================================================================ */}
         {screen === 'deposit' && <DepositForm user={user} onDeposited={() => { setScreen('transactions'); api<BrandUser>('/brand/me').then(setUser) }} onCancel={() => setScreen('transactions')} />}
+
+        {/* ================================================================ */}
+        {/* ACCOUNT */}
+        {/* ================================================================ */}
+        {screen === 'account' && user && (
+          <>
+            <h1 style={h1Style}>Account</h1>
+            <div style={{ ...cardStyle, marginTop: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px' }}>
+                <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: BRAND, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT, fontSize: '22px', fontWeight: 700, color: WHITE }}>
+                  {user.company_name.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <div style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 600, color: TEXT }}>{user.company_name}</div>
+                  <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SEC }}>{user.email}</div>
+                </div>
+                {user.badge === 'founding' && <span style={{ fontFamily: FONT, fontSize: '11px', fontWeight: 700, color: WHITE, backgroundColor: '#FF9800', padding: '3px 8px', borderRadius: '4px', marginLeft: 'auto' }}>FOUNDING BRAND</span>}
+              </div>
+              <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontFamily: FONT, fontSize: '14px' }}>
+                <div><span style={{ color: TEXT_SEC }}>Balance:</span> <span style={{ fontWeight: 600, color: TEXT }}>{formatCents(user.balance_cents)}</span></div>
+                <div><span style={{ color: TEXT_SEC }}>Member since:</span> <span style={{ color: TEXT }}>{new Date(user.created_at).toLocaleDateString()}</span></div>
+                <div><span style={{ color: TEXT_SEC }}>Account ID:</span> <span style={{ color: TEXT }}>#{user.brand_user_id}</span></div>
+                <div><span style={{ color: TEXT_SEC }}>Status:</span> <span style={{ color: BRAND, fontWeight: 600 }}>{user.verified ? 'Verified' : 'Unverified'}</span></div>
+              </div>
+            </div>
+
+            <div style={{ ...cardStyle, marginTop: '16px' }}>
+              <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginBottom: '12px' }}>Quick Links</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <button onClick={() => setScreen('deposit')} style={{ ...secondaryBtn, textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  Add Funds <span style={{ color: TEXT_SEC }}>→</span>
+                </button>
+                <button onClick={() => setScreen('deals')} style={{ ...secondaryBtn, textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  Manage Deals <span style={{ color: TEXT_SEC }}>→</span>
+                </button>
+                <button onClick={() => setScreen('transactions')} style={{ ...secondaryBtn, textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  Billing History <span style={{ color: TEXT_SEC }}>→</span>
+                </button>
+              </div>
+            </div>
+
+            <button onClick={handleLogout} style={{ ...secondaryBtn, color: ERROR, borderColor: ERROR, marginTop: '16px', width: '100%' }}>Sign Out</button>
+          </>
+        )}
       </div>
 
       {/* Feedback Widget */}
