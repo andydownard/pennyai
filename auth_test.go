@@ -1244,6 +1244,118 @@ func TestEmailReset_InvalidToken(t *testing.T) {
 	}
 }
 
+func TestEmailReset_MissingToken(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleEmailReset, "POST", "/auth/email/reset",
+		map[string]string{"token": "", "password": "newpassword1"}, nil)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty token, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if !strings.Contains(fmt.Sprint(body["error"]), "Missing reset token") {
+		t.Errorf("expected 'Missing reset token' error, got %v", body["error"])
+	}
+}
+
+func TestEmailReset_ShortPassword(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleEmailReset, "POST", "/auth/email/reset",
+		map[string]string{"token": "some-token", "password": "short"}, nil)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for short password, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if !strings.Contains(fmt.Sprint(body["error"]), "8-72 characters") {
+		t.Errorf("expected password length error, got %v", body["error"])
+	}
+}
+
+func TestEmailReset_ExpiredToken(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create a user with email auth
+	rr := doRequest(server.handleEmailRegister, "POST", "/auth/email/register",
+		map[string]string{"email": "test@example.com", "password": "password123", "name": "Test"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register failed: %d", rr.Code)
+	}
+
+	// Insert an expired reset token
+	server.db.Exec(`INSERT INTO password_resets (user_id, token, expires_at, used)
+		SELECT id, 'expired-token-123', datetime('now', '-1 hour'), 0 FROM users WHERE email = 'test@example.com'`)
+
+	rr = doRequest(server.handleEmailReset, "POST", "/auth/email/reset",
+		map[string]string{"token": "expired-token-123", "password": "newpassword1"}, nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for expired token, got %d", rr.Code)
+	}
+}
+
+func TestEmailReset_AlreadyUsedToken(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleEmailRegister, "POST", "/auth/email/register",
+		map[string]string{"email": "test@example.com", "password": "password123", "name": "Test"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register failed: %d", rr.Code)
+	}
+
+	// Insert a used reset token
+	server.db.Exec(`INSERT INTO password_resets (user_id, token, expires_at, used)
+		SELECT id, 'used-token-123', datetime('now', '+1 hour'), 1 FROM users WHERE email = 'test@example.com'`)
+
+	rr = doRequest(server.handleEmailReset, "POST", "/auth/email/reset",
+		map[string]string{"token": "used-token-123", "password": "newpassword1"}, nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for used token, got %d", rr.Code)
+	}
+}
+
+func TestEmailReset_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Register user
+	rr := doRequest(server.handleEmailRegister, "POST", "/auth/email/register",
+		map[string]string{"email": "test@example.com", "password": "password123", "name": "Test"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register failed: %d", rr.Code)
+	}
+
+	// Insert a valid reset token
+	server.db.Exec(`INSERT INTO password_resets (user_id, token, expires_at, used)
+		SELECT id, 'valid-token-123', datetime('now', '+1 hour'), 0 FROM users WHERE email = 'test@example.com'`)
+
+	// Reset password
+	rr = doRequest(server.handleEmailReset, "POST", "/auth/email/reset",
+		map[string]string{"token": "valid-token-123", "password": "newpassword456"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for valid reset, got %d", rr.Code)
+	}
+
+	// Verify can login with new password
+	rr = doRequest(server.handleEmailLogin, "POST", "/auth/email/login",
+		map[string]string{"email": "test@example.com", "password": "newpassword456"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected login with new password to succeed, got %d", rr.Code)
+	}
+
+	// Verify old password no longer works
+	rr = doRequest(server.handleEmailLogin, "POST", "/auth/email/login",
+		map[string]string{"email": "test@example.com", "password": "password123"}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected old password to fail, got %d", rr.Code)
+	}
+
+	// Verify token is marked as used
+	rr = doRequest(server.handleEmailReset, "POST", "/auth/email/reset",
+		map[string]string{"token": "valid-token-123", "password": "anotherpassword"}, nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for reused token, got %d", rr.Code)
+	}
+}
+
 // =============================================================================
 // UTILITY FUNCTION TESTS
 // =============================================================================

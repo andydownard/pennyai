@@ -1897,6 +1897,82 @@ func TestBrandExport_MethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestBrandExport_TransactionsCSV(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "export@brand.com", "password1234", "ExportCo")
+
+	// Get brand_user_id
+	var brandUserID int
+	server.db.QueryRow("SELECT id FROM brand_users WHERE email = 'export@brand.com'").Scan(&brandUserID)
+
+	// Insert a transaction
+	server.db.Exec(`INSERT INTO brand_transactions (brand_user_id, type, amount_cents, description, stripe_id, created_at)
+		VALUES (?, 'deposit', 10000, 'Initial deposit', 'pi_test123', datetime('now'))`, brandUserID)
+
+	rr := doRequest(server.handleBrandExport, "GET", "/brand/export?type=transactions", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "date,type,amount_cents,description,stripe_id") {
+		t.Errorf("CSV missing transactions header row")
+	}
+	if !strings.Contains(body, "deposit") || !strings.Contains(body, "10000") {
+		t.Errorf("CSV missing transaction data: %s", body)
+	}
+}
+
+func TestBrandExport_DealsCSV(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "export@brand.com", "password1234", "ExportCo")
+
+	var brandUserID int
+	server.db.QueryRow("SELECT id FROM brand_users WHERE email = 'export@brand.com'").Scan(&brandUserID)
+
+	server.db.Exec(`INSERT INTO brand_deals (brand_user_id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, budget_spent_cents, status, deal_type)
+		VALUES (?, 'heinz ketchup', 'Primal Kitchen', 'Organic Ketchup', 150, 10000, 500, 'active', 'sku_swap')`, brandUserID)
+
+	rr := doRequest(server.handleBrandExport, "GET", "/brand/export?type=deals", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "id,competitor_product") {
+		t.Errorf("CSV missing deals header row")
+	}
+	if !strings.Contains(body, "Primal Kitchen") {
+		t.Errorf("CSV missing deal data: %s", body)
+	}
+}
+
+func TestBrandExport_InvalidType(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "export@brand.com", "password1234", "ExportCo")
+
+	rr := doRequest(server.handleBrandExport, "GET", "/brand/export?type=invalid", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid export type, got %d", rr.Code)
+	}
+}
+
+func TestBrandExport_DefaultType(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "export@brand.com", "password1234", "ExportCo")
+
+	// No type param should default to "swaps"
+	rr := doRequest(server.handleBrandExport, "GET", "/brand/export", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "date,deal_id") {
+		t.Errorf("expected default swaps CSV header, got: %s", body)
+	}
+}
+
 // =============================================================================
 // Places Endpoint Tests
 // =============================================================================
