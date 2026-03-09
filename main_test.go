@@ -13591,6 +13591,43 @@ func TestBrandPortal_Dashboard(t *testing.T) {
 	}
 }
 
+func TestBrandPortal_DashboardDaysFilter(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, brandUserID := brandRegister(t, server, "filter@brand.com", "password1234", "FilterCo")
+
+	// Create a deal owned by this brand user
+	server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product,
+		discount_cents, total_budget_cents, status, brand_user_id)
+		VALUES ('old brand', 'FilterBrand', 'Product', 100, 1000, 'active', ?)`, brandUserID)
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE brand_user_id = ?", brandUserID).Scan(&dealID)
+
+	// Insert swap events: 1 recent (today) and 1 old (60 days ago)
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (999, '5559999999')")
+	server.db.Exec("INSERT INTO list_items (id, user_id, name) VALUES (999, 999, 'Test Item')")
+	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action, created_at)
+		VALUES (999, ?, 999, 'offered', datetime('now'))`, dealID)
+	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action, created_at)
+		VALUES (999, ?, 999, 'offered', datetime('now', '-60 days'))`, dealID)
+
+	// Without filter: should see both
+	rr := doRequest(server.handleBrandDashboard, "GET", "/brand/dashboard", nil, []*http.Cookie{cookie})
+	body := parseJSON(rr)
+	if body["total_swaps"].(float64) != 2 {
+		t.Errorf("no filter: expected 2 total_swaps, got %v", body["total_swaps"])
+	}
+
+	// With ?days=7: should see only the recent one
+	req := httptest.NewRequest("GET", "/brand/dashboard?days=7", nil)
+	req.AddCookie(cookie)
+	rrFiltered := httptest.NewRecorder()
+	server.handleBrandDashboard(rrFiltered, req)
+	filteredBody := parseJSON(rrFiltered)
+	if filteredBody["total_swaps"].(float64) != 1 {
+		t.Errorf("days=7 filter: expected 1 total_swaps, got %v", filteredBody["total_swaps"])
+	}
+}
+
 func TestBrandPortal_Deposit(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 	cookie, _ := brandRegister(t, server, "deposit@brand.com", "password1234", "DepositCo")

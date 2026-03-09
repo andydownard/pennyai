@@ -564,6 +564,19 @@ func (s *Server) handleBrandDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Optional date range filter: ?days=7 (default: all time)
+	daysParam := r.URL.Query().Get("days")
+	days := 0
+	if daysParam != "" {
+		if d, err := strconv.Atoi(daysParam); err == nil && d > 0 {
+			days = d
+		}
+	}
+	dateFilter := ""
+	if days > 0 {
+		dateFilter = fmt.Sprintf(" AND se.created_at >= datetime('now', '-%d days')", days)
+	}
+
 	var totalDeals, activeDeals int
 	s.db.QueryRow("SELECT COUNT(*) FROM brand_deals WHERE brand_user_id = ? AND status != 'deleted'", bs.BrandUserID).Scan(&totalDeals)
 	s.db.QueryRow("SELECT COUNT(*) FROM brand_deals WHERE brand_user_id = ? AND status = 'active'", bs.BrandUserID).Scan(&activeDeals)
@@ -574,13 +587,13 @@ func (s *Server) handleBrandDashboard(w http.ResponseWriter, r *http.Request) {
 	var totalSwaps, totalAccepted, totalDeclined int
 	s.db.QueryRow(`SELECT COUNT(*) FROM swap_events se
 		JOIN brand_deals bd ON se.deal_id = bd.id
-		WHERE bd.brand_user_id = ? AND se.action = 'offered'`, bs.BrandUserID).Scan(&totalSwaps)
+		WHERE bd.brand_user_id = ? AND se.action = 'offered'`+dateFilter, bs.BrandUserID).Scan(&totalSwaps)
 	s.db.QueryRow(`SELECT COUNT(*) FROM swap_events se
 		JOIN brand_deals bd ON se.deal_id = bd.id
-		WHERE bd.brand_user_id = ? AND se.action = 'accepted'`, bs.BrandUserID).Scan(&totalAccepted)
+		WHERE bd.brand_user_id = ? AND se.action = 'accepted'`+dateFilter, bs.BrandUserID).Scan(&totalAccepted)
 	s.db.QueryRow(`SELECT COUNT(*) FROM swap_events se
 		JOIN brand_deals bd ON se.deal_id = bd.id
-		WHERE bd.brand_user_id = ? AND se.action = 'declined'`, bs.BrandUserID).Scan(&totalDeclined)
+		WHERE bd.brand_user_id = ? AND se.action = 'declined'`+dateFilter, bs.BrandUserID).Scan(&totalDeclined)
 
 	acceptRate := 0
 	if totalSwaps > 0 {
@@ -590,20 +603,24 @@ func (s *Server) handleBrandDashboard(w http.ResponseWriter, r *http.Request) {
 	var balanceCents int
 	s.db.QueryRow("SELECT balance_cents FROM brand_balance WHERE brand_user_id = ?", bs.BrandUserID).Scan(&balanceCents)
 
-	// Swaps per day for the last 30 days
+	// Swaps per day (default last 30 days, respects ?days= filter)
+	chartDays := 30
+	if days > 0 {
+		chartDays = days
+	}
 	type dayData struct {
 		Date     string `json:"date"`
 		Offered  int    `json:"offered"`
 		Accepted int    `json:"accepted"`
 	}
-	dailyRows, _ := s.db.Query(`
+	dailyRows, _ := s.db.Query(fmt.Sprintf(`
 		SELECT DATE(se.created_at) as day, se.action, COUNT(*) as cnt
 		FROM swap_events se
 		JOIN brand_deals bd ON se.deal_id = bd.id
-		WHERE bd.brand_user_id = ? AND se.created_at > datetime('now', '-30 days')
+		WHERE bd.brand_user_id = ? AND se.created_at > datetime('now', '-%d days')
 		  AND se.action IN ('offered', 'accepted')
 		GROUP BY day, se.action
-		ORDER BY day`, bs.BrandUserID)
+		ORDER BY day`, chartDays), bs.BrandUserID)
 	dailyMap := map[string]*dayData{}
 	if dailyRows != nil {
 		defer dailyRows.Close()
@@ -627,17 +644,21 @@ func (s *Server) handleBrandDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Purchase verification funnel (M9)
+	claimDateFilter := ""
+	if days > 0 {
+		claimDateFilter = fmt.Sprintf(" AND sc.created_at >= datetime('now', '-%d days')", days)
+	}
 	var verifiedPurchases int
 	s.db.QueryRow(`SELECT COUNT(*) FROM swap_claims sc
 		JOIN swap_events se ON sc.swap_event_id = se.id
 		JOIN brand_deals bd ON se.deal_id = bd.id
-		WHERE bd.brand_user_id = ? AND sc.status = 'verified'`, bs.BrandUserID).Scan(&verifiedPurchases)
+		WHERE bd.brand_user_id = ? AND sc.status = 'verified'`+claimDateFilter, bs.BrandUserID).Scan(&verifiedPurchases)
 
 	var pendingClaims int
 	s.db.QueryRow(`SELECT COUNT(*) FROM swap_claims sc
 		JOIN swap_events se ON sc.swap_event_id = se.id
 		JOIN brand_deals bd ON se.deal_id = bd.id
-		WHERE bd.brand_user_id = ? AND sc.status = 'pending'`, bs.BrandUserID).Scan(&pendingClaims)
+		WHERE bd.brand_user_id = ? AND sc.status = 'pending'`+claimDateFilter, bs.BrandUserID).Scan(&pendingClaims)
 
 	purchaseRate := 0
 	if totalAccepted > 0 {

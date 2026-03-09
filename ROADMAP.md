@@ -386,7 +386,7 @@ Users photograph their grocery receipt after shopping. Penny reads it via a two-
 ### M9. Brand Dashboard v2 — Full Reporting
 **Size:** M (1-2 weeks)
 **Priority:** P1 — Justifies continued brand spend
-**Status:** Planned
+**Status:** Done
 
 **Description:**
 Upgrade the brand dashboard with the reporting metrics that 16/18 focus group participants said they need. This is what turns a pilot into recurring spend.
@@ -404,13 +404,13 @@ Upgrade the brand dashboard with the reporting metrics that 16/18 focus group pa
 - Weekly email digest: cron job sends HTML email with key metrics to brand users (via SendGrid)
 - CSV export: server-side generation, signed download URL
 
-**Acceptance Criteria:**
-- Dashboard loads in <2s with up to 10K swap events
-- Competitive Intel shows category-level swap data (anonymized)
-- Purchase verification funnel shows offered → accepted → purchased
-- Weekly email digest sent every Monday with prior week's metrics
-- CSV export works for all data views
-- Brand manager can set date range filters on all charts
+**Acceptance Criteria:** ✅ All met
+- [x] Dashboard loads in <2s with up to 10K swap events
+- [x] Competitive Intel shows category-level swap data (anonymized) — `handleCategoryIntel`, `handleCompetitiveIntel`
+- [x] Purchase verification funnel shows offered → accepted → purchased — `verified_purchases`, `pending_claims`, `purchase_rate`
+- [x] Weekly email digest sent every Monday with prior week's metrics — `sendPendingBrandDigests()`
+- [x] CSV export works for all data views — `handleBrandExport`
+- [x] Brand manager can set date range filters on all charts — `?days=` param on brand dashboard
 
 ---
 
@@ -538,7 +538,7 @@ Playwright E2E tests covering critical user flows: login, add items, check items
 |---|------|------|-------|----------|-----------|--------|
 | 1 | **M3. Swap Admin Tooling** | S | 1 | P0 | Enables M1 — Andy seeds first 10 deals manually. Ship first so deals exist before swaps code lands. | **Done** (admin CRUD for deals, performance metrics) |
 | 2 | **B11 + B14. Swap safety bugs** | S | 1 | P0 | Budget race condition (B11) + rebate farming (B14) = swap accept is exploitable. **Must fix before M1 ships.** | **Done** |
-| 3 | **M1. Penny Swaps v0** | L | 1 | P0 | Core revenue mechanism. Nothing else matters without this. Depends on M3 + B11/B14. | **Done** (matching, SwapCard, accept/decline, budget, suppression, auction) |
+| 3 | **M1. Penny Swaps v0** | L | 1 | P0 | Core revenue mechanism. Nothing else matters without this. Depends on M3 + B11/B14. | **Done** (matching, SwapCard, accept/decline, budget, suppression, auction, frequency cap, allergen hard-filter) |
 | 4 | **M2. Fix Sharing & Invite Flow** | M | 1 | P0 | Distribution channel for swaps — broken sharing = no growth. Parallel with M1. | **Done** |
 | 5 | **Sentry integration** | XS | — | P0 | 2 hours. Required before Stripe webhooks go live. De-risks everything after. (Buy-vs-Build: BUY NOW) | **Done** |
 | 6 | **PostHog integration** | S | — | P0 | Half day. Replaces custom analytics in handlers_admin.go. Needed to measure swap acceptance rates. (Buy-vs-Build: BUY NOW) | **Done** |
@@ -551,11 +551,11 @@ Playwright E2E tests covering critical user flows: login, add items, check items
 | 13 | **B15. daily_budget_cents misnomer** | XS | — | P2 | Rename to total_budget_cents or implement daily reset. Low urgency but confusing. | **Done** |
 | 14 | **R3. Done Shopping Flow** | M | 3 | P1 | Retention + natural trigger for receipt scanning (M7). | **Done** (Sprint 3 — summary, save list, confetti) |
 | 15 | **M7. Receipt Reading** | L | 3 | P1 | Closes attribution loop. Consider Veryfi for OCR layer (Buy-vs-Build: BUY LATER). | **Done** (backend + ReceiptScreen UI: list/detail views, confidence badges, user confirmation flow, swap verification) |
-| 16 | **M9. Brand Dashboard v2** | S→M | 3 | P2 | **Scope reduced** — Metabase handles most reporting. Only Competitive Intel + purchase verification funnel need custom code. Was M, now S-M. | Planned |
+| 16 | **M9. Brand Dashboard v2** | S→M | 3 | P2 | **Scope reduced** — Metabase handles most reporting. Competitive Intel, purchase verification funnel, date range filter, CSV export, weekly digest all shipped. | **Done** |
 | 17 | **R2. Trip Planner Discoverability** | S | — | P3 | Quality of life, quick win. Do when there's a spare afternoon. | **Done** (Sprint 4) |
 | — | ~~R4. SSE Real-Time Updates~~ | — | — | — | **Replaced by Pusher/Ably** (Buy-vs-Build: BUY NOW). No longer a build item. | Replaced |
-| 18 | **R6. Codebase Refactor** | L | — | P2 | Split monolithic files (App.tsx, handlers), extract middleware, shared styles, API layer. Do incrementally between sprints. | Planned |
-| 19 | **R7. UX Overhaul** | L | — | P1 | Design system, dark mode, bottom tabs, screen transitions, optimistic updates, offline support. Dedicated sprint after revenue stabilizes. | Planned |
+| 18 | **R6. Codebase Refactor** | L | — | P2 | Split monolithic files (App.tsx, handlers), extract middleware, shared styles, API layer. Do incrementally between sprints. | **Partial** (API layer ✅, error handling ✅, hooks ✅, test helpers ✅; remaining: inline styles, test org, backend middleware) |
+| 19 | **R7. UX Overhaul** | L | — | P1 | Design system, dark mode, bottom tabs, screen transitions, optimistic updates, offline support. Dedicated sprint after revenue stabilizes. | **Mostly Done** (dark mode ✅, bottom tabs ✅, transitions ✅, a11y ✅, font scaling ✅, code splitting ✅; remaining: Penny avatar expressions) |
 
 ### What changed (March 2026 groom)
 - **M3 moved to #1** — deals must exist before swap code ships. M1 depends on M3, not the other way around.
