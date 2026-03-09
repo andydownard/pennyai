@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -1666,5 +1667,1168 @@ func TestSegmentAnalysis_WithData(t *testing.T) {
 		if strings.HasPrefix(seg, "segment:") {
 			t.Errorf("Segment name should have prefix stripped, got %q", seg)
 		}
+	}
+}
+
+// =============================================================================
+// NEW TESTS: handleAdminDeals — uncovered branches
+// =============================================================================
+
+func TestNewTests_AdminDeals_PostInvalidJSON(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833") // admin phone
+
+	// Send invalid JSON body
+	req := httptest.NewRequest("POST", "/api/admin/deals", bytes.NewReader([]byte("{bad json")))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleAdminDeals(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Invalid JSON should return 400, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["error"] != "Invalid request body" {
+		t.Errorf("Expected 'Invalid request body' error, got %v", body["error"])
+	}
+}
+
+func TestNewTests_AdminDeals_PostMissingRequiredFields(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Missing competitor_product
+	rr := doRequest(server.handleAdminDeals, "POST", "/api/admin/deals",
+		map[string]interface{}{
+			"offer_brand":   "Brand B",
+			"offer_product": "Product B",
+		}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Missing competitor_product: got %d, want 400", rr.Code)
+	}
+
+	// Missing offer_brand
+	rr = doRequest(server.handleAdminDeals, "POST", "/api/admin/deals",
+		map[string]interface{}{
+			"competitor_product": "Brand A Milk",
+			"offer_product":     "Product B",
+		}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Missing offer_brand: got %d, want 400", rr.Code)
+	}
+
+	// Missing offer_product
+	rr = doRequest(server.handleAdminDeals, "POST", "/api/admin/deals",
+		map[string]interface{}{
+			"competitor_product": "Brand A Milk",
+			"offer_brand":       "Brand B",
+		}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Missing offer_product: got %d, want 400", rr.Code)
+	}
+
+	// Whitespace-only fields should also fail
+	rr = doRequest(server.handleAdminDeals, "POST", "/api/admin/deals",
+		map[string]interface{}{
+			"competitor_product": "   ",
+			"offer_brand":       "  ",
+			"offer_product":     "  ",
+		}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Whitespace-only fields: got %d, want 400", rr.Code)
+	}
+}
+
+func TestNewTests_AdminDeals_PostDefaultValues(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Create deal without status, deal_type, or quantity_offered
+	rr := doRequest(server.handleAdminDeals, "POST", "/api/admin/deals",
+		map[string]interface{}{
+			"competitor_product":  "Brand A Milk",
+			"offer_brand":        "Brand B",
+			"offer_product":      "Brand B Milk",
+			"discount_cents":     100,
+			"daily_budget_cents": 5000,
+		}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("Create deal: got %d, want 201: %s", rr.Code, rr.Body.String())
+	}
+
+	var deal BrandDeal
+	json.Unmarshal(rr.Body.Bytes(), &deal)
+
+	if deal.Status != "active" {
+		t.Errorf("Default status: got %q, want 'active'", deal.Status)
+	}
+	if deal.DealType != "sku_swap" {
+		t.Errorf("Default deal_type: got %q, want 'sku_swap'", deal.DealType)
+	}
+	if deal.QuantityOffered != 1 {
+		t.Errorf("Default quantity_offered: got %d, want 1", deal.QuantityOffered)
+	}
+}
+
+func TestNewTests_AdminDeals_PostCustomDealType(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Create deal with explicit deal_type, status, and quantity_offered
+	rr := doRequest(server.handleAdminDeals, "POST", "/api/admin/deals",
+		map[string]interface{}{
+			"competitor_product":  "Brand A Cola",
+			"offer_brand":        "Brand B",
+			"offer_product":      "Brand B Cola",
+			"discount_cents":     50,
+			"daily_budget_cents": 2000,
+			"status":             "paused",
+			"deal_type":          "free_trial",
+			"quantity_offered":   3,
+			"trial_product_name": "Brand B Trial Pack",
+			"trial_size":         "6oz",
+			"campaign_tag":       "summer_2026",
+		}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("Create deal: got %d, want 201: %s", rr.Code, rr.Body.String())
+	}
+
+	var deal BrandDeal
+	json.Unmarshal(rr.Body.Bytes(), &deal)
+
+	if deal.Status != "paused" {
+		t.Errorf("Status: got %q, want 'paused'", deal.Status)
+	}
+	if deal.DealType != "free_trial" {
+		t.Errorf("DealType: got %q, want 'free_trial'", deal.DealType)
+	}
+	if deal.QuantityOffered != 3 {
+		t.Errorf("QuantityOffered: got %d, want 3", deal.QuantityOffered)
+	}
+	if deal.TrialProductName != "Brand B Trial Pack" {
+		t.Errorf("TrialProductName: got %q, want 'Brand B Trial Pack'", deal.TrialProductName)
+	}
+}
+
+func TestNewTests_AdminDeals_PutInvalidJSON(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	req := httptest.NewRequest("PUT", "/api/admin/deals", bytes.NewReader([]byte("not-json")))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleAdminDeals(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Invalid JSON PUT: got %d, want 400", rr.Code)
+	}
+}
+
+func TestNewTests_AdminDeals_PutMissingID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	rr := doRequest(server.handleAdminDeals, "PUT", "/api/admin/deals",
+		map[string]interface{}{
+			"competitor_product": "Brand A",
+			"offer_brand":       "Brand B",
+			"offer_product":     "Brand B Milk",
+		}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("PUT without ID: got %d, want 400", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["error"] != "id is required" {
+		t.Errorf("Expected 'id is required', got %v", body["error"])
+	}
+}
+
+func TestNewTests_AdminDeals_DeleteInvalidJSON(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	req := httptest.NewRequest("DELETE", "/api/admin/deals", bytes.NewReader([]byte("bad")))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleAdminDeals(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Invalid JSON DELETE: got %d, want 400", rr.Code)
+	}
+}
+
+func TestNewTests_AdminDeals_DeleteMissingID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	rr := doRequest(server.handleAdminDeals, "DELETE", "/api/admin/deals",
+		map[string]interface{}{"id": 0}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("DELETE with id=0: got %d, want 400", rr.Code)
+	}
+}
+
+func TestNewTests_AdminDeals_DeleteNonexistentDeal(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	rr := doRequest(server.handleAdminDeals, "DELETE", "/api/admin/deals",
+		map[string]interface{}{"id": 99999}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("DELETE nonexistent deal: got %d, want 404", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["error"] != "Deal not found" {
+		t.Errorf("Expected 'Deal not found', got %v", body["error"])
+	}
+}
+
+func TestNewTests_AdminDeals_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	rr := doRequest(server.handleAdminDeals, "PATCH", "/api/admin/deals", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("PATCH should return 405, got %d", rr.Code)
+	}
+}
+
+func TestNewTests_AdminDeals_PostNegativePrices(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Negative offer_price_cents
+	rr := doRequest(server.handleAdminDeals, "POST", "/api/admin/deals",
+		map[string]interface{}{
+			"competitor_product":  "Brand A",
+			"offer_brand":        "Brand B",
+			"offer_product":      "Brand B Milk",
+			"offer_price_cents":  -100,
+		}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Negative offer_price_cents: got %d, want 400", rr.Code)
+	}
+
+	// Negative competitor_price_cents
+	rr = doRequest(server.handleAdminDeals, "POST", "/api/admin/deals",
+		map[string]interface{}{
+			"competitor_product":      "Brand A",
+			"offer_brand":            "Brand B",
+			"offer_product":          "Brand B Milk",
+			"competitor_price_cents": -200,
+		}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Negative competitor_price_cents: got %d, want 400", rr.Code)
+	}
+}
+
+// =============================================================================
+// NEW TESTS: handleResolveABTest — uncovered branches
+// =============================================================================
+
+func TestNewTests_ABResolveTest_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Create a test to resolve
+	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
+		VALUES ('resolve_me', 'Test to resolve', '["control","variant_a"]', 'conversion', 100, 7, 100, 'active')`)
+
+	// Use ServeMux so r.PathValue("name") works
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/admin/ab-tests/{name}/resolve", handleResolveABTest(server))
+
+	body, _ := json.Marshal(map[string]string{"winner": "variant_a"})
+	req := httptest.NewRequest("POST", "/api/admin/ab-tests/resolve_me/resolve", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Resolve: got %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+
+	result := parseJSON(rr)
+	if result["status"] != "resolved" {
+		t.Errorf("Status: got %v, want 'resolved'", result["status"])
+	}
+	if result["winner"] != "variant_a" {
+		t.Errorf("Winner: got %v, want 'variant_a'", result["winner"])
+	}
+
+	// Verify the test is now resolved in DB
+	var dbStatus, dbWinner string
+	server.db.QueryRow("SELECT status, COALESCE(winner,'') FROM ab_tests WHERE name = 'resolve_me'").Scan(&dbStatus, &dbWinner)
+	if dbStatus != "resolved" {
+		t.Errorf("DB status: got %q, want 'resolved'", dbStatus)
+	}
+	if dbWinner != "variant_a" {
+		t.Errorf("DB winner: got %q, want 'variant_a'", dbWinner)
+	}
+}
+
+func TestNewTests_ABResolveTest_InvalidJSON(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/admin/ab-tests/{name}/resolve", handleResolveABTest(server))
+
+	req := httptest.NewRequest("POST", "/api/admin/ab-tests/test_name/resolve", bytes.NewReader([]byte("{invalid")))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Invalid JSON resolve: got %d, want 400", rr.Code)
+	}
+}
+
+func TestNewTests_ABResolveTest_NonAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559999001") // non-admin
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/admin/ab-tests/{name}/resolve", handleResolveABTest(server))
+
+	body, _ := json.Marshal(map[string]string{"winner": "control"})
+	req := httptest.NewRequest("POST", "/api/admin/ab-tests/test_name/resolve", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Non-admin resolve: got %d, want 403", rr.Code)
+	}
+}
+
+// =============================================================================
+// NEW TESTS: handleAdminPayouts — uncovered branches
+// =============================================================================
+
+func TestNewTests_AdminPayouts_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	rr := doRequest(server.handleAdminPayouts, "DELETE", "/api/admin/payouts", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("DELETE should return 405, got %d", rr.Code)
+	}
+
+	rr = doRequest(server.handleAdminPayouts, "PUT", "/api/admin/payouts", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("PUT should return 405, got %d", rr.Code)
+	}
+}
+
+func TestNewTests_AdminPayouts_PostNoNeedingRebates(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// POST for a user with no pending rebates — should succeed with 0 updated
+	rr := doRequest(server.handleAdminPayouts, "POST", "/api/admin/payouts",
+		map[string]interface{}{"user_id": 99999}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST for non-existing user: got %d, want 200", rr.Code)
+	}
+
+	body := parseJSON(rr)
+	if body["updated"].(float64) != 0 {
+		t.Errorf("Updated should be 0 for user with no pending rebates, got %v", body["updated"])
+	}
+}
+
+func TestNewTests_AdminPayouts_MultiplePendingRebates(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	adminUser, _ := upsertUser(server.db, "3104861833")
+	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
+	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
+
+	// Create a user with multiple pending rebates
+	regularUser, _ := upsertUser(server.db, "5559990099")
+	server.db.Exec("UPDATE users SET name = 'Multi Rebate User', email = 'multi@test.com' WHERE id = ?", regularUser.ID)
+
+	dealRes, _ := server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, status)
+		VALUES ('X', 'Y', 'Z', 100, 5000, 'active')`)
+	dealID, _ := dealRes.LastInsertId()
+
+	// Create 3 swap events and rebates
+	for i := 0; i < 3; i++ {
+		swapRes, _ := server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, ?, 'accepted')`, regularUser.ID, dealID, i+1)
+		swapEventID, _ := swapRes.LastInsertId()
+		server.db.Exec(`INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, ?, ?, ?, 'pending')`,
+			regularUser.ID, swapEventID, dealID, 50*(i+1))
+	}
+
+	// GET to verify aggregation
+	rr := doRequest(server.handleAdminPayouts, "GET", "/api/admin/payouts", nil, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET payouts: got %d, want 200", rr.Code)
+	}
+
+	var payouts []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &payouts)
+	if len(payouts) != 1 {
+		t.Fatalf("Expected 1 payout entry, got %d", len(payouts))
+	}
+	// Total should be 50+100+150 = 300
+	if payouts[0]["total_cents"].(float64) != 300 {
+		t.Errorf("Total cents: got %v, want 300", payouts[0]["total_cents"])
+	}
+	if payouts[0]["swap_count"].(float64) != 3 {
+		t.Errorf("Swap count: got %v, want 3", payouts[0]["swap_count"])
+	}
+
+	// POST to mark all as issued
+	rr = doRequest(server.handleAdminPayouts, "POST", "/api/admin/payouts",
+		map[string]interface{}{"user_id": regularUser.ID}, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST payouts: got %d, want 200", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["updated"].(float64) != 3 {
+		t.Errorf("Should mark 3 rebates as issued, got %v", body["updated"])
+	}
+
+	// GET again should show 0 pending
+	rr = doRequest(server.handleAdminPayouts, "GET", "/api/admin/payouts", nil, []*http.Cookie{adminCookie})
+	var afterPayouts []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &afterPayouts)
+	if len(afterPayouts) != 0 {
+		t.Errorf("After marking issued, expected 0 payouts, got %d", len(afterPayouts))
+	}
+}
+
+func TestNewTests_AdminPayouts_PostInvalidJSON(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Send request with wrong content type (decodeJSON checks Content-Type)
+	req := httptest.NewRequest("POST", "/api/admin/payouts", bytes.NewReader([]byte("not json")))
+	req.Header.Set("Content-Type", "text/plain")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleAdminPayouts(rr, req)
+
+	if rr.Code != http.StatusUnsupportedMediaType {
+		t.Errorf("Wrong content-type: got %d, want 415", rr.Code)
+	}
+}
+
+func TestNewTests_AdminPayouts_MultipleUsersAggregation(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	adminUser, _ := upsertUser(server.db, "3104861833")
+	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
+	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
+
+	// Create two users with pending rebates
+	user1, _ := upsertUser(server.db, "5559991111")
+	user2, _ := upsertUser(server.db, "5559992222")
+	server.db.Exec("UPDATE users SET name = 'User One' WHERE id = ?", user1.ID)
+	server.db.Exec("UPDATE users SET name = 'User Two' WHERE id = ?", user2.ID)
+
+	dealRes, _ := server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, status)
+		VALUES ('A', 'B', 'C', 100, 5000, 'active')`)
+	dealID, _ := dealRes.LastInsertId()
+
+	// User 1: 200 cents pending
+	swapRes1, _ := server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, 1, 'accepted')`, user1.ID, dealID)
+	swapEventID1, _ := swapRes1.LastInsertId()
+	server.db.Exec(`INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, ?, ?, 200, 'pending')`, user1.ID, swapEventID1, dealID)
+
+	// User 2: 100 cents pending
+	swapRes2, _ := server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, 2, 'accepted')`, user2.ID, dealID)
+	swapEventID2, _ := swapRes2.LastInsertId()
+	server.db.Exec(`INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, ?, ?, 100, 'pending')`, user2.ID, swapEventID2, dealID)
+
+	rr := doRequest(server.handleAdminPayouts, "GET", "/api/admin/payouts", nil, []*http.Cookie{adminCookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET payouts: got %d, want 200", rr.Code)
+	}
+
+	var payouts []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &payouts)
+	if len(payouts) != 2 {
+		t.Fatalf("Expected 2 payout entries (two users), got %d", len(payouts))
+	}
+
+	// They should be ordered by total_cents DESC (user1=200 first, user2=100 second)
+	if payouts[0]["total_cents"].(float64) != 200 {
+		t.Errorf("First payout total_cents: got %v, want 200", payouts[0]["total_cents"])
+	}
+	if payouts[1]["total_cents"].(float64) != 100 {
+		t.Errorf("Second payout total_cents: got %v, want 100", payouts[1]["total_cents"])
+	}
+}
+
+// =============================================================================
+// NEW TESTS: handleABTestResults — uncovered branches
+// =============================================================================
+
+func TestNewTests_ABResults_MissingTestName(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Call handler directly without path routing — PathValue("name") returns ""
+	rr := doRequest(handleABTestResults(server), "GET", "/api/admin/ab-tests//results", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Empty test name: got %d, want 400", rr.Code)
+	}
+}
+
+func TestNewTests_ABResults_NonexistentTest(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/admin/ab-tests/{name}/results", handleABTestResults(server))
+
+	req := httptest.NewRequest("GET", "/api/admin/ab-tests/totally_bogus_test/results", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("Nonexistent test: got %d, want 500", rr.Code)
+	}
+}
+
+func TestNewTests_ABResults_NonAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559999002") // non-admin
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/admin/ab-tests/{name}/results", handleABTestResults(server))
+
+	req := httptest.NewRequest("GET", "/api/admin/ab-tests/some_test/results", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Non-admin results: got %d, want 403", rr.Code)
+	}
+}
+
+// =============================================================================
+// NEW TESTS: trackABEvent — uncovered branches
+// =============================================================================
+
+func TestNewTests_TrackABEvent_NonexistentTest(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Track event for a test that doesn't exist — should silently succeed (no error)
+	err := trackABEvent(server.db, "nonexistent_test", 1, "conversion", 1.0)
+	if err != nil {
+		t.Errorf("Tracking event for nonexistent test should not error, got: %v", err)
+	}
+
+	// Verify no event was inserted
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM ab_events WHERE test_name = 'nonexistent_test'").Scan(&count)
+	if count != 0 {
+		t.Errorf("No event should be inserted for nonexistent test, got %d", count)
+	}
+}
+
+func TestNewTests_TrackABEvent_InactiveTest(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create a resolved (inactive) test
+	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
+		VALUES ('inactive_test', 'desc', '["control","variant"]', 'conversion', 100, 7, 100, 'resolved')`)
+
+	err := trackABEvent(server.db, "inactive_test", 1, "conversion", 1.0)
+	if err != nil {
+		t.Errorf("Tracking event for inactive test should not error, got: %v", err)
+	}
+
+	// Verify no event was inserted
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM ab_events WHERE test_name = 'inactive_test'").Scan(&count)
+	if count != 0 {
+		t.Errorf("No event should be inserted for inactive test, got %d", count)
+	}
+}
+
+func TestNewTests_TrackABEvent_SuccessfulInsert(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create an active test with 100% traffic
+	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
+		VALUES ('active_track', 'desc', '["control","variant"]', 'click', 100, 7, 100, 'active')`)
+
+	err := trackABEvent(server.db, "active_track", 42, "click", 2.5)
+	if err != nil {
+		t.Fatalf("Tracking event: %v", err)
+	}
+
+	// Verify event was inserted
+	var count int
+	var value float64
+	server.db.QueryRow("SELECT COUNT(*), COALESCE(SUM(value),0) FROM ab_events WHERE test_name = 'active_track' AND user_id = 42").Scan(&count, &value)
+	if count != 1 {
+		t.Errorf("Expected 1 event, got %d", count)
+	}
+	if value != 2.5 {
+		t.Errorf("Expected value 2.5, got %f", value)
+	}
+}
+
+func TestNewTests_TrackABEvent_MultipleEvents(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
+		VALUES ('multi_track', 'desc', '["control","variant"]', 'click', 100, 7, 100, 'active')`)
+
+	// Track multiple events for same user — should all be inserted
+	for i := 0; i < 5; i++ {
+		err := trackABEvent(server.db, "multi_track", 10, "click", 1.0)
+		if err != nil {
+			t.Fatalf("Track event %d: %v", i, err)
+		}
+	}
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM ab_events WHERE test_name = 'multi_track' AND user_id = 10").Scan(&count)
+	if count != 5 {
+		t.Errorf("Expected 5 events, got %d", count)
+	}
+}
+
+// =============================================================================
+// NEW TESTS: handleGetVariant — uncovered branches
+// =============================================================================
+
+func TestNewTests_GetVariant_NonexistentTest(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559999003")
+
+	rr := doRequest(handleGetVariant(server), "GET", "/api/ab/variant?test=does_not_exist", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("Nonexistent test: got %d, want 200", rr.Code)
+	}
+	result := parseJSON(rr)
+	if result["variant"] != "" {
+		t.Errorf("Expected empty variant for nonexistent test, got %v", result["variant"])
+	}
+}
+
+func TestNewTests_GetVariant_InactiveTest(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559999004")
+
+	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
+		VALUES ('inactive_var', 'desc', '["control","variant"]', 'conversion', 100, 7, 100, 'resolved')`)
+
+	rr := doRequest(handleGetVariant(server), "GET", "/api/ab/variant?test=inactive_var", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("Inactive test: got %d, want 200", rr.Code)
+	}
+	result := parseJSON(rr)
+	if result["variant"] != "" {
+		t.Errorf("Expected empty variant for inactive test, got %v", result["variant"])
+	}
+}
+
+func TestNewTests_GetVariant_TrafficPercentage(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create test with only 10% traffic — users with bucket >= 10 get control
+	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
+		VALUES ('low_traffic', 'desc', '["control","variant"]', 'metric', 100, 7, 10, 'active')`)
+
+	// User with ID where ID % 100 >= 10 should get control (outside traffic %)
+	// Create user — loginUser creates with upsertUser which auto-assigns IDs
+	// We need a user whose ID % 100 >= 10
+	// Insert directly to control the ID
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (50, '5559999050')")
+	token, _ := server.sessions.CreateSession(50, "5559999050", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(handleGetVariant(server), "GET", "/api/ab/variant?test=low_traffic", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Get variant: got %d, want 200", rr.Code)
+	}
+	result := parseJSON(rr)
+	// User ID 50: bucket = 50 % 100 = 50, which is >= 10, so should get control
+	if result["variant"] != "control" {
+		t.Errorf("User outside traffic %% should get control, got %v", result["variant"])
+	}
+}
+
+func TestNewTests_GetVariant_ThreeVariants(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create test with 3 variants and 100% traffic
+	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
+		VALUES ('three_vars', 'desc', '["a","b","c"]', 'metric', 100, 7, 100, 'active')`)
+
+	// Test deterministic assignment across different user IDs
+	variants := map[string]bool{}
+	for _, uid := range []int{1, 100, 200, 300, 400, 500} {
+		v, err := getVariant(server.db, "three_vars", uid)
+		if err != nil {
+			t.Fatalf("getVariant uid=%d: %v", uid, err)
+		}
+		if v != "a" && v != "b" && v != "c" {
+			t.Errorf("Unexpected variant %q for uid %d", v, uid)
+		}
+		variants[v] = true
+	}
+	// With 6 different user IDs we should see at least 2 of the 3 variants
+	if len(variants) < 2 {
+		t.Errorf("Expected at least 2 distinct variants across 6 users, got %d: %v", len(variants), variants)
+	}
+}
+
+// =============================================================================
+// NEW TESTS: getVariant edge cases
+// =============================================================================
+
+func TestNewTests_GetVariant_FunctionLevel_FewerThanTwoVariants(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create a test with only 1 variant (invalid but tests the error path)
+	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
+		VALUES ('one_var', 'desc', '["only_one"]', 'metric', 100, 7, 100, 'active')`)
+
+	_, err := getVariant(server.db, "one_var", 1)
+	if err == nil {
+		t.Error("Expected error for test with fewer than 2 variants")
+	}
+	if !strings.Contains(err.Error(), "fewer than 2 variants") {
+		t.Errorf("Error should mention fewer than 2 variants, got: %v", err)
+	}
+}
+
+func TestNewTests_GetVariant_FunctionLevel_InvalidVariantsJSON(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create a test with invalid JSON in variants column
+	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
+		VALUES ('bad_json_var', 'desc', 'not-json', 'metric', 100, 7, 100, 'active')`)
+
+	_, err := getVariant(server.db, "bad_json_var", 1)
+	if err == nil {
+		t.Error("Expected error for invalid variants JSON")
+	}
+}
+
+// =============================================================================
+// NEW TESTS: analyzeABTest — additional branch coverage
+// =============================================================================
+
+func TestNewTests_AnalyzeABTest_BothZeroEvents(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	server.db.Exec(
+		`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-10 days'))`,
+		"both_zero", "Both zero", `["control","variant_a"]`, "purchases", 2, 7, 100, "active",
+	)
+
+	// Both variants have events with value=0 (mean=0 for both)
+	for i := 1; i <= 3; i++ {
+		server.db.Exec(
+			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
+			"both_zero", "control", i, "purchases", 0.0,
+		)
+	}
+	for i := 4; i <= 6; i++ {
+		server.db.Exec(
+			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
+			"both_zero", "variant_a", i, "purchases", 0.0,
+		)
+	}
+
+	analysis, err := analyzeABTest(server.db, "both_zero")
+	if err != nil {
+		t.Fatalf("analyzeABTest error: %v", err)
+	}
+	if !analysis.SufficientData {
+		t.Error("Should have sufficient data")
+	}
+	// control.Mean == 0, bestMean == 0: should hit "No events recorded" path
+	if !strings.Contains(analysis.Recommendation, "No events recorded") {
+		t.Errorf("Should recommend checking instrumentation, got %q", analysis.Recommendation)
+	}
+}
+
+func TestNewTests_AnalyzeABTest_ResolvedStatus(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create a resolved test
+	server.db.Exec(
+		`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status, winner, resolved_at, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, datetime('now', '-20 days'))`,
+		"resolved_test", "Resolved", `["control","variant_a"]`, "metric", 2, 7, 100, "resolved", "variant_a",
+	)
+
+	analysis, err := analyzeABTest(server.db, "resolved_test")
+	if err != nil {
+		t.Fatalf("analyzeABTest error: %v", err)
+	}
+	if analysis.Status != "resolved" {
+		t.Errorf("Status: got %q, want 'resolved'", analysis.Status)
+	}
+}
+
+// =============================================================================
+// NEW TESTS: handleTrackABEvent handler — uncovered branches
+// =============================================================================
+
+func TestNewTests_TrackABEventHandler_InvalidJSON(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559999010")
+
+	req := httptest.NewRequest("POST", "/api/ab/event", bytes.NewReader([]byte("{bad")))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handleTrackABEvent(server)(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Invalid JSON: got %d, want 400", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["error"] != "invalid JSON" {
+		t.Errorf("Error: got %v, want 'invalid JSON'", body["error"])
+	}
+}
+
+func TestNewTests_TrackABEventHandler_MissingTest(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559999011")
+
+	rr := doRequest(handleTrackABEvent(server), "POST", "/api/ab/event",
+		map[string]interface{}{"test": "", "event": "click"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Missing test: got %d, want 400", rr.Code)
+	}
+}
+
+func TestNewTests_TrackABEventHandler_MissingEvent(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559999012")
+
+	rr := doRequest(handleTrackABEvent(server), "POST", "/api/ab/event",
+		map[string]interface{}{"test": "t", "event": ""}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Missing event: got %d, want 400", rr.Code)
+	}
+}
+
+func TestNewTests_TrackABEventHandler_ActiveTestRecords(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5559999013")
+
+	// Create an active test
+	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
+		VALUES ('handler_track', 'desc', '["control","variant"]', 'click', 100, 7, 100, 'active')`)
+
+	rr := doRequest(handleTrackABEvent(server), "POST", "/api/ab/event",
+		map[string]interface{}{"test": "handler_track", "event": "click", "value": 3.5}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("Track event: got %d, want 200", rr.Code)
+	}
+
+	// Verify event was recorded with correct value
+	var value float64
+	server.db.QueryRow("SELECT value FROM ab_events WHERE test_name = 'handler_track' AND user_id = ?", userID).Scan(&value)
+	if value != 3.5 {
+		t.Errorf("Event value: got %f, want 3.5", value)
+	}
+}
+
+// =============================================================================
+// NEW TESTS: handleCreateABTest — additional branches
+// =============================================================================
+
+func TestNewTests_ABCreateTest_InvalidJSON(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	req := httptest.NewRequest("POST", "/api/admin/ab-tests", bytes.NewReader([]byte("{bad json")))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handleCreateABTest(server)(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Invalid JSON: got %d, want 400", rr.Code)
+	}
+}
+
+func TestNewTests_ABCreateTest_DuplicateName(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Create first test
+	rr := doRequest(handleCreateABTest(server), "POST", "/api/admin/ab-tests",
+		map[string]interface{}{"name": "dupe_test", "key_metric": "clicks"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("First create: got %d, want 201", rr.Code)
+	}
+
+	// Try to create same name again
+	rr = doRequest(handleCreateABTest(server), "POST", "/api/admin/ab-tests",
+		map[string]interface{}{"name": "dupe_test", "key_metric": "clicks"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("Duplicate name: got %d, want 500", rr.Code)
+	}
+}
+
+func TestNewTests_ABCreateTest_DefaultsApplied(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Create with only required fields — other defaults should apply
+	rr := doRequest(handleCreateABTest(server), "POST", "/api/admin/ab-tests",
+		map[string]interface{}{
+			"name":       "defaults_test",
+			"key_metric": "metric",
+		}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("Create: got %d, want 201: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify defaults in DB
+	var minSample, days, pct int
+	var variantsJSON string
+	server.db.QueryRow("SELECT variants, min_sample_per_variant, measurement_days, traffic_pct FROM ab_tests WHERE name = 'defaults_test'").
+		Scan(&variantsJSON, &minSample, &days, &pct)
+
+	if variantsJSON != `["control","variant"]` {
+		t.Errorf("Default variants: got %q, want [\"control\",\"variant\"]", variantsJSON)
+	}
+	if minSample != 100 {
+		t.Errorf("Default min_sample: got %d, want 100", minSample)
+	}
+	if days != 7 {
+		t.Errorf("Default measurement_days: got %d, want 7", days)
+	}
+	if pct != 50 {
+		t.Errorf("Default traffic_pct: got %d, want 50", pct)
+	}
+}
+
+// =============================================================================
+// NEW TESTS: handleListABTests — additional branches
+// =============================================================================
+
+func TestNewTests_ABListTests_FilterByStatus(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Create tests with different statuses
+	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
+		VALUES ('active1', 'desc', '["a","b"]', 'metric', 100, 7, 50, 'active')`)
+	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status, winner)
+		VALUES ('resolved1', 'desc', '["a","b"]', 'metric', 100, 7, 50, 'resolved', 'a')`)
+
+	// Filter for active only
+	rr := doRequest(handleListABTests(server), "GET", "/api/admin/ab-tests?status=active", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("List active: got %d, want 200", rr.Code)
+	}
+
+	var tests []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &tests)
+	// Should include seeded active tests + active1 but not resolved1
+	for _, test := range tests {
+		if test["status"] != "active" {
+			t.Errorf("Expected only active tests, got status %v for test %v", test["status"], test["name"])
+		}
+	}
+
+	// Filter for resolved only
+	rr = doRequest(handleListABTests(server), "GET", "/api/admin/ab-tests?status=resolved", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("List resolved: got %d, want 200", rr.Code)
+	}
+
+	json.Unmarshal(rr.Body.Bytes(), &tests)
+	for _, test := range tests {
+		if test["status"] != "resolved" {
+			t.Errorf("Expected only resolved tests, got status %v for test %v", test["status"], test["name"])
+		}
+	}
+}
+
+func TestNewTests_ABListTests_EmptyResult(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Filter for a status that won't match any test
+	rr := doRequest(handleListABTests(server), "GET", "/api/admin/ab-tests?status=nonexistent_status", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("List empty: got %d, want 200", rr.Code)
+	}
+
+	var tests []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &tests)
+	if len(tests) != 0 {
+		t.Errorf("Expected 0 tests for nonexistent status, got %d", len(tests))
+	}
+}
+
+// =============================================================================
+// NEW TESTS: AdminDeals — GET with no deals returns empty array
+// =============================================================================
+
+func TestNewTests_AdminDeals_GetEmptyAfterDeletingAll(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Soft-delete all seeded deals
+	server.db.Exec("UPDATE brand_deals SET status = 'deleted'")
+
+	rr := doRequest(server.handleAdminDeals, "GET", "/api/admin/deals", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET deals: got %d, want 200", rr.Code)
+	}
+
+	var deals []BrandDeal
+	json.Unmarshal(rr.Body.Bytes(), &deals)
+	if len(deals) != 0 {
+		t.Errorf("Expected empty deals array after deleting all, got %d", len(deals))
+	}
+}
+
+func TestNewTests_AdminDeals_PostWithEndsAt(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Create deal with ends_at set
+	rr := doRequest(server.handleAdminDeals, "POST", "/api/admin/deals",
+		map[string]interface{}{
+			"competitor_product":  "Brand A Milk",
+			"offer_brand":        "Brand B",
+			"offer_product":      "Brand B Milk",
+			"discount_cents":     100,
+			"daily_budget_cents": 5000,
+			"ends_at":            "2026-12-31",
+		}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("Create deal with ends_at: got %d, want 201: %s", rr.Code, rr.Body.String())
+	}
+
+	var deal BrandDeal
+	json.Unmarshal(rr.Body.Bytes(), &deal)
+
+	// Verify ends_at was stored
+	var endsAt string
+	server.db.QueryRow("SELECT COALESCE(ends_at,'') FROM brand_deals WHERE id = ?", deal.ID).Scan(&endsAt)
+	if endsAt != "2026-12-31" {
+		t.Errorf("ends_at: got %q, want '2026-12-31'", endsAt)
+	}
+}
+
+func TestNewTests_AdminDeals_PostWithEmptyEndsAt(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Create deal with empty ends_at — should be stored as NULL (via NULLIF)
+	rr := doRequest(server.handleAdminDeals, "POST", "/api/admin/deals",
+		map[string]interface{}{
+			"competitor_product":  "Brand A Bread",
+			"offer_brand":        "Brand B",
+			"offer_product":      "Brand B Bread",
+			"discount_cents":     75,
+			"daily_budget_cents": 3000,
+			"ends_at":            "",
+		}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("Create deal with empty ends_at: got %d, want 201", rr.Code)
+	}
+
+	var deal BrandDeal
+	json.Unmarshal(rr.Body.Bytes(), &deal)
+
+	var endsAt *string
+	server.db.QueryRow("SELECT ends_at FROM brand_deals WHERE id = ?", deal.ID).Scan(&endsAt)
+	if endsAt != nil {
+		t.Errorf("ends_at should be NULL for empty string, got %v", *endsAt)
+	}
+}
+
+func TestNewTests_AdminDeals_PutUpdatesAllFields(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Create a deal first
+	rr := doRequest(server.handleAdminDeals, "POST", "/api/admin/deals",
+		map[string]interface{}{
+			"competitor_product":  "Brand A Milk",
+			"offer_brand":        "Brand B",
+			"offer_product":      "Brand B Milk",
+			"discount_cents":     100,
+			"daily_budget_cents": 5000,
+		}, []*http.Cookie{cookie})
+	var created BrandDeal
+	json.Unmarshal(rr.Body.Bytes(), &created)
+
+	// Update all fields
+	rr = doRequest(server.handleAdminDeals, "PUT", "/api/admin/deals",
+		map[string]interface{}{
+			"id":                      created.ID,
+			"competitor_product":      "Updated Competitor",
+			"offer_brand":             "Updated Brand",
+			"offer_product":           "Updated Product",
+			"discount_cents":          300,
+			"daily_budget_cents":      8000,
+			"status":                  "paused",
+			"ends_at":                 "2027-01-01",
+			"offer_price_cents":       499,
+			"competitor_price_cents":  699,
+			"offer_size":              "32oz",
+			"competitor_size":         "28oz",
+			"offer_unit_price":        "$0.016/oz",
+			"competitor_unit_price":   "$0.025/oz",
+			"unit_label":              "per oz",
+			"why_bullets":             "Better value;Larger size",
+			"allergen_notes":          "Contains dairy",
+			"deal_type":               "buy_more",
+			"quantity_offered":        2,
+			"trial_product_name":      "Trial Pack",
+			"trial_size":              "8oz",
+			"campaign_tag":            "winter_promo",
+		}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PUT all fields: got %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify all fields in DB
+	var d BrandDeal
+	server.db.QueryRow(`SELECT competitor_product, offer_brand, offer_product, discount_cents,
+		total_budget_cents, status, COALESCE(ends_at,''),
+		offer_price_cents, competitor_price_cents, offer_size, competitor_size,
+		unit_label, why_bullets, allergen_notes, deal_type, quantity_offered, campaign_tag
+		FROM brand_deals WHERE id = ?`, created.ID).
+		Scan(&d.CompetitorProduct, &d.OfferBrand, &d.OfferProduct, &d.DiscountCents,
+			&d.TotalBudgetCents, &d.Status, &d.EndsAt,
+			&d.OfferPriceCents, &d.CompetitorPriceCents, &d.OfferSize, &d.CompetitorSize,
+			&d.UnitLabel, &d.WhyBullets, &d.AllergenNotes, &d.DealType, &d.QuantityOffered, &d.CampaignTag)
+
+	if d.CompetitorProduct != "Updated Competitor" {
+		t.Errorf("CompetitorProduct: got %q, want 'Updated Competitor'", d.CompetitorProduct)
+	}
+	if d.Status != "paused" {
+		t.Errorf("Status: got %q, want 'paused'", d.Status)
+	}
+	if d.DealType != "buy_more" {
+		t.Errorf("DealType: got %q, want 'buy_more'", d.DealType)
+	}
+	if d.CampaignTag != "winter_promo" {
+		t.Errorf("CampaignTag: got %q, want 'winter_promo'", d.CampaignTag)
 	}
 }

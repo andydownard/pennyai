@@ -26,11 +26,6 @@ Claude Code MUST implement these. If they conflict with existing code or CLAUDE.
 
 - ~~[CRITICAL] 2026-03-08 21:01 UTC — Master list auto-compiled~~ — Fixed: checked items auto-merge into "My Groceries" master list on trip finish (find-or-create + dedup merge)
 - ~~[CRITICAL] 2026-03-08 21:01 UTC — Continuous camera mode~~ — Fixed: camera auto-submits photo, shows brief confirmation overlay, re-opens camera for next item; cancel exits mode
+- ~~[CRITICAL] 2026-03-08 21:01 UTC — Master list per store (WF, Costco etc.)~~ — Fixed: saved lists now support store_name + is_master columns, store filter pills in home screen header, save sheet has optional store field, Penny chat handles "load my Costco list" / "save as my WF list"
 
-## [CRITICAL] 2026-03-08 21:01 UTC — Remaining items
-
-Maybe one master list per store: WF, Costco etc. and you can easily switch between them
-
----
-_Device: Screen: home | Viewport: 394x699 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1 | Dark: dark | Items: 0_
-_Submitted: 2026-03-08 21:01 UTC_
+## All CRITICAL items resolved.
