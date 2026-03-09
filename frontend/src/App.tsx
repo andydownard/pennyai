@@ -211,13 +211,13 @@ function QuantityControl({ value, onChange }: {
       <button
         onClick={() => onChange(Math.max(1, value - 1))}
         aria-label={`Decrease quantity, currently ${value}`}
-        style={{ width: '38px', height: '42px', border: 'none', background: 'none', fontSize: '17px', color: 'var(--brand)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        style={{ width: '38px', height: '42px', border: 'none', background: 'none', fontSize: FONT_LG, color: 'var(--brand)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       >−</button>
       <span aria-live="polite" aria-atomic="true" style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600, color: 'var(--text)', minWidth: '24px', textAlign: 'center' }}>{value}</span>
       <button
         onClick={() => onChange(value + 1)}
         aria-label={`Increase quantity, currently ${value}`}
-        style={{ width: '38px', height: '42px', border: 'none', background: 'none', fontSize: '17px', color: 'var(--brand)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        style={{ width: '38px', height: '42px', border: 'none', background: 'none', fontSize: FONT_LG, color: 'var(--brand)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       >+</button>
     </div>
   )
