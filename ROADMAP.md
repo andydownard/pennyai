@@ -923,7 +923,7 @@ This is a **P1** initiative — should be planned as a dedicated sprint (or spre
 
 - **M10. Shopper-to-Brand Lead Generation** — Post-swap opt-in "Want a coupon from [Brand]?" prompt. $3-5 per consented lead. Consent-driven, not intrusive. Second revenue stream — revisit after core swap economics are proven.
 - **Cloudflare CDN** — Free tier in front of Railway. No code changes needed. Setup: point DNS to Cloudflare, SSL "Full (strict)", cache static assets. Instant perf + security win. ~30 min of config.
-- **Savings Share Card** — Shareable image showing "I saved $X with Penny this month." Social proof artifact for organic distribution.
+- [x] **Savings Share Card** — Canvas-based shareable PNG (1080x1350 Instagram portrait) showing monthly savings, swap stats, branding. Uses Web Share API with file on mobile, downloads on desktop. ✅ Done
 - **Swap Recommendation Engine** — ML-based swap suggestions based on user purchase history. Requires receipt data (M7) at scale. Phase 4+.
 - **Multi-level Guild** — Extend Guild earnings beyond direct referrals (2-level, 3-level). Requires careful MLM smell-test UX. Phase 4+.
 - **Groflo Coupon Integration** — Pull deals from Groflo's coupon repository as a supply source for Penny Swaps. Currently deals are manually seeded; Groflo API integration automates supply. Phase 4+.
