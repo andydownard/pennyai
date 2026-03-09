@@ -72,7 +72,28 @@ interface Transaction {
   created_at: string
 }
 
-type Screen = 'landing' | 'login' | 'register' | 'dashboard' | 'deals' | 'create-deal' | 'intel' | 'transactions' | 'deposit'
+interface DealPerformanceDay {
+  date: string
+  impressions: number
+  accepts: number
+  declines: number
+  revenue_cents: number
+  verified_count: number
+}
+
+interface OptimizationRec {
+  title: string
+  description: string
+  priority: string
+  action: string
+}
+
+interface DeclineReason {
+  reason: string
+  count: number
+}
+
+type Screen = 'landing' | 'login' | 'register' | 'dashboard' | 'deals' | 'create-deal' | 'deal-detail' | 'intel' | 'transactions' | 'deposit'
 
 // =============================================================================
 // API HELPERS
@@ -110,6 +131,17 @@ export function App() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [deals, setDeals] = useState<Deal[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [dashDays, setDashDays] = useState(30)
+
+  // Deal detail
+  const [selectedDealId, setSelectedDealId] = useState<number | null>(null)
+  const [dealPerf, setDealPerf] = useState<DealPerformanceDay[]>([])
+  const [dealRecs, setDealRecs] = useState<OptimizationRec[]>([])
+  const [dealDeclineReasons, setDealDeclineReasons] = useState<DeclineReason[]>([])
+  const [dealDetailLoading, setDealDetailLoading] = useState(false)
+
+  // Mobile nav
+  const [navOpen, setNavOpen] = useState(false)
 
   // Form state
   const [email, setEmail] = useState('')
@@ -127,9 +159,9 @@ export function App() {
   // Load dashboard data when screen changes
   const loadDashboard = useCallback(() => {
     if (!user) return
-    api<DashboardData>('/brand/dashboard').then(setDashboard).catch(() => {})
+    api<DashboardData>(`/brand/dashboard?days=${dashDays}`).then(setDashboard).catch(() => {})
     api<Deal[]>('/brand/deals').then(setDeals).catch(() => {})
-  }, [user])
+  }, [user, dashDays])
 
   useEffect(() => {
     if (screen === 'dashboard' || screen === 'deals') loadDashboard()
@@ -137,6 +169,21 @@ export function App() {
       api<Transaction[]>('/brand/transactions').then(setTransactions).catch(() => {})
     }
   }, [screen, loadDashboard])
+
+  // Load deal detail data
+  const openDealDetail = useCallback((dealId: number) => {
+    setSelectedDealId(dealId)
+    setDealDetailLoading(true)
+    setScreen('deal-detail')
+    Promise.all([
+      api<{ performance: DealPerformanceDay[] }>(`/brand/deal-performance/${dealId}`).catch(() => ({ performance: [] })),
+      api<{ recommendations: OptimizationRec[]; decline_reasons: DeclineReason[] }>(`/brand/optimize/${dealId}`).catch(() => ({ recommendations: [], decline_reasons: [] })),
+    ]).then(([perf, opt]) => {
+      setDealPerf(perf.performance || [])
+      setDealRecs(opt.recommendations || [])
+      setDealDeclineReasons(opt.decline_reasons || [])
+    }).finally(() => setDealDetailLoading(false))
+  }, [])
 
   // Auth handlers
   const handleLogin = async (e: React.FormEvent) => {
@@ -271,19 +318,45 @@ export function App() {
     <div style={{ minHeight: '100vh', backgroundColor: BG }}>
       {/* Nav */}
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', borderBottom: `1px solid ${BORDER}`, backgroundColor: WHITE, position: 'sticky', top: 0, zIndex: 10 }}>
-        <div style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 700, color: BRAND, cursor: 'pointer' }} onClick={() => setScreen('dashboard')}>
+        <div style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 700, color: BRAND, cursor: 'pointer' }} onClick={() => { setScreen('dashboard'); setNavOpen(false) }}>
           Thriftly <span style={{ fontWeight: 400, color: TEXT_SEC }}>for Brands</span>
         </div>
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+        {/* Desktop nav */}
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }} className="brand-nav-desktop">
           <NavLink active={screen === 'dashboard'} onClick={() => setScreen('dashboard')}>Dashboard</NavLink>
-          <NavLink active={screen === 'deals' || screen === 'create-deal'} onClick={() => setScreen('deals')}>Deals</NavLink>
+          <NavLink active={screen === 'deals' || screen === 'create-deal' || screen === 'deal-detail'} onClick={() => setScreen('deals')}>Deals</NavLink>
           <NavLink active={screen === 'intel'} onClick={() => setScreen('intel')}>Intel</NavLink>
           <NavLink active={screen === 'transactions' || screen === 'deposit'} onClick={() => setScreen('transactions')}>Billing</NavLink>
           <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC }}>{user?.company_name}</div>
           {user?.badge === 'founding' && <span style={{ fontFamily: FONT, fontSize: '10px', fontWeight: 700, color: WHITE, backgroundColor: '#FF9800', padding: '2px 6px', borderRadius: '4px' }}>FOUNDING BRAND</span>}
           <button onClick={handleLogout} style={linkBtn}>Sign Out</button>
         </div>
+        {/* Mobile hamburger */}
+        <button onClick={() => setNavOpen(!navOpen)} className="brand-nav-mobile-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px', display: 'none' }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={TEXT} strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
       </nav>
+      {/* Mobile nav dropdown */}
+      {navOpen && (
+        <div style={{ position: 'sticky', top: '49px', zIndex: 9, backgroundColor: WHITE, borderBottom: `1px solid ${BORDER}`, padding: '8px 24px', display: 'flex', flexDirection: 'column', gap: '4px' }} className="brand-nav-mobile-menu">
+          {[
+            { label: 'Dashboard', s: 'dashboard' as Screen, match: screen === 'dashboard' },
+            { label: 'Deals', s: 'deals' as Screen, match: screen === 'deals' || screen === 'create-deal' || screen === 'deal-detail' },
+            { label: 'Intel', s: 'intel' as Screen, match: screen === 'intel' },
+            { label: 'Billing', s: 'transactions' as Screen, match: screen === 'transactions' || screen === 'deposit' },
+          ].map(n => (
+            <button key={n.label} onClick={() => { setScreen(n.s); setNavOpen(false) }} style={{
+              background: 'none', border: 'none', textAlign: 'left', padding: '10px 0',
+              fontFamily: FONT, fontSize: '15px', fontWeight: n.match ? 600 : 400,
+              color: n.match ? BRAND : TEXT, cursor: 'pointer', borderBottom: `1px solid ${BORDER}`,
+            }}>{n.label}</button>
+          ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0' }}>
+            <span style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC }}>{user?.company_name}</span>
+            <button onClick={() => { handleLogout(); setNavOpen(false) }} style={{ ...linkBtn, fontSize: '13px' }}>Sign Out</button>
+          </div>
+        </div>
+      )}
 
       <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '24px' }}>
         {/* ================================================================ */}
@@ -291,7 +364,22 @@ export function App() {
         {/* ================================================================ */}
         {screen === 'dashboard' && dashboard && (
           <>
-            <h1 style={h1Style}>Dashboard</h1>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <h1 style={h1Style}>Dashboard</h1>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                {[7, 14, 30, 90].map(d => (
+                  <button key={d} onClick={() => setDashDays(d)} style={{
+                    padding: '4px 10px', borderRadius: '6px', fontFamily: FONT, fontSize: '12px', fontWeight: 600,
+                    cursor: 'pointer', border: `1px solid ${dashDays === d ? BRAND : BORDER}`,
+                    backgroundColor: dashDays === d ? BRAND_LIGHT : 'transparent', color: dashDays === d ? BRAND : TEXT_SEC,
+                  }}>{d}d</button>
+                ))}
+                <button onClick={() => window.open('/brand/export?type=swaps', '_blank')} style={{ ...smallBtn, marginLeft: '8px' }} title="Export CSV">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: 'middle', marginRight: '4px' }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Export
+                </button>
+              </div>
+            </div>
 
             {/* Competitive Intel Preview — above fold, FOMO hook */}
             <div style={{ ...cardStyle, marginTop: '16px', cursor: 'pointer', borderLeft: `4px solid ${BRAND}` }} onClick={() => setScreen('intel')}>
@@ -348,7 +436,7 @@ export function App() {
             {/* Daily chart */}
             {dashboard.daily.length > 0 && (
               <div style={{ ...cardStyle, marginTop: '16px' }}>
-                <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginBottom: '16px' }}>Swaps — Last 30 Days</div>
+                <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginBottom: '16px' }}>Swaps — Last {dashDays} Days</div>
                 <div style={{ display: 'flex', gap: '4px', alignItems: 'flex-end', height: '120px' }}>
                   {dashboard.daily.sort((a, b) => a.date.localeCompare(b.date)).map(d => {
                     const maxVal = Math.max(...dashboard.daily.map(x => x.offered), 1)
@@ -392,7 +480,7 @@ export function App() {
               </div>
             )}
             {deals.map(deal => (
-              <div key={deal.id} style={{ ...cardStyle, marginTop: '12px' }}>
+              <div key={deal.id} style={{ ...cardStyle, marginTop: '12px', cursor: 'pointer', transition: 'box-shadow 0.15s' }} onClick={() => openDealDetail(deal.id)}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
                     <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT }}>{deal.offer_brand} {deal.offer_product}</div>
@@ -412,7 +500,7 @@ export function App() {
                   <span>Declined: {deal.declined}</span>
                   <span style={{ color: deal.accept_rate >= 8 ? BRAND : TEXT_SEC, fontWeight: deal.accept_rate >= 8 ? 600 : 400 }}>Rate: {deal.accept_rate}%</span>
                 </div>
-                <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }} onClick={e => e.stopPropagation()}>
                   {deal.status === 'active' && (
                     <button onClick={async () => { await api(`/brand/deals/${deal.id}`, { method: 'PUT', body: JSON.stringify({ status: 'paused' }) }); loadDashboard() }} style={smallBtn}>Pause</button>
                   )}
@@ -420,11 +508,132 @@ export function App() {
                     <button onClick={async () => { await api(`/brand/deals/${deal.id}`, { method: 'PUT', body: JSON.stringify({ status: 'active' }) }); loadDashboard() }} style={{ ...smallBtn, color: BRAND }}>Resume</button>
                   )}
                   <button onClick={async () => { if (confirm('Delete this deal?')) { await api(`/brand/deals/${deal.id}`, { method: 'DELETE' }); loadDashboard() } }} style={{ ...smallBtn, color: ERROR }}>Delete</button>
+                  <button onClick={() => openDealDetail(deal.id)} style={{ ...smallBtn, color: BRAND }}>Details</button>
                 </div>
               </div>
             ))}
           </>
         )}
+
+        {/* ================================================================ */}
+        {/* DEAL DETAIL */}
+        {/* ================================================================ */}
+        {screen === 'deal-detail' && (() => {
+          const deal = deals.find(d => d.id === selectedDealId)
+          if (!deal) return <div style={{ fontFamily: FONT, color: TEXT_SEC, textAlign: 'center', padding: '48px' }}>Deal not found. <button onClick={() => setScreen('deals')} style={linkBtn}>Back to deals</button></div>
+          return (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                <button onClick={() => setScreen('deals')} style={{ ...linkBtn, fontSize: '14px' }}>&larr; Back</button>
+                <h1 style={{ ...h1Style, flex: 1 }}>{deal.offer_brand} {deal.offer_product}</h1>
+                <span style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, padding: '4px 8px', borderRadius: '4px', backgroundColor: deal.status === 'active' ? BRAND_LIGHT : '#FFF3E0', color: deal.status === 'active' ? BRAND : '#E65100' }}>{deal.status}</span>
+              </div>
+
+              {/* Summary metrics */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
+                <MetricCard label="Offered" value={String(deal.offered)} />
+                <MetricCard label="Accepted" value={String(deal.accepted)} />
+                <MetricCard label="Declined" value={String(deal.declined)} />
+                <MetricCard label="Accept Rate" value={`${deal.accept_rate}%`} highlight={deal.accept_rate >= 8} />
+                <MetricCard label="Budget" value={formatCents(deal.daily_budget_cents)} />
+                <MetricCard label="Spent" value={formatCents(deal.budget_spent_cents)} />
+              </div>
+
+              {dealDetailLoading ? (
+                <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SEC, textAlign: 'center', padding: '32px' }}>Loading performance data...</div>
+              ) : (
+                <>
+                  {/* Performance chart */}
+                  {dealPerf.length > 0 && (
+                    <div style={{ ...cardStyle, marginTop: '16px' }}>
+                      <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginBottom: '16px' }}>Daily Performance — Last 30 Days</div>
+                      <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '120px' }}>
+                        {[...dealPerf].sort((a, b) => a.date.localeCompare(b.date)).map(d => {
+                          const maxVal = Math.max(...dealPerf.map(x => x.impressions), 1)
+                          return (
+                            <div key={d.date} title={`${d.date}: ${d.impressions} offered, ${d.accepts} accepted`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                              <div style={{ width: '100%', backgroundColor: BRAND_LIGHT, borderRadius: '2px', height: `${(d.impressions / maxVal) * 100}px`, position: 'relative', minHeight: d.impressions > 0 ? '4px' : '0px' }}>
+                                <div style={{ position: 'absolute', bottom: 0, width: '100%', backgroundColor: BRAND, borderRadius: '2px', height: `${(d.accepts / maxVal) * 100}px`, minHeight: d.accepts > 0 ? '4px' : '0px' }} />
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <div style={{ display: 'flex', gap: '16px', marginTop: '8px', fontFamily: FONT, fontSize: '12px', color: TEXT_SEC }}>
+                        <span><span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: BRAND_LIGHT, borderRadius: '2px', marginRight: '4px' }}></span>Offered</span>
+                        <span><span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: BRAND, borderRadius: '2px', marginRight: '4px' }}></span>Accepted</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Decline reasons + Optimization in two columns */}
+                  <div style={{ display: 'grid', gridTemplateColumns: dealDeclineReasons.length > 0 ? '1fr 1fr' : '1fr', gap: '16px', marginTop: '16px' }}>
+                    {/* Decline reasons */}
+                    {dealDeclineReasons.length > 0 && (
+                      <div style={cardStyle}>
+                        <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginBottom: '12px' }}>Top Decline Reasons</div>
+                        {dealDeclineReasons.map(dr => {
+                          const maxCount = Math.max(...dealDeclineReasons.map(x => x.count), 1)
+                          return (
+                            <div key={dr.reason} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT, textTransform: 'capitalize' }}>{dr.reason.replace(/_/g, ' ')}</div>
+                                <div style={{ height: '6px', backgroundColor: BORDER, borderRadius: '3px', marginTop: '4px', overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', backgroundColor: '#E57373', borderRadius: '3px', width: `${(dr.count / maxCount) * 100}%` }} />
+                                </div>
+                              </div>
+                              <span style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: TEXT_SEC, minWidth: '32px', textAlign: 'right' }}>{dr.count}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    {/* Optimization recommendations */}
+                    {dealRecs.length > 0 && (
+                      <div style={cardStyle}>
+                        <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginBottom: '12px' }}>Optimization Recommendations</div>
+                        {dealRecs.map((rec, i) => (
+                          <div key={i} style={{ marginBottom: '12px', padding: '10px', backgroundColor: rec.priority === 'high' ? '#FFF3E0' : BG, borderRadius: '8px', border: `1px solid ${rec.priority === 'high' ? '#FFE0B2' : BORDER}` }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: rec.priority === 'high' ? '#E65100' : TEXT }}>{rec.title}</span>
+                              {rec.priority === 'high' && <span style={{ fontFamily: FONT, fontSize: '10px', fontWeight: 700, padding: '1px 5px', borderRadius: '3px', backgroundColor: '#FF9800', color: WHITE }}>HIGH</span>}
+                            </div>
+                            <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SEC, marginTop: '4px', lineHeight: 1.4 }}>{rec.description}</div>
+                            {rec.action && <div style={{ fontFamily: FONT, fontSize: '12px', color: BRAND, fontWeight: 600, marginTop: '6px' }}>{rec.action}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Deal info */}
+                  <div style={{ ...cardStyle, marginTop: '16px' }}>
+                    <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginBottom: '12px' }}>Deal Details</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontFamily: FONT, fontSize: '13px' }}>
+                      <div><span style={{ color: TEXT_SEC }}>Competitor:</span> <span style={{ color: TEXT }}>{deal.competitor_product}</span></div>
+                      <div><span style={{ color: TEXT_SEC }}>Discount:</span> <span style={{ color: TEXT }}>{formatCents(deal.discount_cents)}</span></div>
+                      <div><span style={{ color: TEXT_SEC }}>Type:</span> <span style={{ color: TEXT, textTransform: 'capitalize' }}>{deal.deal_type.replace(/_/g, ' ')}</span></div>
+                      <div><span style={{ color: TEXT_SEC }}>Created:</span> <span style={{ color: TEXT }}>{new Date(deal.created_at).toLocaleDateString()}</span></div>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                    {deal.status === 'active' && (
+                      <button onClick={async () => { await api(`/brand/deals/${deal.id}`, { method: 'PUT', body: JSON.stringify({ status: 'paused' }) }); loadDashboard() }} style={secondaryBtn}>Pause Deal</button>
+                    )}
+                    {deal.status === 'paused' && (
+                      <button onClick={async () => { await api(`/brand/deals/${deal.id}`, { method: 'PUT', body: JSON.stringify({ status: 'active' }) }); loadDashboard() }} style={primaryBtn}>Resume Deal</button>
+                    )}
+                    <button onClick={() => window.open(`/brand/export?type=swaps&deal_id=${deal.id}`, '_blank')} style={secondaryBtn}>Export CSV</button>
+                    <button onClick={async () => { if (confirm('Delete this deal?')) { await api(`/brand/deals/${deal.id}`, { method: 'DELETE' }); setScreen('deals'); loadDashboard() } }} style={{ ...secondaryBtn, color: ERROR, borderColor: ERROR }}>Delete</button>
+                  </div>
+                </>
+              )}
+            </>
+          )
+        })()}
 
         {/* ================================================================ */}
         {/* CREATE DEAL */}
