@@ -1,5 +1,5 @@
 import { fetchAPI } from '../api'
-import { FONT, FONT_XS, FONT_SM, FONT_BASE, FONT_XL } from '../styles'
+import { FONT, FONT_XS, FONT_BASE, FONT_XL, layout, buttons, text } from '../styles'
 import type { ListItem } from './ItemRow'
 
 interface DoneSummaryData {
@@ -57,7 +57,7 @@ export function DoneSummaryModal({
         <div style={{ fontFamily: FONT, fontSize: FONT_XL, fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
           {isFirstTrip ? 'First trip complete!' : 'Nice work!'}
         </div>
-        <div style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+        <div style={{ ...text.body, color: 'var(--text-secondary)', marginBottom: '4px' }}>
           {data.checkedCount} of {data.totalCount} item{data.totalCount !== 1 ? 's' : ''} checked off
         </div>
 
@@ -105,9 +105,8 @@ export function DoneSummaryModal({
             onFinish(isFirstTrip)
           }}
           style={{
-            width: '100%', padding: '14px', borderRadius: '10px',
-            backgroundColor: 'var(--brand)', color: '#fff', border: 'none',
-            fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, cursor: 'pointer',
+            ...buttons.primary,
+            padding: '14px', borderRadius: '10px', fontSize: FONT_BASE,
             marginBottom: '8px',
           }}
         >
@@ -117,8 +116,8 @@ export function DoneSummaryModal({
         <button
           onClick={onClose}
           style={{
-            width: '100%', padding: '10px', background: 'none', border: 'none',
-            fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', cursor: 'pointer',
+            ...buttons.reset, ...text.secondary,
+            width: '100%', padding: '10px',
           }}
         >
           Keep shopping
@@ -128,10 +127,10 @@ export function DoneSummaryModal({
         {hasSwapsToClaim && <button
           onClick={onSnapReceipt}
           style={{
-            width: '100%', marginTop: '16px', padding: '12px', borderRadius: '10px',
+            ...layout.rowCenter, ...text.body,
+            width: '100%', marginTop: '16px', padding: '12px', borderRadius: '10px', gap: '8px',
             border: '1px solid var(--brand)', backgroundColor: 'color-mix(in srgb, var(--brand) 3%, transparent)',
-            fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--brand)',
-            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+            fontWeight: 600, color: 'var(--brand)', cursor: 'pointer',
           }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
