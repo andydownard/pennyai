@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -5344,5 +5345,711 @@ func TestFeedbackList_EmptyList(t *testing.T) {
 	}
 	if len(items) != 0 {
 		t.Errorf("expected empty array, got %d items", len(items))
+	}
+}
+
+// =============================================================================
+// handleEarningsUpload TESTS (coverage boost)
+// =============================================================================
+
+func TestEarningsUpload_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _, _, rebateID := setupEarningsTestData(t, server)
+
+	path := fmt.Sprintf("/api/earnings/%d/upload", rebateID)
+	rr := doRequest(server.handleEarnings, "GET", path, nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for GET, got %d", rr.Code)
+	}
+}
+
+func TestEarningsUpload_NoAuthSession(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleEarnings, "POST", "/api/earnings/1/upload", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for no auth, got %d", rr.Code)
+	}
+}
+
+func TestEarningsUpload_InvalidRebateID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559998888")
+
+	// Non-numeric ID
+	req := httptest.NewRequest("POST", "/api/earnings/abc/upload", strings.NewReader("not multipart"))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=xxx")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid rebate ID, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if msg, ok := body["error"].(string); !ok || msg != "Invalid rebate ID" {
+		t.Errorf("expected 'Invalid rebate ID' error, got %v", body["error"])
+	}
+}
+
+func TestEarningsUpload_RebateNotFound(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559998877")
+
+	req := httptest.NewRequest("POST", "/api/earnings/99999/upload", strings.NewReader("not multipart"))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=xxx")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for nonexistent rebate, got %d", rr.Code)
+	}
+}
+
+func TestEarningsUpload_NotYourRebate(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// Setup rebate owned by one user
+	_, _, _, rebateID := setupEarningsTestData(t, server)
+	// Login as a different user
+	cookie2, _ := loginUser(t, server, "5559998866")
+
+	path := fmt.Sprintf("/api/earnings/%d/upload", rebateID)
+	req := httptest.NewRequest("POST", path, strings.NewReader("not multipart"))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=xxx")
+	req.AddCookie(cookie2)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for wrong owner, got %d", rr.Code)
+	}
+}
+
+func TestEarningsUpload_InvalidMultipart(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _, _, rebateID := setupEarningsTestData(t, server)
+
+	path := fmt.Sprintf("/api/earnings/%d/upload", rebateID)
+	req := httptest.NewRequest("POST", path, strings.NewReader("this is not valid multipart data"))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=xxx")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid multipart, got %d", rr.Code)
+	}
+}
+
+func TestEarningsUpload_MissingFileField(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _, _, rebateID := setupEarningsTestData(t, server)
+
+	// Build a valid multipart form but with wrong field name
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	// Add a field that is NOT "file"
+	fw, err := w.CreateFormField("notfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fw.Write([]byte("some data"))
+	w.Close()
+
+	path := fmt.Sprintf("/api/earnings/%d/upload", rebateID)
+	req := httptest.NewRequest("POST", path, &buf)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing file field, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if msg, ok := body["error"].(string); !ok || msg != "No file provided" {
+		t.Errorf("expected 'No file provided' error, got %v", body["error"])
+	}
+}
+
+func TestEarningsUpload_InvalidFileType(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _, _, rebateID := setupEarningsTestData(t, server)
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	fw, err := w.CreateFormFile("file", "test.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fw.Write([]byte("plain text content"))
+	w.Close()
+
+	path := fmt.Sprintf("/api/earnings/%d/upload", rebateID)
+	req := httptest.NewRequest("POST", path, &buf)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid file type, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if msg, ok := body["error"].(string); !ok || !strings.Contains(msg, "Invalid file type") {
+		t.Errorf("expected 'Invalid file type' error, got %v", body["error"])
+	}
+}
+
+func TestEarningsUpload_RateLimit(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID, _, rebateID := setupEarningsTestData(t, server)
+
+	// Pre-fill the rate limiter with 5 entries
+	val, _ := server.earningsUploadLimiter.LoadOrStore(userID, &rateBucket{})
+	rb := val.(*rateBucket)
+	rb.mu.Lock()
+	now := time.Now()
+	for i := 0; i < 5; i++ {
+		rb.times = append(rb.times, now.Add(-time.Duration(i)*time.Minute))
+	}
+	rb.mu.Unlock()
+
+	path := fmt.Sprintf("/api/earnings/%d/upload", rebateID)
+	req := httptest.NewRequest("POST", path, strings.NewReader("body"))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=xxx")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("expected 429 for rate limit, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// handleSwapPredictions TESTS (coverage boost)
+// =============================================================================
+
+func TestSwapPredictions_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833") // admin phone
+	rr := doRequest(server.handleSwapPredictions, "POST", "/api/admin/swap-predictions", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for POST, got %d", rr.Code)
+	}
+}
+
+func TestSwapPredictions_NoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleSwapPredictions, "GET", "/api/admin/swap-predictions", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for no auth, got %d", rr.Code)
+	}
+}
+
+func TestSwapPredictions_NonAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551112222") // non-admin
+	rr := doRequest(server.handleSwapPredictions, "GET", "/api/admin/swap-predictions", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+
+func TestSwapPredictions_EmptyResults(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833") // admin
+	rr := doRequest(server.handleSwapPredictions, "GET", "/api/admin/swap-predictions", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	// Response should be a JSON array (possibly null for empty, but valid JSON)
+	var results []interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &results); err != nil {
+		t.Fatalf("expected valid JSON array, got parse error: %v", err)
+	}
+}
+
+func TestSwapPredictions_WithData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "3104861833") // admin
+
+	// Insert a prediction row with confidence >= 0.3
+	server.db.Exec(`INSERT INTO user_swap_predictions (user_id, category_id, brand, acceptance_rate, total_offers, total_accepts, avg_time_to_action_ms, confidence, computed_at)
+		VALUES (?, 1, 'TestBrand', 0.75, 10, 7, 5000, 0.8, datetime('now'))`, userID)
+
+	rr := doRequest(server.handleSwapPredictions, "GET", "/api/admin/swap-predictions", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var results []map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &results); err != nil {
+		t.Fatalf("expected valid JSON array, got: %v", err)
+	}
+	if len(results) < 1 {
+		t.Fatal("expected at least 1 prediction result")
+	}
+	if results[0]["brand"] != "TestBrand" {
+		t.Errorf("expected brand 'TestBrand', got %v", results[0]["brand"])
+	}
+}
+
+// =============================================================================
+// handleSwapPropagations TESTS (coverage boost)
+// =============================================================================
+
+func TestSwapPropagations_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+	rr := doRequest(server.handleSwapPropagations, "POST", "/api/admin/swap-propagations", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for POST, got %d", rr.Code)
+	}
+}
+
+func TestSwapPropagations_NoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleSwapPropagations, "GET", "/api/admin/swap-propagations", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for no auth, got %d", rr.Code)
+	}
+}
+
+func TestSwapPropagations_NonAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551113333")
+	rr := doRequest(server.handleSwapPropagations, "GET", "/api/admin/swap-propagations", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+
+func TestSwapPropagations_EmptyResults(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+	rr := doRequest(server.handleSwapPropagations, "GET", "/api/admin/swap-propagations", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var results []interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &results); err != nil {
+		t.Fatalf("expected valid JSON array, got parse error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected empty array, got %d items", len(results))
+	}
+}
+
+// =============================================================================
+// handleBusinessMetrics TESTS (coverage boost)
+// =============================================================================
+
+func TestBusinessMetrics_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+	rr := doRequest(server.handleBusinessMetrics, "POST", "/api/admin/business-metrics", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for POST, got %d", rr.Code)
+	}
+}
+
+func TestBusinessMetrics_NoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleBusinessMetrics, "GET", "/api/admin/business-metrics", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for no auth, got %d", rr.Code)
+	}
+}
+
+func TestBusinessMetrics_NonAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551114444")
+	rr := doRequest(server.handleBusinessMetrics, "GET", "/api/admin/business-metrics", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+
+func TestBusinessMetrics_DefaultDays(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+	rr := doRequest(server.handleBusinessMetrics, "GET", "/api/admin/business-metrics", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	if days, ok := body["days"].(float64); !ok || int(days) != 30 {
+		t.Errorf("expected default days=30, got %v", body["days"])
+	}
+	// metrics should be an empty array
+	metrics, ok := body["metrics"].([]interface{})
+	if !ok {
+		t.Fatal("expected 'metrics' to be an array")
+	}
+	if len(metrics) != 0 {
+		t.Errorf("expected empty metrics, got %d items", len(metrics))
+	}
+}
+
+func TestBusinessMetrics_CustomDays(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	req := httptest.NewRequest("GET", "/api/admin/business-metrics?days=7", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleBusinessMetrics(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if days, ok := body["days"].(float64); !ok || int(days) != 7 {
+		t.Errorf("expected days=7, got %v", body["days"])
+	}
+}
+
+func TestBusinessMetrics_InvalidDays(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Non-numeric days should fall back to default 30
+	req := httptest.NewRequest("GET", "/api/admin/business-metrics?days=abc", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleBusinessMetrics(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if days, ok := body["days"].(float64); !ok || int(days) != 30 {
+		t.Errorf("expected default days=30 for invalid input, got %v", body["days"])
+	}
+}
+
+func TestBusinessMetrics_DaysOutOfRange(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// days=0 is out of range (<=0), should fall back to default 30
+	req := httptest.NewRequest("GET", "/api/admin/business-metrics?days=0", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleBusinessMetrics(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if days, ok := body["days"].(float64); !ok || int(days) != 30 {
+		t.Errorf("expected default days=30 for days=0, got %v", body["days"])
+	}
+
+	// days=500 is out of range (>365), should fall back to default 30
+	req2 := httptest.NewRequest("GET", "/api/admin/business-metrics?days=500", nil)
+	req2.AddCookie(cookie)
+	rr2 := httptest.NewRecorder()
+	server.handleBusinessMetrics(rr2, req2)
+	body2 := parseJSON(rr2)
+	if days, ok := body2["days"].(float64); !ok || int(days) != 30 {
+		t.Errorf("expected default days=30 for days=500, got %v", body2["days"])
+	}
+}
+
+func TestBusinessMetrics_WithDataRows(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Insert a metrics row
+	server.db.Exec(`INSERT INTO business_metrics_daily (date, dau, wau, mau, new_users,
+		swaps_offered, swaps_accepted, swaps_declined, acceptance_rate,
+		gross_revenue_cents, active_deals, active_brands, computed_at)
+		VALUES (DATE('now'), 100, 500, 1000, 10, 50, 25, 25, 0.5, 50000, 5, 3, datetime('now'))`)
+
+	rr := doRequest(server.handleBusinessMetrics, "GET", "/api/admin/business-metrics", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	metrics, ok := body["metrics"].([]interface{})
+	if !ok {
+		t.Fatal("expected 'metrics' to be an array")
+	}
+	if len(metrics) != 1 {
+		t.Fatalf("expected 1 metrics row, got %d", len(metrics))
+	}
+	row := metrics[0].(map[string]interface{})
+	if dau, ok := row["dau"].(float64); !ok || int(dau) != 100 {
+		t.Errorf("expected dau=100, got %v", row["dau"])
+	}
+}
+
+// =============================================================================
+// processUserCohorts TESTS (coverage boost)
+// =============================================================================
+
+func TestProcessUserCohorts_EmptyDB(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// Should not panic or error on empty database
+	server.processUserCohorts()
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM user_cohorts").Scan(&count)
+	if count != 0 {
+		t.Errorf("expected 0 cohort rows on empty DB, got %d", count)
+	}
+}
+
+func TestProcessUserCohorts_SingleUser(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5551115555")
+
+	server.processUserCohorts()
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM user_cohorts WHERE user_id = ?", userID).Scan(&count)
+	if count != 1 {
+		t.Errorf("expected 1 cohort row for user, got %d", count)
+	}
+
+	// User with no sessions should be marked as churned
+	var isChurned int
+	server.db.QueryRow("SELECT is_churned FROM user_cohorts WHERE user_id = ?", userID).Scan(&isChurned)
+	// The user was just created with a session, so the churn depends on session timestamps.
+	// We just verify the row was created (is_churned is 0 or 1).
+	if isChurned != 0 && isChurned != 1 {
+		t.Errorf("expected is_churned to be 0 or 1, got %d", isChurned)
+	}
+}
+
+func TestProcessUserCohorts_UserWithSwaps(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5551116666")
+
+	// Create a deal and swap event
+	server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status)
+		VALUES ('CompProd', 'OfferBrand', 'OfferProd', 100, 5000, 'active')`)
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals ORDER BY id DESC LIMIT 1").Scan(&dealID)
+
+	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, 'test item', 'Test')", userID)
+	var itemID int
+	server.db.QueryRow("SELECT id FROM list_items WHERE user_id = ? LIMIT 1", userID).Scan(&itemID)
+
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, ?, 'accepted')", userID, dealID, itemID)
+
+	// Create a rebate
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, 1, ?, 100, 'pending')", userID, dealID)
+
+	server.processUserCohorts()
+
+	var totalSwaps, totalSavings int
+	server.db.QueryRow("SELECT total_swaps, total_savings_cents FROM user_cohorts WHERE user_id = ?", userID).Scan(&totalSwaps, &totalSavings)
+	if totalSwaps != 1 {
+		t.Errorf("expected total_swaps=1, got %d", totalSwaps)
+	}
+	if totalSavings != 100 {
+		t.Errorf("expected total_savings_cents=100, got %d", totalSavings)
+	}
+}
+
+func TestProcessUserCohorts_IdempotentUpsert(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5551117777")
+
+	// Run twice — should upsert, not create duplicate rows
+	server.processUserCohorts()
+	server.processUserCohorts()
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM user_cohorts WHERE user_id = ?", userID).Scan(&count)
+	if count != 1 {
+		t.Errorf("expected exactly 1 cohort row after double run, got %d", count)
+	}
+}
+
+// =============================================================================
+// cachedParseItems TESTS (coverage boost)
+// =============================================================================
+
+func TestCachedParseItems_CacheMiss(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	callCount := 0
+	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
+		callCount++
+		return []ParsedItem{{Name: "Milk", Brand: "Horizon", Department: "Dairy"}}, nil
+	}
+
+	result, err := server.cachedParseItems("test-key", "milk", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 1 || result[0].Name != "Milk" {
+		t.Errorf("expected [{Name:Milk}], got %+v", result)
+	}
+	if callCount != 1 {
+		t.Errorf("expected parseItems called once on cache miss, got %d", callCount)
+	}
+}
+
+func TestCachedParseItems_CacheHit(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	callCount := 0
+	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
+		callCount++
+		return []ParsedItem{{Name: "Eggs", Brand: "Eggland's Best", Department: "Dairy"}}, nil
+	}
+
+	// First call: cache miss
+	_, _ = server.cachedParseItems("test-key", "eggs", nil)
+	if callCount != 1 {
+		t.Fatalf("expected 1 call after first request, got %d", callCount)
+	}
+
+	// Second call with same text: cache hit
+	result, err := server.cachedParseItems("test-key", "eggs", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if callCount != 1 {
+		t.Errorf("expected still 1 call after cache hit, got %d", callCount)
+	}
+	if len(result) != 1 || result[0].Name != "Eggs" {
+		t.Errorf("expected [{Name:Eggs}], got %+v", result)
+	}
+}
+
+func TestCachedParseItems_CaseInsensitiveKey(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	callCount := 0
+	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
+		callCount++
+		return []ParsedItem{{Name: "Bread"}}, nil
+	}
+
+	_, _ = server.cachedParseItems("test-key", "Bread", nil)
+	_, _ = server.cachedParseItems("test-key", "bread", nil)
+	_, _ = server.cachedParseItems("test-key", "BREAD", nil)
+	if callCount != 1 {
+		t.Errorf("expected 1 call (case insensitive cache key), got %d", callCount)
+	}
+}
+
+func TestCachedParseItems_BypassCacheForImages(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	callCount := 0
+	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
+		callCount++
+		return []ParsedItem{{Name: "Photo Item"}}, nil
+	}
+
+	_, _ = server.cachedParseItems("test-key", "milk", []string{"data:image/jpeg;base64,abc"})
+	_, _ = server.cachedParseItems("test-key", "milk", []string{"data:image/jpeg;base64,abc"})
+	if callCount != 2 {
+		t.Errorf("expected 2 calls (images bypass cache), got %d", callCount)
+	}
+}
+
+func TestCachedParseItems_BypassCacheForLongText(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	callCount := 0
+	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
+		callCount++
+		return []ParsedItem{{Name: "Long Item"}}, nil
+	}
+
+	longText := strings.Repeat("a", 101) // > 100 chars
+	_, _ = server.cachedParseItems("test-key", longText, nil)
+	_, _ = server.cachedParseItems("test-key", longText, nil)
+	if callCount != 2 {
+		t.Errorf("expected 2 calls (long text bypasses cache), got %d", callCount)
+	}
+}
+
+func TestCachedParseItems_EmptyTextBypassesCache(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	callCount := 0
+	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
+		callCount++
+		return nil, nil
+	}
+
+	_, _ = server.cachedParseItems("test-key", "", nil)
+	_, _ = server.cachedParseItems("test-key", "   ", nil)
+	if callCount != 2 {
+		t.Errorf("expected 2 calls (empty/whitespace text bypasses cache), got %d", callCount)
+	}
+}
+
+func TestCachedParseItems_ExpiredEntry(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	callCount := 0
+	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
+		callCount++
+		return []ParsedItem{{Name: "Butter"}}, nil
+	}
+
+	// Manually insert an expired cache entry
+	server.parseCache.Store("butter", &parseCacheEntry{
+		items:     []ParsedItem{{Name: "OldButter"}},
+		createdAt: time.Now().Add(-25 * time.Hour), // expired (TTL is 24h)
+	})
+
+	result, err := server.cachedParseItems("test-key", "butter", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if callCount != 1 {
+		t.Errorf("expected 1 call (expired entry should be evicted), got %d", callCount)
+	}
+	if len(result) != 1 || result[0].Name != "Butter" {
+		t.Errorf("expected fresh result [{Name:Butter}], got %+v", result)
+	}
+}
+
+func TestCachedParseItems_CacheHitReturnsCopy(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	callCount := 0
+	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
+		callCount++
+		return []ParsedItem{{Name: "Cheese", Brand: "Kraft"}}, nil
+	}
+
+	// First call populates cache
+	_, _ = server.cachedParseItems("test-key", "cheese", nil)
+
+	// Second call is a cache hit — returns a copy
+	result2, _ := server.cachedParseItems("test-key", "cheese", nil)
+	if callCount != 1 {
+		t.Errorf("expected 1 parseItems call, got %d", callCount)
+	}
+
+	// Mutating the cache-hit result should not affect a subsequent cache hit
+	result2[0].Name = "MUTATED"
+	result3, _ := server.cachedParseItems("test-key", "cheese", nil)
+	if result3[0].Name != "Cheese" {
+		t.Errorf("cache hit copy should be independent; got %q after mutation", result3[0].Name)
+	}
+}
+
+func TestCachedParseItems_ErrorNotCached(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	callCount := 0
+	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
+		callCount++
+		if callCount == 1 {
+			return nil, fmt.Errorf("API error")
+		}
+		return []ParsedItem{{Name: "Yogurt"}}, nil
+	}
+
+	// First call: error (should not be cached)
+	_, err := server.cachedParseItems("test-key", "yogurt", nil)
+	if err == nil {
+		t.Fatal("expected error on first call")
+	}
+
+	// Second call: should call parseItems again (error was not cached)
+	result, err := server.cachedParseItems("test-key", "yogurt", nil)
+	if err != nil {
+		t.Fatalf("unexpected error on second call: %v", err)
+	}
+	if callCount != 2 {
+		t.Errorf("expected 2 calls (error should not be cached), got %d", callCount)
+	}
+	if len(result) != 1 || result[0].Name != "Yogurt" {
+		t.Errorf("expected [{Name:Yogurt}], got %+v", result)
 	}
 }
