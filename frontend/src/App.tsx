@@ -364,6 +364,9 @@ function AppInner() {
   // --- Saved lists state ---
   const [showSaveSheet, setShowSaveSheet] = useState(false)
   const [saveNameInput, setSaveNameInput] = useState('')
+  const [saveStoreInput, setSaveStoreInput] = useState('')
+  const [storeLists, setStoreLists] = useState<Array<{ id: number; name: string; store_name: string; item_count: number; is_master?: boolean }>>([])
+  const [activeStore, setActiveStore] = useState<string | null>(null)
 
   // --- Confirm modal state ---
   const { confirmModal, openConfirmModal, closeConfirmModal, runConfirmAction } = useConfirmModal()
@@ -1050,11 +1053,20 @@ function AppInner() {
     if (data) setTrips(Array.isArray(data) ? data as ShoppingTrip[] : [])
   }
 
+  const loadStoreLists = async () => {
+    const data = await fetchAPI('/api/saved-lists')
+    if (Array.isArray(data)) {
+      const withStore = data.filter((l: { store_name?: string }) => l.store_name && l.store_name.trim() !== '')
+      setStoreLists(withStore as typeof storeLists)
+    }
+  }
+
   const npsCheckedRef = useRef(false)
   useEffect(() => {
     if (screen !== 'home') return
     reloadList().catch(e => console.warn('[load] list failed:', e))
     loadTrips().catch(e => console.warn('[load] trips failed:', e))
+    loadStoreLists().catch(e => console.warn('[load] store lists failed:', e))
     // Show account merge message if auth just linked accounts
     const mergeMsg = sessionStorage.getItem('thriftly_merge_msg')
     if (mergeMsg) {
@@ -2475,12 +2487,18 @@ function AppInner() {
   const handleSaveList = async () => {
     if (!saveNameInput.trim()) return
     try {
+      const payload: { name: string; store_name?: string } = { name: saveNameInput.trim() }
+      if (saveStoreInput.trim()) payload.store_name = saveStoreInput.trim()
       const data = await fetchAPI('/api/saved-lists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: saveNameInput.trim() }),
+        body: JSON.stringify(payload),
       })
-      if (data) { setShowSaveSheet(false); setSaveNameInput(''); handleClearList(); typePennyHome('List saved! You can load it anytime.') }
+      if (data) {
+        setShowSaveSheet(false); setSaveNameInput(''); setSaveStoreInput('')
+        loadStoreLists().catch(() => {})
+        handleClearList(); typePennyHome('List saved! You can load it anytime.')
+      }
       else showToast('Couldn\'t save your list — please try again', 'error')
     } catch { showToast('Couldn\'t save your list — please try again', 'error') }
   }
@@ -3511,6 +3529,51 @@ const handleCodeChange = (index: number, value: string) => {
         })()}
       </div>
 
+      {/* Store filter pills — only show when user has store-tagged saved lists */}
+      {storeLists.length > 0 && (
+        <div style={{
+          flexShrink: 0, display: 'flex', gap: '8px', padding: '8px 16px',
+          overflowX: 'auto', WebkitOverflowScrolling: 'touch',
+          borderBottom: '1px solid var(--border)', backgroundColor: 'var(--surface)',
+          msOverflowStyle: 'none', scrollbarWidth: 'none',
+        }}>
+          <button
+            onClick={() => { setActiveStore(null); reloadList() }}
+            style={{
+              ...buttons.reset, flexShrink: 0, padding: '5px 14px', borderRadius: '16px',
+              fontFamily: FONT, fontSize: FONT_2XS, fontWeight: 600,
+              backgroundColor: activeStore === null ? 'var(--brand)' : 'var(--bg)',
+              color: activeStore === null ? '#fff' : 'var(--text-secondary)',
+              border: activeStore === null ? 'none' : '1px solid var(--border)',
+              transition: 'all 0.2s ease',
+            }}
+          >My List</button>
+          {[...new Set(storeLists.map(l => l.store_name))].map(store => {
+            const storeList = storeLists.find(l => l.store_name === store)
+            const count = storeList?.item_count || 0
+            return (
+              <button
+                key={store}
+                onClick={async () => {
+                  if (storeList) {
+                    setActiveStore(store)
+                    await handleLoadSavedList(storeList.id, 'merge')
+                  }
+                }}
+                style={{
+                  ...buttons.reset, flexShrink: 0, padding: '5px 14px', borderRadius: '16px',
+                  fontFamily: FONT, fontSize: FONT_2XS, fontWeight: 600,
+                  backgroundColor: activeStore === store ? 'var(--brand)' : 'var(--bg)',
+                  color: activeStore === store ? '#fff' : 'var(--text-secondary)',
+                  border: activeStore === store ? 'none' : '1px solid var(--border)',
+                  transition: 'all 0.2s ease',
+                }}
+              >{store}{count > 0 ? ` (${count})` : ''}</button>
+            )
+          })}
+        </div>
+      )}
+
       {/* Offline indicator */}
       {isOffline && (
         <div style={{
@@ -4047,6 +4110,14 @@ const handleCodeChange = (index: number, value: string) => {
               placeholder="List name (e.g. Weekly Groceries)"
               style={listStyles.sheetTextInput}
               autoFocus
+            />
+            <input
+              type="text"
+              value={saveStoreInput}
+              onChange={e => setSaveStoreInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && saveNameInput.trim()) handleSaveList() }}
+              placeholder="Store (optional — e.g. Costco, Whole Foods)"
+              style={{ ...listStyles.sheetTextInput, marginTop: '8px' }}
             />
             <button
               onClick={handleSaveList}
