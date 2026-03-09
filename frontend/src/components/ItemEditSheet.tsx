@@ -2,7 +2,7 @@ import { BrandLogo } from './BrandLogo'
 import { FloatingLabelField } from './FloatingLabelField'
 import { SectionHeader } from './ActionSheet'
 import { type ListItem } from './ItemRow'
-import { FONT, DEPARTMENTS } from '../styles'
+import { FONT, FONT_2XS, FONT_BASE, FONT_LG, DEPARTMENTS } from '../styles'
 import { type ItemModification } from '../types'
 
 interface EditForm {
@@ -60,7 +60,7 @@ export function ItemEditSheet({
           <button onClick={() => onClose()} aria-label="Close edit item" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', color: 'var(--text)' }}>
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M15 5L5 15M5 5l10 10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
           </button>
-          <span style={{ flex: 1, textAlign: 'center', fontFamily: FONT, fontSize: '17px', fontWeight: 600, color: 'var(--text)' }}>Edit item</span>
+          <span style={{ flex: 1, textAlign: 'center', fontFamily: FONT, fontSize: FONT_LG, fontWeight: 600, color: 'var(--text)' }}>Edit item</span>
           <div style={{ width: '28px' }} />
         </div>
         {/* Scrollable content */}
@@ -140,7 +140,7 @@ export function ItemEditSheet({
 
         {/* Urgent toggle */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderTop: '1px solid var(--border)', marginTop: '4px' }}>
-          <span style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text)' }}>🔥 Urgent</span>
+          <span style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text)' }}>🔥 Urgent</span>
           <ToggleSwitch label="Urgent" value={item.urgent} onChange={() => { onUrgentToggle(item.id); setSelectedItem(prev => prev ? { ...prev, urgent: !prev.urgent } : prev) }} />
         </div>
 
@@ -151,7 +151,7 @@ export function ItemEditSheet({
               <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
               <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
             </svg>
-            <span style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text)' }}>
+            <span style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text)' }}>
               {!item.claimed_by_id ? "I'll get it" : item.claimed_by_id === currentUserId ? "You're getting this" : `${item.claimed_by_name} is getting this`}
             </span>
           </div>
@@ -199,7 +199,7 @@ export function ItemEditSheet({
                   padding: '6px 0',
                   borderBottom: i < itemHistory.length - 1 ? '1px solid var(--border)' : 'none',
                   fontFamily: FONT,
-                  fontSize: '12px',
+                  fontSize: FONT_2XS,
                   color: 'var(--text-secondary)',
                 }}>
                   {description}

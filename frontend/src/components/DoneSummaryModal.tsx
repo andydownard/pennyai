@@ -1,4 +1,4 @@
-import { FONT } from '../styles'
+import { FONT, FONT_XS, FONT_SM, FONT_BASE, FONT_XL } from '../styles'
 import type { ListItem } from './ItemRow'
 
 interface DoneSummaryData {
@@ -54,15 +54,15 @@ export function DoneSummaryModal({
         <div style={{ fontSize: '48px', marginBottom: '12px' }}>
           {isFirstTrip ? '🎉' : '✓'}
         </div>
-        <div style={{ fontFamily: FONT, fontSize: '22px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
+        <div style={{ fontFamily: FONT, fontSize: FONT_XL, fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
           {isFirstTrip ? 'First trip complete!' : 'Nice work!'}
         </div>
-        <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+        <div style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text-secondary)', marginBottom: '4px' }}>
           {data.checkedCount} of {data.totalCount} item{data.totalCount !== 1 ? 's' : ''} checked off
         </div>
 
         {tripDuration ? (
-          <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+          <div style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)', marginBottom: '16px' }}>
             {tripDuration}
           </div>
         ) : (
@@ -107,7 +107,7 @@ export function DoneSummaryModal({
           style={{
             width: '100%', padding: '14px', borderRadius: '10px',
             backgroundColor: 'var(--brand)', color: '#fff', border: 'none',
-            fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+            fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, cursor: 'pointer',
             marginBottom: '8px',
           }}
         >
@@ -118,7 +118,7 @@ export function DoneSummaryModal({
           onClick={onClose}
           style={{
             width: '100%', padding: '10px', background: 'none', border: 'none',
-            fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', cursor: 'pointer',
+            fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', cursor: 'pointer',
           }}
         >
           Keep shopping
@@ -130,7 +130,7 @@ export function DoneSummaryModal({
           style={{
             width: '100%', marginTop: '16px', padding: '12px', borderRadius: '10px',
             border: '1px solid var(--brand)', backgroundColor: 'color-mix(in srgb, var(--brand) 3%, transparent)',
-            fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: 'var(--brand)',
+            fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--brand)',
             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
           }}
         >

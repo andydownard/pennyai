@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { PennyAvatar } from './PennyAvatar'
-import { FONT } from '../styles'
+import { FONT, FONT_2XS, FONT_XS, FONT_MD } from '../styles'
 
 // Brand disambiguation item from the parse response
 export interface DisambigItem {
@@ -41,7 +41,7 @@ interface PennyBarProps {
 
 const btnStyle: React.CSSProperties = {
   background: 'var(--brand)', border: 'none', color: '#fff', fontFamily: FONT,
-  fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+  fontSize: FONT_2XS, fontWeight: 600, cursor: 'pointer',
   padding: '5px 12px', borderRadius: '12px', flexShrink: 0,
 }
 
@@ -61,7 +61,7 @@ const chatPillStyle: React.CSSProperties = {
 }
 
 const chatInputStyle: React.CSSProperties = {
-  flex: 1, padding: '8px 12px', fontSize: '16px', fontFamily: FONT,
+  flex: 1, padding: '8px 12px', fontSize: FONT_MD, fontFamily: FONT,
   color: 'var(--text)', backgroundColor: 'transparent', border: 'none', outline: 'none', minWidth: 0,
 }
 
@@ -98,7 +98,7 @@ export function PennyBar({
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <PennyAvatar size={keyboardOpen ? 24 : 28} />
             <span style={{
-              flex: 1, fontFamily: FONT, fontSize: keyboardOpen ? '12px' : '13px',
+              flex: 1, fontFamily: FONT, fontSize: keyboardOpen ? FONT_2XS : FONT_XS,
               color: textColor, fontWeight: 500,
               display: '-webkit-box' as const, WebkitLineClamp: 2,
               WebkitBoxOrient: 'vertical' as const, overflow: 'hidden',
@@ -110,7 +110,7 @@ export function PennyBar({
               {!hasDisambig && pennyTyping && <span className="cursor-blink" style={{ fontWeight: 300, marginLeft: '1px' }}>|</span>}
             </span>
             {disambig.length > 1 && hasDisambig && keyboardOpen && (
-              <span style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', flexShrink: 0 }}>{disambigIndex + 1}/{disambig.length}</span>
+              <span style={{ fontFamily: FONT, fontSize: '0.6875rem', color: 'var(--text-secondary)', flexShrink: 0 }}>{disambigIndex + 1}/{disambig.length}</span>
             )}
           </div>
           {/* Screen reader gets full text after typing completes */}
@@ -137,7 +137,7 @@ export function PennyBar({
                     <button onClick={() => { setShowAltsForAuto(false); onBrandPick(d.current_brand) }} style={{ ...btnStyle, padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0 }}>OK</button>
                     <button onClick={() => setShowAltsForAuto(true)} style={{ ...btnStyle, background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)', padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0 }}>Change</button>
                     {disambig.length > 1 && (
-                      <span style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', alignSelf: 'center', paddingLeft: '4px', flexShrink: 0 }}>{disambigIndex + 1}/{disambig.length}</span>
+                      <span style={{ fontFamily: FONT, fontSize: '0.6875rem', color: 'var(--text-secondary)', alignSelf: 'center', paddingLeft: '4px', flexShrink: 0 }}>{disambigIndex + 1}/{disambig.length}</span>
                     )}
                   </>
                 ) : (
@@ -155,7 +155,7 @@ export function PennyBar({
                     ))}
                     <button onClick={() => { setShowAltsForAuto(false); onSkipDisambig() }} aria-label="Skip brand selection" style={{ ...btnStyle, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0 }}>Skip</button>
                     {disambig.length > 1 && !keyboardOpen && (
-                      <span style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', alignSelf: 'center', paddingLeft: '4px', flexShrink: 0 }}>{disambigIndex + 1}/{disambig.length}</span>
+                      <span style={{ fontFamily: FONT, fontSize: '0.6875rem', color: 'var(--text-secondary)', alignSelf: 'center', paddingLeft: '4px', flexShrink: 0 }}>{disambigIndex + 1}/{disambig.length}</span>
                     )}
                   </>
                 )}
@@ -179,7 +179,7 @@ export function PennyBar({
                   position: 'absolute', top: '-6px', right: '-6px',
                   width: '18px', height: '18px', borderRadius: '50%',
                   backgroundColor: 'var(--text)', color: '#fff', border: 'none',
-                  fontSize: '12px', lineHeight: '18px', textAlign: 'center',
+                  fontSize: FONT_2XS, lineHeight: '18px', textAlign: 'center',
                   cursor: 'pointer', padding: 0,
                 }}
               >×</button>
@@ -241,7 +241,7 @@ export function PennyBar({
               style={chatSendStyle(canSend)}
             >
               {chatLoading
-                ? <span style={{ fontSize: '12px', fontFamily: FONT }}>…</span>
+                ? <span style={{ fontSize: FONT_2XS, fontFamily: FONT }}>…</span>
                 : <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
                     <path d="M18 2L9 11M18 2l-6 16-3-7-7-3 16-6z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>

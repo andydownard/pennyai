@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { PennyAvatar } from './PennyAvatar'
-import { FONT } from '../styles'
+import { FONT, FONT_2XS, FONT_XS, FONT_BASE } from '../styles'
 
 interface NPSSurveyModalProps {
   onClose: () => void
@@ -53,7 +53,7 @@ export function NPSSurveyModal({ onClose, onSubmit }: NPSSurveyModalProps) {
           <PennyAvatar />
           <div style={{
             flex: 1, backgroundColor: 'var(--bg)', borderRadius: '14px', padding: '12px 14px',
-            fontFamily: FONT, fontSize: '15px', color: 'var(--text)', lineHeight: '1.4', position: 'relative',
+            fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text)', lineHeight: '1.4', position: 'relative',
           }}>
             {typedText}{!typingDone && <span style={{ opacity: 0.4 }}>|</span>}
           </div>
@@ -68,12 +68,12 @@ export function NPSSurveyModal({ onClose, onSubmit }: NPSSurveyModalProps) {
                   <button key={i} onClick={() => { setScore(i); setStep(2) }} aria-label={`Score ${i} out of 10`} style={{
                     height: '40px', borderRadius: '10px',
                     border: '1.5px solid color-mix(in srgb, var(--brand) 19%, transparent)', backgroundColor: 'var(--surface)',
-                    fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: 'var(--brand)',
+                    fontFamily: FONT, fontSize: FONT_XS, fontWeight: 600, color: 'var(--brand)',
                     cursor: 'pointer', padding: 0,
                   }}>{i}</button>
                 ))}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)' }}>
                 <span>Not likely</span><span>Very likely</span>
               </div>
             </>
@@ -88,14 +88,14 @@ export function NPSSurveyModal({ onClose, onSubmit }: NPSSurveyModalProps) {
                 autoFocus
                 style={{
                   width: '100%', padding: '10px', borderRadius: '8px',
-                  border: '1px solid var(--border)', fontFamily: FONT, fontSize: '15px', color: 'var(--text)', backgroundColor: 'var(--surface)',
+                  border: '1px solid var(--border)', fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text)', backgroundColor: 'var(--surface)',
                   resize: 'vertical', marginBottom: '16px', boxSizing: 'border-box',
                 }}
               />
               <button onClick={() => { if (score !== null) onSubmit(score, comment) }} style={{
                 width: '100%', padding: '12px', borderRadius: '10px',
                 backgroundColor: 'var(--brand)', color: '#fff', border: 'none',
-                fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+                fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, cursor: 'pointer',
               }}>Submit</button>
             </>
           )

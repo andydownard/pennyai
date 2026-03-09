@@ -1,5 +1,5 @@
 import { PennyAvatar } from './PennyAvatar'
-import { FONT } from '../styles'
+import { FONT, FONT_SM, FONT_BASE } from '../styles'
 
 interface JoinPromptProps {
   name: string
@@ -14,10 +14,10 @@ export function JoinPrompt({ name, code, onJoined, onError, onClose }: JoinPromp
     <div role="presentation" style={{ position: 'fixed', inset: 0, zIndex: 9999, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
       <div role="dialog" aria-modal="true" aria-label="Join shared list" style={{ backgroundColor: 'var(--surface)', borderRadius: '16px', padding: '32px 24px', maxWidth: '360px', width: '100%', textAlign: 'center' }}>
         <PennyAvatar size={64} />
-        <h2 style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: 'var(--text)', margin: '16px 0 8px' }}>
+        <h2 style={{ fontFamily: FONT, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text)', margin: '16px 0 8px' }}>
           {name ? `${name} wants to shop together!` : 'Shop together!'}
         </h2>
-        <p style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', margin: '0 0 24px', lineHeight: 1.5 }}>
+        <p style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', margin: '0 0 24px', lineHeight: 1.5 }}>
           You'll share one shopping list — items either of you add will show up for both of you.
         </p>
         <button
@@ -39,13 +39,13 @@ export function JoinPrompt({ name, code, onJoined, onError, onClose }: JoinPromp
             }
             onClose()
           }}
-          style={{ backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '10px', padding: '14px 0', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer', width: '100%', marginBottom: '12px' }}
+          style={{ backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '10px', padding: '14px 0', fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, cursor: 'pointer', width: '100%', marginBottom: '12px' }}
         >
           Shop together{name ? ` with ${name}` : ''}
         </button>
         <button
           onClick={onClose}
-          style={{ background: 'none', border: 'none', fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', cursor: 'pointer', padding: '8px' }}
+          style={{ background: 'none', border: 'none', fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', cursor: 'pointer', padding: '8px' }}
         >
           Start my own list
         </button>

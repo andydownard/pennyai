@@ -1,6 +1,6 @@
 import { Component } from 'react'
 import type { ReactNode, ErrorInfo } from 'react'
-import { FONT } from '../styles'
+import { FONT, FONT_BASE } from '../styles'
 
 export class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   constructor(props: { children: ReactNode }) {
@@ -19,14 +19,14 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { hasError
           alignItems: 'center', justifyContent: 'center', padding: '32px',
           fontFamily: FONT, backgroundColor: 'var(--bg)', color: 'var(--text)', textAlign: 'center',
         }}>
-          <div style={{ fontSize: '20px', fontWeight: 700, marginBottom: '8px' }}>Something went wrong</div>
-          <div style={{ fontSize: '15px', color: 'var(--text-secondary)', marginBottom: '20px' }}>Please reload to continue.</div>
+          <div style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '8px' }}>Something went wrong</div>
+          <div style={{ fontSize: FONT_BASE, color: 'var(--text-secondary)', marginBottom: '20px' }}>Please reload to continue.</div>
           <button
             onClick={() => window.location.reload()}
             style={{
               padding: '10px 24px', borderRadius: '12px', border: 'none',
               backgroundColor: 'var(--brand)', color: '#fff', fontFamily: FONT,
-              fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+              fontSize: FONT_BASE, fontWeight: 600, cursor: 'pointer',
             }}
           >Reload</button>
         </div>
