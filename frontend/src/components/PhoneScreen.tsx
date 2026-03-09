@@ -1,7 +1,7 @@
 import { PennyAvatar } from './PennyAvatar'
 import { FloatingLabelField } from './FloatingLabelField'
 import { LegalLinks } from './LegalLinks'
-import { FONT, FONT_2XS, FONT_MD, formatPhone, authStyles, pageStyles } from '../styles'
+import { FONT, FONT_2XS, formatPhone, authStyles, pageStyles } from '../styles'
 
 interface PhoneScreenProps {
   phone: string

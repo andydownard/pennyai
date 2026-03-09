@@ -3462,6 +3462,8 @@ const handleCodeChange = (index: number, value: string) => {
   return (
     <ScreenTransition style={transitionStyle}>
     <div style={listStyles.page}>
+      {/* Skip navigation for keyboard/screen reader users */}
+      <a href="#main-list" style={{ position: 'absolute', left: '-9999px', top: 'auto', width: '1px', height: '1px', overflow: 'hidden', zIndex: 10000 }} onFocus={e => { e.currentTarget.style.position = 'fixed'; e.currentTarget.style.left = '16px'; e.currentTarget.style.top = '16px'; e.currentTarget.style.width = 'auto'; e.currentTarget.style.height = 'auto'; e.currentTarget.style.padding = '12px 24px'; e.currentTarget.style.backgroundColor = 'var(--brand)'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderRadius = '8px'; e.currentTarget.style.fontFamily = FONT; e.currentTarget.style.fontSize = FONT_BASE; e.currentTarget.style.fontWeight = '600'; e.currentTarget.style.textDecoration = 'none'; }} onBlur={e => { e.currentTarget.style.position = 'absolute'; e.currentTarget.style.left = '-9999px'; e.currentTarget.style.width = '1px'; e.currentTarget.style.height = '1px'; }}>Skip to shopping list</a>
       <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
       {/* Fixed header — compact */}
       <div style={{ flexShrink: 0, backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
@@ -3607,7 +3609,7 @@ const handleCodeChange = (index: number, value: string) => {
       )}
 
       {/* Scrollable list — tap or scroll to dismiss keyboard */}
-      <div ref={listAreaRef} style={{
+      <div id="main-list" ref={listAreaRef} role="main" aria-label="Shopping list" style={{
         ...listStyles.listArea,
         ...(pullDistance > 0 ? { transform: `translateY(${pullDistance}px)`, transition: isPulling.current ? 'none' : 'transform 0.2s ease' } : {}),
       }} onClick={e => {

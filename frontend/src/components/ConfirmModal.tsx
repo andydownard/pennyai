@@ -41,7 +41,7 @@ export function ConfirmModal({ open, title, message, confirmLabel, onConfirm, on
           }}>Cancel</button>
           <button onClick={onConfirm} style={{
             flex: 1, padding: '12px', border: 'none', background: 'none',
-            fontSize: '17px', fontWeight: 600, fontFamily: FONT, cursor: 'pointer',
+            fontSize: FONT_LG, fontWeight: 600, fontFamily: FONT, cursor: 'pointer',
             color: destructive ? 'var(--error)' : 'var(--info)',
           }}>{confirmLabel || 'Confirm'}</button>
         </div>

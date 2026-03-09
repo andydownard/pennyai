@@ -110,7 +110,7 @@ export function EarningsScreen({ fetchAPI, onViewReceipts, onGoToList }: Earning
 
   if (loading && !data) {
     return (
-      <div style={{ padding: '40px 20px', textAlign: 'center' }}>
+      <div style={{ padding: '40px 20px', textAlign: 'center' }} aria-live="polite" aria-busy="true">
         <div style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)' }}>Loading earnings...</div>
       </div>
     )
@@ -127,6 +127,7 @@ export function EarningsScreen({ fetchAPI, onViewReceipts, onGoToList }: Earning
         accept="image/*,.pdf"
         onChange={handleFileChange}
         style={{ display: 'none' }}
+        aria-label="Upload receipt image or PDF"
       />
 
       {/* Summary cards */}

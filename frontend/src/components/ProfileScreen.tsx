@@ -340,7 +340,7 @@ export function ProfileScreen({
                   </div>
                   {linkingProvider === 'email' && (
                     <div style={{ padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <input type="email" value={linkEmail} onChange={e => setLinkEmail(e.target.value)} placeholder="your@email.com" autoFocus style={{ ...pageStyles.floatingInput, fontSize: FONT_SM }} />
+                      <input type="email" value={linkEmail} onChange={e => setLinkEmail(e.target.value)} placeholder="your@email.com" autoFocus aria-label="Email address to link" style={{ ...pageStyles.floatingInput, fontSize: FONT_SM }} />
                       {linkError && <p style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--error)', margin: 0 }}>{linkError}</p>}
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button onClick={() => setLinkingProvider(null)} style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: '6px 12px' }}>Cancel</button>
@@ -368,7 +368,7 @@ export function ProfileScreen({
                     <div style={{ padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {linkStep === 'input' ? (
                         <>
-                          <input type="tel" value={formatPhone(linkPhone)} onChange={e => setLinkPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="(555) 123-4567" autoFocus style={{ ...pageStyles.floatingInput, fontSize: FONT_SM }} />
+                          <input type="tel" value={formatPhone(linkPhone)} onChange={e => setLinkPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="(555) 123-4567" autoFocus aria-label="Phone number to link" style={{ ...pageStyles.floatingInput, fontSize: FONT_SM }} />
                           {linkError && <p style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--error)', margin: 0 }}>{linkError}</p>}
                           <div style={{ display: 'flex', gap: '8px' }}>
                             <button onClick={() => setLinkingProvider(null)} style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: '6px 12px' }}>Cancel</button>
@@ -382,7 +382,7 @@ export function ProfileScreen({
                       ) : (
                         <>
                           <p style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', margin: 0 }}>Enter the code sent to {formatPhone(linkPhone)}</p>
-                          <input type="text" inputMode="numeric" value={linkCode} onChange={e => setLinkCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" autoFocus maxLength={6} style={{ ...pageStyles.floatingInput, fontSize: FONT_SM, letterSpacing: '4px', textAlign: 'center' as const }} />
+                          <input type="text" inputMode="numeric" value={linkCode} onChange={e => setLinkCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" autoFocus maxLength={6} aria-label="6-digit verification code" style={{ ...pageStyles.floatingInput, fontSize: FONT_SM, letterSpacing: '4px', textAlign: 'center' as const }} />
                           {linkError && <p style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--error)', margin: 0 }}>{linkError}</p>}
                           <div style={{ display: 'flex', gap: '8px' }}>
                             <button onClick={() => { setLinkStep('input'); setLinkCode(''); setLinkError('') }} style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: '6px 12px' }}>Back</button>
