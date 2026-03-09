@@ -102,7 +102,7 @@ export function BottomTabBar({ active, onNavigate, pennyUnread, swapCount }: Bot
                 borderRadius: '8px',
                 backgroundColor: 'var(--brand)',
                 color: '#fff',
-                fontSize: '10px',
+                fontSize: '0.625rem',
                 fontWeight: 700,
                 display: 'flex',
                 alignItems: 'center',
@@ -111,7 +111,7 @@ export function BottomTabBar({ active, onNavigate, pennyUnread, swapCount }: Bot
               }}>{swapCount}</span>
             )}
             <span style={{
-              fontSize: '10px',
+              fontSize: '0.625rem',
               fontWeight: isActive ? 600 : 400,
               color,
               lineHeight: 1,

@@ -106,6 +106,18 @@ export function initTheme() {
   if (meta) meta.setAttribute('content', theme === 'dark' ? '#121212' : '#35644F')
 }
 
+// Font size scale (rem-based for system font size scaling)
+// Base: 1rem = 16px at default browser settings
+export const FONT_2XS = '0.75rem'    // 12px
+export const FONT_XS = '0.8125rem'   // 13px
+export const FONT_SM = '0.875rem'    // 14px
+export const FONT_BASE = '0.9375rem' // 15px
+export const FONT_MD = '1rem'        // 16px
+export const FONT_LG = '1.0625rem'   // 17px
+export const FONT_XL = '1.375rem'    // 22px
+export const FONT_2XL = '1.5rem'     // 24px
+export const FONT_3XL = '2rem'       // 32px
+
 // Border radius scale
 export const RADIUS_SM = '8px'
 export const RADIUS_MD = '10px'
@@ -199,7 +211,7 @@ export const pageStyles = {
 
   headerWordmark: {
     fontFamily: FONT,
-    fontSize: '22px',
+    fontSize: FONT_XL,
     fontWeight: 700,
     color: 'var(--brand)',
     letterSpacing: '-0.5px',
@@ -208,7 +220,7 @@ export const pageStyles = {
   floatingInput: {
     width: '100%',
     padding: '12px 16px',
-    fontSize: '16px',
+    fontSize: FONT_MD,
     fontFamily: FONT,
     color: 'var(--text)',
     backgroundColor: 'var(--surface)',
@@ -258,7 +270,7 @@ export const listStyles = {
   },
   sheetTitle: {
     fontFamily: FONT,
-    fontSize: '17px',
+    fontSize: FONT_LG,
     fontWeight: 600,
     color: 'var(--text)',
     marginBottom: '16px',
@@ -268,7 +280,7 @@ export const listStyles = {
   sheetButton: {
     width: '100%',
     padding: '15px',
-    fontSize: '16px',
+    fontSize: FONT_MD,
     fontFamily: FONT,
     fontWeight: 600,
     color: '#FFFFFF',
@@ -283,7 +295,7 @@ export const listStyles = {
 export const authStyles = {
   error: {
     fontFamily: FONT,
-    fontSize: '15px',
+    fontSize: FONT_BASE,
     color: 'var(--error)',
     margin: '0 0 12px 0',
     fontWeight: 500,
@@ -291,7 +303,7 @@ export const authStyles = {
 
   subtleLink: {
     fontFamily: FONT,
-    fontSize: '13px',
+    fontSize: FONT_XS,
     color: 'var(--text-secondary)',
     background: 'none',
     border: 'none',
@@ -343,7 +355,7 @@ export const authStyles = {
   primaryButton: {
     width: '100%',
     padding: '17px',
-    fontSize: '16px',
+    fontSize: FONT_MD,
     fontFamily: FONT,
     fontWeight: 700,
     color: '#FFFFFF',
@@ -368,7 +380,7 @@ export const authStyles = {
 
   dividerText: {
     fontFamily: FONT,
-    fontSize: '13px',
+    fontSize: FONT_XS,
     color: 'var(--text-secondary)',
   } as React.CSSProperties,
 }

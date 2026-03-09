@@ -1,4 +1,4 @@
-import { FONT } from '../styles'
+import { FONT, FONT_2XS } from '../styles'
 
 interface SectionHeaderProps {
   label: string
@@ -10,7 +10,7 @@ export function SectionHeader({ label, marginBottom = '12px' }: SectionHeaderPro
   return (
     <p style={{
       fontFamily: FONT,
-      fontSize: '12px',
+      fontSize: FONT_2XS,
       fontWeight: 600,
       color: 'var(--text-secondary)',
       textTransform: 'uppercase' as const,

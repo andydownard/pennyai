@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useFocusTrap } from './ActionSheet'
-import { FONT } from '../styles'
+import { FONT, FONT_SM, FONT_LG } from '../styles'
 
 export function ConfirmModal({ open, title, message, confirmLabel, onConfirm, onCancel, destructive }: {
   open: boolean
@@ -30,13 +30,13 @@ export function ConfirmModal({ open, title, message, confirmLabel, onConfirm, on
         overflow: 'hidden', textAlign: 'center', fontFamily: FONT,
       }}>
         <div style={{ padding: '20px 16px 0' }}>
-          <div style={{ fontSize: '17px', fontWeight: 600, color: 'var(--text)' }}>{title}</div>
-          {message && <div style={{ fontSize: '14px', color: 'var(--text)', marginTop: '6px', lineHeight: 1.4 }}>{message}</div>}
+          <div style={{ fontSize: FONT_LG, fontWeight: 600, color: 'var(--text)' }}>{title}</div>
+          {message && <div style={{ fontSize: FONT_SM, color: 'var(--text)', marginTop: '6px', lineHeight: 1.4 }}>{message}</div>}
         </div>
         <div style={{ display: 'flex', borderTop: '1px solid var(--border)', marginTop: '16px' }}>
           <button onClick={onCancel} style={{
             flex: 1, padding: '12px', border: 'none', background: 'none',
-            fontSize: '17px', fontFamily: FONT, color: 'var(--info)', cursor: 'pointer',
+            fontSize: FONT_LG, fontFamily: FONT, color: 'var(--info)', cursor: 'pointer',
             borderRight: '1px solid var(--border)',
           }}>Cancel</button>
           <button onClick={onConfirm} style={{

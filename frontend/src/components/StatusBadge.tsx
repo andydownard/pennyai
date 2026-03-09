@@ -1,4 +1,4 @@
-import { FONT } from '../styles'
+import { FONT, FONT_2XS } from '../styles'
 
 type BadgeVariant = 'success' | 'warning' | 'error' | 'info' | 'neutral'
 
@@ -22,7 +22,7 @@ export function StatusBadge({ label, variant, bordered }: StatusBadgeProps) {
   return (
     <span style={{
       fontFamily: FONT,
-      fontSize: '11px',
+      fontSize: FONT_2XS,
       fontWeight: 600,
       padding: '2px 8px',
       borderRadius: '10px',
