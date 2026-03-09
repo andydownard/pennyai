@@ -62,3 +62,10 @@ pull correct logo from the kroger mcp.  https://www.dropbox.com/scl/fi/ajkxjmmzm
 ---
 _Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 17_
 _Submitted: 2026-03-09 12:03 UTC_
+
+## [NORMAL] 2026-03-09 12:06 UTC
+have bug reporting button on all pages
+
+---
+_Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 18_
+_Submitted: 2026-03-09 12:06 UTC_
