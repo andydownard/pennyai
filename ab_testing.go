@@ -271,14 +271,14 @@ func handleGetVariant(s *Server) http.HandlerFunc {
 
 		testName := r.URL.Query().Get("test")
 		if testName == "" {
-			http.Error(w, "test parameter required", http.StatusBadRequest)
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "test parameter required"})
 			return
 		}
 
 		variant, err := getVariant(s.db, testName, session.UserID)
 		if err != nil {
 			log.Printf("ab: getVariant error: %v", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 			return
 		}
 
@@ -302,11 +302,11 @@ func handleTrackABEvent(s *Server) http.HandlerFunc {
 			Value float64 `json:"value"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 			return
 		}
 		if req.Test == "" || req.Event == "" {
-			http.Error(w, "test and event required", http.StatusBadRequest)
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "test and event required"})
 			return
 		}
 		if req.Value == 0 {
@@ -338,11 +338,11 @@ func handleCreateABTest(s *Server) http.HandlerFunc {
 			TrafficPct      int      `json:"traffic_pct"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 			return
 		}
 		if req.Name == "" || req.KeyMetric == "" {
-			http.Error(w, "name and key_metric required", http.StatusBadRequest)
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name and key_metric required"})
 			return
 		}
 		if len(req.Variants) < 2 {
@@ -365,7 +365,7 @@ func handleCreateABTest(s *Server) http.HandlerFunc {
 			req.Name, req.Description, string(variantsJSON), req.KeyMetric, req.MinSample, req.MeasurementDays, req.TrafficPct,
 		)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("failed to create test: %v", err), http.StatusInternalServerError)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create test"})
 			return
 		}
 
@@ -382,13 +382,13 @@ func handleABTestResults(s *Server) http.HandlerFunc {
 		}
 		testName := r.PathValue("name")
 		if testName == "" {
-			http.Error(w, "test name required", http.StatusBadRequest)
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "test name required"})
 			return
 		}
 
 		analysis, err := analyzeABTest(s.db, testName)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("analysis failed: %v", err), http.StatusInternalServerError)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "analysis failed"})
 			return
 		}
 
@@ -408,7 +408,7 @@ func handleResolveABTest(s *Server) http.HandlerFunc {
 			Winner string `json:"winner"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Winner == "" {
-			http.Error(w, "winner required", http.StatusBadRequest)
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "winner required"})
 			return
 		}
 
@@ -417,7 +417,7 @@ func handleResolveABTest(s *Server) http.HandlerFunc {
 			req.Winner, testName,
 		)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("resolve failed: %v", err), http.StatusInternalServerError)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "resolve failed"})
 			return
 		}
 
@@ -445,7 +445,7 @@ func handleListABTests(s *Server) http.HandlerFunc {
 
 		rows, err := s.db.Query(query, args...)
 		if err != nil {
-			http.Error(w, "query failed", http.StatusInternalServerError)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query failed"})
 			return
 		}
 		defer rows.Close()

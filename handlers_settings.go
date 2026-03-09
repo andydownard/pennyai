@@ -141,7 +141,7 @@ func (s *Server) handleTrips(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
 
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
 	}
 }
 
@@ -154,8 +154,7 @@ func (s *Server) handleTrips(w http.ResponseWriter, r *http.Request) {
 
 // handlePlacesAutocomplete proxies Google Places autocomplete to keep the API key server-side.
 func (s *Server) handlePlacesAutocomplete(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	if _, ok := s.requireSession(w, r); !ok {
@@ -209,8 +208,7 @@ func (s *Server) handlePlacesAutocomplete(w http.ResponseWriter, r *http.Request
 
 // handlePlacesDetail fetches the formatted address for a place ID.
 func (s *Server) handlePlacesDetail(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	if _, ok := s.requireSession(w, r); !ok {
@@ -258,7 +256,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPatch:
 		s.handleSettingsUpdate(w, r)
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
 	}
 }
 
@@ -487,7 +485,7 @@ func (s *Server) handleAvatar(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		s.handleAvatarDelete(w, r)
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
 	}
 }
 
