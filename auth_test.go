@@ -1206,6 +1206,80 @@ func TestEmailForgot_RateLimit(t *testing.T) {
 	}
 }
 
+func TestEmailForgot_EmptyEmail(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleEmailForgot, "POST", "/auth/email/forgot",
+		map[string]string{"email": ""}, nil)
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for empty email, got %d", rr.Code)
+	}
+}
+
+func TestEmailForgot_ValidUser_CreatesToken(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Register a user
+	rr := doRequest(server.handleEmailRegister, "POST", "/auth/email/register",
+		map[string]string{"email": "reset@example.com", "password": "password123", "name": "ResetUser"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register failed: %d", rr.Code)
+	}
+
+	// Request forgot password
+	rr = doRequest(server.handleEmailForgot, "POST", "/auth/email/forgot",
+		map[string]string{"email": "reset@example.com"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	// Verify a reset token was created in the database
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM password_resets WHERE used = 0").Scan(&count)
+	if count != 1 {
+		t.Errorf("expected 1 password_reset token, got %d", count)
+	}
+}
+
+func TestEmailForgot_FullResetFlow(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Register
+	rr := doRequest(server.handleEmailRegister, "POST", "/auth/email/register",
+		map[string]string{"email": "flow@example.com", "password": "oldpassword1", "name": "Flow"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register: %d", rr.Code)
+	}
+
+	// Request reset
+	rr = doRequest(server.handleEmailForgot, "POST", "/auth/email/forgot",
+		map[string]string{"email": "flow@example.com"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("forgot: %d", rr.Code)
+	}
+
+	// Get the token from DB
+	var token string
+	server.db.QueryRow("SELECT token FROM password_resets WHERE used = 0 ORDER BY id DESC LIMIT 1").Scan(&token)
+	if token == "" {
+		t.Fatal("no reset token found in DB")
+	}
+
+	// Reset with the token
+	rr = doRequest(server.handleEmailReset, "POST", "/auth/email/reset",
+		map[string]string{"token": token, "password": "newpassword2"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("reset: %d", rr.Code)
+	}
+
+	// Login with new password
+	rr = doRequest(server.handleEmailLogin, "POST", "/auth/email/login",
+		map[string]string{"email": "flow@example.com", "password": "newpassword2"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected login with new password to succeed, got %d", rr.Code)
+	}
+}
+
 func TestMagicLink_RateLimit(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
@@ -2274,6 +2348,65 @@ func TestAccountMerge_NoOrphan_AuthMethodOnly(t *testing.T) {
 	server.db.QueryRow("SELECT merged_user FROM account_merges WHERE surviving_user = ?", user1.ID).Scan(&mergedUser)
 	if mergedUser.Valid {
 		t.Errorf("expected merged_user=NULL for auth-only merge, got %d", mergedUser.Int64)
+	}
+}
+
+// =============================================================================
+// Magic Link Send Tests
+// =============================================================================
+
+func TestMagicLink_EmptyEmail(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleMagicLink, "POST", "/auth/email/magic-link",
+		map[string]string{"email": ""}, nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty email, got %d", rr.Code)
+	}
+}
+
+func TestMagicLink_UnknownEmail(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleMagicLink, "POST", "/auth/email/magic-link",
+		map[string]string{"email": "nobody@example.com"}, nil)
+	// Should return success to prevent email enumeration
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for unknown email, got %d", rr.Code)
+	}
+}
+
+func TestMagicLink_ValidUser_CreatesToken(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Register a user first
+	rr := doRequest(server.handleEmailRegister, "POST", "/auth/email/register",
+		map[string]string{"email": "magic@example.com", "password": "password123", "name": "Magic"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register failed: %d", rr.Code)
+	}
+
+	// Request magic link
+	rr = doRequest(server.handleMagicLink, "POST", "/auth/email/magic-link",
+		map[string]string{"email": "magic@example.com"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	// Verify token was created in database
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM password_resets WHERE token LIKE 'magic:%' AND used = 0").Scan(&count)
+	if count != 1 {
+		t.Errorf("expected 1 magic link token, got %d", count)
+	}
+}
+
+func TestMagicLink_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleMagicLink, "GET", "/auth/email/magic-link", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
 	}
 }
 
