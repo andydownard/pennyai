@@ -32,7 +32,6 @@ import { ScreenTransition, useScreenTransition } from './components/ScreenTransi
 import { PhoneScreen } from './components/PhoneScreen'
 import { CodeScreen } from './components/CodeScreen'
 import { FeedbackWidget } from './components/FeedbackWidget'
-import { BugReportFAB } from './components/BugReportFAB'
 import { DoneSummaryModal } from './components/DoneSummaryModal'
 import { JoinPrompt } from './components/JoinPrompt'
 import { PostSwapShareCard } from './components/PostSwapShareCard'
@@ -4201,11 +4200,6 @@ const handleCodeChange = (index: number, value: string) => {
       {/* Feedback FAB — approved phone numbers only, visible on every page */}
       {canSubmitFeedback && screen !== 'shared-list' && (
         <FeedbackWidget onSubmit={handleFeedbackSubmit} />
-      )}
-
-      {/* Bug report FAB — all authenticated users, every page */}
-      {currentUserId && screen !== 'shared-list' && (
-        <BugReportFAB onSessionExpired={handleSessionExpired} showToast={showToast} />
       )}
     </div>
     </ScreenTransition>

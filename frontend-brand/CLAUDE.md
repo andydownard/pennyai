@@ -38,19 +38,19 @@ These are **two separate React apps** for **two separate audiences**:
 
 ## Design Tokens
 
-The brand portal uses a **professional B2B palette** distinct from the consumer app:
+The brand portal now uses the **canonical brand green** aligned with penny-brand-source.json:
 
 ```typescript
-// Brand portal tokens (NOT the same as consumer app)
-const BRAND = '#2E7D32'       // Professional green (deeper than consumer's #35644F)
-const BRAND_LIGHT = '#E8F5E9' // Light green for highlights
+// Brand portal tokens (aligned with brand source 2026-03-09)
+const BRAND = '#35644F'       // Canonical brand green (matches consumer app + website)
+const BRAND_LIGHT = '#EEF7F2' // Light green for highlights (green-50 from brand source)
 const TEXT = '#1A1A1A'         // Near-black for readability
 const TEXT_SEC = '#666'        // Secondary text
 const BORDER = '#E0E0E0'      // Light gray borders
 const WHITE = '#FFF'
 const BG = '#FAFAFA'           // Off-white background
 const ERROR = '#D32F2F'        // Material red for errors
-const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+const FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 ```
 
 **Design philosophy:** Think Stripe Dashboard or Linear, not consumer mobile app. Information-dense, desktop-primary, professional. Brand managers use this on laptops during work hours.

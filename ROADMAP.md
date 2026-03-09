@@ -873,7 +873,7 @@ Databricks is enterprise data lakehouse tooling ($10K+/yr, requires a data engin
 ### Backend Refactor
 - [x] **Split monolithic Go files** — Extracted `handlers_logo.go` (logo proxy, cache, placeholder, brands) and `handlers_swap.go` (deal matching, auction) from `handlers_list.go` (2216→1597 lines). ✅ Done
 - [x] **Extract middleware** — Already composable: `requireSession()`, `requireAdmin()` (auth gating), `checkRateLimit()`, `checkRateLimitBucket()` (rate limiting), panic recovery + Sentry + security headers (top-level wrapper in server.go). ✅ Already done
-- **Introduce request/response types** — Many handlers use anonymous `struct{}` for JSON parsing. Define named types in `models.go` for readability and reuse.
+- [x] **Introduce request/response types** — Extracted 22 anonymous structs into named types in `models.go` (GoogleAuthRequest, EmailLoginRequest, ParseAndAddRequest, ListEditRequest, BrandResolveRequest, FeedbackSubmitRequest, SavedListCreateRequest, etc.) ✅ Done
 - **Database query consolidation** — Several handlers have near-identical SQL queries with slight variations. Extract common queries into typed helper functions.
 - [x] **Error handling consistency** — Standardize error responses. ✅ Done: all production handlers use `writeJSON()`. Only 2 acceptable `http.Error` calls remain (HTML 404 in serveWithOGTags, panic recovery middleware).
 
