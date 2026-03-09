@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -6051,5 +6052,363 @@ func TestCachedParseItems_ErrorNotCached(t *testing.T) {
 	}
 	if len(result) != 1 || result[0].Name != "Yogurt" {
 		t.Errorf("expected [{Name:Yogurt}], got %+v", result)
+	}
+}
+
+// =============================================================================
+// Batch 7: Google Auth, PennyInsights, ReferralRedeem, BrandRegister, LogoProxy
+// =============================================================================
+
+func TestGoogleAuth_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleGoogleAuth, "GET", "/auth/google", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestGoogleAuth_MissingCredential(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google", map[string]string{}, nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestGoogleAuth_AudienceMismatch(t *testing.T) {
+	tokenServer := newMockGoogleTokenServer(t, map[string]string{
+		"sub": "sub1", "email": "test@example.com", "email_verified": "true",
+		"name": "Test", "aud": "wrong-client-id",
+	})
+	defer tokenServer.Close()
+
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.GoogleClientID = "correct-client-id"
+	server.googleTokenInfoURL = tokenServer.URL
+
+	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+		map[string]string{"credential": "test-token"}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["error"] != "Invalid token audience" {
+		t.Errorf("expected audience error, got %v", body["error"])
+	}
+}
+
+func TestGoogleAuth_EmailNotVerified(t *testing.T) {
+	testClientID := "test-client-id"
+	tokenServer := newMockGoogleTokenServer(t, map[string]string{
+		"sub": "sub2", "email": "test@example.com", "email_verified": "false",
+		"name": "Test", "aud": testClientID,
+	})
+	defer tokenServer.Close()
+
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.GoogleClientID = testClientID
+	server.googleTokenInfoURL = tokenServer.URL
+
+	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+		map[string]string{"credential": "test-token"}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["error"] != "Email not verified" {
+		t.Errorf("expected email not verified error, got %v", body["error"])
+	}
+}
+
+func TestGoogleAuth_InvalidToken(t *testing.T) {
+	// Token server returns non-200
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error": "invalid_token"}`))
+	}))
+	defer tokenServer.Close()
+
+	server := newTestServer(t, &MockTwilioClient{})
+	server.googleTokenInfoURL = tokenServer.URL
+
+	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+		map[string]string{"credential": "bad-token"}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestGoogleAuth_SuccessfulLogin(t *testing.T) {
+	testClientID := "test-client-id-ok"
+	tokenServer := newMockGoogleTokenServer(t, map[string]string{
+		"sub": "google-sub-ok", "email": "ok@example.com", "email_verified": "true",
+		"name": "OK User", "aud": testClientID,
+	})
+	defer tokenServer.Close()
+
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.GoogleClientID = testClientID
+	server.googleTokenInfoURL = tokenServer.URL
+
+	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+		map[string]string{"credential": "valid-token"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	if body["success"] != true {
+		t.Errorf("expected success=true, got %v", body["success"])
+	}
+	if body["user_id"] == nil {
+		t.Error("expected user_id in response")
+	}
+}
+
+func TestGoogleAuth_MergedAccount(t *testing.T) {
+	testClientID := "test-client-merge"
+	tokenServer := newMockGoogleTokenServer(t, map[string]string{
+		"sub": "google-sub-merge", "email": "merged@example.com", "email_verified": "true",
+		"name": "Merge User", "aud": testClientID,
+	})
+	defer tokenServer.Close()
+
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.GoogleClientID = testClientID
+	server.googleTokenInfoURL = tokenServer.URL
+
+	// Pre-create user with same email (via email/password)
+	server.db.Exec("INSERT INTO users (phone_number, email) VALUES ('', 'merged@example.com')")
+
+	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+		map[string]string{"credential": "merge-token"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	if body["account_merged"] != true {
+		t.Errorf("expected account_merged=true, got %v", body["account_merged"])
+	}
+}
+
+// --- PennyInsights with data ---
+
+func TestPennyInsights_WithHouseholdLearnings(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5559990001")
+
+	// Create household and add user
+	result, _ := server.db.Exec("INSERT INTO households DEFAULT VALUES")
+	hhID, _ := result.LastInsertId()
+	server.db.Exec("UPDATE users SET household_id = ? WHERE id = ?", hhID, userID)
+	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (?, ?)", hhID, userID)
+
+	// Add household-level learning
+	server.updateLearning("household", int(hhID), "coordination_score", "high", 0.9)
+
+	rr := doRequest(server.handlePennyInsights, "GET", "/api/penny/insights", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	hl := body["household_learnings"].(map[string]interface{})
+	if _, ok := hl["coordination_score"]; !ok {
+		t.Error("expected coordination_score in household_learnings")
+	}
+}
+
+func TestPennyInsights_WithSwapBehavior(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5559990002")
+
+	// Add swap events
+	server.db.Exec("INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status) VALUES (1, 'comp', 'brand', 'offer', 100, 10000, 'active')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (?, 1, 'offered')", userID)
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (?, 1, 'offered')", userID)
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (?, 1, 'accepted')", userID)
+
+	rr := doRequest(server.handlePennyInsights, "GET", "/api/penny/insights", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	swap := body["swap_behavior"].(map[string]interface{})
+	if swap["offered"].(float64) != 2 {
+		t.Errorf("expected 2 offered, got %v", swap["offered"])
+	}
+	if swap["accepted"].(float64) != 1 {
+		t.Errorf("expected 1 accepted, got %v", swap["accepted"])
+	}
+	if swap["accept_rate"].(float64) != 50 {
+		t.Errorf("expected accept_rate 50, got %v", swap["accept_rate"])
+	}
+}
+
+func TestPennyInsights_WithBrandAffinities(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5559990003")
+
+	server.db.Exec("INSERT INTO brand_preferences (user_id, product_category, brand, pick_count, streak) VALUES (?, 'milk', 'Organic Valley', 8, 5)", userID)
+
+	rr := doRequest(server.handlePennyInsights, "GET", "/api/penny/insights", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	patterns := body["patterns"].(map[string]interface{})
+	affinities := patterns["brand_affinities"].([]interface{})
+	if len(affinities) == 0 {
+		t.Fatal("expected at least one brand affinity")
+	}
+	first := affinities[0].(map[string]interface{})
+	if first["brand"] != "Organic Valley" {
+		t.Errorf("expected Organic Valley, got %v", first["brand"])
+	}
+}
+
+func TestPennyInsights_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handlePennyInsights, "POST", "/api/penny/insights", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}
+
+// --- ReferralRedeem ---
+
+func TestReferralRedeem_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleReferralRedeem, "GET", "/api/referral/redeem", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestReferralRedeem_NoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleReferralRedeem, "POST", "/api/referral/redeem", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+// --- BrandRegister ---
+
+func TestBrandRegister_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleBrandRegister, "GET", "/brand/register", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestBrandRegister_MissingFields(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
+		"email": "test@brand.com",
+	}, nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestBrandRegister_ShortPassword(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
+		"email":        "test@brand.com",
+		"password":     "short",
+		"company_name": "TestCo",
+	}, nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestBrandRegister_DuplicateEmail(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// First registration
+	brandRegister(t, server, "dup@brand.com", "password1234", "FirstCo")
+	// Second with same email
+	rr := doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
+		"email":        "dup@brand.com",
+		"password":     "password1234",
+		"company_name": "SecondCo",
+	}, nil)
+	if rr.Code != http.StatusConflict {
+		t.Errorf("expected 409, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// --- LogoProxy ---
+
+func TestLogoProxy_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleLogoProxy, "POST", "/api/logo", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestLogoProxy_MissingURL(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	req := httptest.NewRequest("GET", "/api/logo", nil)
+	rr := httptest.NewRecorder()
+	server.handleLogoProxy(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestLogoProxy_InvalidURL(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	req := httptest.NewRequest("GET", "/api/logo?url="+url.QueryEscape("not-a-url"), nil)
+	rr := httptest.NewRecorder()
+	server.handleLogoProxy(rr, req)
+	// Should return 400 or fetch error
+	if rr.Code == http.StatusOK {
+		t.Error("expected non-200 for invalid URL")
+	}
+}
+
+// --- handleBrandDeals routing ---
+
+func TestBrandDeals_InvalidDealID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "deals@brand.com", "password1234", "DealsCo")
+
+	req := httptest.NewRequest("PUT", "/brand/deals/notanumber", bytes.NewBuffer([]byte("{}")))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleBrandDeals(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for non-numeric deal ID, got %d", rr.Code)
+	}
+}
+
+func TestBrandDeals_UnsupportedMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "method@brand.com", "password1234", "MethodCo")
+
+	req := httptest.NewRequest("PATCH", "/brand/deals", bytes.NewBuffer(nil))
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleBrandDeals(rr, req)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for PATCH, got %d", rr.Code)
+	}
+}
+
+func TestBrandDeals_GetEmptyList(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "empty@brand.com", "password1234", "EmptyCo")
+
+	rr := doRequest(server.handleBrandDeals, "GET", "/brand/deals", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	var deals []interface{}
+	json.Unmarshal(rr.Body.Bytes(), &deals)
+	if len(deals) != 0 {
+		t.Errorf("expected empty deals list, got %d", len(deals))
 	}
 }
