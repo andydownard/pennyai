@@ -326,6 +326,17 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/privacy", handlePrivacyPolicy)
 	http.HandleFunc("/terms", handleTerms)
 
+	// --- Embeddable View (for vibeflourishing.com pitch deck) ---
+	http.HandleFunc("/embed", func(w http.ResponseWriter, r *http.Request) {
+		// Serve the consumer SPA at /embed — the React app handles embed mode
+		// Security headers for embed are handled in the outer middleware (conditional X-Frame-Options)
+		http.ServeFile(w, r, "static/index.html")
+	})
+	http.HandleFunc("/embed/", func(w http.ResponseWriter, r *http.Request) {
+		// Serve sub-paths under /embed (e.g., /embed/list, /embed/penny)
+		http.ServeFile(w, r, "static/index.html")
+	})
+
 	// Serve the React frontends. Two separate SPAs:
 	// - Consumer app (static/) at app.thrift.ly
 	// - Brand portal (static-brand/) at brands.thrift.ly
@@ -393,9 +404,23 @@ Get these from https://console.twilio.com (see README for full setup).
 		}()
 		// Security headers
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com; frame-src https://accounts.google.com; font-src 'self'")
+
+		// Embed routes: allow framing by vibeflourishing.com only; all other routes: DENY
+		if strings.HasPrefix(r.URL.Path, "/embed") {
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://www.google-analytics.com https://www.googletagmanager.com; frame-src https://accounts.google.com; frame-ancestors 'self' https://vibeflourishing.com https://vibeflourishing-production.up.railway.app https://localhost:5173")
+			w.Header().Set("Access-Control-Allow-Origin", "https://vibeflourishing.com")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			// Handle CORS preflight
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+		} else {
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com; frame-src https://accounts.google.com; font-src 'self'")
+		}
 		if server.config.SecureCookies {
 			w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
 		}
