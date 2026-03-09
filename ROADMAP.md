@@ -554,7 +554,7 @@ Playwright E2E tests covering critical user flows: login, add items, check items
 | 16 | **M9. Brand Dashboard v2** | S→M | 3 | P2 | **Scope reduced** — Metabase handles most reporting. Competitive Intel, purchase verification funnel, date range filter, CSV export, weekly digest all shipped. | **Done** |
 | 17 | **R2. Trip Planner Discoverability** | S | — | P3 | Quality of life, quick win. Do when there's a spare afternoon. | **Done** (Sprint 4) |
 | — | ~~R4. SSE Real-Time Updates~~ | — | — | — | **Replaced by Pusher/Ably** (Buy-vs-Build: BUY NOW). No longer a build item. | Replaced |
-| 18 | **R6. Codebase Refactor** | L | — | P2 | Split monolithic files (App.tsx, handlers), extract middleware, shared styles, API layer. Do incrementally between sprints. | **Partial** (API layer ✅, error handling ✅, hooks ✅, test helpers ✅; remaining: inline styles, test org, backend middleware) |
+| 18 | **R6. Codebase Refactor** | L | — | P2 | Split monolithic files (App.tsx, handlers), extract middleware, shared styles, API layer. Do incrementally between sprints. | **Mostly Done** (API layer ✅, error handling ✅, hooks ✅, test helpers ✅, shared styles ✅; remaining: test org, backend middleware) |
 | 19 | **R7. UX Overhaul** | L | — | P1 | Design system, dark mode, bottom tabs, screen transitions, optimistic updates, offline support. Dedicated sprint after revenue stabilizes. | **Mostly Done** (dark mode ✅, bottom tabs ✅, transitions ✅, a11y ✅, font scaling ✅, code splitting ✅; remaining: Penny avatar expressions) |
 
 ### What changed (March 2026 groom)
@@ -860,10 +860,10 @@ Databricks is enterprise data lakehouse tooling ($10K+/yr, requires a data engin
 ### Frontend Refactor
 - [x] **Extract screens** — 15 screens extracted into separate component files (Phone, Code, Email*, Profile, Help, Share, Admin, Penny, Earnings, Receipts, SharedList, etc.). Home screen remains in App.tsx due to heavy state coupling.
 - [x] **Code splitting** — 12 screens lazy-loaded via React.lazy for faster initial load (740→486KB main bundle).
-- **Extract inline styles** — All styles are inline objects defined in the component. Move to a shared styles system (CSS modules, styled-components, or at minimum a `styles/` directory).
+- [x] **Extract inline styles** — Shared style utilities (`layout`, `buttons`, `text`, `containers`) added to `styles.ts`. Applied across 14 components (App.tsx, ItemRow, PennyBar, ReviewSheet, SwapCard, ItemEditSheet, NavigationMenu, DoneSummaryModal, PostSwapShareCard, EarningsScreen, ConfirmModal, JoinPrompt, auth screens, FeedbackWidget, WrappedCard). ✅ Done
 - [x] **State management (partial)** — Extracted `useToast`, `useConfirmModal`, `useKeyboardOpen` hooks into `hooks/` directory. Remaining: `useAuth`, `useList`, `useSwaps` (deeply coupled, diminishing returns).
 - [x] **API layer** — Extracted `fetchAPI`, `fetchAction`, `postJSON`, `patchJSON` into `api.ts` with generic types and configurable session expiry handler. Eliminated fetchAPI prop drilling from 9 components.
-- **Component library** — Buttons, inputs, cards, and modals are re-implemented with inline styles in multiple places. Extract shared UI primitives. Started: StatusBadge (5 semantic variants + bordered mode), SectionHeader (extracted from ActionSheet inline).
+- [x] **Component library** — Shared UI primitives extracted: StatusBadge (5 semantic variants + bordered mode), SectionHeader, plus `buttons.primary`/`buttons.destructive`/`buttons.icon`/`buttons.pill` style objects in styles.ts for consistent button styling. ✅ Done
 
 ### Testing Refactor
 - [x] **Test helpers** — Already well-organized: `loginUser()` (521 uses), `createListItem()`, `doRequest()`, `parseJSON()`, `getSessionCookie()`, `doSMSRequest()`, `doEmailRequest()`, `createTestDeal()`, `setupEarningsTestData()`. ✅ Already good.
