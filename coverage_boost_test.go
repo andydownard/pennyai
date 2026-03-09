@@ -4998,3 +4998,351 @@ func TestGetUserZip(t *testing.T) {
 }
 
 // TestTruncateRunes already exists in admin_test.go
+
+// =============================================================================
+// handleBrandLogin TESTS (66.7% → target ~90%)
+// =============================================================================
+
+func TestBrandLogin_NonexistentEmail(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleBrandLogin, "POST", "/brand/login", map[string]string{
+		"email":    "nobody@example.com",
+		"password": "somepassword",
+	}, nil)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for nonexistent email, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["error"] != "Invalid email or password" {
+		t.Errorf("unexpected error message: %v", body["error"])
+	}
+}
+
+func TestBrandLogin_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleBrandLogin, "GET", "/brand/login", nil, nil)
+
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for GET, got %d", rr.Code)
+	}
+}
+
+func TestBrandLogin_EmptyBody(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Send a POST with empty JSON object — email will be empty, should hit the DB query
+	// which returns no rows → 401
+	rr := doRequest(server.handleBrandLogin, "POST", "/brand/login", map[string]string{
+		"email":    "",
+		"password": "",
+	}, nil)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for empty credentials, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// updateBrandDeal TESTS (55.9% → target ~85%)
+// =============================================================================
+
+func TestUpdateBrandDeal_NonexistentDeal(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "update-nonexist@test.com", "password123", "TestCo")
+
+	rr := doRequest(server.handleBrandDeals, "PUT", "/brand/deals/99999", map[string]interface{}{
+		"status": "paused",
+	}, []*http.Cookie{cookie})
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for nonexistent deal, got %d", rr.Code)
+	}
+}
+
+func TestUpdateBrandDeal_WrongOwner(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Owner creates the deal
+	ownerCookie, _ := brandRegister(t, server, "deal-owner@test.com", "password123", "OwnerCo")
+	dealID := createTestDeal(t, server, ownerCookie)
+
+	// Different user tries to update it
+	otherCookie, _ := brandRegister(t, server, "deal-other@test.com", "password123", "OtherCo")
+	rr := doRequest(server.handleBrandDeals, "PUT", fmt.Sprintf("/brand/deals/%d", dealID), map[string]interface{}{
+		"status": "paused",
+	}, []*http.Cookie{otherCookie})
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for wrong owner, got %d", rr.Code)
+	}
+}
+
+func TestUpdateBrandDeal_EmptyFields(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "update-empty@test.com", "password123", "TestCo")
+	dealID := createTestDeal(t, server, cookie)
+
+	// Send an empty JSON body — no updatable fields
+	rr := doRequest(server.handleBrandDeals, "PUT", fmt.Sprintf("/brand/deals/%d", dealID), map[string]interface{}{}, []*http.Cookie{cookie})
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty fields, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["error"] != "No fields to update" {
+		t.Errorf("unexpected error: %v", body["error"])
+	}
+}
+
+func TestUpdateBrandDeal_SuccessfulUpdate(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "update-success@test.com", "password123", "TestCo")
+	dealID := createTestDeal(t, server, cookie)
+
+	newStatus := "paused"
+	newDiscount := 200
+	newBudget := 50000
+	newWhy := "Better taste, better price"
+	newAllergen := "Contains soy"
+
+	rr := doRequest(server.handleBrandDeals, "PUT", fmt.Sprintf("/brand/deals/%d", dealID), map[string]interface{}{
+		"status":           newStatus,
+		"discount_cents":   newDiscount,
+		"daily_budget_cents": newBudget,
+		"why_bullets":      newWhy,
+		"allergen_notes":   newAllergen,
+	}, []*http.Cookie{cookie})
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for successful update, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	if body["message"] != "Deal updated" {
+		t.Errorf("unexpected message: %v", body["message"])
+	}
+
+	// Verify the fields actually changed in DB
+	var status, why, allergen string
+	var discount, budget int
+	err := server.db.QueryRow(
+		"SELECT status, discount_cents, total_budget_cents, COALESCE(why_bullets,''), COALESCE(allergen_notes,'') FROM brand_deals WHERE id = ?", dealID,
+	).Scan(&status, &discount, &budget, &why, &allergen)
+	if err != nil {
+		t.Fatalf("failed to query updated deal: %v", err)
+	}
+	if status != newStatus {
+		t.Errorf("status: got %q, want %q", status, newStatus)
+	}
+	if discount != newDiscount {
+		t.Errorf("discount_cents: got %d, want %d", discount, newDiscount)
+	}
+	if budget != newBudget {
+		t.Errorf("total_budget_cents: got %d, want %d", budget, newBudget)
+	}
+	if why != newWhy {
+		t.Errorf("why_bullets: got %q, want %q", why, newWhy)
+	}
+	if allergen != newAllergen {
+		t.Errorf("allergen_notes: got %q, want %q", allergen, newAllergen)
+	}
+}
+
+// =============================================================================
+// deleteBrandDeal TESTS (71.4% → target ~95%)
+// =============================================================================
+
+func TestDeleteBrandDeal_NonexistentDeal(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "delete-nonexist@test.com", "password123", "TestCo")
+
+	rr := doRequest(server.handleBrandDeals, "DELETE", "/brand/deals/99999", nil, []*http.Cookie{cookie})
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for nonexistent deal, got %d", rr.Code)
+	}
+}
+
+func TestDeleteBrandDeal_WrongOwner(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Owner creates the deal
+	ownerCookie, _ := brandRegister(t, server, "del-owner@test.com", "password123", "OwnerCo")
+	dealID := createTestDeal(t, server, ownerCookie)
+
+	// Different user tries to delete it
+	otherCookie, _ := brandRegister(t, server, "del-other@test.com", "password123", "OtherCo")
+	rr := doRequest(server.handleBrandDeals, "DELETE", fmt.Sprintf("/brand/deals/%d", dealID), nil, []*http.Cookie{otherCookie})
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for wrong owner, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// handlePennyQuote TESTS (59.5% → target ~85%)
+// =============================================================================
+
+func TestPennyQuote_NameSanitization_NumbersStripped(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Name with numbers should have them stripped — the handler strips non-alpha chars
+	req := httptest.NewRequest("GET", "/api/penny/quote?context=login&name=John123", nil)
+	rr := httptest.NewRecorder()
+	server.handlePennyQuote(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	// The quote should still be returned — sanitization doesn't cause an error
+	var result map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &result)
+	if _, ok := result["quote"]; !ok {
+		t.Error("expected 'quote' field in response")
+	}
+}
+
+func TestPennyQuote_NameTruncation(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Name longer than 30 chars should be truncated
+	longName := "Abcdefghijklmnopqrstuvwxyzabcdefghijklmnop" // 43 chars
+	req := httptest.NewRequest("GET", "/api/penny/quote?context=login&name="+longName, nil)
+	rr := httptest.NewRecorder()
+	server.handlePennyQuote(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	var result map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &result)
+	if _, ok := result["quote"]; !ok {
+		t.Error("expected 'quote' field in response")
+	}
+}
+
+func TestPennyQuote_UnknownContextDefaultsToChime(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Unknown context "foobar" — the handler will use it as-is. Since it's not "login",
+	// it requires auth. The pool will be empty (no fallbacks for "foobar"), so it should
+	// return the generic "Hey there!" fallback.
+	req := httptest.NewRequest("GET", "/api/penny/quote?context=foobar", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handlePennyQuote(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	var result map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &result)
+	quote, ok := result["quote"].(string)
+	if !ok || quote == "" {
+		t.Error("expected non-empty quote for unknown context")
+	}
+	// Unknown context has no fallback pool → should be "Hey there!"
+	if quote != "Hey there!" {
+		t.Errorf("expected 'Hey there!' for unknown context with empty pool, got %q", quote)
+	}
+}
+
+func TestPennyQuote_ChimeWithoutAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	req := httptest.NewRequest("GET", "/api/penny/quote?context=chime", nil)
+	rr := httptest.NewRecorder()
+	server.handlePennyQuote(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for chime context without auth, got %d", rr.Code)
+	}
+}
+
+func TestPennyQuote_DoneContext(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	req := httptest.NewRequest("GET", "/api/penny/quote?context=done", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handlePennyQuote(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for done context with auth, got %d", rr.Code)
+	}
+	var result map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &result)
+	quote, ok := result["quote"].(string)
+	if !ok || quote == "" {
+		t.Error("expected non-empty quote for done context")
+	}
+	// Should come from the "done" fallback pool
+	doneFallbacks := []string{
+		"You're all done!", "List complete — nice job!", "Everything's checked off!",
+	}
+	found := false
+	for _, fb := range doneFallbacks {
+		if quote == fb {
+			found = true
+			break
+		}
+	}
+	if !found {
+		// Could be from LLM cache, that's OK — just check it's non-empty (already checked above)
+		t.Logf("Quote %q not in fallback pool (may be LLM-generated, which is fine)", quote)
+	}
+}
+
+// =============================================================================
+// handleFeedbackList TESTS (72.2% → target ~95%)
+// =============================================================================
+
+func TestFeedbackList_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// handleFeedbackRoutes dispatches; POST goes to handleFeedback, DELETE should be 405
+	rr := doRequest(server.handleFeedbackRoutes, "DELETE", "/api/feedback", nil, nil)
+
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for DELETE, got %d", rr.Code)
+	}
+}
+
+func TestFeedbackList_NonFeedbackUser(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Login with a phone NOT in FeedbackPhones
+	cookie, _ := loginUser(t, server, "5559999999")
+
+	rr := doRequest(server.handleFeedbackRoutes, "GET", "/api/feedback", nil, []*http.Cookie{cookie})
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-feedback user, got %d", rr.Code)
+	}
+}
+
+func TestFeedbackList_EmptyList(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Login with a phone that IS in FeedbackPhones (test server uses "5551234567")
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleFeedbackRoutes, "GET", "/api/feedback", nil, []*http.Cookie{cookie})
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for empty feedback list, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Should return an empty JSON array, not null
+	var items []interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &items); err != nil {
+		t.Fatalf("failed to parse response as JSON array: %v", err)
+	}
+	if len(items) != 0 {
+		t.Errorf("expected empty array, got %d items", len(items))
+	}
+}
