@@ -275,6 +275,8 @@ function AppInner() {
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)    // checking existing session on load
   const [isOffline, setIsOffline] = useState(!navigator.onLine)
+  const [installPrompt, setInstallPrompt] = useState<any>(null)
+  const [showInstallBanner, setShowInstallBanner] = useState(false)
 
   // Shared list deep link state
   const [sharedCode, setSharedCode] = useState<string | null>(null)
@@ -1078,6 +1080,24 @@ function AppInner() {
     window.addEventListener('offline', goOffline)
     return () => { window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline) }
   }, [screen])
+
+  // PWA install prompt — capture the browser event and show a banner after the user has items
+  useEffect(() => {
+    if (localStorage.getItem('thriftly_install_dismissed')) return
+    const handler = (e: Event) => {
+      e.preventDefault()
+      setInstallPrompt(e)
+    }
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  // Show install banner after user has 5+ items (engaged enough to find the app useful)
+  useEffect(() => {
+    if (installPrompt && items.length >= 5 && screen === 'home' && !showInstallBanner) {
+      setShowInstallBanner(true)
+    }
+  }, [installPrompt, items.length, screen])
 
   // Refresh list when user returns to the app (handles household changes while away)
   useEffect(() => {
@@ -3498,6 +3518,35 @@ const handleCodeChange = (index: number, value: string) => {
           fontWeight: 500,
         }}>
           You're offline — changes will sync when you're back
+        </div>
+      )}
+
+      {/* PWA install prompt */}
+      {showInstallBanner && (
+        <div style={{
+          ...layout.row, flexShrink: 0, padding: '8px 16px', gap: '12px',
+          backgroundColor: 'var(--success-bg, #F0FFF4)', borderBottom: '1px solid var(--border)',
+        }}>
+          <span style={{ flex: 1, fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text)' }}>
+            Add Thriftly to your home screen for quick access
+          </span>
+          <button onClick={async () => {
+            if (installPrompt?.prompt) {
+              installPrompt.prompt()
+              const result = await installPrompt.userChoice
+              track('pwa_install_prompt', { outcome: result?.outcome })
+            }
+            setShowInstallBanner(false)
+            setInstallPrompt(null)
+          }} style={{
+            ...buttons.reset, fontFamily: FONT, fontSize: FONT_2XS, fontWeight: 600,
+            color: 'var(--brand)', padding: '4px 10px', backgroundColor: 'color-mix(in srgb, var(--brand) 10%, transparent)',
+            borderRadius: '8px',
+          }}>Install</button>
+          <button onClick={() => {
+            setShowInstallBanner(false)
+            localStorage.setItem('thriftly_install_dismissed', '1')
+          }} style={{ ...buttons.reset, color: 'var(--text-secondary)', fontSize: FONT_SM, padding: '4px' }}>×</button>
         </div>
       )}
 
