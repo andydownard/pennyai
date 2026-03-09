@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { PennyAvatar } from './PennyAvatar'
-import { FONT, FONT_2XS, FONT_XS, FONT_MD } from '../styles'
+import { FONT, FONT_2XS, FONT_XS, FONT_MD, layout, buttons as btnUtils } from '../styles'
 
 // Brand disambiguation item from the parse response
 export interface DisambigItem {
@@ -66,10 +66,10 @@ const chatInputStyle: React.CSSProperties = {
 }
 
 const chatSendStyle = (active: boolean): React.CSSProperties => ({
+  ...layout.rowCenter,
   flexShrink: 0, width: '40px', height: '40px', borderRadius: '50%',
   backgroundColor: 'transparent', color: active ? 'var(--brand)' : 'var(--text-secondary)',
   border: 'none', cursor: active ? 'pointer' : 'default',
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
   transition: 'color 0.15s',
 })
 
@@ -95,7 +95,7 @@ export function PennyBar({
       <div style={{ flexShrink: 0, backgroundColor: bgColor, borderTop: '1px solid var(--border)', overflow: 'hidden' }}>
         {!hidePennyText && (
         <div style={{ padding: keyboardOpen ? '4px 12px' : '8px 14px', transition: 'padding 200ms ease' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={layout.rowGap}>
             <PennyAvatar size={keyboardOpen ? 24 : 28} />
             <span style={{
               flex: 1, fontFamily: FONT, fontSize: keyboardOpen ? FONT_2XS : FONT_XS,
@@ -195,7 +195,7 @@ export function PennyBar({
             title="Take photo"
             aria-label="Take photo with camera"
             onClick={() => onOpenCamera()}
-            style={{ flexShrink: 0, width: '40px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+            style={{ ...btnUtils.icon, flexShrink: 0, width: '40px', height: '44px', minWidth: 'auto', minHeight: 'auto' }}
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
@@ -206,7 +206,7 @@ export function PennyBar({
             title="Add from photo library"
             aria-label="Add from photo library"
             onClick={() => onAddPhoto()}
-            style={{ flexShrink: 0, width: '36px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+            style={{ ...btnUtils.icon, flexShrink: 0, width: '36px', height: '44px', minWidth: 'auto', minHeight: 'auto' }}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>

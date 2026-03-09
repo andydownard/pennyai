@@ -55,6 +55,7 @@ import {
   FONT, DEPARTMENTS, DEPT_ICONS,
   FONT_2XS, FONT_XS, FONT_SM, FONT_BASE, FONT_MD, FONT_LG, FONT_XL,
   THEME_CSS, initTheme, getTheme, setTheme,
+  layout, buttons, text,
 } from './styles'
 
 // =============================================================================
@@ -208,17 +209,17 @@ function QuantityControl({ value, onChange }: {
   onChange: (newValue: number) => void
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', border: '1.5px solid var(--border)', borderRadius: '12px', backgroundColor: 'var(--surface)', flexShrink: 0 }}>
+    <div style={{ ...layout.row, border: '1.5px solid var(--border)', borderRadius: '12px', backgroundColor: 'var(--surface)', flexShrink: 0 }}>
       <button
         onClick={() => onChange(Math.max(1, value - 1))}
         aria-label={`Decrease quantity, currently ${value}`}
-        style={{ width: '38px', height: '42px', border: 'none', background: 'none', fontSize: FONT_LG, color: 'var(--brand)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        style={{ ...buttons.reset, ...layout.rowCenter, width: '38px', height: '42px', fontSize: FONT_LG, color: 'var(--brand)' }}
       >−</button>
       <span aria-live="polite" aria-atomic="true" style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600, color: 'var(--text)', minWidth: '24px', textAlign: 'center' }}>{value}</span>
       <button
         onClick={() => onChange(value + 1)}
         aria-label={`Increase quantity, currently ${value}`}
-        style={{ width: '38px', height: '42px', border: 'none', background: 'none', fontSize: FONT_LG, color: 'var(--brand)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        style={{ ...buttons.reset, ...layout.rowCenter, width: '38px', height: '42px', fontSize: FONT_LG, color: 'var(--brand)' }}
       >+</button>
     </div>
   )
@@ -2896,9 +2897,9 @@ const handleCodeChange = (index: number, value: string) => {
   if (checking) {
     return (
       <div style={styles.container}>
-        <div style={{ ...styles.card, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+        <div style={{ ...styles.card, ...layout.columnCenter, gap: '16px' }}>
           <Logo />
-          <p style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text-secondary)', margin: 0 }}>Loading…</p>
+          <p style={{ ...text.secondary, fontSize: FONT_BASE, margin: 0 }}>Loading…</p>
         </div>
       </div>
     )
@@ -3063,7 +3064,7 @@ const handleCodeChange = (index: number, value: string) => {
       <button
         onClick={() => { clearToast() }}
         aria-label="Dismiss"
-        style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: FONT_MD, cursor: 'pointer', padding: '4px', lineHeight: 1, flexShrink: 0, opacity: 0.6 }}
+        style={{ ...buttons.reset, color: 'var(--text-secondary)', fontSize: FONT_MD, padding: '4px', lineHeight: 1, flexShrink: 0, opacity: 0.6 }}
       >×</button>
     </div>
   ) : null
@@ -3085,12 +3086,12 @@ const handleCodeChange = (index: number, value: string) => {
     const isSubScreen = SUB_SCREENS.includes(active)
     return (
       <div style={{ flexShrink: 0, backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', position: 'relative' }}>
+        <div style={{ ...layout.row, padding: '16px 20px', position: 'relative' }}>
           {isSubScreen ? (
             <button
               onClick={() => setScreen(active === 'earnings' || active === 'receipts' ? 'home' : active === 'admin' ? 'profile' : 'profile')}
               aria-label="Back"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', minWidth: '44px', minHeight: '44px' }}
+              style={{ ...buttons.icon, padding: '0 4px' }}
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="15 18 9 12 15 6"/>
@@ -3116,7 +3117,7 @@ const handleCodeChange = (index: number, value: string) => {
           }}>{pageIcons[pageName]}{pageName}</span>
           {/* Swaps total — upper right */}
           <span
-            style={{ marginLeft: 'auto', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1 }}
+            style={{ ...layout.column, marginLeft: 'auto', cursor: 'pointer', alignItems: 'flex-end', lineHeight: 1 }}
             onClick={() => setScreen('earnings')}
           >
             <span style={{ fontFamily: FONT, fontSize: FONT_LG, fontWeight: 700, color: 'var(--brand)' }}>
@@ -3410,7 +3411,7 @@ const handleCodeChange = (index: number, value: string) => {
       <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
       {/* Fixed header — compact */}
       <div style={{ flexShrink: 0, backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', position: 'relative' }}>
+        <div style={{ ...layout.row, padding: '16px 20px', position: 'relative' }}>
           <span
             style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: FONT_LG, fontWeight: 700 }}
             onClick={() => setScreen('home')}
@@ -3461,7 +3462,7 @@ const handleCodeChange = (index: number, value: string) => {
           )}
           {/* Swaps total — upper right */}
           <span
-            style={{ marginLeft: 'auto', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1 }}
+            style={{ ...layout.column, marginLeft: 'auto', cursor: 'pointer', alignItems: 'flex-end', lineHeight: 1 }}
             onClick={() => setScreen('earnings')}
           >
             <span style={{ fontFamily: FONT, fontSize: FONT_LG, fontWeight: 700, color: 'var(--brand)' }}>
@@ -3516,7 +3517,7 @@ const handleCodeChange = (index: number, value: string) => {
                 {isTripInProgress(trip) ? 'Shopping now!' : formatTripTime(trip)}
               </span>
               {trip.is_mine && (
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div style={layout.rowGap}>
                   {isTripInProgress(trip) && (
                     <button
                       onClick={() => {
@@ -3540,7 +3541,7 @@ const handleCodeChange = (index: number, value: string) => {
                   <button
                     onClick={handleCancelTrip}
                     aria-label="Cancel trip"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: 'var(--text-secondary)', display: 'flex' }}
+                    style={{ ...buttons.reset, padding: '4px', color: 'var(--text-secondary)', display: 'flex' }}
                   >
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
                   </button>
@@ -3567,8 +3568,7 @@ const handleCodeChange = (index: number, value: string) => {
         {/* Pull-to-refresh indicator */}
         {(pullDistance > 0 || pullRefreshing) && (
           <div style={{
-            position: 'absolute', top: -40, left: 0, right: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            ...layout.rowCenter, position: 'absolute', top: -40, left: 0, right: 0,
             height: '40px', fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)',
           }}>
             {pullRefreshing ? 'Refreshing...' : pullDistance >= 50 ? 'Release to refresh' : 'Pull to refresh'}
@@ -3598,7 +3598,7 @@ const handleCodeChange = (index: number, value: string) => {
                   width: '44px', height: '44px', borderRadius: '8px',
                   backgroundColor: 'var(--skeleton)', marginRight: '10px', flexShrink: 0,
                 }} />
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column' as const, gap: '6px' }}>
+                <div style={{ ...layout.column, flex: 1, gap: '6px' }}>
                   <div className="skeleton-shimmer" style={{
                     height: '14px', borderRadius: '4px', backgroundColor: 'var(--skeleton)',
                     width: `${50 + i * 10}%`,
@@ -3640,7 +3640,7 @@ const handleCodeChange = (index: number, value: string) => {
                   aria-expanded={isOpen}
                   aria-label={`${dept}, ${deptChecked} of ${deptTotal} items checked`}
                 >
-                  <span style={{ width: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, paddingLeft: '6px', boxSizing: 'border-box' }} aria-hidden="true">
+                  <span style={{ ...layout.rowCenter, width: '32px', flexShrink: 0, paddingLeft: '6px', boxSizing: 'border-box' }} aria-hidden="true">
                     {deptDone ? <span style={{ color: 'var(--brand)', fontSize: FONT_XS }}>✓</span> : <DeptIcon dept={dept} />}
                   </span>
                   <span style={deptDone ? { textDecoration: 'line-through', opacity: 0.5 } : undefined}>{dept}</span>
@@ -4022,7 +4022,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <Suspense fallback={
-        <div style={{ height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg)', fontFamily: FONT }}>
+        <div style={{ ...layout.rowCenter, height: '100dvh', backgroundColor: 'var(--bg)', fontFamily: FONT }}>
           <PennyAvatar size={40} />
         </div>
       }>

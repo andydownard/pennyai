@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { FONT, FONT_2XS, FONT_XS, FONT_SM, FONT_BASE } from '../styles'
+import { FONT, FONT_2XS, FONT_XS, FONT_SM, layout, buttons, text } from '../styles'
 import { BrandLogo } from './BrandLogo'
 import type { DealType } from '../types'
 
@@ -130,10 +130,8 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
     >
       {/* Brand Partner disclosure + deal type badge */}
       <div style={{
+        ...layout.rowGap,
         padding: '8px 12px 0 12px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
       }}>
         <span style={{
           fontFamily: FONT,
@@ -179,10 +177,8 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
           <div style={{ flex: 1, minWidth: 0 }}>
             {/* Product name */}
             <div style={{
-              fontFamily: FONT,
-              fontSize: FONT_BASE,
+              ...text.body,
               fontWeight: 600,
-              color: 'var(--text)',
               lineHeight: 1.3,
             }}>
               {isBogo
@@ -193,7 +189,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
               }
             </div>
             {isTrial && swap.trial_size && (
-              <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '2px' }}>
+              <div style={{ ...text.caption, marginTop: '2px' }}>
                 {swap.trial_size} — keep your original item
               </div>
             )}
@@ -213,9 +209,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
             {/* Original price + Why? row */}
             {(originalPriceLine || hasWhyBullets) && (
               <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
+                ...layout.rowBetween,
                 marginTop: '2px',
               }}>
                 {originalPriceLine && (
@@ -233,13 +227,11 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
                     aria-expanded={whyExpanded}
                     aria-label={whyExpanded ? 'Hide why Penny picked this' : 'Show why Penny picked this'}
                     style={{
-                      background: 'none',
-                      border: 'none',
+                      ...buttons.reset,
                       color: 'var(--brand)',
                       fontFamily: FONT,
                       fontSize: FONT_XS,
                       fontWeight: 600,
-                      cursor: 'pointer',
                       padding: '2px 0',
                       marginLeft: '8px',
                       whiteSpace: 'nowrap' as const,
@@ -268,10 +260,8 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
             borderRadius: '8px',
           }}>
             <div style={{
-              fontFamily: FONT,
-              fontSize: FONT_2XS,
+              ...text.caption,
               fontWeight: 600,
-              color: 'var(--text-secondary)',
               marginBottom: '6px',
             }}>
               Why Penny picked this:
@@ -290,8 +280,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
             ))}
             {hasAllergen && (
               <div role="alert" style={{
-                fontFamily: FONT,
-                fontSize: FONT_2XS,
+                ...text.caption,
                 fontWeight: 600,
                 color: 'var(--error)',
                 marginTop: '6px',
@@ -304,14 +293,15 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
 
         {/* Action buttons */}
         <div style={{
-          display: 'flex',
-          gap: '8px',
+          ...layout.rowGap,
           marginTop: '10px',
         }}>
           <button
             onClick={handleAccept}
             aria-label={`${isTrial ? 'Add Free Trial' : isBogo ? 'Get BOGO' : 'Swap'}: ${swap.offer_brand} ${swap.offer_product}, save ${formatPrice(swap.discount_cents)}`}
             style={{
+              ...layout.columnCenter,
+              justifyContent: 'center',
               flex: 1,
               minHeight: '44px',
               backgroundColor: 'var(--brand)',
@@ -322,10 +312,6 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
               fontSize: FONT_SM,
               fontWeight: 600,
               cursor: 'pointer',
-              display: 'flex',
-              flexDirection: 'column' as const,
-              alignItems: 'center',
-              justifyContent: 'center',
               padding: '6px 12px',
             }}
           >
@@ -345,6 +331,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
             onClick={handleDecline}
             aria-label={`Decline swap for ${swap.offer_brand} ${swap.offer_product}`}
             style={{
+              ...layout.rowCenter,
               flexShrink: 0,
               width: '44px',
               minHeight: '44px',
@@ -356,9 +343,6 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
               fontSize: '1.125rem',
               cursor: 'pointer',
               padding: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
             }}
           >
             ✕

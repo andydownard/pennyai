@@ -1,7 +1,7 @@
 import { ActionSheet } from './ActionSheet'
 import { BrandLogo } from './BrandLogo'
 import { type ListItem } from './ItemRow'
-import { FONT, FONT_2XS, FONT_BASE, FONT_MD } from '../styles'
+import { FONT, FONT_2XS, FONT_BASE, FONT_MD, layout, buttons, text } from '../styles'
 
 type SkippedItem = {
   parsed: { name: string; brand: string; quantity: number; size: string; department: string }
@@ -38,8 +38,7 @@ export function ReviewSheet({
         <>
           {lastAdded.map(item => (
             <div key={item.id} style={{
-              display: 'flex',
-              alignItems: 'center',
+              ...layout.row,
               padding: '10px 0',
               borderBottom: '1px solid var(--border)',
               gap: '10px',
@@ -50,43 +49,40 @@ export function ReviewSheet({
                   {item.brand ? `${item.brand} ` : ''}{item.name}
                 </span>
                 {item.size && (
-                  <span style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginLeft: '6px' }}>
+                  <span style={{ ...text.caption, marginLeft: '6px' }}>
                     {item.size}
                   </span>
                 )}
-                <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '2px' }}>
+                <div style={{ ...text.caption, marginTop: '2px' }}>
                   {item.department} · <span style={{ color: 'var(--brand)', fontSize: FONT_2XS }}>edit</span>
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0', border: '1.5px solid var(--border)', borderRadius: '10px', overflow: 'hidden', backgroundColor: 'var(--bg)', flexShrink: 0 }}>
+              <div style={{ ...layout.row, gap: '0', border: '1.5px solid var(--border)', borderRadius: '10px', overflow: 'hidden', backgroundColor: 'var(--bg)', flexShrink: 0 }}>
                 <button
                   onClick={() => onUpdateQuantity(item, -1)}
                   aria-label={`Decrease quantity of ${item.name}, currently ${item.quantity}`}
-                  style={{ width: '34px', height: '34px', border: 'none', background: 'none', fontSize: '17px', color: 'var(--brand)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  style={{ ...buttons.reset, ...layout.rowCenter, width: '34px', height: '34px', fontSize: '17px', color: 'var(--brand)' }}
                 >−</button>
                 <span aria-live="polite" aria-atomic="true" style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--text)', minWidth: '24px', textAlign: 'center' }}>{item.quantity}</span>
                 <button
                   onClick={() => onUpdateQuantity(item, 1)}
                   aria-label={`Increase quantity of ${item.name}, currently ${item.quantity}`}
-                  style={{ width: '34px', height: '34px', border: 'none', background: 'none', fontSize: '17px', color: 'var(--brand)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  style={{ ...buttons.reset, ...layout.rowCenter, width: '34px', height: '34px', fontSize: '17px', color: 'var(--brand)' }}
                 >+</button>
               </div>
               <button
                 onClick={() => onDeleteItem(item)}
                 aria-label={`Remove ${item.name} from list`}
                 style={{
+                  ...buttons.reset,
+                  ...layout.rowCenter,
                   flexShrink: 0,
                   width: '28px',
                   height: '28px',
                   borderRadius: '50%',
                   border: '1px solid var(--border)',
-                  background: 'none',
                   color: 'var(--text-secondary)',
                   fontSize: '15px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
                 }}
               >×</button>
             </div>
@@ -102,8 +98,7 @@ export function ReviewSheet({
             const existing = items.find(i => i.id === skipped.existing_id)
             return (
               <div key={skipped.existing_id} style={{
-                display: 'flex',
-                alignItems: 'center',
+                ...layout.row,
                 padding: '10px 0',
                 borderBottom: '1px solid var(--border)',
                 gap: '10px',
@@ -113,7 +108,7 @@ export function ReviewSheet({
                   <span style={{ fontFamily: FONT, fontSize: FONT_MD, color: 'var(--text)' }}>
                     {skipped.parsed.brand ? `${skipped.parsed.brand} ` : ''}{skipped.parsed.name}
                   </span>
-                  <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  <div style={{ ...text.caption, marginTop: '2px' }}>
                     On list: {existing?.quantity ?? 1}{existing && <> · <span style={{ color: 'var(--brand)', fontSize: FONT_2XS }}>edit</span></>}
                   </div>
                 </div>
@@ -121,16 +116,15 @@ export function ReviewSheet({
                   onClick={() => onAddSkipped(skipped, existing)}
                   aria-label={`Add ${skipped.parsed.quantity || 1} more ${skipped.parsed.name}`}
                   style={{
+                    ...buttons.reset,
                     flexShrink: 0,
                     padding: '6px 14px',
                     borderRadius: '16px',
                     border: '1.5px solid var(--brand)',
-                    background: 'none',
                     color: 'var(--brand)',
                     fontFamily: FONT,
                     fontSize: FONT_BASE,
                     fontWeight: 600,
-                    cursor: 'pointer',
                   }}
                 >+{skipped.parsed.quantity || 1}</button>
               </div>

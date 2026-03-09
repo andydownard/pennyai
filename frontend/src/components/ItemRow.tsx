@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react'
 import { BrandLogo } from './BrandLogo'
 import { StatusBadge } from './StatusBadge'
 import { SwapCard, type SwapOffer } from './SwapCard'
-import { FONT, FONT_2XS, FONT_XS, FONT_BASE, DEPT_ICONS } from '../styles'
+import { FONT, FONT_2XS, FONT_XS, FONT_BASE, DEPT_ICONS, layout, buttons, text } from '../styles'
 
 export type ListItem = {
   id: number
@@ -49,32 +49,26 @@ function relativeTimestamp(createdAt: string): string | null {
 
 const styles = {
   row: {
-    display: 'flex',
-    alignItems: 'center',
+    ...layout.row,
     borderBottom: '1px solid var(--border)',
     backgroundColor: 'var(--surface)',
   } as React.CSSProperties,
 
   checkBtn: {
+    ...buttons.reset,
+    ...layout.row,
     padding: '12px 8px 12px 14px',
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
     flexShrink: 0,
     minHeight: '44px',
-    display: 'flex',
-    alignItems: 'center',
   } as React.CSSProperties,
 
   check: (checked: boolean): React.CSSProperties => ({
+    ...layout.rowCenter,
     width: '20px',
     height: '20px',
     borderRadius: '50%',
     border: `2px solid ${checked ? 'var(--brand)' : 'var(--text-secondary)'}`,
     backgroundColor: checked ? 'var(--brand)' : 'transparent',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
     flexShrink: 0,
     fontSize: FONT_2XS,
     fontWeight: 700,
@@ -83,13 +77,11 @@ const styles = {
   }),
 
   center: {
+    ...layout.column,
     flex: 1,
     padding: '7px 0',
     cursor: 'pointer',
-    display: 'flex',
-    flexDirection: 'column' as const,
     gap: '1px',
-
   } as React.CSSProperties,
 
   name: (checked: boolean): React.CSSProperties => ({
@@ -100,11 +92,7 @@ const styles = {
     transition: 'all 0.15s',
   }),
 
-  meta: {
-    fontFamily: FONT,
-    fontSize: FONT_2XS,
-    color: 'var(--text-secondary)',
-  } as React.CSSProperties,
+  meta: text.caption as React.CSSProperties,
 }
 
 const DELETE_THRESHOLD = 80
@@ -171,10 +159,10 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onD
       {isRevealed && (
         <div
           style={{
+            ...layout.rowCenter,
             position: 'absolute', right: 0, top: 0, bottom: 0,
             width: `${Math.abs(swipeX)}px`,
             backgroundColor: 'var(--error)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
             color: '#fff', fontFamily: FONT, fontSize: FONT_XS, fontWeight: 600,
             opacity: deleteOpacity,
           }}
@@ -213,8 +201,8 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onD
             <BrandLogo brand={item.brand} size={36} opacity={item.checked ? 0.4 : 1} />
           ) : (
             <div style={{
+              ...layout.rowCenter,
               width: 36, height: 36, borderRadius: '8px', flexShrink: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: '20px', opacity: item.checked ? 0.4 : 1,
               transition: 'opacity 0.15s',
             }}>
@@ -238,7 +226,7 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onD
           )}
         </div>
         {(item.urgent || item.claimed_by_id || item.swap_savings_cents > 0) && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end', flexShrink: 0, paddingRight: '12px' }}>
+          <div style={{ ...layout.column, gap: '4px', alignItems: 'flex-end', flexShrink: 0, paddingRight: '12px' }}>
             {item.swap_savings_cents > 0 && (
               <StatusBadge label={`Saved $${(item.swap_savings_cents / 100).toFixed(2)}`} variant="success" bordered />
             )}

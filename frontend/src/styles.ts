@@ -384,3 +384,232 @@ export const authStyles = {
     color: 'var(--text-secondary)',
   } as React.CSSProperties,
 }
+
+// =============================================================================
+// LAYOUT UTILITIES — reusable flex and positioning patterns
+// =============================================================================
+
+export const layout = {
+  /** display: flex, alignItems: center */
+  row: {
+    display: 'flex',
+    alignItems: 'center',
+  } as React.CSSProperties,
+
+  /** display: flex, alignItems: center, gap: 8px */
+  rowGap: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  } as React.CSSProperties,
+
+  /** display: flex, alignItems: center, justifyContent: space-between */
+  rowBetween: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  } as React.CSSProperties,
+
+  /** display: flex, alignItems: center, justifyContent: center */
+  rowCenter: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  } as React.CSSProperties,
+
+  /** display: flex, flexDirection: column */
+  column: {
+    display: 'flex',
+    flexDirection: 'column',
+  } as React.CSSProperties,
+
+  /** display: flex, flexDirection: column, gap: 8px */
+  columnGap: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  } as React.CSSProperties,
+
+  /** display: flex, flexDirection: column, alignItems: center */
+  columnCenter: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+  } as React.CSSProperties,
+}
+
+// =============================================================================
+// BUTTON UTILITIES — reusable button reset and common button patterns
+// =============================================================================
+
+export const buttons = {
+  /** Reset: background none, border none, cursor pointer, padding 0 */
+  reset: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    padding: 0,
+  } as React.CSSProperties,
+
+  /** Icon button: reset + flex center + 44x44 touch target */
+  icon: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    padding: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: TOUCH_MIN,
+    minHeight: TOUCH_MIN,
+  } as React.CSSProperties,
+
+  /** Primary CTA: brand bg, white text, full width */
+  primary: {
+    width: '100%',
+    padding: '15px',
+    fontSize: FONT_MD,
+    fontFamily: FONT,
+    fontWeight: 600,
+    color: '#FFFFFF',
+    backgroundColor: 'var(--brand)',
+    border: 'none',
+    borderRadius: RADIUS_LG,
+    cursor: 'pointer',
+  } as React.CSSProperties,
+
+  /** Destructive: outlined error color */
+  destructive: {
+    width: '100%',
+    padding: '13px',
+    fontSize: FONT_BASE,
+    fontFamily: FONT,
+    fontWeight: 500,
+    color: 'var(--error)',
+    backgroundColor: 'transparent',
+    border: '1px solid color-mix(in srgb, var(--error) 25%, transparent)',
+    borderRadius: RADIUS_LG,
+    cursor: 'pointer',
+  } as React.CSSProperties,
+
+  /** Pill / tag: small rounded button */
+  pill: {
+    padding: '6px 14px',
+    fontSize: FONT_SM,
+    fontFamily: FONT,
+    fontWeight: 500,
+    borderRadius: RADIUS_PILL,
+    border: 'none',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+}
+
+// =============================================================================
+// TEXT UTILITIES — common typography patterns
+// =============================================================================
+
+export const text = {
+  /** Section heading: semibold, normal size */
+  heading: {
+    fontFamily: FONT,
+    fontSize: FONT_LG,
+    fontWeight: 600,
+    color: 'var(--text)',
+  } as React.CSSProperties,
+
+  /** Body text: normal weight, base size */
+  body: {
+    fontFamily: FONT,
+    fontSize: FONT_BASE,
+    color: 'var(--text)',
+  } as React.CSSProperties,
+
+  /** Secondary/caption text: smaller, muted */
+  secondary: {
+    fontFamily: FONT,
+    fontSize: FONT_SM,
+    color: 'var(--text-secondary)',
+  } as React.CSSProperties,
+
+  /** Small caption: extra small, muted */
+  caption: {
+    fontFamily: FONT,
+    fontSize: FONT_2XS,
+    color: 'var(--text-secondary)',
+  } as React.CSSProperties,
+
+  /** Label: small, semibold */
+  label: {
+    fontFamily: FONT,
+    fontSize: FONT_SM,
+    fontWeight: 600,
+    color: 'var(--text)',
+  } as React.CSSProperties,
+
+  /** Error message */
+  error: {
+    fontFamily: FONT,
+    fontSize: FONT_BASE,
+    color: 'var(--error)',
+    fontWeight: 500,
+  } as React.CSSProperties,
+}
+
+// =============================================================================
+// CARD/CONTAINER UTILITIES
+// =============================================================================
+
+export const containers = {
+  /** Standard card: surface bg, rounded, padded */
+  card: {
+    backgroundColor: 'var(--surface)',
+    borderRadius: RADIUS_LG,
+    padding: '16px',
+  } as React.CSSProperties,
+
+  /** Card with border */
+  cardBordered: {
+    backgroundColor: 'var(--surface)',
+    borderRadius: RADIUS_LG,
+    padding: '16px',
+    border: '1px solid var(--border)',
+  } as React.CSSProperties,
+
+  /** Overlay backdrop */
+  overlay: {
+    position: 'fixed' as const,
+    inset: 0,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    display: 'flex',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    zIndex: Z_OVERLAY,
+  } as React.CSSProperties,
+
+  /** Bottom sheet */
+  sheet: {
+    width: '100%',
+    maxWidth: '480px',
+    backgroundColor: 'var(--surface)',
+    borderRadius: '20px 20px 0 0',
+    padding: '16px 20px 40px',
+    maxHeight: '82svh',
+    overflowY: 'auto' as const,
+    display: 'flex',
+    flexDirection: 'column' as const,
+  } as React.CSSProperties,
+
+  /** Input field: standard text input */
+  input: {
+    width: '100%',
+    padding: '12px 16px',
+    fontSize: FONT_MD,
+    fontFamily: FONT,
+    color: 'var(--text)',
+    backgroundColor: 'var(--surface)',
+    border: '1.5px solid var(--border)',
+    borderRadius: RADIUS_LG,
+    outline: 'none',
+    boxSizing: 'border-box' as const,
+  } as React.CSSProperties,
+}
