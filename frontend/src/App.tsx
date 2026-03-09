@@ -4533,6 +4533,7 @@ const globalCSS = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   html, body, #root {
+    height: 100dvh;
     height: 100%;
     overflow: hidden;
     overscroll-behavior: none;

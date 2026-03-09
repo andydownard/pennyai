@@ -168,7 +168,7 @@ export function PennyBar({
 
       {/* Photo thumbnail strip */}
       {pendingImages.length > 0 && (
-        <div style={{ display: 'flex', gap: '8px', padding: '8px 12px', overflowX: 'auto', backgroundColor: 'var(--surface)', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: '8px', padding: '8px 12px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', backgroundColor: 'var(--surface)', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
           {pendingImages.map((img, idx) => (
             <div key={idx} style={{ position: 'relative', flexShrink: 0 }}>
               <img src={img} alt={`Preview ${idx + 1}`} style={{ width: '56px', height: '56px', borderRadius: '8px', objectFit: 'cover' }} />
