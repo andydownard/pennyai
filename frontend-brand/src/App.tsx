@@ -686,6 +686,27 @@ export function App() {
                 <MetricCard label="Spent" value={formatCents(deal.budget_spent_cents)} />
               </div>
 
+              {/* Budget utilization bar */}
+              {deal.daily_budget_cents > 0 && (
+                <div style={{ ...cardStyle, marginTop: '12px', padding: '14px 16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: FONT, fontSize: '13px', marginBottom: '6px' }}>
+                    <span style={{ color: TEXT_SEC }}>Budget utilization</span>
+                    <span style={{ fontWeight: 600, color: TEXT }}>{Math.min(Math.round((deal.budget_spent_cents / deal.daily_budget_cents) * 100), 100)}%</span>
+                  </div>
+                  <div style={{ height: '8px', backgroundColor: BORDER, borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%', borderRadius: '4px', transition: 'width 0.3s',
+                      width: `${Math.min((deal.budget_spent_cents / deal.daily_budget_cents) * 100, 100)}%`,
+                      backgroundColor: (deal.budget_spent_cents / deal.daily_budget_cents) > 0.9 ? '#E57373' : (deal.budget_spent_cents / deal.daily_budget_cents) > 0.7 ? '#FFB74D' : BRAND,
+                    }} />
+                  </div>
+                  <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SEC, marginTop: '4px' }}>
+                    {formatCents(deal.daily_budget_cents - deal.budget_spent_cents)} remaining
+                    {(deal.budget_spent_cents / deal.daily_budget_cents) > 0.9 && <span style={{ color: '#E57373', fontWeight: 600 }}> — Budget nearly exhausted</span>}
+                  </div>
+                </div>
+              )}
+
               {dealDetailLoading ? (
                 <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SEC, textAlign: 'center', padding: '32px' }}>Loading performance data...</div>
               ) : (
