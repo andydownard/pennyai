@@ -244,32 +244,109 @@ export function App() {
         </nav>
 
         {screen === 'landing' && (
-          <div style={{ maxWidth: '800px', margin: '0 auto', padding: '80px 24px', textAlign: 'center' }}>
-            <h1 style={{ fontFamily: FONT, fontSize: '48px', fontWeight: 700, color: TEXT, lineHeight: 1.2 }}>
-              Put your product on<br />every grocery list
-            </h1>
-            <p style={{ fontFamily: FONT, fontSize: '20px', color: TEXT_SEC, marginTop: '16px', lineHeight: 1.6 }}>
-              Thriftly shoppers see your product as a smart swap when they add a competitor item.
-              Pay only when they accept. $1.50 per swap.
-            </p>
-            <button onClick={() => { setScreen('register'); setError('') }} style={{ ...primaryBtn, fontSize: '18px', padding: '14px 32px', marginTop: '32px' }}>
-              Create Your First Deal
-            </button>
+          <>
+            {/* Hero */}
+            <div style={{ maxWidth: '800px', margin: '0 auto', padding: '80px 24px 48px', textAlign: 'center' }}>
+              <div style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: BRAND, letterSpacing: '0.5px', textTransform: 'uppercase', marginBottom: '16px' }}>Penny Swaps for Brands</div>
+              <h1 style={{ fontFamily: FONT, fontSize: '48px', fontWeight: 700, color: TEXT, lineHeight: 1.2 }}>
+                Put your product on<br />every grocery list
+              </h1>
+              <p style={{ fontFamily: FONT, fontSize: '20px', color: TEXT_SEC, marginTop: '16px', lineHeight: 1.6 }}>
+                When a Thriftly shopper adds a competitor item, Penny suggests your product as a smart swap.
+                Pay only when they accept.
+              </p>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginTop: '32px', flexWrap: 'wrap' }}>
+                <button onClick={() => { setScreen('register'); setError('') }} style={{ ...primaryBtn, fontSize: '18px', padding: '14px 32px' }}>
+                  Create Your First Deal
+                </button>
+                <button onClick={() => { const el = document.getElementById('how-it-works'); el?.scrollIntoView({ behavior: 'smooth' }) }} style={{ ...secondaryBtn, fontSize: '18px', padding: '14px 32px' }}>
+                  See How It Works
+                </button>
+              </div>
+            </div>
+
+            {/* Social proof strip */}
+            <div style={{ backgroundColor: BRAND_LIGHT, padding: '16px 24px', textAlign: 'center', borderTop: `1px solid ${BORDER}`, borderBottom: `1px solid ${BORDER}` }}>
+              <div style={{ fontFamily: FONT, fontSize: '14px', color: BRAND, fontWeight: 600 }}>
+                Founding brand pricing: <span style={{ textDecoration: 'line-through', opacity: 0.6 }}>$1.50</span> $1.00/swap &mdash; first 10 brands only
+              </div>
+            </div>
 
             {/* Value props */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '24px', marginTop: '64px', textAlign: 'left' }}>
-              {[
-                { title: 'Pay per swap', desc: 'Only pay when a shopper accepts your product. No impressions fees.' },
-                { title: 'Real-time analytics', desc: 'See acceptance rates, competitive intel, and ROI in your dashboard.' },
-                { title: 'Self-serve', desc: 'Create deals in minutes. No sales calls, no contracts, no minimums.' },
-              ].map(v => (
-                <div key={v.title} style={{ padding: '24px', backgroundColor: WHITE, borderRadius: '12px', border: `1px solid ${BORDER}` }}>
-                  <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT }}>{v.title}</div>
-                  <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SEC, marginTop: '8px', lineHeight: 1.5 }}>{v.desc}</div>
-                </div>
-              ))}
+            <div style={{ maxWidth: '800px', margin: '0 auto', padding: '48px 24px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '24px', textAlign: 'left' }}>
+                {[
+                  { icon: '$', title: 'Pay per swap', desc: 'Only pay when a shopper accepts your product. No impression fees, no minimums.' },
+                  { icon: '\u2261', title: 'Competitive intel', desc: 'See which products shoppers swap away from in your category — free for all brands.' },
+                  { icon: '\u2197', title: 'Real-time analytics', desc: 'Track acceptance rates, decline reasons, and ROI with daily performance data.' },
+                  { icon: '\u2713', title: 'Receipt-verified', desc: 'Know exactly how many swaps converted to actual purchases via receipt scanning.' },
+                  { icon: '\u26A1', title: 'Self-serve', desc: 'Create deals in minutes. No sales calls, no contracts. Pause or cancel anytime.' },
+                  { icon: '\u2605', title: 'AI-optimized', desc: 'Penny learns which shoppers are most likely to accept your swap — higher ROI over time.' },
+                ].map(v => (
+                  <div key={v.title} style={{ padding: '24px', backgroundColor: WHITE, borderRadius: '12px', border: `1px solid ${BORDER}` }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '8px', backgroundColor: BRAND_LIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT, fontSize: '18px', color: BRAND, fontWeight: 700, marginBottom: '12px' }}>{v.icon}</div>
+                    <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT }}>{v.title}</div>
+                    <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SEC, marginTop: '8px', lineHeight: 1.5 }}>{v.desc}</div>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+
+            {/* How it works */}
+            <div id="how-it-works" style={{ backgroundColor: WHITE, padding: '48px 24px', borderTop: `1px solid ${BORDER}` }}>
+              <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+                <h2 style={{ fontFamily: FONT, fontSize: '28px', fontWeight: 700, color: TEXT, textAlign: 'center', marginBottom: '40px' }}>How Penny Swaps Work</h2>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '32px' }}>
+                  {[
+                    { step: '1', title: 'Shopper adds a competitor item', desc: '"Add Heinz Ketchup to my list"' },
+                    { step: '2', title: 'Penny suggests your product', desc: '"Want to try Sir Kensington\'s? Save $1.50"' },
+                    { step: '3', title: 'Shopper taps Swap or No Thanks', desc: 'Your budget is only charged on acceptance' },
+                    { step: '4', title: 'Receipt verifies the purchase', desc: 'You get proof they actually bought it' },
+                  ].map(s => (
+                    <div key={s.step} style={{ textAlign: 'center' }}>
+                      <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: BRAND, color: WHITE, fontFamily: FONT, fontSize: '18px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>{s.step}</div>
+                      <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT }}>{s.title}</div>
+                      <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC, marginTop: '6px', lineHeight: 1.5, fontStyle: 'italic' }}>{s.desc}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Pricing */}
+            <div style={{ maxWidth: '800px', margin: '0 auto', padding: '48px 24px', textAlign: 'center' }}>
+              <h2 style={{ fontFamily: FONT, fontSize: '28px', fontWeight: 700, color: TEXT, marginBottom: '8px' }}>Simple, Transparent Pricing</h2>
+              <p style={{ fontFamily: FONT, fontSize: '16px', color: TEXT_SEC, marginBottom: '32px' }}>No setup fees. No monthly minimums. Pre-fund your account and pay per accepted swap.</p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                {[
+                  { tier: 'Economy', price: '$1.00', desc: 'Staples & basics (bread, milk, eggs)', color: BRAND_LIGHT },
+                  { tier: 'Standard', price: '$1.50', desc: 'Condiments, snacks, beverages', color: BRAND_LIGHT },
+                  { tier: 'Premium', price: '$2.50', desc: 'Organic, specialty, health foods', color: BRAND_LIGHT },
+                ].map(t => (
+                  <div key={t.tier} style={{ padding: '24px', backgroundColor: WHITE, borderRadius: '12px', border: `1px solid ${BORDER}` }}>
+                    <div style={{ fontFamily: FONT, fontSize: '13px', fontWeight: 600, color: BRAND, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t.tier}</div>
+                    <div style={{ fontFamily: FONT, fontSize: '32px', fontWeight: 700, color: TEXT, margin: '8px 0' }}>{t.price}<span style={{ fontSize: '14px', fontWeight: 400, color: TEXT_SEC }}>/swap</span></div>
+                    <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC, lineHeight: 1.4 }}>{t.desc}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC, marginTop: '16px' }}>Receipt-verified purchases: +$1.00/swap premium for confirmed attribution</div>
+            </div>
+
+            {/* CTA */}
+            <div style={{ backgroundColor: BRAND, padding: '48px 24px', textAlign: 'center' }}>
+              <h2 style={{ fontFamily: FONT, fontSize: '28px', fontWeight: 700, color: WHITE, marginBottom: '12px' }}>Ready to reach more shoppers?</h2>
+              <p style={{ fontFamily: FONT, fontSize: '16px', color: 'rgba(255,255,255,0.8)', marginBottom: '24px' }}>Create your first deal in under 5 minutes. No credit card required to start.</p>
+              <button onClick={() => { setScreen('register'); setError('') }} style={{ backgroundColor: WHITE, color: BRAND, border: 'none', borderRadius: '8px', fontFamily: FONT, fontSize: '18px', fontWeight: 600, cursor: 'pointer', padding: '14px 32px' }}>
+                Get Started Free
+              </button>
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '24px', textAlign: 'center', fontFamily: FONT, fontSize: '13px', color: TEXT_SEC }}>
+              Thriftly, Inc. &mdash; The AI shopping list for families
+            </div>
+          </>
         )}
 
         {/* Login / Register forms */}
