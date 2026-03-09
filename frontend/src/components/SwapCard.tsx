@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { FONT, FONT_2XS, FONT_XS, FONT_SM, layout, buttons, text } from '../styles'
 import { BrandLogo } from './BrandLogo'
+import { getCachedVariant, getVariant, trackEvent } from '../ab'
 import type { DealType } from '../types'
 
 // Matches the expanded PendingSwap from the backend
@@ -43,6 +44,12 @@ function formatPrice(cents: number): string {
 export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
   const [whyExpanded, setWhyExpanded] = useState(true)
   const [animState, setAnimState] = useState<'idle' | 'accepting' | 'dismissing'>('idle')
+  const [ctaVariant, setCtaVariant] = useState(() => getCachedVariant('swap_cta_copy'))
+
+  // Load A/B variant for CTA copy
+  useEffect(() => {
+    if (!ctaVariant) getVariant('swap_cta_copy').then(v => setCtaVariant(v || 'try_it'))
+  }, [])
 
   const dealType = swap.deal_type || 'sku_swap'
   const isBogo = dealType === 'bogo'
@@ -70,6 +77,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
   const handleAccept = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     if (animState !== 'idle') return
+    trackEvent('swap_cta_copy', 'swap_accepted', 1)
     if (prefersReducedMotion()) {
       onAccept(swap.deal_id, swap.item_id)
       return
@@ -80,6 +88,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
   const handleDecline = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     if (animState !== 'idle') return
+    trackEvent('swap_cta_copy', 'swap_declined', 1)
     if (prefersReducedMotion()) {
       onDecline(swap.deal_id, swap.item_id)
       return
@@ -315,7 +324,11 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
               padding: '6px 12px',
             }}
           >
-            <span>{isTrial ? 'Add Free Trial' : isBogo ? 'Get BOGO' : `Try it — save ${formatPrice(swap.discount_cents)}`}</span>
+            <span>{isTrial ? 'Add Free Trial' : isBogo ? 'Get BOGO' : (
+              ctaVariant === 'save_amount' ? `Save ${formatPrice(swap.discount_cents)}` :
+              ctaVariant === 'swap' ? 'Swap' :
+              `Try it — save ${formatPrice(swap.discount_cents)}`
+            )}</span>
             {!isTrial && !isBogo && swap.savings_percent > 0 && (
               <span style={{ fontSize: FONT_2XS, fontWeight: 400, opacity: 0.9 }}>
                 {swap.savings_percent}% less than {swap.original_size || 'yours'}

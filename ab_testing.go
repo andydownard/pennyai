@@ -62,6 +62,11 @@ func initABTables(db *sql.DB) error {
 		VALUES ('onboarding_v2', 'New onboarding: brand defaults + item-based household invite',
 		'["control","brand_defaults"]', 'items_added_day1', 50, 14, 50)`)
 
+	// Seed the swap CTA copy A/B test — testing acceptance rate impact of CTA wording
+	db.Exec(`INSERT OR IGNORE INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct)
+		VALUES ('swap_cta_copy', 'Swap card CTA: try_it (control) vs save_amount vs swap',
+		'["try_it","save_amount","swap"]', 'swap_accepted', 100, 14, 100)`)
+
 	return nil
 }
 
