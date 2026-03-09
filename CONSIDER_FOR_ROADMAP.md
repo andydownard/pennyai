@@ -34,3 +34,10 @@ I should be able to drag whole sections so they match the order I will buy the i
 ---
 _Device: Screen: home | Viewport: 403x395 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 26_3_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/145.0.7632.108 Mobile/15E148 Safari/604.1 | Dark: light | Items: 10_
 _Submitted: 2026-03-08 21:58 UTC_
+
+## [NORMAL] 2026-03-09 12:01 UTC
+If i've already got a list, have Penny say "What can I add to your list?" vs comments to start a list
+
+---
+_Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 17_
+_Submitted: 2026-03-09 12:01 UTC_
