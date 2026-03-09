@@ -932,41 +932,96 @@ function IntelPanel() {
   const [data, setData] = useState<{ category: string; total_swap_outs: number; top_brands: { brand: string; count: number }[]; details: { competitor_product: string; offer_brand: string; accepted: number; offered: number }[] } | null>(null)
   const [searching, setSearching] = useState(false)
 
-  const search = async () => {
-    if (!category.trim()) return
+  const search = async (cat?: string) => {
+    const q = (cat || category).trim()
+    if (!q) return
+    if (cat) setCategory(cat)
     setSearching(true)
     try {
-      const result = await api<typeof data>(`/brand/category-intel/${encodeURIComponent(category)}`)
+      const result = await api<typeof data>(`/brand/category-intel/${encodeURIComponent(q)}`)
       setData(result)
     } catch { setData(null) }
     finally { setSearching(false) }
   }
 
+  const POPULAR = ['Ketchup', 'Cereal', 'Yogurt', 'Bread', 'Milk', 'Pasta sauce', 'Chips', 'Juice']
+
   return (
     <div>
       <h1 style={h1Style}>Competitive Swap Intel</h1>
-      <p style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SEC, marginTop: '4px' }}>See which products are being swapped in any category. Anonymized, aggregated data.</p>
+      <p style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SEC, marginTop: '4px' }}>See which products are being swapped in any category. Anonymized, aggregated data — free for all brands.</p>
       <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-        <input value={category} onChange={e => setCategory(e.target.value)} onKeyDown={e => e.key === 'Enter' && search()} placeholder="Enter category (e.g. ketchup, cereal, yogurt)" style={{ ...inputStyle, flex: 1 }} />
-        <button onClick={search} disabled={searching} style={primaryBtn}>{searching ? '...' : 'Search'}</button>
+        <input value={category} onChange={e => setCategory(e.target.value)} onKeyDown={e => e.key === 'Enter' && search()} placeholder="Enter a product category..." style={{ ...inputStyle, flex: 1 }} />
+        <button onClick={() => search()} disabled={searching} style={primaryBtn}>{searching ? '...' : 'Search'}</button>
+      </div>
+      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }}>
+        {POPULAR.map(c => (
+          <button key={c} onClick={() => search(c)} style={{
+            padding: '4px 10px', borderRadius: '6px', fontFamily: FONT, fontSize: '12px',
+            cursor: 'pointer', border: `1px solid ${BORDER}`, backgroundColor: 'transparent', color: TEXT_SEC,
+          }}>{c}</button>
+        ))}
       </div>
       {data && (
-        <div style={{ ...cardStyle, marginTop: '16px' }}>
-          <div style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 600, color: TEXT }}>
-            {data.category} — {data.total_swap_outs} total swap-outs
+        <>
+          <div style={{ ...cardStyle, marginTop: '16px' }}>
+            <div style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 600, color: TEXT }}>
+              {data.category} — {data.total_swap_outs} total swap-outs
+            </div>
+            {data.top_brands.length > 0 && (
+              <div style={{ marginTop: '16px' }}>
+                <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT_SEC, marginBottom: '8px' }}>Top Replacement Brands</div>
+                {data.top_brands.sort((a, b) => b.count - a.count).map((b, i) => {
+                  const maxCount = Math.max(...data.top_brands.map(x => x.count), 1)
+                  return (
+                    <div key={b.brand} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 0', borderBottom: `1px solid ${BORDER}` }}>
+                      <span style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: TEXT_SEC, width: '20px', textAlign: 'right' }}>#{i + 1}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT }}>{b.brand}</div>
+                        <div style={{ height: '4px', backgroundColor: BORDER, borderRadius: '2px', marginTop: '4px', overflow: 'hidden' }}>
+                          <div style={{ height: '100%', backgroundColor: BRAND, borderRadius: '2px', width: `${(b.count / maxCount) * 100}%`, transition: 'width 0.3s' }} />
+                        </div>
+                      </div>
+                      <span style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT, minWidth: '60px', textAlign: 'right' }}>{b.count} swaps</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
-          {data.top_brands.length > 0 && (
-            <div style={{ marginTop: '16px' }}>
-              <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT_SEC, marginBottom: '8px' }}>Top Replacement Brands</div>
-              {data.top_brands.sort((a, b) => b.count - a.count).map(b => (
-                <div key={b.brand} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: `1px solid ${BORDER}`, fontFamily: FONT, fontSize: '14px' }}>
-                  <span>{b.brand}</span>
-                  <span style={{ fontWeight: 600 }}>{b.count} swaps</span>
-                </div>
-              ))}
+
+          {/* Swap details table */}
+          {data.details && data.details.length > 0 && (
+            <div style={{ ...cardStyle, marginTop: '16px' }}>
+              <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: TEXT_SEC, marginBottom: '12px' }}>Swap Details</div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: FONT, fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ borderBottom: `2px solid ${BORDER}` }}>
+                    <th style={{ ...thStyle, fontSize: '12px' }}>Competitor</th>
+                    <th style={{ ...thStyle, fontSize: '12px' }}>Replacement</th>
+                    <th style={{ ...thStyle, fontSize: '12px', textAlign: 'right' }}>Offered</th>
+                    <th style={{ ...thStyle, fontSize: '12px', textAlign: 'right' }}>Accepted</th>
+                    <th style={{ ...thStyle, fontSize: '12px', textAlign: 'right' }}>Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.details.sort((a, b) => b.accepted - a.accepted).map((d, i) => {
+                    const rate = d.offered > 0 ? Math.round((d.accepted / d.offered) * 100) : 0
+                    return (
+                      <tr key={i} style={{ borderBottom: `1px solid ${BORDER}` }}>
+                        <td style={{ ...tdStyle, fontSize: '13px' }}>{d.competitor_product}</td>
+                        <td style={{ ...tdStyle, fontSize: '13px', fontWeight: 600 }}>{d.offer_brand}</td>
+                        <td style={{ ...tdStyle, fontSize: '13px', textAlign: 'right' }}>{d.offered}</td>
+                        <td style={{ ...tdStyle, fontSize: '13px', textAlign: 'right' }}>{d.accepted}</td>
+                        <td style={{ ...tdStyle, fontSize: '13px', textAlign: 'right', fontWeight: 600, color: rate >= 8 ? BRAND : TEXT_SEC }}>{rate}%</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
-        </div>
+        </>
       )}
     </div>
   )
