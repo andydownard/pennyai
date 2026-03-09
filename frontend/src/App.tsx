@@ -1908,6 +1908,18 @@ function AppInner() {
     }
   }
 
+  // Auto-confirm auto-assigned brands after 8s of inactivity
+  useEffect(() => {
+    if (pennyDisambig.length === 0 || pennyDisambigIndex >= pennyDisambig.length) return
+    const d = pennyDisambig[pennyDisambigIndex]
+    if (!d?.auto_assigned || !d?.current_brand) return
+    const timer = setTimeout(() => {
+      handleBrandPick(d.current_brand)
+    }, 8000)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pennyDisambigIndex, pennyDisambig])
+
   const handleBrandPick = async (brand: string) => {
     const d = pennyDisambig[pennyDisambigIndex]
     if (!d) return
@@ -3640,7 +3652,7 @@ const handleCodeChange = (index: number, value: string) => {
       )}
 
       {/* Restock nudges — 1-tap quick-add for items due for restock */}
-      {restockNudges.length > 0 && items.filter(i => !i.checked).length < 10 && (
+      {restockNudges.length > 0 && items.filter(i => !i.checked).length < 20 && (
         <div style={{
           flexShrink: 0, padding: '8px 16px',
           borderBottom: '1px solid var(--border)', backgroundColor: 'var(--surface)',
