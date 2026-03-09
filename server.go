@@ -340,7 +340,7 @@ Get these from https://console.twilio.com (see README for full setup).
 
 	// Serve the React frontends. Two separate SPAs:
 	// - Consumer app (static/) at app.thrift.ly
-	// - Brand portal (static-brand/) at brands.thrift.ly
+	// - Brand portal (static-brand/) at brand.thrift.ly
 	// Known files are served directly, everything else gets index.html for SPA routing.
 	// /r/{code} referral links and /join/:code inject dynamic OG tags for social previews.
 	consumerFS := http.FileServer(http.Dir("static"))
@@ -352,9 +352,9 @@ Get these from https://console.twilio.com (see README for full setup).
 			return
 		}
 
-		// Brand portal: serve from static-brand/ for brands.* subdomain
+		// Brand portal: serve from static-brand/ for brand(s).* subdomain
 		host := r.Host
-		if strings.HasPrefix(host, "brands.") || strings.HasPrefix(host, "brands-") {
+		if strings.HasPrefix(host, "brand.") || strings.HasPrefix(host, "brands.") || strings.HasPrefix(host, "brands-") || strings.HasPrefix(host, "brand-") {
 			// Skip /brand/ API routes (handled by registered handlers)
 			if strings.HasPrefix(r.URL.Path, "/brand/") {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "Not found"})
