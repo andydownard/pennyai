@@ -42,7 +42,7 @@ export function SharedListScreen({
           <PennyAvatar size={48} />
         </div>
         <div style={{ fontFamily: FONT, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text)' }}>
-          {sharedData ? `${sharedData.sharer_name || 'Someone'}'s Shopping List` : 'Shared Shopping List'}
+          {sharedData ? (sharedData.sharer_name ? `${sharedData.sharer_name}'s Shopping List` : 'Shopping List') : 'Shopping List'}
         </div>
         <div style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--brand)', fontWeight: 600, letterSpacing: '-0.3px', marginTop: '4px' }}>thriftly</div>
       </div>

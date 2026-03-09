@@ -302,6 +302,7 @@ function AppInner() {
   const homePennyInterval = useRef<ReturnType<typeof setInterval> | null>(null)
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hasGreetedEmpty = useRef(false)
+  const hasGreetedWithItems = useRef(false)
 
   // --- List state ---
   const [items, setItems] = useState<ListItem[]>([])
@@ -506,6 +507,12 @@ function AppInner() {
     if (day >= 1 && day <= 5) base.push("Hey! What's on the menu this week?")
     return base
   })()
+
+  const EXISTING_LIST_GREETINGS = [
+    "What can I add to your list?",
+    "Need anything else from the store?",
+    "Ready to add more — just type or snap a photo!",
+  ]
 
   const IDLE_MESSAGES = [
     "Still here if you need anything!",
@@ -1083,7 +1090,7 @@ function AppInner() {
       setTimeout(() => typePennyHome(mergeMsg), 500)
     }
     // Only check NPS once per session — never re-prompt after dismiss or submit
-    if (!npsCheckedRef.current && !sessionStorage.getItem('nps_dismissed')) {
+    if (!npsCheckedRef.current && !localStorage.getItem('nps_dismissed')) {
       npsCheckedRef.current = true
       fetchAPI('/api/nps/check')
         .then(data => { if (data && !Array.isArray(data) && data.show_nps) setShowNPS(true) })
@@ -1428,6 +1435,15 @@ function AppInner() {
         typePennyHome(`${timeGreeting}, ${settingsFirstName}! What do we need from the store?${timeSuffix}`)
       } else {
         typePennyHome(pickRandom(RETURNING_GREETINGS))
+      }
+    } else if (items.length > 0 && !hasGreetedWithItems.current) {
+      hasGreetedWithItems.current = true
+      if (settingsFirstName) {
+        const hour = new Date().getHours()
+        const timeGreeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Hey' : 'Good evening'
+        typePennyHome(`${timeGreeting}, ${settingsFirstName}! What can I add to your list?`)
+      } else {
+        typePennyHome(pickRandom(EXISTING_LIST_GREETINGS))
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2299,7 +2315,7 @@ function AppInner() {
     if (result.ok) {
       showToast('Thanks for your feedback!')
       setShowNPS(false)
-      sessionStorage.setItem('nps_dismissed', '1')
+      localStorage.setItem('nps_dismissed', '1')
     } else if (result.status !== 401) {
       showToast('Couldn\'t save feedback — please try again', 'error')
     }
@@ -2307,7 +2323,7 @@ function AppInner() {
 
   const closeNPS = () => {
     setShowNPS(false)
-    sessionStorage.setItem('nps_dismissed', '1')
+    localStorage.setItem('nps_dismissed', '1')
   }
 
   const handleFeedbackSubmit = async (body: string, type: string, urgency: string): Promise<boolean> => {
