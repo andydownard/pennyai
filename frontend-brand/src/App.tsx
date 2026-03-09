@@ -790,7 +790,7 @@ export function App() {
         {/* ================================================================ */}
         {/* COMPETITIVE INTEL */}
         {/* ================================================================ */}
-        {screen === 'intel' && <IntelPanel />}
+        {screen === 'intel' && <IntelPanel onCreateDeal={() => setScreen('create-deal')} />}
 
         {/* ================================================================ */}
         {/* TRANSACTIONS / BILLING */}
@@ -1052,7 +1052,7 @@ function CreateDealForm({ onCreated, onCancel }: { onCreated: () => void; onCanc
   )
 }
 
-function IntelPanel() {
+function IntelPanel({ onCreateDeal }: { onCreateDeal: () => void }) {
   const [category, setCategory] = useState('')
   const [data, setData] = useState<{ category: string; total_swap_outs: number; top_brands: { brand: string; count: number }[]; details: { competitor_product: string; offer_brand: string; accepted: number; offered: number }[] } | null>(null)
   const [searching, setSearching] = useState(false)
@@ -1146,6 +1146,15 @@ function IntelPanel() {
               </table>
             </div>
           )}
+
+          {/* CTA */}
+          <div style={{ ...cardStyle, marginTop: '16px', borderLeft: `4px solid ${BRAND}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT }}>Want to compete in {data.category}?</div>
+              <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC, marginTop: '2px' }}>Create a deal targeting {data.category} shoppers and start getting swaps.</div>
+            </div>
+            <button onClick={onCreateDeal} style={primaryBtn}>Create Deal</button>
+          </div>
         </>
       )}
     </div>
