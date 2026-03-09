@@ -48,3 +48,10 @@ have penny reach out to brands and let them self serve enter deals to get me to 
 ---
 _Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 17_
 _Submitted: 2026-03-09 12:02 UTC_
+
+## [NORMAL] 2026-03-09 12:02 UTC
+load groflo deals if they have an mcp
+
+---
+_Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 17_
+_Submitted: 2026-03-09 12:02 UTC_
