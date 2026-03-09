@@ -50,6 +50,7 @@ const ResetPasswordScreen = lazy(() => import('./components/ResetPasswordScreen'
 const ShareScreen = lazy(() => import('./components/ShareScreen').then(m => ({ default: m.ShareScreen })))
 const AdminScreen = lazy(() => import('./components/AdminScreen').then(m => ({ default: m.AdminScreen })))
 const SharedListScreen = lazy(() => import('./components/SharedListScreen').then(m => ({ default: m.SharedListScreen })))
+const EmbedView = lazy(() => import('./components/EmbedView').then(m => ({ default: m.EmbedView })))
 import { type ItemModification } from './types'
 import {
   FONT, DEPARTMENTS, DEPT_ICONS,
@@ -4068,6 +4069,18 @@ const handleCodeChange = (index: number, value: string) => {
 }
 
 export default function App() {
+  // Embed mode — standalone, no-auth demo for iframe embedding (vibeflourishing pitch deck)
+  const path = window.location.pathname
+  if (path === '/embed' || path === '/embed/') {
+    return (
+      <ErrorBoundary>
+        <Suspense fallback={null}>
+          <EmbedView />
+        </Suspense>
+      </ErrorBoundary>
+    )
+  }
+
   return (
     <ErrorBoundary>
       <Suspense fallback={
