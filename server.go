@@ -366,6 +366,9 @@ Get these from https://console.twilio.com (see README for full setup).
 			// Hashed assets (Vite fingerprinted filenames) can be cached aggressively
 			if strings.HasPrefix(cleanPath, "/assets/") {
 				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			} else if cleanPath == "/sw.js" {
+				// Service worker must not be cached — browser checks for updates on each page load
+				w.Header().Set("Cache-Control", "no-cache")
 			}
 			consumerFS.ServeHTTP(w, r)
 			return
