@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useFocusTrap } from './ActionSheet'
-import { FONT, FONT_SM, FONT_LG } from '../styles'
+import { FONT, FONT_SM, FONT_LG, layout, buttons, text } from '../styles'
 
 export function ConfirmModal({ open, title, message, confirmLabel, onConfirm, onCancel, destructive }: {
   open: boolean
@@ -21,8 +21,8 @@ export function ConfirmModal({ open, title, message, confirmLabel, onConfirm, on
   if (!open) return null
   return (
     <div onClick={onCancel} role="presentation" style={{
+      ...layout.rowCenter,
       position: 'fixed', inset: 0, zIndex: 9999,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
       backgroundColor: 'rgba(0,0,0,0.4)',
     }}>
       <div ref={trapRef} role="alertdialog" aria-modal="true" aria-label={title} onClick={e => e.stopPropagation()} style={{
@@ -30,18 +30,18 @@ export function ConfirmModal({ open, title, message, confirmLabel, onConfirm, on
         overflow: 'hidden', textAlign: 'center', fontFamily: FONT,
       }}>
         <div style={{ padding: '20px 16px 0' }}>
-          <div style={{ fontSize: FONT_LG, fontWeight: 600, color: 'var(--text)' }}>{title}</div>
+          <div style={text.heading}>{title}</div>
           {message && <div style={{ fontSize: FONT_SM, color: 'var(--text)', marginTop: '6px', lineHeight: 1.4 }}>{message}</div>}
         </div>
-        <div style={{ display: 'flex', borderTop: '1px solid var(--border)', marginTop: '16px' }}>
+        <div style={{ ...layout.row, borderTop: '1px solid var(--border)', marginTop: '16px' }}>
           <button onClick={onCancel} style={{
-            flex: 1, padding: '12px', border: 'none', background: 'none',
-            fontSize: FONT_LG, fontFamily: FONT, color: 'var(--info)', cursor: 'pointer',
+            ...buttons.reset, flex: 1, padding: '12px',
+            fontSize: FONT_LG, fontFamily: FONT, color: 'var(--info)',
             borderRight: '1px solid var(--border)',
           }}>Cancel</button>
           <button onClick={onConfirm} style={{
-            flex: 1, padding: '12px', border: 'none', background: 'none',
-            fontSize: FONT_LG, fontWeight: 600, fontFamily: FONT, cursor: 'pointer',
+            ...buttons.reset, flex: 1, padding: '12px',
+            fontSize: FONT_LG, fontWeight: 600, fontFamily: FONT,
             color: destructive ? 'var(--error)' : 'var(--info)',
           }}>{confirmLabel || 'Confirm'}</button>
         </div>

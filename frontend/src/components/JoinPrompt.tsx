@@ -1,5 +1,5 @@
 import { PennyAvatar } from './PennyAvatar'
-import { FONT, FONT_SM, FONT_BASE } from '../styles'
+import { FONT, FONT_BASE, text, buttons } from '../styles'
 
 interface JoinPromptProps {
   name: string
@@ -17,7 +17,7 @@ export function JoinPrompt({ name, code, onJoined, onError, onClose }: JoinPromp
         <h2 style={{ fontFamily: FONT, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text)', margin: '16px 0 8px' }}>
           {name ? `${name} wants to shop together!` : 'Shop together!'}
         </h2>
-        <p style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', margin: '0 0 24px', lineHeight: 1.5 }}>
+        <p style={{ ...text.secondary, margin: '0 0 24px', lineHeight: 1.5 }}>
           You'll share one shopping list — items either of you add will show up for both of you.
         </p>
         <button
@@ -45,7 +45,7 @@ export function JoinPrompt({ name, code, onJoined, onError, onClose }: JoinPromp
         </button>
         <button
           onClick={onClose}
-          style={{ background: 'none', border: 'none', fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', cursor: 'pointer', padding: '8px' }}
+          style={{ ...buttons.reset, ...text.secondary, padding: '8px' }}
         >
           Start my own list
         </button>

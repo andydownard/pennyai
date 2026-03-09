@@ -3,7 +3,7 @@ import { PennyAvatar } from './PennyAvatar'
 import { BrandLogo } from './BrandLogo'
 import { StatusBadge } from './StatusBadge'
 import { fetchAPI } from '../api'
-import { FONT, FONT_2XS, FONT_XS, FONT_SM, FONT_BASE, FONT_MD } from '../styles'
+import { FONT, FONT_XS, FONT_BASE, FONT_MD, layout, text } from '../styles'
 
 interface EarningTransaction {
   id: number
@@ -111,7 +111,7 @@ export function EarningsScreen({ onViewReceipts, onGoToList }: EarningsScreenPro
   if (loading && !data) {
     return (
       <div style={{ padding: '40px 20px', textAlign: 'center' }} aria-live="polite" aria-busy="true">
-        <div style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)' }}>Loading earnings...</div>
+        <div style={text.secondary}>Loading earnings...</div>
       </div>
     )
   }
@@ -131,7 +131,7 @@ export function EarningsScreen({ onViewReceipts, onGoToList }: EarningsScreenPro
       />
 
       {/* Summary cards */}
-      <div style={{ display: 'flex', gap: '8px', margin: '16px 0' }}>
+      <div style={{ ...layout.rowGap, margin: '16px 0' }}>
         {[
           { label: 'Total', cents: data?.total_cents || 0, color: 'var(--text)' },
           { label: 'Pending', cents: data?.pending_cents || 0, color: 'var(--warning)' },
@@ -152,7 +152,7 @@ export function EarningsScreen({ onViewReceipts, onGoToList }: EarningsScreenPro
       </div>
 
       {/* Time filter pills */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+      <div style={{ ...layout.rowGap, marginBottom: '16px' }}>
         {([0, 7, 30, 90] as DaysFilter[]).map(d => (
           <button
             key={d}
@@ -172,14 +172,14 @@ export function EarningsScreen({ onViewReceipts, onGoToList }: EarningsScreenPro
       {/* Empty state */}
       {isEmpty ? (
         <div style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          ...layout.columnCenter,
           padding: '40px 20px', gap: '16px',
         }}>
           <PennyAvatar size={48} />
-          <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600, color: 'var(--text)', textAlign: 'center' }}>
+          <div style={{ ...text.heading, fontSize: FONT_MD, textAlign: 'center' }}>
             Swap and get paid. No one else does this.
           </div>
-          <div style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
+          <div style={{ ...text.secondary, textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
             Brands pay to reach you. When you swap, we share that revenue with you — real money, every time.
           </div>
           {onGoToList && (
@@ -194,13 +194,13 @@ export function EarningsScreen({ onViewReceipts, onGoToList }: EarningsScreenPro
               Go to my list
             </button>
           )}
-          <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', textAlign: 'center' }}>
+          <div style={{ ...text.caption, textAlign: 'center' }}>
             Swap suggestions appear when you add items to your list
           </div>
         </div>
       ) : (
         /* Transaction cards */
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={layout.columnGap}>
           {data!.transactions.map(tx => (
             <div key={tx.id} style={{
               backgroundColor: 'var(--surface)', borderRadius: '10px', padding: '14px 16px',
@@ -209,11 +209,11 @@ export function EarningsScreen({ onViewReceipts, onGoToList }: EarningsScreenPro
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                 <BrandLogo brand={tx.offer_brand} size={44} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: FONT, fontSize: FONT_SM, fontWeight: 600, color: 'var(--text)' }}>
+                  <div style={text.label}>
                     {tx.offer_brand} {tx.offer_product}
                   </div>
                   {tx.competitor_product && (
-                    <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    <div style={{ ...text.caption, marginTop: '2px' }}>
                       Swapped from {tx.competitor_product}
                     </div>
                   )}
@@ -230,11 +230,11 @@ export function EarningsScreen({ onViewReceipts, onGoToList }: EarningsScreenPro
               </div>
 
               {/* Upload / attachment indicator */}
-              <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ ...layout.rowGap, marginTop: '10px' }}>
                 {tx.attachment_path ? (
                   <span style={{
-                    fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--success)', fontWeight: 500,
-                    display: 'flex', alignItems: 'center', gap: '4px',
+                    ...layout.row, ...text.caption, color: 'var(--success)', fontWeight: 500,
+                    gap: '4px',
                   }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="20 6 9 17 4 12"/>
@@ -246,9 +246,9 @@ export function EarningsScreen({ onViewReceipts, onGoToList }: EarningsScreenPro
                     onClick={() => handleUploadClick(tx.id)}
                     disabled={uploadingId === tx.id}
                     style={{
-                      fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--brand)', fontWeight: 500,
+                      ...layout.row, ...text.caption, color: 'var(--brand)', fontWeight: 500,
                       background: 'none', border: '1px solid var(--brand)', borderRadius: '6px',
-                      padding: '4px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px',
+                      padding: '4px 10px', cursor: 'pointer', gap: '4px',
                       opacity: uploadingId === tx.id ? 0.5 : 1,
                     }}
                   >
@@ -269,7 +269,7 @@ export function EarningsScreen({ onViewReceipts, onGoToList }: EarningsScreenPro
       {/* Info note */}
       {!isEmpty && (
         <div style={{
-          fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', textAlign: 'center',
+          ...text.caption, textAlign: 'center',
           padding: '16px 0 8px', lineHeight: '1.5',
         }}>
           Brands pay to reach you — we share the revenue. No other grocery app does this. Payouts sent monthly via Venmo.
@@ -281,10 +281,10 @@ export function EarningsScreen({ onViewReceipts, onGoToList }: EarningsScreenPro
         <button
           onClick={onViewReceipts}
           style={{
+            ...layout.rowCenter, ...text.secondary, fontWeight: 500,
             width: '100%', marginTop: '8px', padding: '12px', borderRadius: '10px',
             border: '1px solid var(--border)', backgroundColor: 'var(--surface)',
-            fontFamily: FONT, fontSize: FONT_SM, fontWeight: 500, color: 'var(--text)',
-            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+            cursor: 'pointer', gap: '8px',
           }}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
