@@ -6,6 +6,9 @@
 // =============================================================================
 
 import React, { useState, useRef, useEffect, useCallback, Suspense, lazy } from 'react'
+import { useToast } from './hooks/useToast'
+import { useConfirmModal } from './hooks/useConfirmModal'
+import { useKeyboardOpen } from './hooks/useKeyboardOpen'
 
 import { PennyAvatar } from './components/PennyAvatar'
 import { ActionSheet } from './components/ActionSheet'
@@ -313,8 +316,7 @@ function AppInner() {
   const deptRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   // --- Toast state ---
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; action?: { label: string; onClick: () => void } } | null>(null)
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const { toast, showToast: _showToast, clearToast } = useToast()
   const settingsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // --- Review state (items from last parse) ---
@@ -359,23 +361,7 @@ function AppInner() {
   const [saveNameInput, setSaveNameInput] = useState('')
 
   // --- Confirm modal state ---
-  const [confirmModal, setConfirmModal] = useState<{
-    title: string; message?: string; confirmLabel?: string; destructive?: boolean
-  } | null>(null)
-  const confirmActionRef = useRef<(() => void) | null>(null)
-  const openConfirmModal = (opts: { title: string; message?: string; confirmLabel?: string; destructive?: boolean; onConfirm: () => void }) => {
-    confirmActionRef.current = opts.onConfirm
-    setConfirmModal({ title: opts.title, message: opts.message, confirmLabel: opts.confirmLabel, destructive: opts.destructive })
-  }
-  const closeConfirmModal = () => {
-    setConfirmModal(null)
-    confirmActionRef.current = null
-  }
-  const runConfirmAction = () => {
-    const action = confirmActionRef.current
-    closeConfirmModal()
-    if (action) action()
-  }
+  const { confirmModal, openConfirmModal, closeConfirmModal, runConfirmAction } = useConfirmModal()
 
   // --- Theme state ---
   const [darkMode, setDarkMode] = useState(() => getTheme() === 'dark')
@@ -472,7 +458,7 @@ function AppInner() {
 
   // --- Earnings state ---
   const [earningsTotalCents, setEarningsTotalCents] = useState(0)
-  const [keyboardOpen, setKeyboardOpen] = useState(false)
+  const keyboardOpen = useKeyboardOpen()
 
   // --- Post-swap share prompt ---
   const [postSwapShare, setPostSwapShare] = useState<{ brand: string; savings: number } | null>(null)
@@ -606,24 +592,12 @@ function AppInner() {
     return () => clearInterval(interval)
   }, [chatLoading])
 
-  // Detect keyboard open/close via visualViewport
-  useEffect(() => {
-    if (!window.visualViewport) return
-    const handler = () => {
-      const shrunk = window.innerHeight - window.visualViewport!.height
-      setKeyboardOpen(shrunk > 100)
-    }
-    window.visualViewport.addEventListener('resize', handler)
-    return () => window.visualViewport!.removeEventListener('resize', handler)
-  }, [])
-
   // Clean up all timers on unmount
   useEffect(() => {
     return () => {
       if (homePennyInterval.current) clearInterval(homePennyInterval.current)
       if (chimeInTimer.current) clearTimeout(chimeInTimer.current)
       if (idleTimer.current) clearTimeout(idleTimer.current)
-      if (toastTimer.current) clearTimeout(toastTimer.current)
       if (newItemTimerRef.current) clearTimeout(newItemTimerRef.current)
     }
   }, [])
@@ -1379,9 +1353,7 @@ function AppInner() {
 
   const showToast = (message: string, type: 'success' | 'error' = 'success', action?: { label: string; onClick: () => void }) => {
     if (type === 'error') haptic.error()
-    if (toastTimer.current) clearTimeout(toastTimer.current)
-    setToast({ message, type, action })
-    toastTimer.current = setTimeout(() => setToast(null), action ? 10000 : 6250)
+    _showToast(message, type, action)
   }
 
   // Type out a message in Penny's home bar, letter by letter
@@ -1423,8 +1395,8 @@ function AppInner() {
       typePennyHome(pennyStatus)
     } else if (toast) {
       const btns: { label: string; onClick: () => void }[] = []
-      if (toast.action) btns.push({ label: toast.action.label, onClick: () => { toast.action!.onClick(); setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) } })
-      else if ((lastAdded.length > 0 || lastSkipped.length > 0) && toast.type !== 'error' && !hasReviewedRef.current) btns.push({ label: 'Review', onClick: () => { hasReviewedRef.current = true; pushModalState(); setShowReviewSheet(true); setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) } })
+      if (toast.action) btns.push({ label: toast.action.label, onClick: () => { toast.action!.onClick(); clearToast() } })
+      else if ((lastAdded.length > 0 || lastSkipped.length > 0) && toast.type !== 'error' && !hasReviewedRef.current) btns.push({ label: 'Review', onClick: () => { hasReviewedRef.current = true; pushModalState(); setShowReviewSheet(true); clearToast() } })
       typePennyHome(toast.message, btns)
     } else if (pennyChimeIn) {
       // Don't let chime-ins interrupt an actively typing message
@@ -3113,12 +3085,12 @@ const handleCodeChange = (index: number, value: string) => {
       <span style={{ flex: 1 }}>{toast.message}</span>
       {toast.action && (
         <button
-          onClick={() => { toast.action!.onClick(); setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) }}
+          onClick={() => { toast.action!.onClick(); clearToast() }}
           style={{ background: 'var(--brand)', border: 'none', color: '#fff', fontFamily: FONT, fontSize: FONT_2XS, fontWeight: 600, cursor: 'pointer', padding: '5px 12px', borderRadius: '12px', flexShrink: 0 }}
         >{toast.action.label}</button>
       )}
       <button
-        onClick={() => { setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current) }}
+        onClick={() => { clearToast() }}
         aria-label="Dismiss"
         style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: FONT_MD, cursor: 'pointer', padding: '4px', lineHeight: 1, flexShrink: 0, opacity: 0.6 }}
       >×</button>

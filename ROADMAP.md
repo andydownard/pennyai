@@ -322,7 +322,7 @@ Brand managers add a credit card and fund their deal budget. Charges are per-swa
 ### M7. Receipt Reading for Purchase Verification
 **Size:** L (2-3 weeks)
 **Priority:** P1 — Closes the attribution loop for brands
-**Status:** Planned
+**Status:** Done — backend (handlers_receipt.go, penny.go) + frontend (ReceiptScreen.tsx with list/detail views, confidence badges, user confirmation flow, swap verification)
 
 **Description:**
 Users photograph their grocery receipt after shopping. Penny reads it via a two-stage pipeline (AWS Textract for OCR + Claude for entity resolution), confirms which swapped items were actually purchased, and awards applicable savings. For brands, this closes the attribution loop: "47 swaps offered, 31 accepted, 22 confirmed purchased via receipt." Brands pay a premium ($2.50 vs $1.50) for receipt-verified purchases.
@@ -550,7 +550,7 @@ Playwright E2E tests covering critical user flows: login, add items, check items
 | 12 | **B13. BrandDeal struct missing columns** | S | — | P1 | Admin can't view/edit price comparison fields. Blocks swap quality. | **Done** |
 | 13 | **B15. daily_budget_cents misnomer** | XS | — | P2 | Rename to total_budget_cents or implement daily reset. Low urgency but confusing. | **Done** |
 | 14 | **R3. Done Shopping Flow** | M | 3 | P1 | Retention + natural trigger for receipt scanning (M7). | **Done** (Sprint 3 — summary, save list, confetti) |
-| 15 | **M7. Receipt Reading** | L | 3 | P1 | Closes attribution loop. Consider Veryfi for OCR layer (Buy-vs-Build: BUY LATER). | **Backend done** (Sprint 5 — needs frontend UI) |
+| 15 | **M7. Receipt Reading** | L | 3 | P1 | Closes attribution loop. Consider Veryfi for OCR layer (Buy-vs-Build: BUY LATER). | **Done** (backend + ReceiptScreen UI: list/detail views, confidence badges, user confirmation flow, swap verification) |
 | 16 | **M9. Brand Dashboard v2** | S→M | 3 | P2 | **Scope reduced** — Metabase handles most reporting. Only Competitive Intel + purchase verification funnel need custom code. Was M, now S-M. | Planned |
 | 17 | **R2. Trip Planner Discoverability** | S | — | P3 | Quality of life, quick win. Do when there's a spare afternoon. | **Done** (Sprint 4) |
 | — | ~~R4. SSE Real-Time Updates~~ | — | — | — | **Replaced by Pusher/Ably** (Buy-vs-Build: BUY NOW). No longer a build item. | Replaced |
@@ -903,7 +903,7 @@ This is a **P2** initiative — do incrementally between feature sprints, not as
 - [x] **Celebration moments** — Confetti on first swap, "You're done!" overlay with savings total, fireworks on all-done, haptic feedback on department completion. ✅ Done
 
 ### Accessibility
-- **Screen reader audit** — Full VoiceOver/TalkBack walkthrough of every screen. Fix any missing labels or confusing navigation order. Partially done: FloatingLabelField semantic `<label>`, PennySettingsScreen toggle keyboard/ARIA, ReviewSheet clickable div keyboard/ARIA, ItemRow swipe/long-press gesture accessibility.
+- **Screen reader audit** — Full VoiceOver/TalkBack walkthrough of every screen. Fix any missing labels or confusing navigation order. Partially done: FloatingLabelField semantic `<label>`, PennySettingsScreen toggle keyboard/ARIA, ReviewSheet clickable div keyboard/ARIA, ItemRow swipe/long-press gesture accessibility, skip navigation link, main landmark, EarningsScreen aria-live, ProfileScreen input labels, PennyBar contextual aria-labels.
 - [x] **Reduced motion** — `prefers-reduced-motion` respected in screen transitions. ✅ Done
 - [x] **Font scaling** — rem-based font scale (FONT_2XS through FONT_3XL) in styles.ts. All user-facing components + App.tsx converted from px to rem (456→149 occurrences, remaining are admin-only views + decorative emoji sizing). ✅ Done
 - [x] **Color contrast** — WCAG AAA compliance for text colors. ✅ Done: text-secondary 7.23:1, text-tertiary 4.58:1 (AA), info/warning darkened, dark theme brand/tertiary/info improved. All primary text meets AAA; secondary/tertiary meet AA minimum.
