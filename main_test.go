@@ -1813,6 +1813,64 @@ func TestClearList_DoesNotAffectOtherUsers(t *testing.T) {
 	}
 }
 
+func TestClearList_EmptyListReturnsOK(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Clearing an already-empty list should not error
+	rr := doRequest(server.handleListClear, "POST", "/api/list/clear?all=true", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for clearing empty list, got %d", rr.Code)
+	}
+}
+
+func TestClearList_CheckedOnlyLeavesUnchecked(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Add one checked and one unchecked item
+	server.db.Exec("INSERT INTO list_items (user_id, name, department, checked) VALUES (?, ?, ?, 1)", userID, "Milk", "Dairy & Eggs")
+	server.db.Exec("INSERT INTO list_items (user_id, name, department, checked) VALUES (?, ?, ?, 0)", userID, "Bread", "Bakery")
+
+	// Clear without ?all=true should only clear checked items
+	rr := doRequest(server.handleListClear, "POST", "/api/list/clear", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM list_items WHERE user_id = ?", userID).Scan(&count)
+	if count != 1 {
+		t.Errorf("expected 1 unchecked item remaining, got %d", count)
+	}
+
+	var name string
+	server.db.QueryRow("SELECT name FROM list_items WHERE user_id = ?", userID).Scan(&name)
+	if name != "Bread" {
+		t.Errorf("expected unchecked item 'Bread' to remain, got %q", name)
+	}
+}
+
+func TestClearList_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleListClear, "POST", "/api/list/clear", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without session, got %d", rr.Code)
+	}
+}
+
+func TestListRestore_EmptyRestore(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Restore with empty items array returns 400 (nothing to restore)
+	rr := doRequest(server.handleListRestore, "POST", "/api/list/restore",
+		map[string]interface{}{"items": []interface{}{}}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty restore, got %d", rr.Code)
+	}
+}
+
 // =============================================================================
 // SAVED LISTS TESTS
 // =============================================================================
@@ -21731,6 +21789,82 @@ func TestBrandExport_MethodNotAllowed(t *testing.T) {
 	rr := doRequest(server.handleBrandExport, "POST", "/brand/export", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 for POST, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// Places Endpoint Tests
+// =============================================================================
+
+func TestPlacesAutocomplete_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handlePlacesAutocomplete, "GET", "/api/places/autocomplete?input=123+Main", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without session, got %d", rr.Code)
+	}
+}
+
+func TestPlacesAutocomplete_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handlePlacesAutocomplete, "POST", "/api/places/autocomplete", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for POST, got %d", rr.Code)
+	}
+}
+
+func TestPlacesAutocomplete_ShortInput(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	user, _ := upsertUser(server.db, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	// Input shorter than 3 chars returns empty array
+	rr := doRequest(server.handlePlacesAutocomplete, "GET", "/api/places/autocomplete?input=ab", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for short input, got %d", rr.Code)
+	}
+	if rr.Body.String() != "[]\n" {
+		t.Errorf("expected empty array, got %s", rr.Body.String())
+	}
+}
+
+func TestPlacesAutocomplete_EmptyInput(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	user, _ := upsertUser(server.db, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(server.handlePlacesAutocomplete, "GET", "/api/places/autocomplete", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for empty input, got %d", rr.Code)
+	}
+}
+
+func TestPlacesDetail_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handlePlacesDetail, "GET", "/api/places/detail?place_id=abc", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without session, got %d", rr.Code)
+	}
+}
+
+func TestPlacesDetail_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handlePlacesDetail, "POST", "/api/places/detail", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for POST, got %d", rr.Code)
+	}
+}
+
+func TestPlacesDetail_MissingPlaceID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	user, _ := upsertUser(server.db, "5551234567")
+	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(server.handlePlacesDetail, "GET", "/api/places/detail", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing place_id, got %d", rr.Code)
 	}
 }
 

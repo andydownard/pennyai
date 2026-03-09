@@ -863,7 +863,7 @@ Databricks is enterprise data lakehouse tooling ($10K+/yr, requires a data engin
 - **Extract inline styles** — All styles are inline objects defined in the component. Move to a shared styles system (CSS modules, styled-components, or at minimum a `styles/` directory).
 - **State management** — App.tsx has 50+ useState hooks. Extract related state into custom hooks (`useAuth`, `useList`, `useSwaps`, `useTrips`, etc.).
 - **API layer** — Fetch calls are scattered throughout components. Extract into an `api/` module with typed request/response functions.
-- **Component library** — Buttons, inputs, cards, and modals are re-implemented with inline styles in multiple places. Extract shared UI primitives.
+- **Component library** — Buttons, inputs, cards, and modals are re-implemented with inline styles in multiple places. Extract shared UI primitives. Started: StatusBadge (5 semantic variants + bordered mode), SectionHeader (extracted from ActionSheet inline).
 
 ### Testing Refactor
 - **Test helpers** — Reduce boilerplate in `main_test.go` (~10K lines). Extract common setup (create user, create session, add items) into reusable test helpers.
@@ -882,7 +882,7 @@ This is a **P2** initiative — do incrementally between feature sprints, not as
 - **Design system** — Establish a formal design system: color palette, typography scale, spacing scale, shadow/elevation levels, border radii. Partially done: CSS variables for all semantic colors (brand, bg, text, border, surface, error, success, warning, info, neutral-bg), light/dark theme, border radius scale, shadow scale, z-index scale, animation durations in styles.ts.
 - [x] **Dark mode** — User-togglable dark mode. Panel consensus: 5/7 want it, especially for late-night grocery planning. ✅ Done: CSS variables, dark/light toggle in profile
 - [x] **Loading states** — Skeleton loaders for list (shimmer animation). ✅ Done: home screen skeleton loaders
-- **Empty states** — Several screens have bare "no items" text. Design proper empty state illustrations with clear CTAs.
+- [x] **Empty states** — Improved empty states with illustrations and CTAs: SharedListScreen (emoji + context message), EarningsScreen (CTA to navigate to list). ✅ Done
 - [x] **Error states** — ErrorBoundary with reload CTA, offline detection banner, optimistic rollback with error toasts. ✅ Done
 
 ### Navigation & Information Architecture
@@ -903,7 +903,7 @@ This is a **P2** initiative — do incrementally between feature sprints, not as
 - [x] **Celebration moments** — Confetti on first swap, "You're done!" overlay with savings total, fireworks on all-done, haptic feedback on department completion. ✅ Done
 
 ### Accessibility
-- **Screen reader audit** — Full VoiceOver/TalkBack walkthrough of every screen. Fix any missing labels or confusing navigation order.
+- **Screen reader audit** — Full VoiceOver/TalkBack walkthrough of every screen. Fix any missing labels or confusing navigation order. Partially done: FloatingLabelField semantic `<label>`, PennySettingsScreen toggle keyboard/ARIA, ReviewSheet clickable div keyboard/ARIA, ItemRow swipe/long-press gesture accessibility.
 - [x] **Reduced motion** — `prefers-reduced-motion` respected in screen transitions. ✅ Done
 - **Font scaling** — Ensure all text respects system font size preferences without layout breakage.
 - **Color contrast** — WCAG AAA compliance for all text (currently AA).
