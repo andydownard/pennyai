@@ -106,6 +106,8 @@ type SavedListSummary struct {
 	ID        int    `json:"id"`
 	Name      string `json:"name"`
 	ItemCount int    `json:"item_count"`
+	StoreName string `json:"store_name,omitempty"`
+	IsMaster  bool   `json:"is_master,omitempty"`
 }
 
 // ParseResponse is the response format for the parse-and-add endpoint.
@@ -400,8 +402,9 @@ type FeedbackTriageRequest struct {
 // --- Saved list requests ---
 
 type SavedListCreateRequest struct {
-	Name  string `json:"name"`
-	Items []struct {
+	Name      string `json:"name"`
+	StoreName string `json:"store_name"`
+	Items     []struct {
 		Name       string `json:"name"`
 		Brand      string `json:"brand"`
 		Department string `json:"department"`

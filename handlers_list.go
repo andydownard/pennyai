@@ -595,11 +595,12 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 			if name == "" {
 				name = "Saved List"
 			}
+			storeName := strings.TrimSpace(cmd.StoreName)
 			itemsToSave, err := collectListItems(s.db, session.UserID)
 			if err == nil && len(itemsToSave) > 0 {
 				tx, err := s.db.Begin()
 				if err == nil {
-					result, err := tx.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, ?)", session.UserID, name)
+					result, err := tx.Exec("INSERT INTO saved_lists (user_id, name, store_name) VALUES (?, ?, ?)", session.UserID, name, storeName)
 					if err == nil {
 						savedListID, _ := result.LastInsertId()
 						insertSavedListItems(tx, savedListID, itemsToSave)
@@ -634,23 +635,34 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 			resp.Message = cmd.Message
 		case "load_saved_list":
 			resp.Action = "load_saved_list"
-			// Query user's saved lists (household-scoped)
+			// Query user's saved lists (household-scoped), including store_name and is_master
 			slWhereClause, slWhereArgs := householdItemsWhereClause(s.db, session.UserID, hhIDs)
-			slRows, slErr := s.db.Query(
-				"SELECT sl.id, sl.name, COUNT(sli.id) FROM saved_lists sl LEFT JOIN saved_list_items sli ON sli.saved_list_id = sl.id WHERE sl."+slWhereClause+" GROUP BY sl.id ORDER BY sl.name",
-				slWhereArgs...,
-			)
+			slQuery := "SELECT sl.id, sl.name, COUNT(sli.id), COALESCE(sl.store_name,''), COALESCE(sl.is_master,0) FROM saved_lists sl LEFT JOIN saved_list_items sli ON sli.saved_list_id = sl.id WHERE sl." + slWhereClause
+			// If a store_name was specified in the command, filter by store
+			cmdStoreName := strings.TrimSpace(cmd.StoreName)
+			if cmdStoreName != "" {
+				slQuery += " AND LOWER(sl.store_name) = LOWER(?)"
+				slWhereArgs = append(slWhereArgs, cmdStoreName)
+			}
+			slQuery += " GROUP BY sl.id ORDER BY sl.name"
+			slRows, slErr := s.db.Query(slQuery, slWhereArgs...)
 			if slErr == nil {
 				defer slRows.Close()
 				for slRows.Next() {
 					var sl SavedListSummary
-					if err := slRows.Scan(&sl.ID, &sl.Name, &sl.ItemCount); err == nil {
+					var isMaster int
+					if err := slRows.Scan(&sl.ID, &sl.Name, &sl.ItemCount, &sl.StoreName, &isMaster); err == nil {
+						sl.IsMaster = isMaster == 1
 						resp.SavedLists = append(resp.SavedLists, sl)
 					}
 				}
 			}
 			if len(resp.SavedLists) == 0 {
-				resp.Message = "You don't have any saved lists yet. Tell me to save your current list and give it a name!"
+				if cmdStoreName != "" {
+					resp.Message = fmt.Sprintf("You don't have any saved lists for %s yet. Try saving your current list with a store name!", cmdStoreName)
+				} else {
+					resp.Message = "You don't have any saved lists yet. Tell me to save your current list and give it a name!"
+				}
 			} else if cmd.SavedListName != "" {
 				// Try to match a specific list by name (case-insensitive)
 				targetName := strings.ToLower(strings.TrimSpace(cmd.SavedListName))
@@ -665,6 +677,15 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 					// Fuzzy match — check if name contains the search term
 					for i := range resp.SavedLists {
 						if strings.Contains(strings.ToLower(resp.SavedLists[i].Name), targetName) {
+							matchedList = &resp.SavedLists[i]
+							break
+						}
+					}
+				}
+				if matchedList == nil && cmdStoreName != "" {
+					// If store was specified but no name match, try loading the master list for that store
+					for i := range resp.SavedLists {
+						if resp.SavedLists[i].IsMaster {
 							matchedList = &resp.SavedLists[i]
 							break
 						}
@@ -697,6 +718,32 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 					}
 				} else {
 					resp.Message = fmt.Sprintf("I couldn't find a list called %q. Here are your saved lists — pick one!", cmd.SavedListName)
+				}
+			} else if cmdStoreName != "" && len(resp.SavedLists) == 1 {
+				// Single list for this store — auto-load it
+				matchedList := &resp.SavedLists[0]
+				loadRows, loadErr := s.db.Query(
+					"SELECT name, brand, department, quantity, size, notes FROM saved_list_items WHERE saved_list_id = ?",
+					matchedList.ID,
+				)
+				if loadErr == nil {
+					var savedItems []itemData
+					for loadRows.Next() {
+						var si itemData
+						if err := loadRows.Scan(&si.Name, &si.Brand, &si.Department, &si.Quantity, &si.Size, &si.Notes); err == nil {
+							savedItems = append(savedItems, si)
+						}
+					}
+					loadRows.Close()
+					added := 0
+					for _, si := range savedItems {
+						_, _, err := upsertListItem(s.db, session.UserID, si.Name, si.Brand, si.Department, si.Size, si.Quantity, "app", "")
+						if err == nil {
+							added++
+						}
+					}
+					resp.Added = added
+					resp.Message = cmd.Message
 				}
 			} else {
 				resp.Message = cmd.Message

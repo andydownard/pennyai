@@ -1644,5 +1644,277 @@ func TestSavedListMerge_CrossUserBlocked(t *testing.T) {
 }
 
 // =============================================================================
+// PER-STORE MASTER LISTS
+// =============================================================================
+
+func TestSavedLists_CreateWithStoreName(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, ?, ?)",
+		userID, "Rotisserie Chicken", "Deli")
+	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, ?, ?)",
+		userID, "Bulk Rice", "Grains")
+
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists",
+		map[string]interface{}{"name": "Weekly Costco", "store_name": "Costco"},
+		[]*http.Cookie{cookie})
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("Status: got %d, want 201. Body: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	if body["store_name"] != "Costco" {
+		t.Errorf("store_name: got %v, want Costco", body["store_name"])
+	}
+	if body["item_count"].(float64) != 2 {
+		t.Errorf("item_count: got %v, want 2", body["item_count"])
+	}
+}
+
+func TestSavedLists_GetReturnsStoreNameAndIsMaster(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Insert a saved list with store_name directly
+	server.db.Exec("INSERT INTO saved_lists (user_id, name, store_name, is_master) VALUES (?, ?, ?, ?)",
+		userID, "Costco Run", "Costco", 1)
+	server.db.Exec("INSERT INTO saved_lists (user_id, name, store_name) VALUES (?, ?, ?)",
+		userID, "WF Weekly", "Whole Foods")
+
+	rr := doRequest(server.handleSavedLists, "GET", "/api/saved-lists", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var lists []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &lists)
+	if len(lists) != 2 {
+		t.Fatalf("Expected 2 saved lists, got %d", len(lists))
+	}
+
+	// Find the Costco list — should have is_master=true
+	var costcoList, wfList map[string]interface{}
+	for _, l := range lists {
+		if l["name"] == "Costco Run" {
+			costcoList = l
+		}
+		if l["name"] == "WF Weekly" {
+			wfList = l
+		}
+	}
+	if costcoList == nil {
+		t.Fatal("Costco list not found in response")
+	}
+	if costcoList["store_name"] != "Costco" {
+		t.Errorf("store_name: got %v, want Costco", costcoList["store_name"])
+	}
+	if costcoList["is_master"] != true {
+		t.Errorf("is_master: got %v, want true", costcoList["is_master"])
+	}
+	if wfList == nil {
+		t.Fatal("WF list not found in response")
+	}
+	if wfList["store_name"] != "Whole Foods" {
+		t.Errorf("store_name: got %v, want Whole Foods", wfList["store_name"])
+	}
+}
+
+func TestSavedLists_GetFilterByStore(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	server.db.Exec("INSERT INTO saved_lists (user_id, name, store_name) VALUES (?, ?, ?)",
+		userID, "Costco Run", "Costco")
+	server.db.Exec("INSERT INTO saved_lists (user_id, name, store_name) VALUES (?, ?, ?)",
+		userID, "WF Weekly", "Whole Foods")
+	server.db.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, ?)",
+		userID, "General List")
+
+	// Filter by Costco
+	rr := doRequest(server.handleSavedLists, "GET", "/api/saved-lists?store=Costco", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var lists []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &lists)
+	if len(lists) != 1 {
+		t.Fatalf("Expected 1 list for Costco filter, got %d", len(lists))
+	}
+	if lists[0]["name"] != "Costco Run" {
+		t.Errorf("Name: got %v, want Costco Run", lists[0]["name"])
+	}
+}
+
+func TestSavedLists_GetFilterByStoreCaseInsensitive(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	server.db.Exec("INSERT INTO saved_lists (user_id, name, store_name) VALUES (?, ?, ?)",
+		userID, "Costco Run", "Costco")
+
+	// Filter with lowercase
+	rr := doRequest(server.handleSavedLists, "GET", "/api/saved-lists?store=costco", nil, []*http.Cookie{cookie})
+	var lists []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &lists)
+	if len(lists) != 1 {
+		t.Fatalf("Expected 1 list for case-insensitive store filter, got %d", len(lists))
+	}
+}
+
+func TestSavedLists_GetNoStoreFilter_ReturnsAll(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	server.db.Exec("INSERT INTO saved_lists (user_id, name, store_name) VALUES (?, ?, ?)",
+		userID, "Costco Run", "Costco")
+	server.db.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, ?)",
+		userID, "General List")
+
+	rr := doRequest(server.handleSavedLists, "GET", "/api/saved-lists", nil, []*http.Cookie{cookie})
+	var lists []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &lists)
+	if len(lists) != 2 {
+		t.Fatalf("Expected 2 lists (no filter), got %d", len(lists))
+	}
+}
+
+func TestParseAndAdd_SaveWithStoreName(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Add items to save
+	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, ?, ?)",
+		userID, "Organic Milk", "Dairy & Eggs")
+
+	// Mock parseCommand to return a save command with store_name
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:    "save",
+			SaveName:  "Whole Foods List",
+			StoreName: "Whole Foods",
+			Message:   "Saved your list for Whole Foods!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "save this as my Whole Foods list"},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusOK && rr.Code != http.StatusCreated {
+		t.Fatalf("Status: got %d, want 200/201. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify the saved list has store_name set
+	var storeName string
+	err := server.db.QueryRow("SELECT store_name FROM saved_lists WHERE user_id = ? AND name = ?",
+		userID, "Whole Foods List").Scan(&storeName)
+	if err != nil {
+		t.Fatalf("saved list not found: %v", err)
+	}
+	if storeName != "Whole Foods" {
+		t.Errorf("store_name: got %q, want %q", storeName, "Whole Foods")
+	}
+}
+
+func TestParseAndAdd_LoadSavedListByStore(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Create a saved list with store_name and items
+	result, _ := server.db.Exec("INSERT INTO saved_lists (user_id, name, store_name) VALUES (?, ?, ?)",
+		userID, "Costco Weekly", "Costco")
+	listID, _ := result.LastInsertId()
+	server.db.Exec("INSERT INTO saved_list_items (saved_list_id, name, department, quantity) VALUES (?, ?, ?, ?)",
+		listID, "Paper Towels", "Household", 1)
+	server.db.Exec("INSERT INTO saved_list_items (saved_list_id, name, department, quantity) VALUES (?, ?, ?, ?)",
+		listID, "Olive Oil", "Pantry", 1)
+
+	// Mock parseCommand to return load with store filter
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:        "load_saved_list",
+			SavedListName: "Costco Weekly",
+			StoreName:     "Costco",
+			Message:       "Loading your Costco list!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "load my costco list"},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusOK && rr.Code != http.StatusCreated {
+		t.Fatalf("Status: got %d, want 200/201. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	resp := parseJSON(rr)
+	addedVal, _ := resp["added"].(float64)
+	if int(addedVal) != 2 {
+		t.Errorf("added: got %v, want 2", resp["added"])
+	}
+}
+
+func TestParseAndAdd_LoadSavedListByStoreOnly_SingleList(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Create a single saved list for Costco
+	result, _ := server.db.Exec("INSERT INTO saved_lists (user_id, name, store_name) VALUES (?, ?, ?)",
+		userID, "My Costco Stuff", "Costco")
+	listID, _ := result.LastInsertId()
+	server.db.Exec("INSERT INTO saved_list_items (saved_list_id, name, department, quantity) VALUES (?, ?, ?, ?)",
+		listID, "Toilet Paper", "Household", 1)
+
+	// Mock parseCommand: store_name set but no saved_list_name — should auto-load the single list
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:    "load_saved_list",
+			StoreName: "Costco",
+			Message:   "Loading your Costco list!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "load my costco list"},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusOK && rr.Code != http.StatusCreated {
+		t.Fatalf("Status: got %d, want 200/201. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	resp := parseJSON(rr)
+	addedVal, _ := resp["added"].(float64)
+	if int(addedVal) != 1 {
+		t.Errorf("added: got %v, want 1", resp["added"])
+	}
+}
+
+func TestParseAndAdd_LoadSavedListByStore_NoLists(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// No saved lists at all
+	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
+		return &ParsedCommand{
+			Action:    "load_saved_list",
+			StoreName: "Costco",
+			Message:   "Loading your Costco list!",
+		}, nil
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]string{"text": "load my costco list"},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusOK && rr.Code != http.StatusCreated {
+		t.Fatalf("Status: got %d, want 200/201", rr.Code)
+	}
+
+	resp := parseJSON(rr)
+	msg, _ := resp["message"].(string)
+	if !strings.Contains(msg, "Costco") {
+		t.Errorf("Expected message to mention Costco, got: %s", msg)
+	}
+}
+
+// =============================================================================
 // TRIPS EDGE CASES
 // =============================================================================

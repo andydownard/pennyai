@@ -124,6 +124,9 @@ func initDB(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("creating saved_list_items table: %w", err)
 	}
 	db.Exec("ALTER TABLE saved_list_items ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE saved_lists ADD COLUMN store_name TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE saved_lists ADD COLUMN is_master INTEGER NOT NULL DEFAULT 0")
+	db.Exec("ALTER TABLE saved_lists ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP")
 
 	// --- Household tables ---
 	_, err = db.Exec(`

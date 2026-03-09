@@ -72,30 +72,41 @@ func (s *Server) handleSavedListsGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID)
-	rows, err := s.db.Query(
-		"SELECT sl.id, sl.name, COUNT(sli.id), sl.created_at FROM saved_lists sl LEFT JOIN saved_list_items sli ON sli.saved_list_id = sl.id WHERE sl."+whereClause+" GROUP BY sl.id ORDER BY sl.created_at DESC",
-		whereArgs...,
-	)
+
+	// Optional store filter: GET /api/saved-lists?store=Costco
+	storeFilter := strings.TrimSpace(r.URL.Query().Get("store"))
+	query := "SELECT sl.id, sl.name, COUNT(sli.id), sl.created_at, COALESCE(sl.store_name,''), COALESCE(sl.is_master,0) FROM saved_lists sl LEFT JOIN saved_list_items sli ON sli.saved_list_id = sl.id WHERE sl." + whereClause
+	if storeFilter != "" {
+		query += " AND LOWER(sl.store_name) = LOWER(?)"
+		whereArgs = append(whereArgs, storeFilter)
+	}
+	query += " GROUP BY sl.id ORDER BY sl.created_at DESC"
+
+	rows, err := s.db.Query(query, whereArgs...)
 	if err != nil {
 		dbError(w, err, "We couldn't load your saved lists. Please try again.")
 		return
 	}
 	defer rows.Close()
 
-	type SavedListSummary struct {
+	type savedListRow struct {
 		ID        int    `json:"id"`
 		Name      string `json:"name"`
 		ItemCount int    `json:"item_count"`
 		CreatedAt string `json:"created_at"`
+		StoreName string `json:"store_name,omitempty"`
+		IsMaster  bool   `json:"is_master,omitempty"`
 	}
 
-	lists := []SavedListSummary{}
+	lists := []savedListRow{}
 	for rows.Next() {
-		var sl SavedListSummary
-		if err := rows.Scan(&sl.ID, &sl.Name, &sl.ItemCount, &sl.CreatedAt); err != nil {
+		var sl savedListRow
+		var isMaster int
+		if err := rows.Scan(&sl.ID, &sl.Name, &sl.ItemCount, &sl.CreatedAt, &sl.StoreName, &isMaster); err != nil {
 			log.Printf("Error scanning saved list row: %v", err)
 			continue
 		}
+		sl.IsMaster = isMaster == 1
 		lists = append(lists, sl)
 	}
 	if err := rows.Err(); err != nil {
@@ -163,9 +174,10 @@ func (s *Server) handleSavedListsCreate(w http.ResponseWriter, r *http.Request) 
 	}
 	defer tx.Rollback()
 
+	storeName := strings.TrimSpace(req.StoreName)
 	result, err := tx.Exec(
-		"INSERT INTO saved_lists (user_id, name) VALUES (?, ?)",
-		session.UserID, req.Name,
+		"INSERT INTO saved_lists (user_id, name, store_name) VALUES (?, ?, ?)",
+		session.UserID, req.Name, storeName,
 	)
 	if err != nil {
 		dbError(w, err, "Failed to save list")
@@ -186,6 +198,7 @@ func (s *Server) handleSavedListsCreate(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"id":         savedListID,
 		"name":       req.Name,
+		"store_name": storeName,
 		"item_count": len(itemsToSave),
 	})
 }
