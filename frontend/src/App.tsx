@@ -2946,14 +2946,14 @@ const handleCodeChange = (index: number, value: string) => {
   // =========================================================================
 
   if (sharedCode) {
-    const navigateToSignUp = () => { setSharedCode(null); setSharedError(null); window.history.replaceState({}, '', '/login/email/register'); setScreen('email-register', true) }
+    const navigateToSignUp = () => { setSharedCode(null); setSharedError(null); window.history.replaceState({}, '', '/'); setScreen('phone', true) }
     return (
       <SharedListScreen
         sharedData={sharedData}
         sharedLoading={sharedLoading}
         sharedError={sharedError}
         onSignUp={navigateToSignUp}
-        onSignUpClear={() => { setSharedCode(null); window.history.replaceState({}, '', '/login/email/register'); setScreen('email-register', true) }}
+        onSignUpClear={() => { setSharedCode(null); window.history.replaceState({}, '', '/'); setScreen('phone', true) }}
       />
     )
   }

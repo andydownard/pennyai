@@ -136,16 +136,18 @@ export function SharedListScreen({
         )}
       </div>
 
-      {/* Sign-up CTA */}
+      {/* Join CTA */}
       <div style={{ padding: '20px', backgroundColor: 'var(--surface)', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
         <p style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', margin: '0 0 12px' }}>
-          Sign up for Thriftly to make your own list and earn rebates
+          {sharedData?.invite_code
+            ? `Join ${sharedData?.sharer_name ? sharedData.sharer_name + "'s" : 'this'} grocery list — enter your phone to get started`
+            : 'Sign up for Thriftly to make your own grocery list'}
         </p>
         <button
           onClick={onSignUpClear}
           style={{ backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '10px', padding: '14px 28px', fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, cursor: 'pointer', width: '100%', maxWidth: '320px' }}
         >
-          Get Started
+          {sharedData?.invite_code ? 'Join This List' : 'Get Started'}
         </button>
       </div>
     </div>
