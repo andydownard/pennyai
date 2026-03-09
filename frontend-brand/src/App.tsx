@@ -1003,8 +1003,11 @@ function CreateDealForm({ onCreated, onCancel }: { onCreated: () => void; onCanc
         <button onClick={onCancel} style={linkBtn}>Cancel</button>
       </div>
       {error && <div style={{ fontFamily: FONT, fontSize: '14px', color: ERROR, padding: '12px', backgroundColor: '#FFEBEE', borderRadius: '8px', marginTop: '12px' }}>{error}</div>}
-      <form onSubmit={handleSubmit} style={{ ...cardStyle, marginTop: '16px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+      <form onSubmit={handleSubmit}>
+        {/* Section: Product Details */}
+        <div style={{ ...cardStyle, marginTop: '16px' }}>
+          <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT, marginBottom: '16px' }}>Product Details</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
           <div>
             <label style={labelStyle}>Competitor Product</label>
             <input value={form.competitor_product} onChange={e => set('competitor_product', e.target.value)} required style={inputStyle} placeholder="e.g. Heinz Ketchup" />
@@ -1027,6 +1030,21 @@ function CreateDealForm({ onCreated, onCancel }: { onCreated: () => void; onCanc
             <input value={form.offer_product} onChange={e => set('offer_product', e.target.value)} required style={inputStyle} placeholder="e.g. Classic Ketchup" />
           </div>
           <div>
+            <label style={labelStyle}>Your Size</label>
+            <input value={form.offer_size} onChange={e => set('offer_size', e.target.value)} style={inputStyle} placeholder="e.g. 20 oz" />
+          </div>
+          <div>
+            <label style={labelStyle}>Competitor Size</label>
+            <input value={form.competitor_size} onChange={e => set('competitor_size', e.target.value)} style={inputStyle} />
+          </div>
+          </div>
+        </div>
+
+        {/* Section: Pricing & Budget */}
+        <div style={{ ...cardStyle, marginTop: '16px' }}>
+          <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT, marginBottom: '16px' }}>Pricing & Budget</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <div>
             <label style={labelStyle}>Discount per swap ($)</label>
             <input type="number" step="0.01" value={(form.discount_cents / 100).toFixed(2)} onChange={e => set('discount_cents', Math.round(parseFloat(e.target.value || '0') * 100))} style={inputStyle} />
           </div>
@@ -1042,22 +1060,21 @@ function CreateDealForm({ onCreated, onCancel }: { onCreated: () => void; onCanc
             <label style={labelStyle}>Competitor Price ($)</label>
             <input type="number" step="0.01" value={(form.competitor_price_cents / 100).toFixed(2)} onChange={e => set('competitor_price_cents', Math.round(parseFloat(e.target.value || '0') * 100))} style={inputStyle} />
           </div>
-          <div>
-            <label style={labelStyle}>Your Size</label>
-            <input value={form.offer_size} onChange={e => set('offer_size', e.target.value)} style={inputStyle} placeholder="e.g. 20 oz" />
           </div>
-          <div>
-            <label style={labelStyle}>Competitor Size</label>
-            <input value={form.competitor_size} onChange={e => set('competitor_size', e.target.value)} style={inputStyle} />
+          <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SEC, marginTop: '8px', lineHeight: 1.4 }}>
+            Pricing tier is auto-assigned based on product category. Discount is the amount the shopper saves by accepting your swap.
           </div>
         </div>
 
-        {/* Why bullets */}
-        <div style={{ marginTop: '16px' }}>
-          <label style={labelStyle}>Why should shoppers switch? (one reason per line)</label>
-          <textarea value={(() => { try { const arr = JSON.parse(form.why_bullets); return Array.isArray(arr) ? arr.join('\n') : '' } catch { return '' } })()}
-            onChange={e => set('why_bullets', JSON.stringify(e.target.value.split('\n').filter(Boolean)))}
-            style={{ ...inputStyle, height: '60px', resize: 'vertical' as const }} placeholder={'Better ingredients\nHigher customer ratings\nNo artificial preservatives'} />
+        {/* Section: Messaging */}
+        <div style={{ ...cardStyle, marginTop: '16px' }}>
+          <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: TEXT, marginBottom: '16px' }}>Messaging</div>
+          <div>
+            <label style={labelStyle}>Why should shoppers switch? (one reason per line)</label>
+            <textarea value={(() => { try { const arr = JSON.parse(form.why_bullets); return Array.isArray(arr) ? arr.join('\n') : '' } catch { return '' } })()}
+              onChange={e => set('why_bullets', JSON.stringify(e.target.value.split('\n').filter(Boolean)))}
+              style={{ ...inputStyle, height: '80px', resize: 'vertical' as const }} placeholder={'Better ingredients\nHigher customer ratings\nNo artificial preservatives'} />
+          </div>
         </div>
 
         {/* Conditional fields */}
