@@ -529,27 +529,38 @@ export function App() {
             </div>
 
             {/* Daily chart */}
-            {dashboard.daily.length > 0 && (
+            {dashboard.daily.length > 0 && (() => {
+              const sorted = [...dashboard.daily].sort((a, b) => a.date.localeCompare(b.date))
+              const maxVal = Math.max(...sorted.map(x => x.offered), 1)
+              // Show date labels every N bars to avoid overcrowding
+              const labelEvery = sorted.length <= 14 ? 2 : sorted.length <= 30 ? 5 : 10
+              return (
               <div style={{ ...cardStyle, marginTop: '16px' }}>
                 <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT, marginBottom: '16px' }}>Swaps — Last {dashDays} Days</div>
-                <div style={{ display: 'flex', gap: '4px', alignItems: 'flex-end', height: '120px' }}>
-                  {dashboard.daily.sort((a, b) => a.date.localeCompare(b.date)).map(d => {
-                    const maxVal = Math.max(...dashboard.daily.map(x => x.offered), 1)
-                    return (
-                      <div key={d.date} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
-                        <div style={{ width: '100%', backgroundColor: BRAND_LIGHT, borderRadius: '2px', height: `${(d.offered / maxVal) * 100}px`, position: 'relative' }}>
-                          <div style={{ position: 'absolute', bottom: 0, width: '100%', backgroundColor: BRAND, borderRadius: '2px', height: `${(d.accepted / maxVal) * 100}px` }} />
-                        </div>
+                <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '120px' }}>
+                  {sorted.map(d => (
+                    <div key={d.date} title={`${d.date}: ${d.offered} offered, ${d.accepted} accepted`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <div style={{ width: '100%', backgroundColor: BRAND_LIGHT, borderRadius: '2px', height: `${(d.offered / maxVal) * 100}px`, position: 'relative', minHeight: d.offered > 0 ? '4px' : '0px' }}>
+                        <div style={{ position: 'absolute', bottom: 0, width: '100%', backgroundColor: BRAND, borderRadius: '2px', height: `${(d.accepted / maxVal) * 100}px`, minHeight: d.accepted > 0 ? '4px' : '0px' }} />
                       </div>
-                    )
-                  })}
+                    </div>
+                  ))}
+                </div>
+                {/* Date labels */}
+                <div style={{ display: 'flex', gap: '3px', marginTop: '4px' }}>
+                  {sorted.map((d, i) => (
+                    <div key={d.date} style={{ flex: 1, textAlign: 'center', fontFamily: FONT, fontSize: '9px', color: TEXT_SEC }}>
+                      {i % labelEvery === 0 ? new Date(d.date + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''}
+                    </div>
+                  ))}
                 </div>
                 <div style={{ display: 'flex', gap: '16px', marginTop: '8px', fontFamily: FONT, fontSize: '12px', color: TEXT_SEC }}>
                   <span><span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: BRAND_LIGHT, borderRadius: '2px', marginRight: '4px' }}></span>Offered</span>
                   <span><span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: BRAND, borderRadius: '2px', marginRight: '4px' }}></span>Accepted</span>
                 </div>
               </div>
-            )}
+              )
+            })()}
 
             {/* Quick actions */}
             <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
