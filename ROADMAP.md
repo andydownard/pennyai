@@ -855,18 +855,18 @@ Databricks is enterprise data lakehouse tooling ($10K+/yr, requires a data engin
 - **Extract middleware** — Rate limiting, auth gating, and panic recovery are inline. Extract into composable middleware functions.
 - **Introduce request/response types** — Many handlers use anonymous `struct{}` for JSON parsing. Define named types in `models.go` for readability and reuse.
 - **Database query consolidation** — Several handlers have near-identical SQL queries with slight variations. Extract common queries into typed helper functions.
-- **Error handling consistency** — Standardize error responses (some use `writeJSON`, some use `http.Error`, some use raw `w.Write`). Single pattern throughout.
+- [x] **Error handling consistency** — Standardize error responses. ✅ Done: all production handlers use `writeJSON()`. Only 2 acceptable `http.Error` calls remain (HTML 404 in serveWithOGTags, panic recovery middleware).
 
 ### Frontend Refactor
 - [x] **Extract screens** — 15 screens extracted into separate component files (Phone, Code, Email*, Profile, Help, Share, Admin, Penny, Earnings, Receipts, SharedList, etc.). Home screen remains in App.tsx due to heavy state coupling.
 - [x] **Code splitting** — 12 screens lazy-loaded via React.lazy for faster initial load (740→486KB main bundle).
 - **Extract inline styles** — All styles are inline objects defined in the component. Move to a shared styles system (CSS modules, styled-components, or at minimum a `styles/` directory).
-- **State management** — App.tsx has 50+ useState hooks. Extract related state into custom hooks (`useAuth`, `useList`, `useSwaps`, `useTrips`, etc.).
+- [x] **State management (partial)** — Extracted `useToast`, `useConfirmModal`, `useKeyboardOpen` hooks into `hooks/` directory. Remaining: `useAuth`, `useList`, `useSwaps` (deeply coupled, diminishing returns).
 - **API layer** — Fetch calls are scattered throughout components. Extract into an `api/` module with typed request/response functions.
 - **Component library** — Buttons, inputs, cards, and modals are re-implemented with inline styles in multiple places. Extract shared UI primitives. Started: StatusBadge (5 semantic variants + bordered mode), SectionHeader (extracted from ActionSheet inline).
 
 ### Testing Refactor
-- **Test helpers** — Reduce boilerplate in `main_test.go` (~10K lines). Extract common setup (create user, create session, add items) into reusable test helpers.
+- [x] **Test helpers** — Already well-organized: `loginUser()` (521 uses), `createListItem()`, `doRequest()`, `parseJSON()`, `getSessionCookie()`, `doSMSRequest()`, `doEmailRequest()`, `createTestDeal()`, `setupEarningsTestData()`. ✅ Already good.
 - **Test organization** — Split `main_test.go` into domain-specific test files (`auth_test.go`, `list_test.go`, `swap_test.go`, etc.).
 
 ### Priority & Timing
