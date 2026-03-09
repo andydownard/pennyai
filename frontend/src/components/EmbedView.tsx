@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { PennyAvatar } from './PennyAvatar'
 
 const FONT = "'Avenir', 'Avenir Next', -apple-system, 'Segoe UI', sans-serif"
+const BRAND = '#35644F'
 
 const demoItems = [
   { dept: 'Produce', icon: '🥬', items: [
@@ -15,13 +16,14 @@ const demoItems = [
     { name: 'Shredded cheddar', qty: '8 oz', brand: 'Tillamook' },
   ]},
   { dept: 'Pantry & Dry Goods', icon: '🫙', items: [
-    { name: 'Peanut butter', qty: '16 oz', brand: 'Jif' },
+    { name: 'Peanut butter', qty: '16 oz', brand: 'Jif', swappable: true },
     { name: 'Pasta', qty: '1 lb', brand: 'Barilla' },
-  ]},
+  ] as { name: string; qty: string; brand: string; swappable?: boolean }[]},
 ]
 
 export function EmbedView() {
   const [checked, setChecked] = useState<Set<string>>(() => new Set(['Baby spinach', 'Greek yogurt']))
+  const [swapState, setSwapState] = useState<'pending' | 'accepted' | 'dismissed'>('pending')
 
   const toggle = (name: string) => {
     setChecked(prev => {
@@ -170,7 +172,7 @@ export function EmbedView() {
                       color: '#525252',
                       marginTop: 1,
                     }}>
-                      {item.qty}{item.brand ? ` · ${item.brand}` : ''}
+                      {item.qty}{item.brand ? ` · ${('swappable' in item && item.swappable && swapState === 'accepted') ? "Justin's" : item.brand}` : ''}
                     </div>
                   </div>
 
@@ -179,6 +181,54 @@ export function EmbedView() {
                 </div>
               )
             })}
+
+            {/* Swap suggestion card — appears below Peanut butter (Jif) */}
+            {dept.dept === 'Pantry & Dry Goods' && swapState === 'pending' && (
+              <div style={{
+                margin: '0 14px 0 42px',
+                padding: '10px 12px',
+                backgroundColor: '#F0F7F3',
+                borderRadius: 10,
+                borderLeft: `3px solid ${BRAND}`,
+                marginBottom: 2,
+              }}>
+                <div style={{ fontSize: '0.75rem', color: '#525252', fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <PennyAvatar size={14} />
+                  Penny suggests
+                  <span style={{ marginLeft: 'auto', fontSize: '0.625rem', color: '#888', fontWeight: 400 }}>Brand Partner</span>
+                </div>
+                <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#2A2A2A' }}>
+                  Try Justin's Classic Peanut Butter
+                </div>
+                <div style={{ fontSize: '0.6875rem', color: '#525252', marginTop: 2, lineHeight: 1.4 }}>
+                  Organic, palm oil free · 16 oz · Save $0.80
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <button onClick={(e) => { e.stopPropagation(); setSwapState('accepted') }} style={{
+                    padding: '5px 14px', borderRadius: 6, border: 'none', backgroundColor: BRAND,
+                    color: '#fff', fontSize: '0.75rem', fontWeight: 600, fontFamily: FONT, cursor: 'pointer',
+                  }}>Swap</button>
+                  <button onClick={(e) => { e.stopPropagation(); setSwapState('dismissed') }} style={{
+                    padding: '5px 14px', borderRadius: 6, border: `1px solid #ccc`, backgroundColor: 'transparent',
+                    color: '#525252', fontSize: '0.75rem', fontWeight: 500, fontFamily: FONT, cursor: 'pointer',
+                  }}>No thanks</button>
+                </div>
+              </div>
+            )}
+            {dept.dept === 'Pantry & Dry Goods' && swapState === 'accepted' && (
+              <div style={{
+                margin: '0 14px 0 42px',
+                padding: '8px 12px',
+                backgroundColor: '#F0F7F3',
+                borderRadius: 10,
+                fontSize: '0.75rem',
+                color: BRAND,
+                fontWeight: 600,
+                marginBottom: 2,
+              }}>
+                ✓ Swapped to Justin's Classic — you'll save $0.80
+              </div>
+            )}
           </div>
         ))}
 
