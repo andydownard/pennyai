@@ -199,7 +199,7 @@ When a user's grocery list contains an item that matches an active brand deal, P
 ### M2. Fix Sharing & Invite Flow
 **Size:** M (1 week, parallel with M1)
 **Priority:** P0 — Sharing is the distribution channel for swaps
-**Status:** Planned
+**Status:** Done
 
 **Description:**
 Sharing is the primary distribution mechanism. Fix the known bugs and add attribution tracking so we can measure the viral loop that makes swaps valuable to brands.
@@ -231,7 +231,7 @@ Sharing is the primary distribution mechanism. Fix the known bugs and add attrib
 ### M3. Swap Admin Tooling (Seed Deals)
 **Size:** S (3-4 days, parallel with M1)
 **Priority:** P0 — Enables M1
-**Status:** Planned
+**Status:** Done
 
 **Description:**
 Extend the existing admin dashboard so Andy can manually create and manage brand deals. This is the "database seed script" from the CEO synthesis — no brand portal needed yet, just admin CRUD.
@@ -257,7 +257,7 @@ Extend the existing admin dashboard so Andy can manually create and manage brand
 ### M4. Brand Portal v0 (brands.thrift.ly)
 **Size:** L (2 weeks)
 **Priority:** P0 — Revenue infrastructure
-**Status:** Planned
+**Status:** Done
 
 **Description:**
 A separate web app at `brands.thrift.ly` where brand product managers can sign up, create deals, set budgets, and see performance. This is the self-serve experience that 14/18 focus group participants said they'd use without a sales call.
@@ -291,7 +291,7 @@ A separate web app at `brands.thrift.ly` where brand product managers can sign u
 ### M5. Stripe Payment Integration
 **Size:** M (1 week)
 **Priority:** P0 — Proof of willingness to pay
-**Status:** Planned
+**Status:** Done
 
 **Description:**
 Brand managers add a credit card and fund their deal budget. Charges are per-swap (post-pay) or pre-funded (deposit). Start with pre-funded deposits for simplicity — brand deposits $100, swaps deduct from balance.
