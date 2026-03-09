@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ActionSheet } from './ActionSheet'
-import { FONT } from '../styles'
+import { FONT, FONT_2XS, FONT_XS, FONT_SM, FONT_BASE, FONT_LG } from '../styles'
 
 export type ShoppingTrip = {
   id: number
@@ -47,10 +47,10 @@ export function TripPlannerSheet({
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
           </svg>
-          <p style={{ fontFamily: FONT, fontSize: '17px', fontWeight: 600, color: 'var(--text)', margin: '12px 0 4px' }}>
+          <p style={{ fontFamily: FONT, fontSize: FONT_LG, fontWeight: 600, color: 'var(--text)', margin: '12px 0 4px' }}>
             {isTripInProgress(myTrip) ? 'Shopping now!' : formatTripTime(myTrip)}
           </p>
-          <p style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', margin: 0 }}>
+          <p style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text-secondary)', margin: 0 }}>
             Everyone on your list can see this.
           </p>
         </div>
@@ -67,7 +67,7 @@ export function TripPlannerSheet({
   return (
     <ActionSheet isOpen={true} onClose={onClose} title="Plan a shopping trip" maxHeight="60dvh">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        <p style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: 'var(--text)', margin: 0 }}>When?</p>
+        <p style={{ fontFamily: FONT, fontSize: FONT_2XS, fontWeight: 600, color: 'var(--text)', margin: 0 }}>When?</p>
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'nowrap', alignItems: 'center' }}>
           {[
             { label: 'Today', value: todayStr },
@@ -80,7 +80,7 @@ export function TripPlannerSheet({
               style={{
                 padding: '6px 12px', borderRadius: '20px', border: `1.5px solid ${tripDay === opt.value ? 'var(--brand)' : 'var(--border)'}`,
                 backgroundColor: tripDay === opt.value ? 'var(--brand)' : 'var(--surface)', color: tripDay === opt.value ? '#fff' : 'var(--text)',
-                fontFamily: FONT, fontSize: '14px', fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                fontFamily: FONT, fontSize: FONT_SM, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
               }}
             >{opt.label}</button>
           ))}
@@ -93,7 +93,7 @@ export function TripPlannerSheet({
               border: `1.5px solid ${getDayOptions().some(o => o.value === tripDay) ? 'var(--brand)' : 'var(--border)'}`,
               backgroundColor: getDayOptions().some(o => o.value === tripDay) ? 'var(--brand)' : 'var(--surface)',
               color: getDayOptions().some(o => o.value === tripDay) ? '#fff' : 'var(--text-secondary)',
-              fontFamily: FONT, fontSize: '14px', cursor: 'pointer', flexShrink: 0, minWidth: 0,
+              fontFamily: FONT, fontSize: FONT_SM, cursor: 'pointer', flexShrink: 0, minWidth: 0,
             }}
           >
             <option value="">More...</option>
@@ -101,7 +101,7 @@ export function TripPlannerSheet({
           </select>
         </div>
 
-        <p style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, color: 'var(--text)', margin: 0 }}>
+        <p style={{ fontFamily: FONT, fontSize: FONT_2XS, fontWeight: 600, color: 'var(--text)', margin: 0 }}>
           What time? <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>(optional)</span>
         </p>
         {tripTimeLabel === 'exact' ? (
@@ -115,7 +115,7 @@ export function TripPlannerSheet({
               style={{
                 flex: 1, padding: '6px 12px', borderRadius: '20px',
                 border: '1.5px solid var(--brand)',
-                fontFamily: FONT, fontSize: '14px', color: 'var(--text)',
+                fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text)',
                 height: '36px', boxSizing: 'border-box' as const,
               }}
             />
@@ -124,7 +124,7 @@ export function TripPlannerSheet({
               style={{
                 padding: '6px 12px', borderRadius: '20px', border: '1.5px solid var(--border)',
                 backgroundColor: 'var(--surface)', color: 'var(--text-secondary)',
-                fontFamily: FONT, fontSize: '14px', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                fontFamily: FONT, fontSize: FONT_SM, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
               }}
             >Clear</button>
           </div>
@@ -139,7 +139,7 @@ export function TripPlannerSheet({
                   border: `1.5px solid ${tripTimeLabel === t.toLowerCase() ? 'var(--brand)' : 'var(--border)'}`,
                   backgroundColor: tripTimeLabel === t.toLowerCase() ? 'var(--brand)' : 'var(--surface)',
                   color: tripTimeLabel === t.toLowerCase() ? '#fff' : 'var(--text)',
-                  fontFamily: FONT, fontSize: '13px', fontWeight: 500, cursor: 'pointer',
+                  fontFamily: FONT, fontSize: FONT_XS, fontWeight: 500, cursor: 'pointer',
                 }}
               >{t}</button>
             ))}
@@ -155,7 +155,7 @@ export function TripPlannerSheet({
           onClick={onClose}
           style={{
             background: 'none', border: 'none', cursor: 'pointer',
-            fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)',
+            fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text-secondary)',
             padding: '4px 0', textAlign: 'center' as const, width: '100%',
           }}
         >Cancel</button>

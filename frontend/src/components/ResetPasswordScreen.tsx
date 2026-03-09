@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { FloatingLabelField } from './FloatingLabelField'
 import {
-  FONT,
+  FONT, FONT_XL,
   authStyles, pageStyles,
 } from '../styles'
 
@@ -27,7 +27,7 @@ export function ResetPasswordScreen({
     <div style={authStyles.pageCenter}>
       <div style={authStyles.inner}>
         <div style={{ width: '100%', marginBottom: '24px', textAlign: 'center' }}>
-          <div style={{ fontFamily: FONT, fontSize: '22px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.5px', marginBottom: '6px' }}>
+          <div style={{ fontFamily: FONT, fontSize: FONT_XL, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.5px', marginBottom: '6px' }}>
             Set a new password
           </div>
         </div>

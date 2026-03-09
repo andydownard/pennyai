@@ -1,7 +1,7 @@
 import { ActionSheet } from './ActionSheet'
 import { BrandLogo } from './BrandLogo'
 import { type ListItem } from './ItemRow'
-import { FONT } from '../styles'
+import { FONT, FONT_2XS, FONT_BASE, FONT_MD } from '../styles'
 
 type SkippedItem = {
   parsed: { name: string; brand: string; quantity: number; size: string; department: string }
@@ -46,16 +46,16 @@ export function ReviewSheet({
             }}>
               <BrandLogo brand={item.brand} size={52} />
               <div role="button" tabIndex={0} style={{ flex: 1, cursor: 'pointer' }} onClick={() => onOpenDetail(item)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenDetail(item) } }} aria-label={`Edit ${item.brand ? item.brand + ' ' : ''}${item.name}`}>
-                <span style={{ fontFamily: FONT, fontSize: '16px', color: 'var(--text)' }}>
+                <span style={{ fontFamily: FONT, fontSize: FONT_MD, color: 'var(--text)' }}>
                   {item.brand ? `${item.brand} ` : ''}{item.name}
                 </span>
                 {item.size && (
-                  <span style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '6px' }}>
+                  <span style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginLeft: '6px' }}>
                     {item.size}
                   </span>
                 )}
-                <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                  {item.department} · <span style={{ color: 'var(--brand)', fontSize: '12px' }}>edit</span>
+                <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  {item.department} · <span style={{ color: 'var(--brand)', fontSize: FONT_2XS }}>edit</span>
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0', border: '1.5px solid var(--border)', borderRadius: '10px', overflow: 'hidden', backgroundColor: 'var(--bg)', flexShrink: 0 }}>
@@ -64,7 +64,7 @@ export function ReviewSheet({
                   aria-label={`Decrease quantity of ${item.name}, currently ${item.quantity}`}
                   style={{ width: '34px', height: '34px', border: 'none', background: 'none', fontSize: '17px', color: 'var(--brand)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 >−</button>
-                <span aria-live="polite" aria-atomic="true" style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: 'var(--text)', minWidth: '24px', textAlign: 'center' }}>{item.quantity}</span>
+                <span aria-live="polite" aria-atomic="true" style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--text)', minWidth: '24px', textAlign: 'center' }}>{item.quantity}</span>
                 <button
                   onClick={() => onUpdateQuantity(item, 1)}
                   aria-label={`Increase quantity of ${item.name}, currently ${item.quantity}`}
@@ -110,11 +110,11 @@ export function ReviewSheet({
               }}>
                 <BrandLogo brand={skipped.parsed.brand} size={52} />
                 <div role={existing ? 'button' : undefined} tabIndex={existing ? 0 : undefined} style={{ flex: 1, cursor: existing ? 'pointer' : undefined }} onClick={() => existing && onOpenDetail(existing)} onKeyDown={e => { if (existing && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpenDetail(existing) } }} aria-label={existing ? `Edit ${existing.brand ? existing.brand + ' ' : ''}${existing.name}` : undefined}>
-                  <span style={{ fontFamily: FONT, fontSize: '16px', color: 'var(--text)' }}>
+                  <span style={{ fontFamily: FONT, fontSize: FONT_MD, color: 'var(--text)' }}>
                     {skipped.parsed.brand ? `${skipped.parsed.brand} ` : ''}{skipped.parsed.name}
                   </span>
-                  <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    On list: {existing?.quantity ?? 1}{existing && <> · <span style={{ color: 'var(--brand)', fontSize: '12px' }}>edit</span></>}
+                  <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    On list: {existing?.quantity ?? 1}{existing && <> · <span style={{ color: 'var(--brand)', fontSize: FONT_2XS }}>edit</span></>}
                   </div>
                 </div>
                 <button
@@ -128,7 +128,7 @@ export function ReviewSheet({
                     background: 'none',
                     color: 'var(--brand)',
                     fontFamily: FONT,
-                    fontSize: '15px',
+                    fontSize: FONT_BASE,
                     fontWeight: 600,
                     cursor: 'pointer',
                   }}

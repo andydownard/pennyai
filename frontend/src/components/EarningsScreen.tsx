@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { PennyAvatar } from './PennyAvatar'
 import { BrandLogo } from './BrandLogo'
 import { StatusBadge } from './StatusBadge'
-import { FONT } from '../styles'
+import { FONT, FONT_2XS, FONT_XS, FONT_SM, FONT_BASE, FONT_MD } from '../styles'
 
 interface EarningTransaction {
   id: number
@@ -111,7 +111,7 @@ export function EarningsScreen({ fetchAPI, onViewReceipts, onGoToList }: Earning
   if (loading && !data) {
     return (
       <div style={{ padding: '40px 20px', textAlign: 'center' }}>
-        <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)' }}>Loading earnings...</div>
+        <div style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)' }}>Loading earnings...</div>
       </div>
     )
   }
@@ -140,10 +140,10 @@ export function EarningsScreen({ fetchAPI, onViewReceipts, onGoToList }: Earning
             flex: 1, padding: '14px 8px', borderRadius: '10px', backgroundColor: 'var(--surface)',
             textAlign: 'center' as const, border: '1px solid var(--border)',
           }}>
-            <div style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: card.color }}>
+            <div style={{ fontFamily: FONT, fontSize: '1.25rem', fontWeight: 700, color: card.color }}>
               ${(card.cents / 100).toFixed(2)}
             </div>
-            <div style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', marginTop: '3px' }}>
+            <div style={{ fontFamily: FONT, fontSize: '0.6875rem', color: 'var(--text-secondary)', marginTop: '3px' }}>
               {card.label}
             </div>
           </div>
@@ -160,7 +160,7 @@ export function EarningsScreen({ fetchAPI, onViewReceipts, onGoToList }: Earning
               flex: 1, padding: '8px 0', borderRadius: '20px', border: '1px solid var(--border)',
               backgroundColor: daysFilter === d ? 'var(--brand)' : 'var(--surface)',
               color: daysFilter === d ? '#fff' : 'var(--text)',
-              fontFamily: FONT, fontSize: '13px', fontWeight: 500, cursor: 'pointer',
+              fontFamily: FONT, fontSize: FONT_XS, fontWeight: 500, cursor: 'pointer',
             }}
           >
             {d === 0 ? 'All' : `${d}d`}
@@ -175,10 +175,10 @@ export function EarningsScreen({ fetchAPI, onViewReceipts, onGoToList }: Earning
           padding: '40px 20px', gap: '16px',
         }}>
           <PennyAvatar size={48} />
-          <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: 'var(--text)', textAlign: 'center' }}>
+          <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600, color: 'var(--text)', textAlign: 'center' }}>
             Swap and get paid. No one else does this.
           </div>
-          <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
+          <div style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
             Brands pay to reach you. When you swap, we share that revenue with you — real money, every time.
           </div>
           {onGoToList && (
@@ -186,14 +186,14 @@ export function EarningsScreen({ fetchAPI, onViewReceipts, onGoToList }: Earning
               onClick={onGoToList}
               style={{
                 backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '10px',
-                padding: '12px 24px', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+                padding: '12px 24px', fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, cursor: 'pointer',
                 marginTop: '4px',
               }}
             >
               Go to my list
             </button>
           )}
-          <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center' }}>
+          <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', textAlign: 'center' }}>
             Swap suggestions appear when you add items to your list
           </div>
         </div>
@@ -208,20 +208,20 @@ export function EarningsScreen({ fetchAPI, onViewReceipts, onGoToList }: Earning
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                 <BrandLogo brand={tx.offer_brand} size={44} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>
+                  <div style={{ fontFamily: FONT, fontSize: FONT_SM, fontWeight: 600, color: 'var(--text)' }}>
                     {tx.offer_brand} {tx.offer_product}
                   </div>
                   {tx.competitor_product && (
-                    <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '2px' }}>
                       Swapped from {tx.competitor_product}
                     </div>
                   )}
-                  <div style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  <div style={{ fontFamily: FONT, fontSize: '0.6875rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
                     {formatDate(tx.created_at)}
                   </div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 700, color: 'var(--brand)' }}>
+                  <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 700, color: 'var(--brand)' }}>
                     ${(tx.amount_cents / 100).toFixed(2)}
                   </div>
                   <div style={{ marginTop: '4px' }}><StatusBadge label={(STATUS_MAP[tx.status] || STATUS_MAP.pending).label} variant={(STATUS_MAP[tx.status] || STATUS_MAP.pending).variant} /></div>
@@ -232,7 +232,7 @@ export function EarningsScreen({ fetchAPI, onViewReceipts, onGoToList }: Earning
               <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {tx.attachment_path ? (
                   <span style={{
-                    fontFamily: FONT, fontSize: '12px', color: 'var(--success)', fontWeight: 500,
+                    fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--success)', fontWeight: 500,
                     display: 'flex', alignItems: 'center', gap: '4px',
                   }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -245,7 +245,7 @@ export function EarningsScreen({ fetchAPI, onViewReceipts, onGoToList }: Earning
                     onClick={() => handleUploadClick(tx.id)}
                     disabled={uploadingId === tx.id}
                     style={{
-                      fontFamily: FONT, fontSize: '12px', color: 'var(--brand)', fontWeight: 500,
+                      fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--brand)', fontWeight: 500,
                       background: 'none', border: '1px solid var(--brand)', borderRadius: '6px',
                       padding: '4px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px',
                       opacity: uploadingId === tx.id ? 0.5 : 1,
@@ -268,7 +268,7 @@ export function EarningsScreen({ fetchAPI, onViewReceipts, onGoToList }: Earning
       {/* Info note */}
       {!isEmpty && (
         <div style={{
-          fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center',
+          fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', textAlign: 'center',
           padding: '16px 0 8px', lineHeight: '1.5',
         }}>
           Brands pay to reach you — we share the revenue. No other grocery app does this. Payouts sent monthly via Venmo.
@@ -282,7 +282,7 @@ export function EarningsScreen({ fetchAPI, onViewReceipts, onGoToList }: Earning
           style={{
             width: '100%', marginTop: '8px', padding: '12px', borderRadius: '10px',
             border: '1px solid var(--border)', backgroundColor: 'var(--surface)',
-            fontFamily: FONT, fontSize: '14px', fontWeight: 500, color: 'var(--text)',
+            fontFamily: FONT, fontSize: FONT_SM, fontWeight: 500, color: 'var(--text)',
             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
           }}
         >

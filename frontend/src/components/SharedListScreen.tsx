@@ -1,5 +1,5 @@
 import { PennyAvatar } from './PennyAvatar'
-import { FONT } from '../styles'
+import { FONT, FONT_XS, FONT_SM, FONT_BASE } from '../styles'
 
 interface SharedItem {
   name: string
@@ -41,15 +41,15 @@ export function SharedListScreen({
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px' }}>
           <PennyAvatar size={48} />
         </div>
-        <div style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
+        <div style={{ fontFamily: FONT, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text)' }}>
           {sharedData ? `${sharedData.sharer_name || 'Someone'}'s Shopping List` : 'Shared Shopping List'}
         </div>
-        <div style={{ fontFamily: FONT, fontSize: '13px', color: 'var(--brand)', fontWeight: 600, letterSpacing: '-0.3px', marginTop: '4px' }}>thriftly</div>
+        <div style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--brand)', fontWeight: 600, letterSpacing: '-0.3px', marginTop: '4px' }}>thriftly</div>
       </div>
 
       {/* Expiry banner */}
       {sharedData && timeLeft && timeLeft !== 'expired' && (
-        <div style={{ backgroundColor: 'var(--warning-bg)', padding: '10px 20px', fontFamily: FONT, fontSize: '13px', color: 'var(--warning)', textAlign: 'center' }}>
+        <div style={{ backgroundColor: 'var(--warning-bg)', padding: '10px 20px', fontFamily: FONT, fontSize: FONT_XS, color: 'var(--warning)', textAlign: 'center' }}>
           This link expires in {timeLeft}
         </div>
       )}
@@ -58,20 +58,20 @@ export function SharedListScreen({
       <div style={{ flex: 1, padding: '16px 20px', overflowY: 'auto' }}>
         {sharedLoading && (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <p style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)' }}>Loading list...</p>
+            <p style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text-secondary)' }}>Loading list...</p>
           </div>
         )}
 
         {sharedError === 'expired' && (
           <div style={{ textAlign: 'center', padding: '40px 20px' }}>
             <div style={{ fontSize: '48px', marginBottom: '16px' }}>⏰</div>
-            <h2 style={{ fontFamily: FONT, fontSize: '20px', color: 'var(--text)', margin: '0 0 8px' }}>This link has expired</h2>
-            <p style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', margin: '0 0 24px' }}>
+            <h2 style={{ fontFamily: FONT, fontSize: '1.25rem', color: 'var(--text)', margin: '0 0 8px' }}>This link has expired</h2>
+            <p style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text-secondary)', margin: '0 0 24px' }}>
               Share links are valid for 48 hours. Ask the sender to share again.
             </p>
             <button
               onClick={onSignUp}
-              style={{ backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '10px', padding: '14px 28px', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer' }}
+              style={{ backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '10px', padding: '14px 28px', fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, cursor: 'pointer' }}
             >
               Sign up for Thriftly
             </button>
@@ -81,13 +81,13 @@ export function SharedListScreen({
         {sharedError === 'not_found' && (
           <div style={{ textAlign: 'center', padding: '40px 20px' }}>
             <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔗</div>
-            <h2 style={{ fontFamily: FONT, fontSize: '20px', color: 'var(--text)', margin: '0 0 8px' }}>Link not found</h2>
-            <p style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', margin: '0 0 24px' }}>
+            <h2 style={{ fontFamily: FONT, fontSize: '1.25rem', color: 'var(--text)', margin: '0 0 8px' }}>Link not found</h2>
+            <p style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text-secondary)', margin: '0 0 24px' }}>
               This share link doesn't exist. Check the URL and try again.
             </p>
             <button
               onClick={onSignUp}
-              style={{ backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '10px', padding: '14px 28px', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer' }}
+              style={{ backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '10px', padding: '14px 28px', fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, cursor: 'pointer' }}
             >
               Sign up for Thriftly
             </button>
@@ -99,10 +99,10 @@ export function SharedListScreen({
             {sharedData.items.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px' }}>
                 <div style={{ fontSize: '48px', marginBottom: '16px' }}>📝</div>
-                <h2 style={{ fontFamily: FONT, fontSize: '18px', color: 'var(--text)', margin: '0 0 8px' }}>
+                <h2 style={{ fontFamily: FONT, fontSize: '1.125rem', color: 'var(--text)', margin: '0 0 8px' }}>
                   Nothing on this list yet
                 </h2>
-                <p style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.5' }}>
+                <p style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', margin: 0, lineHeight: '1.5' }}>
                   {sharedData.sharer_name || 'The owner'} hasn't added any items yet. Check back soon!
                 </p>
               </div>
@@ -123,7 +123,7 @@ export function SharedListScreen({
                       {item.checked && <span style={{ color: '#fff', fontSize: '14px', fontWeight: 700 }}>✓</span>}
                     </div>
                     <span style={{
-                      fontFamily: FONT, fontSize: '15px', color: 'var(--text)', flex: 1,
+                      fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text)', flex: 1,
                       textDecoration: item.checked ? 'line-through' : 'none',
                     }}>
                       {item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
@@ -138,12 +138,12 @@ export function SharedListScreen({
 
       {/* Sign-up CTA */}
       <div style={{ padding: '20px', backgroundColor: 'var(--surface)', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
-        <p style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', margin: '0 0 12px' }}>
+        <p style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', margin: '0 0 12px' }}>
           Sign up for Thriftly to make your own list and earn rebates
         </p>
         <button
           onClick={onSignUpClear}
-          style={{ backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '10px', padding: '14px 28px', fontFamily: FONT, fontSize: '15px', fontWeight: 600, cursor: 'pointer', width: '100%', maxWidth: '320px' }}
+          style={{ backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '10px', padding: '14px 28px', fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, cursor: 'pointer', width: '100%', maxWidth: '320px' }}
         >
           Get Started
         </button>

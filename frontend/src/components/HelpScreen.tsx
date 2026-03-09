@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ScreenTransition } from './ScreenTransition'
-import { FONT, pageStyles } from '../styles'
+import { FONT, FONT_SM, FONT_BASE, FONT_MD, pageStyles } from '../styles'
 
 interface HelpScreenProps {
   showToast: (msg: string, type?: 'success' | 'error') => void
@@ -61,7 +61,7 @@ export function HelpScreen({
 
           {/* FAQ Section */}
           <div>
-            <h2 style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 700, color: 'var(--text)', marginBottom: '16px' }}>
+            <h2 style={{ fontFamily: FONT, fontSize: '1.125rem', fontWeight: 700, color: 'var(--text)', marginBottom: '16px' }}>
               Frequently Asked Questions
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0px', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--border)' }}>
@@ -75,7 +75,7 @@ export function HelpScreen({
                       width: '100%', padding: '14px 16px',
                       backgroundColor: openFaq === i ? 'color-mix(in srgb, var(--brand) 3%, transparent)' : 'var(--surface)',
                       border: 'none', cursor: 'pointer', textAlign: 'left',
-                      fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: 'var(--text)',
+                      fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 500, color: 'var(--text)',
                       gap: '12px',
                     }}
                   >
@@ -98,7 +98,7 @@ export function HelpScreen({
                   }}>
                     <div style={{
                       padding: '0 16px 14px 16px',
-                      fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.5,
+                      fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', lineHeight: 1.5,
                       backgroundColor: openFaq === i ? 'color-mix(in srgb, var(--brand) 3%, transparent)' : 'var(--surface)',
                     }}>
                       {faq.a}
@@ -114,10 +114,10 @@ export function HelpScreen({
 
           {/* Bug Report Section */}
           <div>
-            <h2 style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
+            <h2 style={{ fontFamily: FONT, fontSize: '1.125rem', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
               Report a Bug
             </h2>
-            <p style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+            <p style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', marginBottom: '16px' }}>
               Found something that doesn't look right? Let us know and we'll fix it.
             </p>
             {bugSubmitted ? (
@@ -125,14 +125,14 @@ export function HelpScreen({
                 padding: '20px', borderRadius: '12px',
                 backgroundColor: 'color-mix(in srgb, var(--brand) 6%, transparent)', textAlign: 'center',
               }}>
-                <p style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 500, color: 'var(--brand)' }}>
+                <p style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 500, color: 'var(--brand)' }}>
                   Thanks for your report! We'll look into it.
                 </p>
                 <button
                   onClick={() => setBugSubmitted(false)}
                   style={{
                     marginTop: '12px', background: 'none', border: 'none', cursor: 'pointer',
-                    fontFamily: FONT, fontSize: '14px', color: 'var(--text-secondary)', textDecoration: 'underline',
+                    fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', textDecoration: 'underline',
                   }}
                 >
                   Submit another report
@@ -148,7 +148,7 @@ export function HelpScreen({
                   rows={5}
                   style={{
                     width: '100%', padding: '13px 16px',
-                    fontSize: '16px', fontFamily: FONT, color: 'var(--text)',
+                    fontSize: FONT_MD, fontFamily: FONT, color: 'var(--text)',
                     backgroundColor: 'var(--surface)', border: '1.5px solid var(--border)',
                     borderRadius: '12px', outline: 'none',
                     boxSizing: 'border-box', resize: 'vertical',
@@ -164,7 +164,7 @@ export function HelpScreen({
                     marginTop: '12px', width: '100%', padding: '14px',
                     backgroundColor: (!bugDescription.trim() || bugSubmitting) ? 'color-mix(in srgb, var(--brand) 38%, var(--bg))' : 'var(--brand)',
                     color: '#fff', border: 'none', borderRadius: '12px',
-                    fontFamily: FONT, fontSize: '16px', fontWeight: 600,
+                    fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600,
                     cursor: (!bugDescription.trim() || bugSubmitting) ? 'not-allowed' : 'pointer',
                     transition: 'background-color 0.2s',
                   }}
