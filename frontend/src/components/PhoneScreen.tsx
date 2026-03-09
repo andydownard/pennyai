@@ -1,7 +1,7 @@
 import { PennyAvatar } from './PennyAvatar'
 import { FloatingLabelField } from './FloatingLabelField'
 import { LegalLinks } from './LegalLinks'
-import { FONT, formatPhone, authStyles, pageStyles } from '../styles'
+import { FONT, FONT_2XS, FONT_MD, formatPhone, authStyles, pageStyles } from '../styles'
 
 interface PhoneScreenProps {
   phone: string
@@ -32,7 +32,7 @@ export function PhoneScreen({
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '28px', width: '100%' }}>
           <PennyAvatar size={130} />
           <div style={{
-            fontFamily: FONT, fontSize: '18px', fontWeight: 500,
+            fontFamily: FONT, fontSize: '1.125rem', fontWeight: 500,
             color: 'var(--text)', lineHeight: 1.5, fontStyle: 'italic',
             textAlign: 'left', marginTop: '16px',
             minHeight: '54px', maxWidth: '320px', width: '100%',
@@ -51,7 +51,7 @@ export function PhoneScreen({
               value={formatPhone(phone)}
               onChange={onPhoneChange}
               onKeyDown={e => { if (e.key === 'Enter' && isValid && smsOptIn) onSendCode() }}
-              style={{ ...pageStyles.floatingInput, fontSize: '20px', fontWeight: 500, letterSpacing: '0.5px' }}
+              style={{ ...pageStyles.floatingInput, fontSize: '1.25rem', fontWeight: 500, letterSpacing: '0.5px' }}
               autoFocus
             />
           </FloatingLabelField>
@@ -69,7 +69,7 @@ export function PhoneScreen({
             onChange={e => onSmsOptInChange(e.target.checked)}
             style={{ accentColor: 'var(--brand)', width: '16px', height: '16px', flexShrink: 0, marginTop: '1px' }}
           />
-          <span style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5, whiteSpace: 'nowrap' }}>
+          <span style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', lineHeight: 1.5, whiteSpace: 'nowrap' }}>
             I want to SMS with Penny
           </span>
         </label>

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { PennyAvatar } from './PennyAvatar'
-import { FONT } from '../styles'
+import { FONT, FONT_2XS, FONT_BASE } from '../styles'
 
 export type Screen = 'phone' | 'code' | 'home' | 'penny' | 'profile' | 'settings-share' | 'admin' | 'email-login' | 'email-register' | 'forgot-password' | 'reset-password' | 'shared-list' | 'help' | 'earnings' | 'receipts'
 
@@ -17,7 +17,7 @@ interface NavigationMenuProps {
 const avatarCircleStyle = (size = 32): React.CSSProperties => ({
   width: `${size}px`, height: `${size}px`, borderRadius: '50%', backgroundColor: 'var(--brand)', color: '#fff',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
-  fontFamily: FONT, fontSize: '15px', fontWeight: 600, flexShrink: 0,
+  fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, flexShrink: 0,
 })
 
 const styles = {
@@ -45,7 +45,7 @@ const styles = {
     width: '100%',
     padding: '10px 18px',
     fontFamily: FONT,
-    fontSize: '15px',
+    fontSize: FONT_BASE,
     fontWeight: active ? 600 : 400,
     color: active ? 'var(--brand)' : 'var(--text)',
     background: 'none',
@@ -89,7 +89,7 @@ export function NavigationMenu({ active, isAdmin, firstName, lastName, userId, a
         aria-expanded={open}
         aria-haspopup="true"
       >
-        <div style={{ ...avatarCircleStyle(30), fontSize: '12px', overflow: 'hidden' }}>
+        <div style={{ ...avatarCircleStyle(30), fontSize: FONT_2XS, overflow: 'hidden' }}>
           {avatarUrl && !avatarError ? (
             <img
               key={avatarVersion}

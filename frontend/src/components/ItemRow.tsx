@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react'
 import { BrandLogo } from './BrandLogo'
 import { StatusBadge } from './StatusBadge'
 import { SwapCard, type SwapOffer } from './SwapCard'
-import { FONT, DEPT_ICONS } from '../styles'
+import { FONT, FONT_2XS, FONT_XS, FONT_BASE, DEPT_ICONS } from '../styles'
 
 export type ListItem = {
   id: number
@@ -76,7 +76,7 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
-    fontSize: '12px',
+    fontSize: FONT_2XS,
     fontWeight: 700,
     color: '#fff',
     transition: 'all 0.2s ease',
@@ -94,7 +94,7 @@ const styles = {
 
   name: (checked: boolean): React.CSSProperties => ({
     fontFamily: FONT,
-    fontSize: '15px',
+    fontSize: FONT_BASE,
     color: checked ? 'var(--text-secondary)' : 'var(--text)',
     textDecoration: checked ? 'line-through' : 'none',
     transition: 'all 0.15s',
@@ -102,7 +102,7 @@ const styles = {
 
   meta: {
     fontFamily: FONT,
-    fontSize: '11px',
+    fontSize: FONT_2XS,
     color: 'var(--text-secondary)',
   } as React.CSSProperties,
 }
@@ -175,7 +175,7 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onD
             width: `${Math.abs(swipeX)}px`,
             backgroundColor: 'var(--error)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#fff', fontFamily: FONT, fontSize: '13px', fontWeight: 600,
+            color: '#fff', fontFamily: FONT, fontSize: FONT_XS, fontWeight: 600,
             opacity: deleteOpacity,
           }}
           aria-hidden="true"
@@ -232,7 +232,7 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onD
             </span>
           )}
           {ts && (
-            <span style={{ fontFamily: FONT, fontSize: '10px', color: 'var(--text-secondary)' }}>
+            <span style={{ fontFamily: FONT, fontSize: '0.625rem', color: 'var(--text-secondary)' }}>
               {ts}
             </span>
           )}
@@ -247,7 +247,7 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onD
             )}
             {item.claimed_by_id && (
               <span style={{
-                fontSize: '12px', fontWeight: 600, borderRadius: '10px', padding: '2px 8px',
+                fontSize: FONT_2XS, fontWeight: 600, borderRadius: '10px', padding: '2px 8px',
                 whiteSpace: 'nowrap',
                 ...(item.claimed_by_id === currentUserId
                   ? { backgroundColor: 'var(--success-bg)', color: 'var(--success)', border: '1px solid color-mix(in srgb, var(--success) 25%, transparent)' }

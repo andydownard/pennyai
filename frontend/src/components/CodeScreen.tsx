@@ -1,5 +1,5 @@
 import { LegalLinks } from './LegalLinks'
-import { FONT, formatPhone, authStyles } from '../styles'
+import { FONT, FONT_BASE, FONT_XL, formatPhone, authStyles } from '../styles'
 
 interface CodeScreenProps {
   phone: string
@@ -27,11 +27,11 @@ export function CodeScreen({
         {/* Headline */}
         <div style={{ width: '100%', marginBottom: '24px', textAlign: 'center' }}>
           <div style={{
-            fontFamily: FONT, fontSize: '22px', fontWeight: 700,
+            fontFamily: FONT, fontSize: FONT_XL, fontWeight: 700,
             color: 'var(--text)', letterSpacing: '-0.5px', lineHeight: 1.2,
             marginBottom: '6px',
           }}>Check your texts</div>
-          <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+          <div style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
             Enter the code sent to {formatPhone(phone)}
           </div>
         </div>
@@ -54,7 +54,7 @@ export function CodeScreen({
               disabled={loading}
               style={{
                 width: '48px', height: '60px',
-                fontSize: '26px', fontFamily: FONT, fontWeight: 700,
+                fontSize: '1.625rem', fontFamily: FONT, fontWeight: 700,
                 color: 'var(--text)', textAlign: 'center' as const,
                 backgroundColor: 'var(--surface)',
                 border: `2px solid ${digit ? 'var(--brand)' : 'var(--border)'}`,
@@ -70,7 +70,7 @@ export function CodeScreen({
         </div>
 
         {loading && (
-          <p style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--brand)', fontWeight: 500, margin: '0 0 12px 0' }}>
+          <p style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--brand)', fontWeight: 500, margin: '0 0 12px 0' }}>
             Signing you in…
           </p>
         )}

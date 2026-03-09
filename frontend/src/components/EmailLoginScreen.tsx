@@ -3,7 +3,7 @@ import { PennyAvatar } from './PennyAvatar'
 import { FloatingLabelField } from './FloatingLabelField'
 import { LegalLinks } from './LegalLinks'
 import {
-  FONT,
+  FONT, FONT_SM, FONT_BASE,
   authStyles, pageStyles,
 } from '../styles'
 
@@ -37,7 +37,7 @@ export function EmailLoginScreen({
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '24px', width: '100%' }}>
           <PennyAvatar size={80} />
           <div style={{
-            fontFamily: FONT, fontSize: '15px', fontWeight: 500,
+            fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 500,
             color: 'var(--text)', lineHeight: 1.5, fontStyle: 'italic',
             textAlign: 'left', marginTop: '12px',
             minHeight: '44px', maxWidth: '320px', width: '100%',
@@ -75,7 +75,7 @@ export function EmailLoginScreen({
         </div>
 
         {error && <p role="alert" style={{ ...authStyles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
-        {magicLinkSent && <p style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--brand)', fontWeight: 500, width: '100%', textAlign: 'left' as const, marginBottom: '12px' }}>We sent a sign-in link to your email — check your inbox!</p>}
+        {magicLinkSent && <p style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--brand)', fontWeight: 500, width: '100%', textAlign: 'left' as const, marginBottom: '12px' }}>We sent a sign-in link to your email — check your inbox!</p>}
 
         <button
           onClick={onLogin}
