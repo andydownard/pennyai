@@ -69,3 +69,10 @@ add scout to the share page as 4th option to help get folks to get us to our ICP
 ---
 _Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 18_
 _Submitted: 2026-03-09 12:14 UTC_
+
+## [NORMAL] 2026-03-10 12:46 UTC
+have the feature/bug fix button on all pages and tabs
+
+---
+_Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 18_
+_Submitted: 2026-03-10 12:46 UTC_
