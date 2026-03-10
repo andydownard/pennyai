@@ -83,3 +83,10 @@ Wendy couldn’t remember where the list was.   Please do a group text with a li
 ---
 _Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 18_
 _Submitted: 2026-03-10 12:46 UTC_
+
+## [NORMAL] 2026-03-10 12:47 UTC
+I get NPS popup  every time i come to the site.  ask it once a week
+
+---
+_Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 18_
+_Submitted: 2026-03-10 12:47 UTC_
