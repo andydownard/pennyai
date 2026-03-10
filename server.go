@@ -24,7 +24,7 @@ const (
 	referralPointsPerInvite  = 10
 	referralRedeemThreshold  = 100
 	referralRedeemCents      = 1000
-	npsMinLogins             = 3
+	npsMinLogins             = 10
 	logoCacheMaxAge          = 604800
 	pennyQuoteRateLimit      = 10 * time.Second
 	defaultSMSBufferDuration = 10 * time.Second
@@ -245,6 +245,7 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/rebates", server.handleRebates)
 	http.HandleFunc("/api/earnings", server.handleEarnings)
 	http.HandleFunc("/api/earnings/", server.handleEarnings)
+	http.HandleFunc("/api/nps/dismiss", server.handleNPSDismiss)
 	http.HandleFunc("/api/nps/check", server.handleNPSCheck)
 	http.HandleFunc("/api/nps", server.handleNPS)
 	http.HandleFunc("/api/penny/quote", server.handlePennyQuote)

@@ -883,8 +883,28 @@ func (s *Server) handleNPSCheck(w http.ResponseWriter, r *http.Request) {
 	).Scan(&recentCount); err != nil {
 		log.Printf("[nps] error checking recent responses for user %d: %v", session.UserID, err)
 	}
+	if recentCount > 0 {
+		writeJSON(w, http.StatusOK, map[string]bool{"show_nps": false})
+		return
+	}
 
-	writeJSON(w, http.StatusOK, map[string]bool{"show_nps": recentCount == 0})
+	// Check if user dismissed NPS recently (server-side guard survives localStorage clears)
+	var dismissedAt string
+	if err := s.db.QueryRow(
+		"SELECT COALESCE(nps_dismissed_at, '') FROM users WHERE id = ?",
+		session.UserID,
+	).Scan(&dismissedAt); err != nil {
+		log.Printf("[nps] error checking dismiss timestamp for user %d: %v", session.UserID, err)
+	}
+	if dismissedAt != "" {
+		dismissTime, err := time.Parse("2006-01-02 15:04:05", dismissedAt)
+		if err == nil && time.Since(dismissTime).Hours() < float64(s.config.NPSIntervalDays*24) {
+			writeJSON(w, http.StatusOK, map[string]bool{"show_nps": false})
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"show_nps": true})
 }
 
 // handleNPS handles POST /api/nps — submits an NPS response.
@@ -921,6 +941,31 @@ func (s *Server) handleNPS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("[nps] error inserting response: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to save response"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// handleNPSDismiss handles POST /api/nps/dismiss — records NPS dismissal server-side.
+// This ensures the dismiss persists even if the client clears localStorage.
+func (s *Server) handleNPSDismiss(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	_, err := s.db.Exec(
+		"UPDATE users SET nps_dismissed_at = datetime('now') WHERE id = ?",
+		session.UserID,
+	)
+	if err != nil {
+		log.Printf("[nps] error recording dismiss for user %d: %v", session.UserID, err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to record dismiss"})
 		return
 	}
 

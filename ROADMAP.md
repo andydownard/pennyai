@@ -65,11 +65,29 @@ Strategic direction from founder + CEO panel focused on three gates: First-5-Min
    - **Owner:** Design + Frontend
    - **Timeline:** 3 days
 
+### P1 — Ship After Core Gates Validated (cont.)
+
+7. **F1: UX Friction Audit — Fewer Taps, More Automatic** — P1, Size M
+   - Audit tap-count for common actions (add item, check off, clear list). Targets: (1) auto-submit when Penny parses single unambiguous item, (2) swipe-to-check on list items, (3) reduce brand confirmation for commodity items. Instrument taps-per-session before/after.
+   - Source: User feedback F1 (2026-03-08)
+   - Gates: Passes G1 (faster first-5-minutes), G2 (less friction = more household trust), G3 (tap data improves Penny's UX model)
+   - Sprint-ready: Yes
+   - **Owner:** Product + Frontend
+   - **Timeline:** 1 sprint
+
 ### P2 — Hold Until P0/P1 Validated (Do Not Start)
 
 5. **Feature Pause: Trip Planner** — Deprioritize until data flywheel and household coordination narratives are proven. Trip planner is convenience-driven, not coordination-driven. Move to "Nice-to-Have" unless repositioned around household trip coordination.
 
 6. **Feature Pause: Feedback Widget** — Operations stability concerns. Hold for 1+ week until SMS/email delivery is 99.9% reliable.
+
+8. **F3: Auto-Learn Store Department Order** — P2, Size M
+   - Track the sequence users check off items per store. After 3+ trips, Penny reorders departments to match the user's actual walk pattern. Per-store personalization. Redesigned from user request for manual drag (auto-learn passes Gate 3, manual drag doesn't).
+   - Source: User feedback F3 (2026-03-08)
+   - Gates: Fails G1 (requires 3+ trips before value), Marginal G2 (efficiency, not coordination), Passes G3 (check-off sequence data compounds and personalizes per store)
+   - Sprint-ready: No (needs UX design round)
+   - **Owner:** Product + AI + UX Designer
+   - **Timeline:** TBD — requires UX spec before sprint planning
 
 ---
 

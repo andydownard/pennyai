@@ -1436,6 +1436,9 @@ func initDB(path string) (*sql.DB, error) {
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_brand_feedback_status ON brand_feedback_requests(status)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_brand_feedback_user ON brand_feedback_requests(brand_user_id)")
 
+	// NPS dismiss guard — server-side timestamp survives localStorage clears
+	db.Exec("ALTER TABLE users ADD COLUMN nps_dismissed_at TEXT NOT NULL DEFAULT ''")
+
 	return db, nil
 }
 

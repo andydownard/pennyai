@@ -1089,12 +1089,21 @@ function AppInner() {
       sessionStorage.removeItem('thriftly_merge_msg')
       setTimeout(() => typePennyHome(mergeMsg), 500)
     }
-    // Only check NPS once per session — never re-prompt after dismiss or submit
-    if (!npsCheckedRef.current && !localStorage.getItem('nps_dismissed')) {
-      npsCheckedRef.current = true
-      fetchAPI('/api/nps/check')
-        .then(data => { if (data && !Array.isArray(data) && data.show_nps) setShowNPS(true) })
-        .catch(e => console.warn('[load] nps check failed:', e))
+    // Only check NPS once per session — dismiss expires after 90 days
+    if (!npsCheckedRef.current) {
+      const dismissedAt = localStorage.getItem('nps_dismissed_at')
+      const dismissDays = 90
+      const isRecentlyDismissed = dismissedAt && (Date.now() - Number(dismissedAt)) < dismissDays * 86400000
+      if (!isRecentlyDismissed) {
+        npsCheckedRef.current = true
+        localStorage.removeItem('nps_dismissed_at')
+        localStorage.removeItem('nps_dismissed')
+        fetchAPI('/api/nps/check')
+          .then(data => { if (data && !Array.isArray(data) && data.show_nps) setShowNPS(true) })
+          .catch(e => console.warn('[load] nps check failed:', e))
+      } else {
+        npsCheckedRef.current = true
+      }
     }
   }, [screen])
 
@@ -2327,7 +2336,7 @@ function AppInner() {
     if (result.ok) {
       showToast('Thanks for your feedback!')
       setShowNPS(false)
-      localStorage.setItem('nps_dismissed', '1')
+      localStorage.setItem('nps_dismissed_at', Date.now().toString())
     } else if (result.status !== 401) {
       showToast('Couldn\'t save feedback — please try again', 'error')
     }
@@ -2335,7 +2344,9 @@ function AppInner() {
 
   const closeNPS = () => {
     setShowNPS(false)
-    localStorage.setItem('nps_dismissed', '1')
+    localStorage.setItem('nps_dismissed_at', Date.now().toString())
+    // Server-side dismiss guard — survives localStorage clears
+    fetchAPI('/api/nps/dismiss', { method: 'POST' }).catch(() => {})
   }
 
   const handleFeedbackSubmit = async (body: string, type: string, urgency: string): Promise<boolean> => {
@@ -3088,8 +3099,16 @@ const handleCodeChange = (index: number, value: string) => {
   }
 
   // =========================================================================
-  // SHARED HELPERS — menu and toast (extracted to avoid 5x duplication)
+  // SHARED HELPERS — menu, toast, feedback FAB (extracted to avoid duplication)
   // =========================================================================
+
+  // Wrap any authenticated screen with the FeedbackWidget (position:fixed overlay)
+  const withFeedbackFAB = (content: React.ReactNode) => (
+    <>
+      {content}
+      {canSubmitFeedback && <FeedbackWidget onSubmit={handleFeedbackSubmit} />}
+    </>
+  )
 
   const getActiveTab = (s: Screen): TabScreen => {
     switch (s) {
@@ -3229,7 +3248,7 @@ const handleCodeChange = (index: number, value: string) => {
         body: JSON.stringify({ penny_deals: next }),
       })
     }
-    return (
+    return withFeedbackFAB(
       <PennySettingsScreen
         pennyPhone={settingsPennyPhone}
         pennySlider={pennySlider}
@@ -3253,7 +3272,7 @@ const handleCodeChange = (index: number, value: string) => {
   // =========================================================================
 
   if (screen === 'profile') {
-    return (
+    return withFeedbackFAB(
       <ProfileScreen
         firstName={settingsFirstName}
         lastName={settingsLastName}
@@ -3290,7 +3309,7 @@ const handleCodeChange = (index: number, value: string) => {
   // =========================================================================
 
   if (screen === 'help') {
-    return (
+    return withFeedbackFAB(
       <HelpScreen
         showToast={showToast}
         onSessionExpired={handleSessionExpired}
@@ -3302,7 +3321,7 @@ const handleCodeChange = (index: number, value: string) => {
   }
 
   if (screen === 'settings-share') {
-    return (
+    return withFeedbackFAB(
       <ShareScreen
         referralCode={referralCode}
         referralFriends={referralFriends}
@@ -3377,7 +3396,7 @@ const handleCodeChange = (index: number, value: string) => {
   // =========================================================================
 
   if (screen === 'admin') {
-    return (
+    return withFeedbackFAB(
       <AdminScreen
 
         showToast={showToast}
@@ -3394,7 +3413,7 @@ const handleCodeChange = (index: number, value: string) => {
   // =========================================================================
 
   if (screen === 'earnings') {
-    return (
+    return withFeedbackFAB(
       <ScreenTransition style={transitionStyle}>
       <div style={listStyles.page}>
         {renderPageHeader('Swaps', 'earnings')}
@@ -3435,13 +3454,13 @@ const handleCodeChange = (index: number, value: string) => {
   // =========================================================================
 
   if (screen === 'receipts') {
-    return (
+    return withFeedbackFAB(
       <ScreenTransition style={transitionStyle}>
       <div style={listStyles.page}>
         {renderPageHeader('Receipts', 'receipts')}
         <div style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'none', WebkitOverflowScrolling: 'touch' }}>
           <ReceiptScreen
-    
+
             onSnapReceipt={() => {
               setPendingReceiptMode(true)
               receiptInputRef.current?.click()

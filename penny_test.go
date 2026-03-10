@@ -27,7 +27,7 @@ func TestNPSCheck_NotEnoughLogins(t *testing.T) {
 
 	result := parseJSON(rr)
 	if result["show_nps"] != false {
-		t.Error("Expected show_nps=false when login_count < 3")
+		t.Errorf("Expected show_nps=false when login_count < %d", npsMinLogins)
 	}
 }
 
@@ -36,13 +36,13 @@ func TestNPSCheck_ShowsAfterEnoughLogins(t *testing.T) {
 	server.config.NPSIntervalDays = 90
 	cookie, userID := loginUser(t, server, "5551234567")
 
-	// Set login_count to 5
-	server.db.Exec("UPDATE users SET login_count = 5 WHERE id = ?", userID)
+	// Set login_count above npsMinLogins threshold
+	server.db.Exec("UPDATE users SET login_count = ? WHERE id = ?", npsMinLogins+1, userID)
 
 	rr := doRequest(server.handleNPSCheck, "GET", "/api/nps/check", nil, []*http.Cookie{cookie})
 	result := parseJSON(rr)
 	if result["show_nps"] != true {
-		t.Error("Expected show_nps=true when login_count >= 3 and no recent NPS")
+		t.Errorf("Expected show_nps=true when login_count >= %d and no recent NPS", npsMinLogins)
 	}
 }
 
@@ -51,8 +51,8 @@ func TestNPSCheck_HidesAfterRecentResponse(t *testing.T) {
 	server.config.NPSIntervalDays = 90
 	cookie, userID := loginUser(t, server, "5551234567")
 
-	// Set login_count to 5 and add recent NPS response
-	server.db.Exec("UPDATE users SET login_count = 5 WHERE id = ?", userID)
+	// Set login_count above threshold and add recent NPS response
+	server.db.Exec("UPDATE users SET login_count = ? WHERE id = ?", npsMinLogins+1, userID)
 	server.db.Exec("INSERT INTO nps_responses (user_id, score, comment) VALUES (?, ?, ?)",
 		userID, 8, "Great app!")
 
@@ -400,7 +400,7 @@ func TestNPSCheck_EdgeCase_ExactMinLoginThreshold(t *testing.T) {
 	server.config.NPSIntervalDays = 90
 	cookie, userID := loginUser(t, server, "5551234567")
 
-	// Set login_count to exactly npsMinLogins (3) — should show NPS
+	// Set login_count to exactly npsMinLogins (10) — should show NPS
 	server.db.Exec("UPDATE users SET login_count = ? WHERE id = ?", npsMinLogins, userID)
 
 	rr := doRequest(server.handleNPSCheck, "GET", "/api/nps/check", nil, []*http.Cookie{cookie})
@@ -422,6 +422,119 @@ func TestNPSCheck_EdgeCase_OneBelowMinLoginThreshold(t *testing.T) {
 	result := parseJSON(rr)
 	if result["show_nps"] != false {
 		t.Errorf("Expected show_nps=false at %d logins, got %v", npsMinLogins-1, result["show_nps"])
+	}
+}
+
+// =============================================================================
+// NPS DISMISS ENDPOINT TESTS
+// =============================================================================
+
+func TestNPSDismiss_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleNPSDismiss, "POST", "/api/nps/dismiss", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	result := parseJSON(rr)
+	if result["success"] != true {
+		t.Error("Expected success=true")
+	}
+
+	// Verify the timestamp was stored in the database
+	var dismissedAt string
+	err := server.db.QueryRow("SELECT nps_dismissed_at FROM users WHERE id = ?", userID).Scan(&dismissedAt)
+	if err != nil {
+		t.Fatalf("QueryRow: %v", err)
+	}
+	if dismissedAt == "" {
+		t.Error("Expected nps_dismissed_at to be set, got empty string")
+	}
+}
+
+func TestNPSDismiss_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleNPSDismiss, "POST", "/api/nps/dismiss", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestNPSDismiss_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleNPSDismiss, "GET", "/api/nps/dismiss", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status: got %d, want 405", rr.Code)
+	}
+}
+
+func TestNPSCheck_HidesAfterDismiss(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.NPSIntervalDays = 90
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Set login_count above threshold
+	server.db.Exec("UPDATE users SET login_count = ? WHERE id = ?", npsMinLogins+1, userID)
+
+	// Verify NPS shows before dismiss
+	rr := doRequest(server.handleNPSCheck, "GET", "/api/nps/check", nil, []*http.Cookie{cookie})
+	result := parseJSON(rr)
+	if result["show_nps"] != true {
+		t.Fatal("Expected show_nps=true before dismiss")
+	}
+
+	// Dismiss NPS
+	rr = doRequest(server.handleNPSDismiss, "POST", "/api/nps/dismiss", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Dismiss failed: %d", rr.Code)
+	}
+
+	// Verify NPS is hidden after dismiss
+	rr = doRequest(server.handleNPSCheck, "GET", "/api/nps/check", nil, []*http.Cookie{cookie})
+	result = parseJSON(rr)
+	if result["show_nps"] != false {
+		t.Error("Expected show_nps=false after dismiss (server-side guard)")
+	}
+}
+
+func TestNPSCheck_ShowsAfterDismissExpires(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.NPSIntervalDays = 90
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Set login_count above threshold
+	server.db.Exec("UPDATE users SET login_count = ? WHERE id = ?", npsMinLogins+1, userID)
+
+	// Set dismiss timestamp to 91 days ago (expired)
+	server.db.Exec(
+		"UPDATE users SET nps_dismissed_at = datetime('now', '-91 days') WHERE id = ?",
+		userID,
+	)
+
+	// NPS should show again because dismiss has expired
+	rr := doRequest(server.handleNPSCheck, "GET", "/api/nps/check", nil, []*http.Cookie{cookie})
+	result := parseJSON(rr)
+	if result["show_nps"] != true {
+		t.Error("Expected show_nps=true after dismiss expires (91 days > 90 day interval)")
+	}
+}
+
+func TestNPSDismiss_Idempotent(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Dismiss twice — should succeed both times (idempotent)
+	rr := doRequest(server.handleNPSDismiss, "POST", "/api/nps/dismiss", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("First dismiss: got %d, want 200", rr.Code)
+	}
+	rr = doRequest(server.handleNPSDismiss, "POST", "/api/nps/dismiss", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Second dismiss: got %d, want 200", rr.Code)
 	}
 }
 

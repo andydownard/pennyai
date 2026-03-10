@@ -6611,3 +6611,942 @@ func TestSendPendingBrandDigests_UserWithNoDeals(t *testing.T) {
 	// Should not panic or error — just no digests to send
 	server.sendPendingBrandDigests()
 }
+
+// =============================================================================
+// COVERAGE BOOST: handleLeaveHousehold (56.5% → target 85%+)
+// =============================================================================
+
+func TestCov3_LeaveHousehold_ResponseBodyContainsSuccess(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5558880001")
+
+	rr := doRequest(server.handleLeaveHousehold, "POST", "/api/settings/leave-household", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["success"] != true {
+		t.Errorf("Expected success=true in response, got %v", body["success"])
+	}
+}
+
+func TestCov3_LeaveHousehold_MultiUserHousehold_LeaverGetsNewHousehold(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie1, userID1 := loginUser(t, server, "5558880002")
+	cookie2, userID2 := loginUser(t, server, "5558880003")
+
+	// Put user2 into user1's household via invite flow
+	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite", map[string]interface{}{"phone": ""}, []*http.Cookie{cookie1})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("invite: got %d", rr.Code)
+	}
+	link := parseJSON(rr)["link"].(string)
+	parts := strings.Split(strings.TrimSuffix(link, "/"), "/")
+	code := parts[len(parts)-1]
+
+	doRequest(server.handleJoin, "POST", "/api/join", map[string]interface{}{"code": code}, []*http.Cookie{cookie2})
+
+	// Both should be in the same household now
+	var hid1, hid2 int
+	server.db.QueryRow("SELECT household_id FROM users WHERE id = ?", userID1).Scan(&hid1)
+	server.db.QueryRow("SELECT household_id FROM users WHERE id = ?", userID2).Scan(&hid2)
+	if hid1 != hid2 {
+		t.Fatalf("Setup: users should share household, got %d vs %d", hid1, hid2)
+	}
+	sharedHID := hid1
+
+	// User2 leaves
+	rr = doRequest(server.handleLeaveHousehold, "POST", "/api/settings/leave-household", nil, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("leave: got %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	// User2 should have a different household
+	var newHID int
+	server.db.QueryRow("SELECT household_id FROM users WHERE id = ?", userID2).Scan(&newHID)
+	if newHID == sharedHID {
+		t.Error("User2 should have a new household after leaving")
+	}
+	if newHID == 0 {
+		t.Error("User2 should have a valid household_id")
+	}
+
+	// User1 should still be in the original household
+	var user1HID int
+	server.db.QueryRow("SELECT household_id FROM users WHERE id = ?", userID1).Scan(&user1HID)
+	if user1HID != sharedHID {
+		t.Errorf("User1 should still be in original household %d, got %d", sharedHID, user1HID)
+	}
+
+	// User2 should be the owner of their new household
+	var role string
+	server.db.QueryRow("SELECT role FROM household_members WHERE user_id = ? AND household_id = ?", userID2, newHID).Scan(&role)
+	if role != "owner" {
+		t.Errorf("User2 should be owner of new household, got %q", role)
+	}
+
+	// User2 should have exactly 1 household_members entry (new one only)
+	var memberCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM household_members WHERE user_id = ?", userID2).Scan(&memberCount)
+	if memberCount != 1 {
+		t.Errorf("User2 should have exactly 1 household_members entry, got %d", memberCount)
+	}
+}
+
+func TestCov3_LeaveHousehold_PUTMethodRejected(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5558880004")
+
+	rr := doRequest(server.handleLeaveHousehold, "PUT", "/api/settings/leave-household", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("PUT should return 405, got %d", rr.Code)
+	}
+}
+
+func TestCov3_LeaveHousehold_DELETEMethodRejected(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5558880005")
+
+	rr := doRequest(server.handleLeaveHousehold, "DELETE", "/api/settings/leave-household", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("DELETE should return 405, got %d", rr.Code)
+	}
+}
+
+func TestCov3_LeaveHousehold_InvalidSessionToken(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	fakeCookie := &http.Cookie{Name: "session", Value: "invalid_token_12345"}
+	rr := doRequest(server.handleLeaveHousehold, "POST", "/api/settings/leave-household", nil, []*http.Cookie{fakeCookie})
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Invalid session should return 401, got %d", rr.Code)
+	}
+}
+
+func TestCov3_LeaveHousehold_ExpiredSession(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5558880006")
+
+	// Create an expired session
+	server.db.Exec(
+		"INSERT INTO sessions (token, user_id, phone_number, auth_method, created_at, expires_at) VALUES ('expired_leave_tok', ?, '5558880006', 'phone', datetime('now', '-2 days'), datetime('now', '-1 day'))",
+		userID,
+	)
+
+	expiredCookie := &http.Cookie{Name: "session", Value: "expired_leave_tok"}
+	rr := doRequest(server.handleLeaveHousehold, "POST", "/api/settings/leave-household", nil, []*http.Cookie{expiredCookie})
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Expired session should return 401, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// COVERAGE BOOST: handleSavedListUpdate (63% → target 85%+)
+// =============================================================================
+
+func TestCov3_SavedListUpdate_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleSavedLists, "PUT", "/api/saved-lists/1", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("No session should return 401, got %d", rr.Code)
+	}
+}
+
+func TestCov3_SavedListUpdate_NonexistentID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5558890001")
+
+	// Add items to the active list so "no items" is not the issue
+	createListItem(t, server.db, userID, "Apples", "Produce")
+
+	rr := doRequest(server.handleSavedLists, "PUT", "/api/saved-lists/99999", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Nonexistent saved list should return 404, got %d", rr.Code)
+	}
+}
+
+func TestCov3_SavedListUpdate_InvalidID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5558890002")
+
+	rr := doRequest(server.handleSavedLists, "PUT", "/api/saved-lists/abc", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Invalid ID should return 400, got %d", rr.Code)
+	}
+}
+
+func TestCov3_SavedListUpdate_EmptyActiveList(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5558890003")
+
+	// Create a saved list with items
+	createListItem(t, server.db, userID, "Bananas", "Produce")
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists",
+		map[string]string{"name": "Test List"},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("Create saved list: got %d", rr.Code)
+	}
+	savedListID := int(parseJSON(rr)["id"].(float64))
+
+	// Clear the active list
+	server.db.Exec("DELETE FROM list_items WHERE user_id = ?", userID)
+
+	// Try to update — should fail because active list is empty
+	rr = doRequest(server.handleSavedLists, "PUT", fmt.Sprintf("/api/saved-lists/%d", savedListID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Update with empty active list should return 400, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["error"] != "No items to save" {
+		t.Errorf("Error message: got %q, want 'No items to save'", body["error"])
+	}
+}
+
+func TestCov3_SavedListUpdate_ReplacesOldItems(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5558890004")
+
+	// Create a saved list with initial items
+	createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
+	createListItem(t, server.db, userID, "Eggs", "Dairy & Eggs")
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists",
+		map[string]string{"name": "Dairy Essentials"},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("Create: got %d", rr.Code)
+	}
+	savedListID := int(parseJSON(rr)["id"].(float64))
+
+	// Verify initial item count
+	var initialCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM saved_list_items WHERE saved_list_id = ?", savedListID).Scan(&initialCount)
+	if initialCount != 2 {
+		t.Fatalf("Expected 2 initial saved items, got %d", initialCount)
+	}
+
+	// Clear and add different items to active list
+	server.db.Exec("DELETE FROM list_items WHERE user_id = ?", userID)
+	createListItem(t, server.db, userID, "Bread", "Bakery")
+	createListItem(t, server.db, userID, "Butter", "Dairy & Eggs")
+	createListItem(t, server.db, userID, "Jam", "Condiments")
+
+	// Update the saved list
+	rr = doRequest(server.handleSavedLists, "PUT", fmt.Sprintf("/api/saved-lists/%d", savedListID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Update: got %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["item_count"] != float64(3) {
+		t.Errorf("Expected item_count=3, got %v", body["item_count"])
+	}
+
+	// Verify old items were replaced
+	var newCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM saved_list_items WHERE saved_list_id = ?", savedListID).Scan(&newCount)
+	if newCount != 3 {
+		t.Errorf("Expected 3 saved items after update, got %d", newCount)
+	}
+
+	// Verify the old items are gone and new ones are present
+	var milkCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM saved_list_items WHERE saved_list_id = ? AND name = 'Milk'", savedListID).Scan(&milkCount)
+	if milkCount != 0 {
+		t.Error("Old item 'Milk' should be removed after update")
+	}
+
+	var breadCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM saved_list_items WHERE saved_list_id = ? AND name = 'Bread'", savedListID).Scan(&breadCount)
+	if breadCount != 1 {
+		t.Error("New item 'Bread' should be present after update")
+	}
+}
+
+func TestCov3_SavedListUpdate_OtherUsersListBlocked(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID1 := loginUser(t, server, "5558890005")
+	cookie2, userID2 := loginUser(t, server, "5558890006")
+
+	// User1 creates a saved list
+	createListItem(t, server.db, userID1, "Apples", "Produce")
+	res, err := server.db.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, 'User1 List')", userID1)
+	if err != nil {
+		t.Fatalf("insert saved_list: %v", err)
+	}
+	savedListID, _ := res.LastInsertId()
+	server.db.Exec("INSERT INTO saved_list_items (saved_list_id, name, department, quantity) VALUES (?, 'Apples', 'Produce', 1)", savedListID)
+
+	// User2 adds items to their active list
+	createListItem(t, server.db, userID2, "Oranges", "Produce")
+
+	// User2 tries to update User1's saved list
+	rr := doRequest(server.handleSavedLists, "PUT", fmt.Sprintf("/api/saved-lists/%d", savedListID), nil, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Cross-user update should return 404, got %d", rr.Code)
+	}
+}
+
+func TestCov3_SavedListUpdate_ResponseShape(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5558890007")
+
+	// Create saved list
+	createListItem(t, server.db, userID, "Rice", "Grains")
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists",
+		map[string]string{"name": "Staples"},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("Create: got %d", rr.Code)
+	}
+	savedListID := int(parseJSON(rr)["id"].(float64))
+
+	// Update
+	rr = doRequest(server.handleSavedLists, "PUT", fmt.Sprintf("/api/saved-lists/%d", savedListID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Update: got %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	body := parseJSON(rr)
+	if body["id"] != float64(savedListID) {
+		t.Errorf("Response should contain id=%d, got %v", savedListID, body["id"])
+	}
+	if body["item_count"] == nil {
+		t.Error("Response should contain item_count")
+	}
+}
+
+func TestCov3_SavedListUpdate_InvalidSessionToken(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	fakeCookie := &http.Cookie{Name: "session", Value: "bogus_token_xyz"}
+	rr := doRequest(server.handleSavedLists, "PUT", "/api/saved-lists/1", nil, []*http.Cookie{fakeCookie})
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Invalid session should return 401, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// COVERAGE BOOST: handleListClaim (73.9% → target 85%+)
+// =============================================================================
+
+func TestCov3_ListClaim_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleList, "PATCH", "/api/list/1/claim", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("No session should return 401, got %d", rr.Code)
+	}
+}
+
+func TestCov3_ListClaim_InvalidSessionToken(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	fakeCookie := &http.Cookie{Name: "session", Value: "not_a_real_token"}
+	rr := doRequest(server.handleList, "PATCH", "/api/list/1/claim", nil, []*http.Cookie{fakeCookie})
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Invalid session should return 401, got %d", rr.Code)
+	}
+}
+
+func TestCov3_ListClaim_ClaimAndVerifyModificationRecord(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5558900001")
+
+	itemID := createListItem(t, server.db, userID, "Cheese", "Dairy & Eggs")
+
+	// Claim
+	rr := doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d/claim", itemID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Claim: got %d", rr.Code)
+	}
+
+	// Verify modification recorded
+	var action string
+	err := server.db.QueryRow("SELECT action FROM item_modifications WHERE item_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1", itemID, userID).Scan(&action)
+	if err != nil {
+		t.Fatalf("Query modification: %v", err)
+	}
+	if action != "claimed" {
+		t.Errorf("Expected modification action 'claimed', got %q", action)
+	}
+}
+
+func TestCov3_ListClaim_UnclaimVerifyModificationRecord(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5558900002")
+
+	itemID := createListItem(t, server.db, userID, "Yogurt", "Dairy & Eggs")
+
+	// Claim then unclaim
+	doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d/claim", itemID), nil, []*http.Cookie{cookie})
+	rr := doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d/claim", itemID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Unclaim: got %d", rr.Code)
+	}
+
+	// Verify unclaimed modification recorded (use id DESC since created_at may tie)
+	var action string
+	server.db.QueryRow("SELECT action FROM item_modifications WHERE item_id = ? AND user_id = ? ORDER BY id DESC LIMIT 1", itemID, userID).Scan(&action)
+	if action != "unclaimed" {
+		t.Errorf("Expected modification action 'unclaimed', got %q", action)
+	}
+}
+
+func TestCov3_ListClaim_ClaimResponseContainsClaimedByID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5558900003")
+
+	itemID := createListItem(t, server.db, userID, "Butter", "Dairy & Eggs")
+
+	rr := doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d/claim", itemID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Claim: got %d", rr.Code)
+	}
+
+	var item ListItem
+	json.Unmarshal(rr.Body.Bytes(), &item)
+	if item.ClaimedByID == nil {
+		t.Fatal("ClaimedByID should not be nil after claim")
+	}
+	if *item.ClaimedByID != userID {
+		t.Errorf("ClaimedByID: got %d, want %d", *item.ClaimedByID, userID)
+	}
+	if item.ID != int(itemID) {
+		t.Errorf("Item ID: got %d, want %d", item.ID, int(itemID))
+	}
+}
+
+func TestCov3_ListClaim_UnclaimResponseClaimedByIDNil(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5558900004")
+
+	itemID := createListItem(t, server.db, userID, "Cream", "Dairy & Eggs")
+
+	// Claim then unclaim
+	doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d/claim", itemID), nil, []*http.Cookie{cookie})
+	rr := doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d/claim", itemID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Unclaim: got %d", rr.Code)
+	}
+
+	var item ListItem
+	json.Unmarshal(rr.Body.Bytes(), &item)
+	if item.ClaimedByID != nil {
+		t.Errorf("ClaimedByID should be nil after unclaim, got %v", *item.ClaimedByID)
+	}
+}
+
+func TestCov3_ListClaim_NonexistentItem(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5558900005")
+
+	rr := doRequest(server.handleList, "PATCH", "/api/list/999999/claim", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Nonexistent item should return 404, got %d", rr.Code)
+	}
+}
+
+func TestCov3_ListClaim_CrossUserItemBlocked(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID1 := loginUser(t, server, "5558900006")
+	cookie2, _ := loginUser(t, server, "5558900007")
+
+	// User1's item
+	itemID := createListItem(t, server.db, userID1, "Bananas", "Produce")
+
+	// User2 tries to claim User1's item (different household)
+	rr := doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d/claim", itemID), nil, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Cross-user claim should return 404, got %d", rr.Code)
+	}
+}
+
+func TestCov3_ListClaim_OverrideRecordsClaimedModification(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create a household with two users
+	cookie1, userID1 := loginUser(t, server, "5558900008")
+	cookie2, userID2 := loginUser(t, server, "5558900009")
+
+	// Put them in the same household
+	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite", map[string]interface{}{"phone": ""}, []*http.Cookie{cookie1})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("invite: %d", rr.Code)
+	}
+	link := parseJSON(rr)["link"].(string)
+	parts := strings.Split(strings.TrimSuffix(link, "/"), "/")
+	code := parts[len(parts)-1]
+	doRequest(server.handleJoin, "POST", "/api/join", map[string]interface{}{"code": code}, []*http.Cookie{cookie2})
+
+	// User1 creates an item and claims it
+	itemID := createListItem(t, server.db, userID1, "Avocados", "Produce")
+	doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d/claim", itemID), nil, []*http.Cookie{cookie1})
+
+	// User2 overrides the claim
+	rr = doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d/claim", itemID), nil, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Override claim: got %d", rr.Code)
+	}
+
+	var item ListItem
+	json.Unmarshal(rr.Body.Bytes(), &item)
+	if item.ClaimedByID == nil || *item.ClaimedByID != userID2 {
+		t.Errorf("Override claim: expected claimed_by=%d, got %v", userID2, item.ClaimedByID)
+	}
+
+	// Verify modification records — should have "claimed" entries for both users
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM item_modifications WHERE item_id = ? AND action = 'claimed'", itemID).Scan(&count)
+	if count < 2 {
+		t.Errorf("Expected at least 2 'claimed' modification records, got %d", count)
+	}
+}
+
+// =============================================================================
+// COVERAGE BOOST: CleanExpired (50% → target 85%+)
+// =============================================================================
+
+func TestCov3_CleanExpired_NoSessions(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Delete all sessions so the table is empty
+	server.db.Exec("DELETE FROM sessions")
+
+	// Should not panic or error
+	server.sessions.CleanExpired()
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&count)
+	if count != 0 {
+		t.Errorf("Expected 0 sessions after clean, got %d", count)
+	}
+}
+
+func TestCov3_CleanExpired_MultipleExpiredSessions(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5558910001")
+
+	// Insert multiple expired sessions
+	for i := 0; i < 5; i++ {
+		server.db.Exec(
+			"INSERT INTO sessions (token, user_id, phone_number, auth_method, created_at, expires_at) VALUES (?, ?, '5558910001', 'phone', datetime('now', '-3 days'), datetime('now', '-1 day'))",
+			fmt.Sprintf("expired_multi_%d", i), userID,
+		)
+	}
+
+	var before int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", userID).Scan(&before)
+	if before < 6 {
+		t.Fatalf("Expected at least 6 sessions (1 valid + 5 expired), got %d", before)
+	}
+
+	server.sessions.CleanExpired()
+
+	// Only the valid login session should remain
+	var after int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", userID).Scan(&after)
+	if after != 1 {
+		t.Errorf("Expected 1 valid session after cleanup, got %d", after)
+	}
+}
+
+func TestCov3_CleanExpired_MixedUsers(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID1 := loginUser(t, server, "5558910002")
+	_, userID2 := loginUser(t, server, "5558910003")
+
+	// Add expired sessions for both users
+	server.db.Exec(
+		"INSERT INTO sessions (token, user_id, phone_number, auth_method, created_at, expires_at) VALUES ('exp_u1', ?, '5558910002', 'phone', datetime('now', '-2 days'), datetime('now', '-1 day'))",
+		userID1,
+	)
+	server.db.Exec(
+		"INSERT INTO sessions (token, user_id, phone_number, auth_method, created_at, expires_at) VALUES ('exp_u2', ?, '5558910003', 'phone', datetime('now', '-2 days'), datetime('now', '-1 day'))",
+		userID2,
+	)
+
+	server.sessions.CleanExpired()
+
+	// Both users should still have their valid sessions
+	var count1, count2 int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", userID1).Scan(&count1)
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", userID2).Scan(&count2)
+	if count1 != 1 {
+		t.Errorf("User1 should have 1 valid session, got %d", count1)
+	}
+	if count2 != 1 {
+		t.Errorf("User2 should have 1 valid session, got %d", count2)
+	}
+}
+
+func TestCov3_CleanExpired_JustExpiredSession(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5558910004")
+
+	// Insert a session that expired 1 second ago (boundary case)
+	server.db.Exec(
+		"INSERT INTO sessions (token, user_id, phone_number, auth_method, created_at, expires_at) VALUES ('just_expired', ?, '5558910004', 'phone', datetime('now', '-31 days'), datetime('now', '-1 second'))",
+		userID,
+	)
+
+	server.sessions.CleanExpired()
+
+	// The just-expired session should be cleaned
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE token = 'just_expired'").Scan(&count)
+	if count != 0 {
+		t.Error("Just-expired session should be cleaned up")
+	}
+}
+
+func TestCov3_CleanExpired_DoesNotRemoveFutureSessions(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5558910005")
+
+	// Insert a session that expires far in the future
+	server.db.Exec(
+		"INSERT INTO sessions (token, user_id, phone_number, auth_method, created_at, expires_at) VALUES ('future_tok', ?, '5558910005', 'phone', datetime('now'), datetime('now', '+60 days'))",
+		userID,
+	)
+
+	server.sessions.CleanExpired()
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE token = 'future_tok'").Scan(&count)
+	if count != 1 {
+		t.Error("Future session should not be cleaned up")
+	}
+}
+
+// =============================================================================
+// COVERAGE BOOST: DeleteUserSessions (57.1% → target 85%+)
+// =============================================================================
+
+func TestCov3_DeleteUserSessions_NoSessions(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create a user without any sessions
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (9999, '5558920001')")
+
+	// Should not panic or error
+	server.sessions.DeleteUserSessions(9999)
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = 9999").Scan(&count)
+	if count != 0 {
+		t.Errorf("Expected 0 sessions, got %d", count)
+	}
+}
+
+func TestCov3_DeleteUserSessions_CacheInvalidated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5558920002")
+
+	// Verify session works before deletion
+	rr := doRequest(server.handleListGet, "GET", "/api/list", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Session should work before delete: got %d", rr.Code)
+	}
+
+	// Delete all sessions
+	server.sessions.DeleteUserSessions(userID)
+
+	// Session should no longer work (cache should be cleared too)
+	rr = doRequest(server.handleListGet, "GET", "/api/list", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Session should be invalid after delete: got %d, want 401", rr.Code)
+	}
+}
+
+func TestCov3_DeleteUserSessions_MultipleSessions(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5558920003")
+
+	// Create additional sessions (different auth methods)
+	server.sessions.CreateSession(userID, "5558920003", "phone")
+	server.sessions.CreateSession(userID, "5558920003", "email")
+	server.sessions.CreateSession(userID, "5558920003", "google")
+
+	var before int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", userID).Scan(&before)
+	if before < 4 {
+		t.Fatalf("Expected at least 4 sessions, got %d", before)
+	}
+
+	server.sessions.DeleteUserSessions(userID)
+
+	var after int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", userID).Scan(&after)
+	if after != 0 {
+		t.Errorf("Expected 0 sessions after delete, got %d", after)
+	}
+}
+
+func TestCov3_DeleteUserSessions_PreservesOtherUsers(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie1, userID1 := loginUser(t, server, "5558920004")
+	cookie2, userID2 := loginUser(t, server, "5558920005")
+
+	// Create extra sessions for both
+	server.sessions.CreateSession(userID1, "5558920004", "phone")
+	server.sessions.CreateSession(userID2, "5558920005", "phone")
+
+	// Delete user1's sessions
+	server.sessions.DeleteUserSessions(userID1)
+
+	// User1's sessions should be gone
+	var count1 int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", userID1).Scan(&count1)
+	if count1 != 0 {
+		t.Errorf("User1 should have 0 sessions, got %d", count1)
+	}
+
+	// User2's sessions should be intact
+	var count2 int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", userID2).Scan(&count2)
+	if count2 < 2 {
+		t.Errorf("User2 should still have sessions, got %d", count2)
+	}
+
+	// User2's session should still work
+	rr := doRequest(server.handleListGet, "GET", "/api/list", nil, []*http.Cookie{cookie2})
+	if rr.Code != http.StatusOK {
+		t.Errorf("User2 session should still work: got %d", rr.Code)
+	}
+
+	// User1's session should be invalid
+	rr = doRequest(server.handleListGet, "GET", "/api/list", nil, []*http.Cookie{cookie1})
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("User1 session should be invalid: got %d", rr.Code)
+	}
+}
+
+func TestCov3_DeleteUserSessions_NonexistentUser(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Should not panic or error for a user that doesn't exist
+	server.sessions.DeleteUserSessions(999999)
+}
+
+// =============================================================================
+// COVERAGE BOOST: handleBrandResolve (71.9% → target 85%+)
+// =============================================================================
+
+func TestCov3_BrandResolve_WrongMethod_GET(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5558930001")
+
+	rr := doRequest(server.handleBrandResolve, "GET", "/api/list/brand-resolve", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET should return 405, got %d", rr.Code)
+	}
+}
+
+func TestCov3_BrandResolve_WrongMethod_PUT(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5558930002")
+
+	rr := doRequest(server.handleBrandResolve, "PUT", "/api/list/brand-resolve",
+		map[string]interface{}{"item_id": 1, "brand": "Fage"},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("PUT should return 405, got %d", rr.Code)
+	}
+}
+
+func TestCov3_BrandResolve_WrongMethod_DELETE(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5558930003")
+
+	rr := doRequest(server.handleBrandResolve, "DELETE", "/api/list/brand-resolve", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("DELETE should return 405, got %d", rr.Code)
+	}
+}
+
+func TestCov3_BrandResolve_NonexistentItem(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5558930004")
+
+	rr := doRequest(server.handleBrandResolve, "POST", "/api/list/brand-resolve",
+		map[string]interface{}{"item_id": 999999, "brand": "Horizon"},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Nonexistent item should return 404, got %d", rr.Code)
+	}
+}
+
+func TestCov3_BrandResolve_EmptyBrand(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5558930005")
+
+	rr := doRequest(server.handleBrandResolve, "POST", "/api/list/brand-resolve",
+		map[string]interface{}{"item_id": 1, "brand": ""},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Empty brand should return 400, got %d", rr.Code)
+	}
+}
+
+func TestCov3_BrandResolve_ZeroItemID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5558930006")
+
+	rr := doRequest(server.handleBrandResolve, "POST", "/api/list/brand-resolve",
+		map[string]interface{}{"item_id": 0, "brand": "Horizon"},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Zero item_id should return 400, got %d", rr.Code)
+	}
+}
+
+func TestCov3_BrandResolve_WithoutProductCategory(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5558930007")
+
+	itemID := createListItem(t, server.db, userID, "Whole Milk", "Dairy & Eggs")
+
+	// Resolve without product_category — should derive from item name
+	rr := doRequest(server.handleBrandResolve, "POST", "/api/list/brand-resolve",
+		map[string]interface{}{"item_id": itemID, "brand": "Organic Valley"},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Brand resolve without category: got %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	// Verify brand was set
+	var brand string
+	server.db.QueryRow("SELECT COALESCE(brand,'') FROM list_items WHERE id = ?", itemID).Scan(&brand)
+	if brand != "Organic Valley" {
+		t.Errorf("Expected brand 'Organic Valley', got %q", brand)
+	}
+
+	// Verify brand choice was recorded with item name as category
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM brand_choices WHERE user_id = ? AND product_category = 'whole milk' AND brand = 'Organic Valley'", userID).Scan(&count)
+	if count == 0 {
+		t.Error("Brand choice should be recorded with item name as category when product_category not provided")
+	}
+}
+
+func TestCov3_BrandResolve_ModificationRecorded(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5558930008")
+
+	itemID := createListItem(t, server.db, userID, "Greek Yogurt", "Dairy & Eggs")
+
+	rr := doRequest(server.handleBrandResolve, "POST", "/api/list/brand-resolve",
+		map[string]interface{}{"item_id": itemID, "brand": "Chobani", "product_category": "yogurt"},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Brand resolve: got %d", rr.Code)
+	}
+
+	// Verify modification recorded
+	var detail string
+	err := server.db.QueryRow(
+		"SELECT detail FROM item_modifications WHERE item_id = ? AND user_id = ? AND action = 'updated' ORDER BY created_at DESC LIMIT 1",
+		itemID, userID,
+	).Scan(&detail)
+	if err != nil {
+		t.Fatalf("Query modification: %v", err)
+	}
+	if !strings.Contains(detail, "Chobani") {
+		t.Errorf("Modification detail should mention Chobani, got %q", detail)
+	}
+}
+
+func TestCov3_BrandResolve_InvalidSession(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	fakeCookie := &http.Cookie{Name: "session", Value: "totally_fake_session"}
+	rr := doRequest(server.handleBrandResolve, "POST", "/api/list/brand-resolve",
+		map[string]interface{}{"item_id": 1, "brand": "Fage"},
+		[]*http.Cookie{fakeCookie})
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Invalid session should return 401, got %d", rr.Code)
+	}
+}
+
+func TestCov3_BrandResolve_UpdatesExistingBrand(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5558930009")
+
+	itemID := createListItem(t, server.db, userID, "Ketchup", "Condiments")
+
+	// Set initial brand
+	server.db.Exec("UPDATE list_items SET brand = 'Heinz' WHERE id = ?", itemID)
+
+	// Resolve to a different brand
+	rr := doRequest(server.handleBrandResolve, "POST", "/api/list/brand-resolve",
+		map[string]interface{}{"item_id": itemID, "brand": "Hunt's", "product_category": "ketchup"},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Brand update: got %d", rr.Code)
+	}
+
+	// Verify brand was changed
+	body := parseJSON(rr)
+	if body["brand"] != "Hunt's" {
+		t.Errorf("Expected brand 'Hunt's', got %v", body["brand"])
+	}
+
+	// Verify in DB
+	var dbBrand string
+	server.db.QueryRow("SELECT COALESCE(brand,'') FROM list_items WHERE id = ?", itemID).Scan(&dbBrand)
+	if dbBrand != "Hunt's" {
+		t.Errorf("DB brand: got %q, want 'Hunt's'", dbBrand)
+	}
+}
+
+func TestCov3_BrandResolve_BrandPreferenceRecorded(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5558930010")
+
+	itemID := createListItem(t, server.db, userID, "Pasta Sauce", "Condiments")
+
+	rr := doRequest(server.handleBrandResolve, "POST", "/api/list/brand-resolve",
+		map[string]interface{}{"item_id": itemID, "brand": "Rao's", "product_category": "pasta sauce"},
+		[]*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Brand resolve: got %d", rr.Code)
+	}
+
+	// Verify brand_choices entry
+	var choiceBrand string
+	err := server.db.QueryRow("SELECT brand FROM brand_choices WHERE user_id = ? AND product_category = 'pasta sauce'", userID).Scan(&choiceBrand)
+	if err != nil {
+		t.Fatalf("brand_choices query: %v", err)
+	}
+	if choiceBrand != "Rao's" {
+		t.Errorf("Expected brand choice 'Rao's', got %q", choiceBrand)
+	}
+
+	// Verify brand_preferences entry
+	var prefBrand string
+	err = server.db.QueryRow("SELECT brand FROM brand_preferences WHERE user_id = ? AND product_category = 'pasta sauce'", userID).Scan(&prefBrand)
+	if err != nil {
+		t.Fatalf("brand_preferences query: %v", err)
+	}
+	if prefBrand != "Rao's" {
+		t.Errorf("Expected brand preference 'Rao's', got %q", prefBrand)
+	}
+}
+
+func TestCov3_BrandResolve_InvalidJSON(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5558930011")
+
+	req := httptest.NewRequest("POST", "/api/list/brand-resolve", strings.NewReader("{invalid json"))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleBrandResolve(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Invalid JSON should return 400, got %d", rr.Code)
+	}
+}
