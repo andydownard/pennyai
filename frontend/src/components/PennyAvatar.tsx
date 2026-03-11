@@ -18,7 +18,7 @@ export function PennyAvatar({ size = 36 }: { size?: number }) {
         alt="Penny"
         width={size}
         height={size}
-        style={{ objectFit: 'cover', objectPosition: 'center 15%', display: 'block' }}
+        style={{ objectFit: 'cover', objectPosition: 'center 20%', display: 'block' }}
       />
     </div>
   )
