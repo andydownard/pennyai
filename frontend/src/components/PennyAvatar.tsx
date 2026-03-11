@@ -14,7 +14,7 @@ export function PennyAvatar({ size = 36 }: { size?: number }) {
       boxShadow: isLarge ? '0 4px 20px rgba(0,0,0,0.08)' : 'none',
     }}>
       <img
-        src="/penny.png"
+        src="/penny.png?v=2"
         alt="Penny"
         width={size}
         height={size}
