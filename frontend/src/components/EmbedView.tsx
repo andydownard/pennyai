@@ -245,7 +245,7 @@ export function EmbedView() {
         textAlign: 'center',
       }}>
         <a
-          href="https://pennyai.app"
+          href="https://app.thrift.ly"
           target="_blank"
           rel="noopener noreferrer"
           style={{
