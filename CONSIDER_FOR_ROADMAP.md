@@ -70,7 +70,7 @@ add scout to the share page as 4th option to help get folks to get us to our ICP
 _Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 18_
 _Submitted: 2026-03-09 12:14 UTC_
 
-- ~~[NORMAL] 2026-03-10 12:46 UTC — F8: Household SMS notifications~~ — Phase 1 shipped: invite flow now shows phone input + "Send SMS invite" button. SMS sent directly via Twilio with personalized message. Phase 2 (daily digest) still needs opt-in consent + TCPA compliance.
+- ~~[NORMAL] 2026-03-10 12:46 UTC — F8: Household SMS notifications~~ — Phase 1 shipped: invite flow now shows phone input + "Send SMS invite" button. Phase 2 shipped: daily digest SMS with TCPA-compliant opt-in toggle, 20-hour dedup window, hourly ticker. ✅ Done
 
 ### [NORMAL] 2026-03-10 12:49 UTC — F10: Brand outreach for Penny Swaps
 please reach out to brand managers for the items in my lists to my brands and competitve brands for each item on my list and get me Penny Swap deals for cheaper and healthier options
