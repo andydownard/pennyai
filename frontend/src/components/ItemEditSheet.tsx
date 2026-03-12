@@ -2,8 +2,10 @@ import { BrandLogo } from './BrandLogo'
 import { FloatingLabelField } from './FloatingLabelField'
 import { SectionHeader } from './ActionSheet'
 import { type ListItem } from './ItemRow'
-import { DEPARTMENTS, layout, buttons, text } from '../styles'
+import { DEPARTMENTS, FONT, FONT_SM, layout, buttons, text } from '../styles'
 import { type ItemModification } from '../types'
+
+type PriorityLevel = 'low' | 'normal' | 'urgent'
 
 interface EditForm {
   name: string
@@ -137,10 +139,62 @@ export function ItemEditSheet({
           />
         </FloatingLabelField>
 
-        {/* Urgent toggle */}
-        <div style={{ ...layout.rowBetween, padding: '12px 0', borderTop: '1px solid var(--border)', marginTop: '4px' }}>
-          <span style={text.body}>🔥 Urgent</span>
-          <ToggleSwitch label="Urgent" value={item.urgent} onChange={() => { onUrgentToggle(item.id); setSelectedItem(prev => prev ? { ...prev, urgent: !prev.urgent } : prev) }} />
+        {/* Priority selector: low / normal / urgent */}
+        <div style={{ padding: '12px 0', borderTop: '1px solid var(--border)', marginTop: '4px' }}>
+          <span style={{ ...text.body, display: 'block', marginBottom: '8px' }}>Priority</span>
+          <div style={{ display: 'flex', gap: '0px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+            {(['low', 'normal', 'urgent'] as PriorityLevel[]).map((level) => {
+              const currentPriority: PriorityLevel = item.urgent ? 'urgent' : 'normal'
+              const isActive = currentPriority === level
+              const labelMap: Record<PriorityLevel, string> = { low: 'Low', normal: 'Normal', urgent: 'Urgent' }
+              const emojiMap: Record<PriorityLevel, string> = { low: '↓', normal: '—', urgent: '🔥' }
+              const activeBgMap: Record<PriorityLevel, string> = {
+                low: 'var(--info-bg)',
+                normal: 'var(--brand)',
+                urgent: 'var(--error)',
+              }
+              const activeColorMap: Record<PriorityLevel, string> = {
+                low: 'var(--info)',
+                normal: '#fff',
+                urgent: '#fff',
+              }
+              return (
+                <button
+                  key={level}
+                  onClick={() => {
+                    // Map to backend boolean: only 'urgent' = true
+                    const shouldBeUrgent = level === 'urgent'
+                    if (item.urgent !== shouldBeUrgent) {
+                      onUrgentToggle(item.id)
+                      setSelectedItem(prev => prev ? { ...prev, urgent: shouldBeUrgent } : prev)
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '8px 4px',
+                    fontFamily: FONT,
+                    fontSize: FONT_SM,
+                    fontWeight: isActive ? 600 : 400,
+                    color: isActive ? activeColorMap[level] : 'var(--text-secondary)',
+                    backgroundColor: isActive ? activeBgMap[level] : 'var(--surface)',
+                    border: 'none',
+                    borderRight: level !== 'urgent' ? '1px solid var(--border)' : 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '4px',
+                    transition: 'background-color 0.15s, color 0.15s',
+                  }}
+                  aria-label={`Set priority to ${level}`}
+                  aria-pressed={isActive}
+                >
+                  <span>{emojiMap[level]}</span>
+                  <span>{labelMap[level]}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
 
         {/* Claim UI */}

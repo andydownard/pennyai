@@ -68,7 +68,7 @@ const styles = {
     width: '20px',
     height: '20px',
     borderRadius: '50%',
-    border: `2px solid ${checked ? 'var(--brand)' : 'var(--text-secondary)'}`,
+    border: `2px solid ${checked ? 'var(--brand)' : 'var(--checkbox-border, var(--text-secondary))'}`,
     backgroundColor: checked ? 'var(--brand)' : 'transparent',
     flexShrink: 0,
     fontSize: FONT_2XS,
@@ -221,7 +221,7 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onD
               <StatusBadge label={`Saved $${(item.swap_savings_cents / 100).toFixed(2)}`} variant="success" bordered />
             )}
             {item.urgent && (
-              <StatusBadge label="🔥 urgent" variant="error" bordered />
+              <StatusBadge label="🔥 Urgent" variant="error" bordered />
             )}
             {item.claimed_by_id && (
               <span style={{

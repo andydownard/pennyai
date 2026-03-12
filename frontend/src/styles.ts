@@ -57,6 +57,7 @@ export const THEME_CSS = `
     --skeleton: #E8E6E1;
     --skeleton-shimmer: #F2F1ED;
     --penny-bg: #F5F3EF;
+    --checkbox-border: #6B7280;
     color-scheme: light;
   }
 
@@ -68,6 +69,7 @@ export const THEME_CSS = `
     --text-tertiary: #8A8A8A;
     --border: #2D2D2D;
     --surface: #1E1E1E;
+    --checkbox-border: #D1D5DB;
     --error: #F87171;
     --error-bg: #2D1515;
     --success: #4ADE80;

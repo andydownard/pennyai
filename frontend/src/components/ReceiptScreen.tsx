@@ -6,9 +6,10 @@ import { type ReceiptSummary, type ReceiptLineItem } from '../types'
 
 interface ReceiptScreenProps {
   onSnapReceipt: () => void
+  hasAcceptedSwaps?: boolean
 }
 
-export function ReceiptScreen({ onSnapReceipt }: ReceiptScreenProps) {
+export function ReceiptScreen({ onSnapReceipt, hasAcceptedSwaps = true }: ReceiptScreenProps) {
   const [receipts, setReceipts] = useState<ReceiptSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptSummary | null>(null)
@@ -286,6 +287,24 @@ export function ReceiptScreen({ onSnapReceipt }: ReceiptScreenProps) {
   }
 
   if (receipts.length === 0) {
+    // No accepted swaps — show empty state explaining swaps are needed first
+    if (!hasAcceptedSwaps) {
+      return (
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          padding: '40px 20px', gap: '16px',
+        }}>
+          <PennyAvatar size={48} />
+          <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600, color: 'var(--text)', textAlign: 'center' }}>
+            No receipts to snap yet
+          </div>
+          <div style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
+            Accept a swap on your shopping list first, then snap your receipt here to verify and earn your rebate.
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center',

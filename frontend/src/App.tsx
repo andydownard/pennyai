@@ -3539,7 +3539,7 @@ const handleCodeChange = (index: number, value: string) => {
         {renderPageHeader('Receipts', 'receipts')}
         <div style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'none', WebkitOverflowScrolling: 'touch' }}>
           <ReceiptScreen
-
+            hasAcceptedSwaps={Object.keys(swapsByItemId).length > 0 || earningsTotalCents > 0}
             onSnapReceipt={() => {
               setPendingReceiptMode(true)
               receiptInputRef.current?.click()

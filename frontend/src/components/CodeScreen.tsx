@@ -1,3 +1,4 @@
+import { useRef, useCallback } from 'react'
 import { LegalLinks } from './LegalLinks'
 import { FONT, FONT_BASE, FONT_XL, formatPhone, authStyles, layout } from '../styles'
 
@@ -20,6 +21,26 @@ export function CodeScreen({
   onCodeChange, onCodeKeyDown, onCodePaste,
   onResendCode, onNavigate, setError,
 }: CodeScreenProps) {
+  const hiddenInputRef = useRef<HTMLInputElement>(null)
+
+  // When the hidden input receives the full OTP (e.g. via iOS autofill),
+  // distribute it across the visual digit boxes via onCodeChange
+  const handleHiddenInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const digits = e.target.value.replace(/\D/g, '')
+    if (digits.length >= 1) {
+      // Feed the full string into the first code change handler,
+      // which already handles multi-digit distribution
+      onCodeChange(0, digits.slice(0, 6))
+    }
+  }, [onCodeChange])
+
+  // Tapping a visual box focuses the hidden input so iOS keyboard/autofill works
+  const focusHiddenInput = useCallback(() => {
+    hiddenInputRef.current?.focus()
+  }, [])
+
+  const fullCode = code.join('')
+
   return (
     <div style={authStyles.page}>
       <div style={authStyles.innerFlex}>
@@ -36,8 +57,34 @@ export function CodeScreen({
           </div>
         </div>
 
-        {/* Code boxes */}
-        <div style={{ ...layout.rowCenter, gap: '8px', marginBottom: '16px', width: '100%' }}>
+        {/* Hidden single input for iOS OTP autofill */}
+        <input
+          ref={hiddenInputRef}
+          type="text"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          pattern="[0-9]*"
+          maxLength={6}
+          value={fullCode}
+          onChange={handleHiddenInput}
+          onPaste={onCodePaste}
+          disabled={loading}
+          aria-label="Verification code"
+          style={{
+            position: 'absolute',
+            opacity: 0,
+            width: '1px',
+            height: '1px',
+            overflow: 'hidden',
+            pointerEvents: 'none',
+          }}
+        />
+
+        {/* Visual code boxes */}
+        <div
+          style={{ ...layout.rowCenter, gap: '8px', marginBottom: '16px', width: '100%', cursor: 'text' }}
+          onClick={focusHiddenInput}
+        >
           {code.map((digit, i) => (
             <input
               key={i}
@@ -45,12 +92,19 @@ export function CodeScreen({
               type="text"
               inputMode="numeric"
               pattern="[0-9]*"
-              autoComplete={i === 0 ? 'one-time-code' : 'off'}
+              autoComplete="off"
               value={digit}
               aria-label={`Verification code digit ${i + 1} of 6`}
               onChange={e => onCodeChange(i, e.target.value)}
               onKeyDown={e => onCodeKeyDown(i, e)}
               onPaste={onCodePaste}
+              onFocus={() => {
+                // On iOS, also ensure the hidden input is focused for autofill
+                // Only redirect focus if user tapped (not programmatic focus from handleCodeChange)
+                if (!digit && fullCode.length <= i) {
+                  hiddenInputRef.current?.focus()
+                }
+              }}
               disabled={loading}
               style={{
                 width: '48px', height: '60px',
