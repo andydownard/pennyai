@@ -28,6 +28,8 @@ export default defineConfig({
         manualChunks: {
           // Separate React into its own cacheable vendor chunk
           vendor: ['react', 'react-dom'],
+          // Split observability libraries — not needed for initial render
+          observability: ['@sentry/react', 'posthog-js'],
         },
       },
     },
