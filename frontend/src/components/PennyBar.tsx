@@ -1,6 +1,54 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { PennyAvatar } from './PennyAvatar'
 import { FONT, FONT_2XS, FONT_XS, FONT_MD, layout, buttons as btnUtils } from '../styles'
+
+// Auto-submit debounce delay in ms
+const AUTO_SUBMIT_DELAY = 1500
+
+// SVG circle circumference for the progress ring (r=15)
+const RING_CIRCUMFERENCE = 2 * Math.PI * 15 // ~94.25
+
+// Words that indicate a command or question — do NOT auto-submit these
+const COMMAND_PREFIXES = [
+  'remove', 'delete', 'check', 'uncheck', 'save', 'load', 'what', 'how',
+  'why', 'where', 'when', 'who', 'show', 'help', 'clear', 'undo',
+  'rename', 'edit', 'change', 'update', 'set', 'create', 'list',
+  'invite', 'share', 'join', 'leave', 'find', 'search', 'tell',
+  'can', 'could', 'would', 'should', 'is', 'are', 'do', 'does',
+]
+
+// Inject keyframes for auto-submit ring once at module load
+if (typeof document !== 'undefined' && !document.getElementById('penny-autosubmit-css')) {
+  const style = document.createElement('style')
+  style.id = 'penny-autosubmit-css'
+  style.textContent = `
+    @keyframes pennyAutoSubmitRing {
+      from { stroke-dashoffset: ${RING_CIRCUMFERENCE}; }
+      to   { stroke-dashoffset: 0; }
+    }
+  `
+  document.head.appendChild(style)
+}
+
+/**
+ * Returns true if the input looks like a simple grocery item that can be auto-submitted.
+ * Heuristic: 1-4 words, no question marks, doesn't start with a command verb.
+ */
+function looksLikeSimpleItem(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) return false
+  // No question marks anywhere
+  if (trimmed.includes('?')) return false
+  // Must be 1-4 words
+  const words = trimmed.split(/\s+/)
+  if (words.length < 1 || words.length > 4) return false
+  // First word must not be a command/question word
+  const firstWord = words[0].toLowerCase().replace(/[^a-z]/g, '')
+  if (COMMAND_PREFIXES.includes(firstWord)) return false
+  // No commas (likely multiple items — let user submit manually or keep typing)
+  if (trimmed.includes(',')) return false
+  return true
+}
 
 // Brand disambiguation item from the parse response
 export interface DisambigItem {
@@ -35,6 +83,8 @@ interface PennyBarProps {
   onPaste: (e: React.ClipboardEvent) => void
   onAddPhoto: () => void
   onOpenCamera: () => void
+  // Auto-submit: enabled when not in special input modes (disambiguation, name input, etc.)
+  autoSubmitEnabled?: boolean
   // Refs (forwarded)
   chatInputRef: React.RefObject<HTMLTextAreaElement | null>
 }
@@ -78,6 +128,7 @@ export function PennyBar({
   keyboardOpen, disambig, disambigIndex, onBrandPick, onSkipDisambig,
   pendingImages, onRemoveImage,
   chatText, onChatTextChange, chatLoading, onSend, onPaste, onAddPhoto, onOpenCamera,
+  autoSubmitEnabled = true,
   chatInputRef,
 }: PennyBarProps) {
   const [showAltsForAuto, setShowAltsForAuto] = useState(false)
@@ -85,6 +136,49 @@ export function PennyBar({
   const bgColor = toastError ? 'var(--error-bg, #FEE2E2)' : 'var(--penny-bg, #F5F3EF)'
   const textColor = toastError ? 'var(--error, #DC2626)' : 'var(--text)'
   const canSend = (!!chatText.trim() || pendingImages.length > 0) && !chatLoading
+
+  // --- Auto-submit debounce logic ---
+  const autoSubmitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [autoSubmitProgress, setAutoSubmitProgress] = useState(false)
+  // Stable ref for onSend so the timer callback always calls the latest version
+  const onSendRef = useRef(onSend)
+  onSendRef.current = onSend
+
+  const clearAutoSubmit = useCallback(() => {
+    if (autoSubmitTimer.current) {
+      clearTimeout(autoSubmitTimer.current)
+      autoSubmitTimer.current = null
+    }
+    setAutoSubmitProgress(false)
+  }, [])
+
+  useEffect(() => {
+    // Clear any pending timer whenever input changes, loading state changes, or feature is disabled
+    clearAutoSubmit()
+
+    const shouldAutoSubmit =
+      autoSubmitEnabled &&
+      !chatLoading &&
+      !hasDisambig &&
+      pendingImages.length === 0 &&
+      looksLikeSimpleItem(chatText)
+
+    if (shouldAutoSubmit) {
+      setAutoSubmitProgress(true)
+      autoSubmitTimer.current = setTimeout(() => {
+        autoSubmitTimer.current = null
+        setAutoSubmitProgress(false)
+        onSendRef.current()
+      }, AUTO_SUBMIT_DELAY)
+    }
+
+    return () => {
+      if (autoSubmitTimer.current) {
+        clearTimeout(autoSubmitTimer.current)
+        autoSubmitTimer.current = null
+      }
+    }
+  }, [chatText, chatLoading, autoSubmitEnabled, hasDisambig, pendingImages.length, clearAutoSubmit])
 
   // Hide Penny text when keyboard is open and no disambiguation active
   const hidePennyText = keyboardOpen && !hasDisambig && !pennyTyping
@@ -228,18 +322,42 @@ export function PennyBar({
                 e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
               }}
               onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend() }
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); clearAutoSubmit(); onSend() }
               }}
               onPaste={onPaste}
               disabled={chatLoading}
               style={{ ...chatInputStyle, resize: 'none' as const, overflowY: 'hidden' as const, maxHeight: '120px' }}
             />
             <button
-              onClick={onSend}
+              onClick={() => { clearAutoSubmit(); onSend() }}
               disabled={!canSend}
               aria-label="Send message"
-              style={chatSendStyle(canSend)}
+              style={{ ...chatSendStyle(canSend), position: 'relative' }}
             >
+              {/* Circular progress ring for auto-submit countdown */}
+              {autoSubmitProgress && (
+                <svg
+                  width="36" height="36"
+                  viewBox="0 0 36 36"
+                  style={{ position: 'absolute', top: '2px', left: '2px', pointerEvents: 'none' }}
+                >
+                  <circle
+                    cx="18" cy="18" r="15"
+                    fill="none"
+                    stroke="var(--brand)"
+                    strokeWidth="2.5"
+                    strokeDasharray={RING_CIRCUMFERENCE}
+                    strokeDashoffset={RING_CIRCUMFERENCE}
+                    strokeLinecap="round"
+                    style={{
+                      animation: `pennyAutoSubmitRing ${AUTO_SUBMIT_DELAY}ms linear forwards`,
+                      transformOrigin: 'center',
+                      transform: 'rotate(-90deg)',
+                      opacity: 0.5,
+                    }}
+                  />
+                </svg>
+              )}
               {chatLoading
                 ? <span style={{ fontSize: FONT_2XS, fontFamily: FONT }}>…</span>
                 : <svg width="18" height="18" viewBox="0 0 20 20" fill="none">

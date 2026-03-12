@@ -59,6 +59,22 @@ import {
   layout, buttons, text,
 } from './styles'
 
+// Commodity items that should skip brand disambiguation when auto-assigned
+const COMMODITY_KEYWORDS = new Set([
+  'milk', 'bread', 'eggs', 'butter', 'cheese', 'yogurt', 'water', 'rice',
+  'flour', 'sugar', 'salt', 'pepper', 'oil', 'pasta', 'cereal', 'juice',
+  'coffee', 'tea', 'chicken', 'beef', 'pork', 'fish', 'onion', 'potato',
+  'tomato', 'lettuce', 'apple', 'banana', 'orange',
+])
+
+function isCommodityItem(productCategory: string): boolean {
+  const lower = productCategory.toLowerCase()
+  for (const kw of COMMODITY_KEYWORDS) {
+    if (lower.includes(kw)) return true
+  }
+  return false
+}
+
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -1920,14 +1936,14 @@ function AppInner() {
     }
   }
 
-  // Auto-confirm auto-assigned brands after 8s of inactivity
+  // Auto-confirm auto-assigned brands after 4s of inactivity
   useEffect(() => {
     if (pennyDisambig.length === 0 || pennyDisambigIndex >= pennyDisambig.length) return
     const d = pennyDisambig[pennyDisambigIndex]
     if (!d?.auto_assigned || !d?.current_brand) return
     const timer = setTimeout(() => {
       handleBrandPick(d.current_brand)
-    }, 8000)
+    }, 4000)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pennyDisambigIndex, pennyDisambig])
@@ -2220,11 +2236,45 @@ function AppInner() {
         }
         setTimeout(() => chatInputRef.current?.focus(), 150)
 
-        // Handle brand disambiguations
+        // Handle brand disambiguations — fast-track commodity items
         const disambiguations = (data.brand_disambiguations || []) as { item_id: number; product_category: string; current_brand: string; alternatives: string[]; auto_assigned?: boolean }[]
         if (disambiguations.length > 0) {
-          setPennyDisambig(disambiguations)
-          setPennyDisambigIndex(0)
+          const commodityAutoAssigned: typeof disambiguations = []
+          const remaining: typeof disambiguations = []
+          for (const d of disambiguations) {
+            if (d.auto_assigned && d.current_brand && isCommodityItem(d.product_category)) {
+              commodityAutoAssigned.push(d)
+            } else {
+              remaining.push(d)
+            }
+          }
+          // Instantly confirm commodity auto-assigned items (no UI)
+          for (const d of commodityAutoAssigned) {
+            fetchAction('/api/list/brand-resolve', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ item_id: d.item_id, brand: d.current_brand, product_category: d.product_category }),
+            }).then(result => {
+              if (result.ok) {
+                setItems(prev => prev.map(i => i.id === d.item_id ? { ...i, brand: d.current_brand } : i))
+                setLastAdded(prev => prev.map(i => i.id === d.item_id ? { ...i, brand: d.current_brand } : i))
+                trackEvent('onboarding_v2', 'brand_default_confirmed')
+              }
+            })
+          }
+          // Show a brief toast for commodity items
+          if (commodityAutoAssigned.length > 0 && remaining.length === 0) {
+            const names = commodityAutoAssigned.map(d => `${d.product_category} (${d.current_brand})`)
+            showToast(`Added ${names.join(', ')}`, 'success')
+          } else if (commodityAutoAssigned.length > 0) {
+            const names = commodityAutoAssigned.map(d => d.product_category)
+            showToast(`Auto-picked brands for ${names.join(', ')}`, 'success')
+          }
+          // Only show disambiguation UI for non-commodity items
+          if (remaining.length > 0) {
+            setPennyDisambig(remaining)
+            setPennyDisambigIndex(0)
+          }
         }
 
         // Show Penny's message or fallback summary — Penny speaks, not toasts
@@ -4141,6 +4191,7 @@ const handleCodeChange = (index: number, value: string) => {
         onChatTextChange={setChatText}
         chatLoading={chatLoading}
         onSend={handleSendChat}
+        autoSubmitEnabled={!nameInputMode.current}
         onPaste={handlePaste}
         onAddPhoto={() => fileInputRef.current?.click()}
         onOpenCamera={() => {

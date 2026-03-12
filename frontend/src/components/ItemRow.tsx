@@ -97,6 +97,7 @@ const styles = {
 }
 
 const DELETE_THRESHOLD = 80
+const CHECK_THRESHOLD = 60
 const REDUCED_MOTION = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
 export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onDelete, onLongPress, onSwapAccept, onSwapDecline }: ItemRowProps) {
@@ -135,9 +136,9 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onD
       touchRef.current.swiping = true
     }
 
-    // Only allow left swipe (negative dx), clamp to -DELETE_THRESHOLD*1.3
-    const clamped = Math.max(dx, -DELETE_THRESHOLD * 1.3)
-    setSwipeX(Math.min(0, clamped))
+    // Allow left swipe (delete) and right swipe (check/uncheck)
+    const clamped = Math.max(Math.min(dx, CHECK_THRESHOLD * 1.3), -DELETE_THRESHOLD * 1.3)
+    setSwipeX(clamped)
   }, [])
 
   const onTouchEnd = useCallback(() => {
@@ -147,17 +148,42 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onD
     touchRef.current = null
     if (swipeX <= -DELETE_THRESHOLD) {
       onDelete(item.id)
+    } else if (swipeX >= CHECK_THRESHOLD) {
+      onToggle(item.id)
     }
     setSwipeX(0)
-  }, [swipeX, onDelete, item.id])
+  }, [swipeX, onDelete, onToggle, item.id])
 
-  const isRevealed = swipeX < -10
+  const isDeleteRevealed = swipeX < -10
+  const isCheckRevealed = swipeX > 10
   const deleteOpacity = Math.min(1, Math.abs(swipeX) / DELETE_THRESHOLD)
+  const checkOpacity = Math.min(1, swipeX / CHECK_THRESHOLD)
 
   return (
     <div style={{ position: 'relative', overflow: 'hidden' }}>
-      {/* Delete action behind the row */}
-      {isRevealed && (
+      {/* Check/uncheck action behind the row (right swipe) */}
+      {isCheckRevealed && (
+        <div
+          style={{
+            ...layout.rowCenter,
+            position: 'absolute', left: 0, top: 0, bottom: 0,
+            width: `${swipeX}px`,
+            backgroundColor: 'var(--success, #22c55e)',
+            color: '#fff', fontFamily: FONT, fontSize: FONT_XS, fontWeight: 600,
+            opacity: checkOpacity,
+            gap: '4px',
+          }}
+          aria-hidden="true"
+        >
+          {swipeX > 30 && (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          )}
+        </div>
+      )}
+      {/* Delete action behind the row (left swipe) */}
+      {isDeleteRevealed && (
         <div
           style={{
             ...layout.rowCenter,
