@@ -710,7 +710,9 @@ Break-even math:
 ## Bugs
 
 ### Open
-*(No critical open bugs as of Sprint 5. All high-priority issues have been fixed or moved to roadmap.*
+
+- **B19. SQL NULL-scan audit** — `SUM()` and `AVG()` aggregate functions return SQL NULL when no rows match. Scanning NULL into Go `int`/`float64` causes runtime errors. Fixed: NPS query in `handlers_admin.go:131` (wrapped with COALESCE). Remaining audit needed: 8 unprotected `SUM(CASE...)` in `handlers_stores.go`, `handlers_metrics.go`, `handlers_brand.go` — these are currently safe because they use `GROUP BY` (guaranteeing at least one row per group), but should be wrapped with `COALESCE` defensively for when WHERE clauses filter to empty result sets. Also audit `AVG()` calls in `handlers_learning.go:219`, `handlers_metrics.go:136,952-953`, `handlers_stores.go:288,358` for the same pattern. Low priority since all GROUP BY queries are safe, but wrapping with COALESCE is cheap insurance. Files: `handlers_admin.go`, `handlers_stores.go`, `handlers_metrics.go`, `handlers_brand.go`, `handlers_learning.go`.
+- **B20. Defensive COALESCE sweep** — Proactively wrap all `SUM(CASE...)` and `AVG()` aggregate queries with `COALESCE(..., 0)` across the codebase. Prevents future NULL scan errors if query conditions change. Size: S (1 hour). Safe to fix without supervision.
 
 ### Completed (March 2026)
 - ~~B18. Clear List buttons appear before Penny finishes typing~~ — Fixed: added `!pennyTyping` guard to button visibility, changed `handleClearList()` to `handleClearList(true)` for full clear. Files: `PennyBar.tsx:118`, `App.tsx:1364`.

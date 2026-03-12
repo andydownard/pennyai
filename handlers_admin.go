@@ -128,8 +128,8 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 	var npsTotal, npsPromoters, npsDetractors int
 	npsRow := db.QueryRow(`
 		SELECT COUNT(*),
-			SUM(CASE WHEN score >= 9 THEN 1 ELSE 0 END),
-			SUM(CASE WHEN score <= 6 THEN 1 ELSE 0 END)
+			COALESCE(SUM(CASE WHEN score >= 9 THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN score <= 6 THEN 1 ELSE 0 END), 0)
 		FROM nps_responses WHERE created_at >= datetime('now', ?)`, modifier)
 	if err := npsRow.Scan(&npsTotal, &npsPromoters, &npsDetractors); err != nil {
 		log.Printf("[admin] failed to calculate NPS: %v", err)
