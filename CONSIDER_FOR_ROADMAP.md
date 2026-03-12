@@ -88,9 +88,4 @@ please reach out to brand managers for the items in my lists to my brands and co
 _Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: dark | Items: 18_
 _Submitted: 2026-03-10 12:49 UTC_
 
-## [NORMAL] 2026-03-10 16:07 UTC
-there is no save button on the profile page
-
----
-_Device: Screen: profile | Viewport: 1710x904 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 | Dark: light | Items: 19_
-_Submitted: 2026-03-10 16:07 UTC_
+- ~~[NORMAL] 2026-03-10 16:07 UTC — No save button on profile page~~ — By design: profile fields auto-save on blur (500ms debounce). No explicit save button needed.
