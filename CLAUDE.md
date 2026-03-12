@@ -346,6 +346,8 @@ All features must pass three gates before shipping. This framework ensures new-u
 ### Gate 2: 11-Star Moment
 **Standard:** Every feature must ladder up to ONE narrative: "You never ask 'Did you get milk?' again."
 
+> **Canonical reference:** See `11_STAR_NARRATIVE.md` for the full narrative brief including pass/fail feature examples, hero messaging options, and KPIs that measure narrative delivery.
+
 This is the family coordination + relief story. Features are accepted if they:
 - Enable household members to trust that someone has the item covered
 - Reduce uncertainty or redundant communication
@@ -363,6 +365,14 @@ This is the family coordination + relief story. Features are accepted if they:
 
 ### Gate 3: Data Flywheel
 **Standard:** Feature must make Penny smarter over time. If it doesn't contribute data that compounds, deprioritize.
+
+> **Canonical reference:** See `DATA_FLYWHEEL.md` for the full 12-month flywheel narrative (4 stages), compounding data strategy, and retention/activation targets.
+
+**Core rules:**
+- Every feature must contribute data that compounds (brand corrections, frequency signals, household patterns, or cross-household trends)
+- Features that don't pass Gate 3 get deprioritized regardless of polish or user requests
+- Retention targets from `DATA_FLYWHEEL.md` are the north star metrics: Day 1 activation (60%), Day 7 retention (50%), Day 30 retention (35%), Household conversion (25%)
+- When evaluating a feature: if it doesn't move at least one of these four numbers, deprioritize it
 
 **Examples that pass Gate 3:**
 - Brand corrections (Penny learns user's preferences)

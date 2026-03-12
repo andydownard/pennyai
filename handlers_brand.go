@@ -1115,9 +1115,9 @@ func (s *Server) handleOptimizeDeal(w http.ResponseWriter, r *http.Request) {
 	// Category benchmark — how does this deal compare to others in same category?
 	var categoryAvgAcceptRate float64
 	s.db.QueryRow(`
-		SELECT CASE WHEN SUM(CASE WHEN se.action = 'offered' THEN 1 ELSE 0 END) > 0
-			THEN CAST(SUM(CASE WHEN se.action = 'accepted' THEN 1 ELSE 0 END) AS REAL) /
-				 SUM(CASE WHEN se.action = 'offered' THEN 1 ELSE 0 END) * 100
+		SELECT CASE WHEN COALESCE(SUM(CASE WHEN se.action = 'offered' THEN 1 ELSE 0 END), 0) > 0
+			THEN CAST(COALESCE(SUM(CASE WHEN se.action = 'accepted' THEN 1 ELSE 0 END), 0) AS REAL) /
+				 COALESCE(SUM(CASE WHEN se.action = 'offered' THEN 1 ELSE 0 END), 0) * 100
 			ELSE 0 END
 		FROM swap_events se
 		JOIN brand_deals bd ON bd.id = se.deal_id

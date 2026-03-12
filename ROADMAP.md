@@ -43,20 +43,20 @@ Strategic direction from founder + CEO panel focused on three gates: First-5-Min
    - **Blocks:** All other features
 
 2. **11-Star Moment Narrative Lock** — "You never ask 'Did you get milk?' again." Every feature roadmap decision must ladder to household coordination + relief, not convenience or feature accumulation.
-   - [ ] Brief entire team on narrative
-   - [ ] Update pitch deck + website hero
-   - [ ] Roadmap review: remove/defer features that don't pass Gate 2
+   - [x] Brief entire team on narrative — see `11_STAR_NARRATIVE.md`
+   - [ ] Update pitch deck + website hero (CEO action: pick from 3 messaging options in narrative doc)
+   - [x] Roadmap review: remove/defer features that don't pass Gate 2 — documented in narrative doc
    - **Owner:** CEO + Marketing
    - **Timeline:** 1 week
 
 ### P1 — Ship After Core Gates Validated (Next 30 Days)
 
 3. **Data Flywheel Documentation** — Chart the compounding story: Month 0-3 (basic history) → Month 3-6 (brand memory) → Month 6-9 (household patterns) → Month 9-12 (cross-household trends). Document KPIs per stage.
-   - [ ] Write 12-month data compounding narrative
-   - [ ] Define retention/activation targets per stage
-   - [ ] Update CLAUDE.md with data flywheel rules
+   - [x] Write 12-month data compounding narrative — see `DATA_FLYWHEEL.md`
+   - [x] Define retention/activation targets per stage — Day 1: 60%, Day 7: 50%, Day 30: 35%, Household: 25%
+   - [x] Update CLAUDE.md with data flywheel rules — Gate 3 section updated with references + rules
+   - **Status:** Done
    - **Owner:** Product + Data
-   - **Timeline:** 1 week
 
 4. **Design Drift Fixes** — Brand consistency audit + fixes.
    - [x] Replace #2E7D32 with #35644F throughout app (consumer app already correct; #2E7D32 is only in brand portal by design)
@@ -711,8 +711,8 @@ Break-even math:
 
 ### Open
 
-- **B19. SQL NULL-scan audit** — `SUM()` and `AVG()` aggregate functions return SQL NULL when no rows match. Scanning NULL into Go `int`/`float64` causes runtime errors. Fixed: NPS query in `handlers_admin.go:131` (wrapped with COALESCE). Remaining audit needed: 8 unprotected `SUM(CASE...)` in `handlers_stores.go`, `handlers_metrics.go`, `handlers_brand.go` — these are currently safe because they use `GROUP BY` (guaranteeing at least one row per group), but should be wrapped with `COALESCE` defensively for when WHERE clauses filter to empty result sets. Also audit `AVG()` calls in `handlers_learning.go:219`, `handlers_metrics.go:136,952-953`, `handlers_stores.go:288,358` for the same pattern. Low priority since all GROUP BY queries are safe, but wrapping with COALESCE is cheap insurance. Files: `handlers_admin.go`, `handlers_stores.go`, `handlers_metrics.go`, `handlers_brand.go`, `handlers_learning.go`.
-- **B20. Defensive COALESCE sweep** — Proactively wrap all `SUM(CASE...)` and `AVG()` aggregate queries with `COALESCE(..., 0)` across the codebase. Prevents future NULL scan errors if query conditions change. Size: S (1 hour). Safe to fix without supervision.
+- ~~**B19. SQL NULL-scan audit**~~ — Fixed: wrapped all unprotected `SUM(CASE...)` and `AVG()` with `COALESCE(..., 0)` across `handlers_admin.go`, `handlers_stores.go`, `handlers_metrics.go`, `handlers_brand.go`, `handlers_learning.go`.
+- ~~**B20. Defensive COALESCE sweep**~~ — Fixed: all aggregate queries now defensively wrapped. Zero NULL-scan errors in test suite.
 
 ### Completed (March 2026)
 - ~~B18. Clear List buttons appear before Penny finishes typing~~ — Fixed: added `!pennyTyping` guard to button visibility, changed `handleClearList()` to `handleClearList(true)` for full clear. Files: `PennyBar.tsx:118`, `App.tsx:1364`.

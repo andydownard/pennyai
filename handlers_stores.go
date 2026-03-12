@@ -441,9 +441,9 @@ func (s *Server) handleRegionalSwapPerformance(w http.ResponseWriter, r *http.Re
 	rows, err := s.db.Query(`
 		SELECT
 			COALESCE(st.state, 'Unknown') as region,
-			SUM(CASE WHEN se.action = 'offered' THEN 1 ELSE 0 END) as offered,
-			SUM(CASE WHEN se.action = 'accepted' THEN 1 ELSE 0 END) as accepted,
-			SUM(CASE WHEN se.action = 'declined' THEN 1 ELSE 0 END) as declined,
+			COALESCE(SUM(CASE WHEN se.action = 'offered' THEN 1 ELSE 0 END), 0) as offered,
+			COALESCE(SUM(CASE WHEN se.action = 'accepted' THEN 1 ELSE 0 END), 0) as accepted,
+			COALESCE(SUM(CASE WHEN se.action = 'declined' THEN 1 ELSE 0 END), 0) as declined,
 			COUNT(DISTINCT se.user_id) as unique_users
 		FROM swap_events se
 		LEFT JOIN shopping_trips trip ON trip.user_id = se.user_id

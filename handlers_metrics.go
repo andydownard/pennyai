@@ -133,7 +133,7 @@ func (s *Server) processDailyMetrics(dateStr string) {
 		SELECT LOWER(bd.competitor_product) as category,
 			COUNT(CASE WHEN se.action = 'offered' THEN 1 END) as offered,
 			COUNT(CASE WHEN se.action = 'accepted' THEN 1 END) as accepted,
-			AVG(bd.discount_cents) as avg_discount
+			COALESCE(AVG(bd.discount_cents), 0) as avg_discount
 		FROM swap_events se
 		JOIN brand_deals bd ON bd.id = se.deal_id
 		WHERE bd.status != 'deleted'
@@ -948,9 +948,9 @@ func (s *Server) handleCohortAnalysis(w http.ResponseWriter, r *http.Request) {
 		SELECT
 			cohort_week,
 			COUNT(*) as user_count,
-			SUM(CASE WHEN last_active >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as retained_count,
-			AVG(total_swaps) as avg_swaps,
-			AVG(total_savings_cents) as avg_savings
+			COALESCE(SUM(CASE WHEN last_active >= datetime('now', '-7 days') THEN 1 ELSE 0 END), 0) as retained_count,
+			COALESCE(AVG(total_swaps), 0) as avg_swaps,
+			COALESCE(AVG(total_savings_cents), 0) as avg_savings
 		FROM user_cohorts
 		GROUP BY cohort_week
 		ORDER BY cohort_week DESC
@@ -1374,10 +1374,10 @@ func (s *Server) processCategoryAlerts() {
 
 	rows, err := s.db.Query(`
 		SELECT bd.offer_brand, COALESCE(bd.category_id, 0),
-			SUM(CASE WHEN se.created_at >= datetime('now', '-7 days') AND se.action = 'offered' THEN 1 ELSE 0 END) as recent_offered,
-			SUM(CASE WHEN se.created_at >= datetime('now', '-7 days') AND se.action = 'accepted' THEN 1 ELSE 0 END) as recent_accepted,
-			SUM(CASE WHEN se.created_at < datetime('now', '-7 days') AND se.created_at >= datetime('now', '-30 days') AND se.action = 'offered' THEN 1 ELSE 0 END) as prior_offered,
-			SUM(CASE WHEN se.created_at < datetime('now', '-7 days') AND se.created_at >= datetime('now', '-30 days') AND se.action = 'accepted' THEN 1 ELSE 0 END) as prior_accepted
+			COALESCE(SUM(CASE WHEN se.created_at >= datetime('now', '-7 days') AND se.action = 'offered' THEN 1 ELSE 0 END), 0) as recent_offered,
+			COALESCE(SUM(CASE WHEN se.created_at >= datetime('now', '-7 days') AND se.action = 'accepted' THEN 1 ELSE 0 END), 0) as recent_accepted,
+			COALESCE(SUM(CASE WHEN se.created_at < datetime('now', '-7 days') AND se.created_at >= datetime('now', '-30 days') AND se.action = 'offered' THEN 1 ELSE 0 END), 0) as prior_offered,
+			COALESCE(SUM(CASE WHEN se.created_at < datetime('now', '-7 days') AND se.created_at >= datetime('now', '-30 days') AND se.action = 'accepted' THEN 1 ELSE 0 END), 0) as prior_accepted
 		FROM swap_events se
 		JOIN brand_deals bd ON bd.id = se.deal_id
 		WHERE se.created_at >= datetime('now', '-30 days')
@@ -1458,8 +1458,8 @@ func (s *Server) processCategoryAlerts() {
 	// Step 3: Check for category heating (volume surge)
 	catRows, err := s.db.Query(`
 		SELECT COALESCE(bd.category_id, 0),
-			SUM(CASE WHEN se.created_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as recent_vol,
-			SUM(CASE WHEN se.created_at < datetime('now', '-7 days') AND se.created_at >= datetime('now', '-30 days') THEN 1 ELSE 0 END) as prior_vol
+			COALESCE(SUM(CASE WHEN se.created_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END), 0) as recent_vol,
+			COALESCE(SUM(CASE WHEN se.created_at < datetime('now', '-7 days') AND se.created_at >= datetime('now', '-30 days') THEN 1 ELSE 0 END), 0) as prior_vol
 		FROM swap_events se
 		JOIN brand_deals bd ON bd.id = se.deal_id
 		WHERE se.created_at >= datetime('now', '-30 days')

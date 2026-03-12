@@ -216,7 +216,7 @@ func (s *Server) processLearnings() {
 		SELECT se.user_id,
 			COUNT(CASE WHEN se.action = 'accepted' THEN 1 END) as accepts,
 			COUNT(CASE WHEN se.action = 'declined' THEN 1 END) as declines,
-			AVG(CASE WHEN se.action = 'accepted' THEN bd.discount_cents END) as avg_accepted_discount
+			COALESCE(AVG(CASE WHEN se.action = 'accepted' THEN bd.discount_cents END), 0) as avg_accepted_discount
 		FROM swap_events se
 		JOIN brand_deals bd ON bd.id = se.deal_id
 		WHERE se.created_at >= datetime('now', '-60 days')
@@ -356,7 +356,7 @@ func (s *Server) processLearnings() {
 	var storeData []storeRow
 	sRows, err := s.db.Query(`
 		SELECT store_name, COUNT(*) as receipt_count,
-			AVG(total_cents) as avg_total
+			COALESCE(AVG(total_cents), 0) as avg_total
 		FROM receipts
 		WHERE store_name != '' AND created_at >= datetime('now', '-60 days')
 		GROUP BY store_name
