@@ -1458,6 +1458,11 @@ func initDB(path string) (*sql.DB, error) {
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_dept_order_user_store ON department_order_events(user_id, store_name)")
 	db.Exec("ALTER TABLE users ADD COLUMN store_order_enabled INTEGER NOT NULL DEFAULT 1")
 
+	// F8 Phase 2: Daily Digest SMS columns
+	db.Exec("ALTER TABLE users ADD COLUMN daily_digest_enabled INTEGER NOT NULL DEFAULT 0")
+	db.Exec("ALTER TABLE users ADD COLUMN daily_digest_opted_in_at TEXT")
+	db.Exec("ALTER TABLE users ADD COLUMN daily_digest_last_sent TEXT")
+
 	// Backfill emojis for existing items that have no AI-parsed emoji
 	backfillItemEmojis(db)
 

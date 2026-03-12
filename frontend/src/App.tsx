@@ -485,6 +485,7 @@ function AppInner() {
   const [pennyAutotune, setPennyAutotune] = useState(true)
   const [pennyDeals, setPennyDeals] = useState(false)
   const [storeOrderEnabled, setStoreOrderEnabled] = useState(true)
+  const [dailyDigestEnabled, setDailyDigestEnabled] = useState(false)
 
   // --- Store department order (learned from shopping trips) ---
   const [storeDeptOrder, setStoreDeptOrder] = useState<string[] | null>(null)
@@ -1448,6 +1449,7 @@ function AppInner() {
           if (data.penny_autotune != null) setPennyAutotune(data.penny_autotune as boolean)
           if (data.penny_deals != null) setPennyDeals(data.penny_deals as boolean)
           if (data.store_order_enabled != null) setStoreOrderEnabled(data.store_order_enabled as boolean)
+          if (data.daily_digest_enabled != null) setDailyDigestEnabled(data.daily_digest_enabled as boolean)
           if (data.swap_credits_cents != null) {
             setEarningsTotalCents(data.swap_credits_cents as number)
           }
@@ -3424,6 +3426,15 @@ const handleCodeChange = (index: number, value: string) => {
         body: JSON.stringify({ store_order_enabled: next }),
       })
     }
+    const toggleDailyDigest = () => {
+      const next = !dailyDigestEnabled
+      setDailyDigestEnabled(next)
+      fetchAPI('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ daily_digest_enabled: next }),
+      })
+    }
     return withFeedbackFAB(
       <PennySettingsScreen
         pennyPhone={settingsPennyPhone}
@@ -3431,10 +3442,12 @@ const handleCodeChange = (index: number, value: string) => {
         pennyAutotune={pennyAutotune}
         pennyDeals={pennyDeals}
         storeOrderEnabled={storeOrderEnabled}
+        dailyDigestEnabled={dailyDigestEnabled}
         onSliderChange={setPennySlider}
         onAutotuneToggle={toggleAutotune}
         onDealsToggle={toggleDeals}
         onStoreOrderToggle={toggleStoreOrder}
+        onDailyDigestToggle={toggleDailyDigest}
 
         track={track}
         renderHeader={() => renderPageHeader('Penny', 'penny')}

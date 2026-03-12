@@ -12,10 +12,12 @@ interface PennySettingsScreenProps {
   pennyAutotune: boolean
   pennyDeals: boolean
   storeOrderEnabled: boolean
+  dailyDigestEnabled: boolean
   onSliderChange: (val: number) => void
   onAutotuneToggle: () => void
   onDealsToggle: () => void
   onStoreOrderToggle: () => void
+  onDailyDigestToggle: () => void
   track: (event: string, props?: Record<string, unknown>) => void
   renderHeader: () => React.ReactNode
   renderToast: () => React.ReactNode
@@ -24,8 +26,8 @@ interface PennySettingsScreenProps {
 }
 
 export function PennySettingsScreen({
-  pennyPhone, pennySlider, pennyAutotune, pennyDeals, storeOrderEnabled,
-  onSliderChange, onAutotuneToggle, onDealsToggle, onStoreOrderToggle,
+  pennyPhone, pennySlider, pennyAutotune, pennyDeals, storeOrderEnabled, dailyDigestEnabled,
+  onSliderChange, onAutotuneToggle, onDealsToggle, onStoreOrderToggle, onDailyDigestToggle,
   track,
   renderHeader, renderToast, renderBottomTabs, transitionStyle,
 }: PennySettingsScreenProps) {
@@ -116,6 +118,20 @@ export function PennySettingsScreen({
             </div>
             <ToggleSwitch value={storeOrderEnabled} onChange={onStoreOrderToggle} />
           </div>
+
+          {/* Daily list summary via text — only show if user has phone */}
+          {pennyPhone && (
+            <div role="button" tabIndex={0} onClick={onDailyDigestToggle} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDailyDigestToggle() } }} aria-label="Toggle daily list summary via text" style={pageStyles.settingsCard}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="8" y1="18" x2="12" y2="18"/>
+              </svg>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text)' }}>Daily list summary via text</div>
+                <div style={{ fontFamily: FONT, fontSize: '0.6875rem', color: 'var(--text-secondary)', marginTop: '1px' }}>Get a daily text summary of list changes</div>
+              </div>
+              <ToggleSwitch value={dailyDigestEnabled} onChange={onDailyDigestToggle} />
+            </div>
+          )}
 
           {/* "What Penny Knows" — only visible when autotune is ON */}
           {pennyAutotune && (

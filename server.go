@@ -466,6 +466,9 @@ Get these from https://console.twilio.com (see README for full setup).
 	// Daily metrics aggregation: deal performance, category insights, business metrics
 	go server.runDailyMetricsLoop()
 
+	// F8 Phase 2: Daily digest SMS for opted-in users (checks hourly, 20h dedup window)
+	go server.runDailyDigestLoop()
+
 	log.Printf("thriftly is running on http://localhost:%s", cfg.Port)
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, handler))
 }
