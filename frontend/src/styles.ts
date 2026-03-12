@@ -181,9 +181,10 @@ export const DEPT_ICONS: Record<string, string> = {
 
 // Item-level emoji mapping — used when brand logo is unavailable or AI emoji is missing
 // Keys are lowercase substrings matched against item name (most specific first)
+// KEEP IN SYNC with inferItemEmoji() in db.go
 const ITEM_EMOJIS: [string, string][] = [
   // Produce — fruits
-  ['apple', '🍎'], ['banana', '🍌'], ['orange', '🍊'], ['lemon', '🍋'], ['lime', '🍋‍🟩'],
+  ['apple', '🍎'], ['banana', '🍌'], ['orange', '🍊'], ['lemon', '🍋'], ['lime', '🍋'],
   ['grape', '🍇'], ['strawberr', '🍓'], ['blueberr', '🫐'], ['raspberry', '🫐'], ['blackberr', '🫐'],
   ['cranberr', '🫐'], ['cherry', '🍒'], ['peach', '🍑'], ['nectarine', '🍑'], ['apricot', '🍑'],
   ['plum', '🍑'], ['pear', '🍐'], ['watermelon', '🍉'], ['melon', '🍈'],
@@ -191,6 +192,8 @@ const ITEM_EMOJIS: [string, string][] = [
   ['kiwi', '🥝'], ['coconut', '🥥'], ['avocado', '🥑'], ['tomato', '🍅'],
   ['grapefruit', '🍊'], ['tangerine', '🍊'], ['clementine', '🍊'], ['pomegranate', '🍎'],
   ['fig', '🍇'], ['date', '🍇'],
+  ['dragon fruit', '🐉'], ['passion fruit', '🍑'], ['starfruit', '⭐'], ['persimmon', '🍊'],
+  ['lychee', '🍑'], ['jackfruit', '🍈'], ['plantain', '🍌'],
   // Produce — vegetables
   ['broccoli', '🥦'], ['cauliflower', '🥦'], ['carrot', '🥕'], ['corn', '🌽'],
   ['jalapeño', '🌶️'], ['jalapeno', '🌶️'], ['habanero', '🌶️'], ['pepper', '🌶️'],
@@ -203,110 +206,180 @@ const ITEM_EMOJIS: [string, string][] = [
   ['onion', '🧅'], ['shallot', '🧅'], ['scallion', '🧅'], ['leek', '🧅'], ['chive', '🧅'],
   ['garlic', '🧄'], ['ginger', '🫚'], ['mushroom', '🍄'], ['eggplant', '🍆'], ['celery', '🥬'],
   ['asparagus', '🥬'], ['artichoke', '🥬'], ['beet', '🥬'], ['turnip', '🥬'], ['radish', '🥬'],
-  ['green bean', '🟢'], ['snap pea', '🟢'], ['edamame', '🟢'], ['pea', '🟢'],
+  ['bok choy', '🥬'], ['napa cabbage', '🥬'], ['daikon', '🥕'],
+  ['jicama', '🥔'], ['taro', '🥔'], ['yuca', '🥔'],
+  ['green bean', '🟢'], ['snap pea', '🟢'], ['edamame', '🫘'], ['pea', '🟢'],
   // Dairy & Eggs
-  ['half and half', '🥛'], ['half & half', '🥛'], ['milk', '🥛'], ['cream', '🥛'],
+  ['half and half', '🥛'], ['half & half', '🥛'], ['almond milk', '🥛'], ['oat milk', '🥛'],
+  ['soy milk', '🥛'], ['coconut milk', '🥥'], ['milk', '🥛'], ['cream', '🥛'],
   ['cream cheese', '🧀'], ['cottage cheese', '🧀'], ['goat cheese', '🧀'],
   ['cheddar', '🧀'], ['mozzarella', '🧀'], ['parmesan', '🧀'], ['gouda', '🧀'],
   ['brie', '🧀'], ['feta', '🧀'], ['gruyere', '🧀'], ['provolone', '🧀'],
   ['colby', '🧀'], ['swiss', '🧀'], ['jack', '🧀'], ['ricotta', '🧀'], ['cheese', '🧀'],
   ['butter', '🧈'], ['margarine', '🧈'], ['egg', '🥚'],
   ['yogurt', '🫙'], ['kefir', '🫙'],
-  ['ice cream', '🍦'], ['gelato', '🍦'], ['sorbet', '🍦'],
+  ['ice cream', '🍦'], ['gelato', '🍦'], ['sorbet', '🍦'], ['popsicle', '🍦'],
   // Meat & Seafood
-  ['chicken', '🍗'], ['thigh', '🍗'], ['drumstick', '🍗'], ['wing', '🍗'],
+  ['rotisserie', '🍗'], ['chicken', '🍗'], ['thigh', '🍗'], ['drumstick', '🍗'], ['wing', '🍗'],
   ['ribeye', '🥩'], ['sirloin', '🥩'], ['filet', '🥩'], ['brisket', '🥩'],
   ['beef', '🥩'], ['steak', '🥩'], ['ground', '🥩'], ['roast', '🥩'],
   ['pork', '🥩'], ['chop', '🥩'], ['tenderloin', '🥩'], ['ribs', '🥩'],
   ['bacon', '🥓'], ['ham', '🥓'], ['prosciutto', '🥓'], ['pancetta', '🥓'],
   ['sausage', '🌭'], ['hot dog', '🌭'], ['bratwurst', '🌭'], ['kielbasa', '🌭'],
   ['turkey', '🦃'], ['lamb', '🥩'], ['veal', '🥩'], ['venison', '🥩'], ['bison', '🥩'],
-  ['salmon', '🐟'], ['tuna', '🐟'], ['cod', '🐟'], ['tilapia', '🐟'], ['trout', '🐟'],
-  ['halibut', '🐟'], ['mahi', '🐟'], ['swordfish', '🐟'], ['catfish', '🐟'], ['fish', '🐟'],
+  ['deli meat', '🥩'], ['lunch meat', '🥩'], ['jerky', '🥩'],
+  ['fish sauce', '🐟'], ['fish food', '🐠'], ['salmon', '🐟'], ['tuna', '🐟'], ['cod', '🐟'],
+  ['tilapia', '🐟'], ['trout', '🐟'], ['halibut', '🐟'], ['mahi', '🐟'],
+  ['swordfish', '🐟'], ['catfish', '🐟'], ['anchovy', '🐟'], ['fish', '🐟'],
   ['shrimp', '🦐'], ['prawn', '🦐'], ['crab', '🦀'], ['lobster', '🦞'],
-  ['scallop', '🦪'], ['oyster', '🦪'], ['clam', '🦪'], ['mussel', '🦪'],
-  // Deli
+  ['scallop', '🦪'], ['oyster sauce', '🦪'], ['oyster', '🦪'], ['clam', '🦪'], ['mussel', '🦪'],
+  // Deli & Prepared
   ['hummus', '🫘'], ['guacamole', '🥑'], ['salsa', '🫙'],
-  ['sandwich', '🥪'], ['deli', '🥪'], ['burrito', '🌯'],
+  ['sandwich', '🥪'], ['deli', '🥪'], ['burrito', '🌯'], ['wrap', '🌯'],
+  ['spring roll', '🥟'], ['dumpling', '🥟'], ['wonton', '🥟'], ['samosa', '🥟'],
+  ['falafel', '🧆'], ['quesadilla', '🌮'], ['enchilada', '🌮'], ['tamale', '🫔'],
+  ['hot pocket', '🍕'], ['pizza roll', '🍕'],
+  ['microwave meal', '🍱'], ['frozen dinner', '🍱'], ['tv dinner', '🍱'],
+  ['protein bar', '💪'], ['energy bar', '💪'], ['granola bar', '🥜'],
   // Bakery
   ['sourdough', '🍞'], ['baguette', '🥖'], ['ciabatta', '🍞'], ['brioche', '🍞'],
   ['bread', '🍞'], ['roll', '🍞'], ['bun', '🍞'], ['loaf', '🍞'], ['rye', '🍞'],
   ['pita', '🫓'], ['naan', '🫓'], ['tortilla', '🫓'], ['flatbread', '🫓'],
   ['bagel', '🥯'], ['croissant', '🥐'], ['pretzel', '🥨'],
-  ['muffin', '🧁'], ['scone', '🧁'], ['danish', '🧁'], ['pastry', '🧁'],
-  ['cake', '🎂'], ['cupcake', '🧁'], ['pie', '🥧'], ['tart', '🥧'],
-  ['cookie', '🍪'], ['brownie', '🍪'], ['biscuit', '🍪'],
+  ['english muffin', '🧇'], ['muffin', '🧁'], ['scone', '🧁'], ['danish', '🧁'], ['pastry', '🥐'],
+  ['cake mix', '🎂'], ['cake', '🎂'], ['cupcake', '🧁'], ['pie', '🥧'], ['tart', '🥧'],
+  ['cookie', '🍪'], ['brownie', '🍫'], ['biscuit', '🍪'],
   ['donut', '🍩'], ['doughnut', '🍩'],
-  ['waffle', '🧇'], ['pancake', '🥞'],
+  ['waffle', '🧇'], ['pancake', '🥞'], ['mochi', '🍡'],
+  // Baking
+  ['vanilla extract', '🧁'], ['baking soda', '🧁'], ['baking powder', '🧁'],
+  ['cornstarch', '🧁'], ['powdered sugar', '🍚'], ['brown sugar', '🍬'],
+  ['frosting', '🧁'], ['sprinkles', '🎂'], ['food coloring', '🎨'],
+  ['cupcake liner', '🧁'], ['pie crust', '🥧'],
+  ['bread flour', '🌾'],
   // Pantry & Dry Goods
   ['jasmine', '🍚'], ['basmati', '🍚'], ['quinoa', '🍚'], ['couscous', '🍚'], ['rice', '🍚'],
   ['spaghetti', '🍝'], ['penne', '🍝'], ['rigatoni', '🍝'], ['fusilli', '🍝'],
   ['linguine', '🍝'], ['fettuccine', '🍝'], ['macaroni', '🍝'], ['rotini', '🍝'],
   ['orzo', '🍝'], ['farfalle', '🍝'], ['angel hair', '🍝'], ['lasagna', '🍝'], ['pasta', '🍝'],
   ['ramen', '🍜'], ['udon', '🍜'], ['soba', '🍜'], ['lo mein', '🍜'], ['noodle', '🍜'],
+  ['miso', '🍜'],
   ['cereal', '🥣'], ['oat', '🥣'], ['granola', '🥣'], ['muesli', '🥣'],
   ['chickpea', '🫘'], ['black bean', '🫘'], ['bean', '🫘'], ['lentil', '🫘'],
-  ['peanut butter', '🥜'], ['almond butter', '🥜'], ['walnut', '🥜'], ['pecan', '🥜'],
-  ['cashew', '🥜'], ['pistachio', '🥜'], ['nut', '🥜'], ['almond', '🥜'],
-  ['sunflower', '🌻'], ['chia', '🌻'], ['flax', '🌻'], ['seed', '🌻'],
-  ['honey', '🍯'], ['maple syrup', '🍯'], ['agave', '🍯'],
-  ['jam', '🫙'], ['jelly', '🫙'], ['preserves', '🫙'], ['marmalade', '🫙'], ['syrup', '🧴'],
-  ['olive oil', '🫒'], ['coconut oil', '🥥'], ['oil', '🫒'], ['olive', '🫒'],
+  ['tofu', '🫘'], ['tempeh', '🫘'], ['seitan', '🌾'],
+  ['peanut butter', '🥜'], ['almond butter', '🥜'], ['tahini', '🥜'],
+  ['peanut', '🥜'], ['almond', '🥜'], ['walnut', '🥜'], ['pecan', '🥜'],
+  ['cashew', '🥜'], ['pistachio', '🥜'], ['nut', '🥜'],
+  ['sunflower seed', '🌻'], ['pumpkin seed', '🎃'], ['sunflower', '🌻'],
+  ['chia', '🌻'], ['flax', '🌻'], ['seed', '🌻'],
+  ['honey', '🍯'], ['maple syrup', '🍯'], ['agave', '🍯'], ['syrup', '🧴'],
+  ['jam', '🫙'], ['jelly', '🫙'], ['preserves', '🫙'], ['marmalade', '🫙'],
+  ['coconut oil', '🥥'], ['olive oil', '🫒'], ['sesame oil', '🫒'], ['oil', '🫒'], ['olive', '🫒'],
   ['balsamic', '🫙'], ['vinegar', '🫙'],
-  ['sriracha', '🌶️'], ['hot sauce', '🌶️'], ['tabasco', '🌶️'],
-  ['soy sauce', '🫙'], ['teriyaki', '🫙'], ['bbq sauce', '🫙'], ['sauce', '🫙'],
+  // Condiments
+  ['relish', '🌶️'], ['horseradish', '🌶️'], ['aioli', '🧄'], ['pesto', '🌿'],
+  ['chimichurri', '🌿'], ['chutney', '🥭'], ['tzatziki', '🥒'], ['tapenade', '🫒'], ['capers', '🫒'],
+  ['worcestershire', '🥫'], ['hoisin', '🥫'],
+  ['harissa', '🌶️'], ['gochujang', '🌶️'], ['curry paste', '🍛'],
+  ['sriracha', '🌶️'], ['hot sauce', '🌶️'], ['tabasco', '🌶️'], ['buffalo sauce', '🌶️'],
+  ['soy sauce', '🥫'], ['teriyaki', '🥫'], ['bbq sauce', '🥫'], ['barbecue', '🥫'],
+  ['sauce', '🫙'],
   ['ketchup', '🫙'], ['mustard', '🫙'], ['mayo', '🫙'], ['mayonnaise', '🫙'],
   ['dressing', '🫙'], ['ranch', '🫙'],
-  ['cumin', '🧂'], ['paprika', '🧂'], ['cinnamon', '🧂'], ['turmeric', '🧂'],
+  ['cumin', '🧂'], ['paprika', '🧂'], ['cinnamon', '🧂'], ['nutmeg', '🧂'], ['turmeric', '🧂'],
   ['seasoning', '🧂'], ['spice', '🧂'], ['salt', '🧂'],
   ['flour', '🌾'], ['sugar', '🧂'], ['baking', '🧁'], ['yeast', '🍞'],
   ['soup', '🍲'], ['broth', '🍲'], ['stock', '🍲'], ['chili', '🍲'], ['stew', '🍲'],
   ['tomato sauce', '🥫'], ['tomato paste', '🥫'], ['can of', '🥫'], ['canned', '🥫'],
   ['taco', '🌮'], ['tortilla chip', '🌮'],
+  // International / Specialty
+  ['kimchi', '🥬'], ['sauerkraut', '🥬'], ['wasabi', '🟢'],
+  ['nori', '🍣'], ['seaweed', '🍣'],
   // Snacks
-  ['chip', '🍿'], ['popcorn', '🍿'], ['cracker', '🍘'],
+  ['chip', '🍟'], ['popcorn', '🍿'], ['cracker', '🍘'],
   ['chocolate', '🍫'], ['candy', '🍬'], ['gum', '🍬'], ['gummy', '🍬'],
-  ['trail mix', '🥜'], ['jerky', '🥩'], ['granola bar', '🥣'],
-  ['dried fruit', '🍇'],
+  ['trail mix', '🥜'], ['fruit snack', '🍬'], ['dried fruit', '🍇'], ['raisin', '🍇'],
+  ['cranberry', '🍒'],
   // Beverages
-  ['sparkling', '💧'], ['seltzer', '💧'], ['la croix', '💧'], ['lacroix', '💧'], ['water', '💧'],
-  ['juice', '🧃'], ['lemonade', '🍋'],
+  ['sparkling water', '💧'], ['seltzer', '💧'], ['tonic', '💧'],
+  ['la croix', '💧'], ['lacroix', '💧'], ['water', '💧'],
+  ['coconut water', '🥥'],
+  ['juice', '🧃'], ['oj', '🍊'], ['lemonade', '🍋'],
   ['coke', '🥤'], ['pepsi', '🥤'], ['sprite', '🥤'], ['dr pepper', '🥤'],
-  ['ginger ale', '🥤'], ['soda', '🥤'], ['pop', '🥤'],
+  ['ginger ale', '🥤'], ['cola', '🥤'], ['root beer', '🍺'], ['ginger beer', '🍺'],
+  ['soda', '🥤'], ['pop', '🥤'],
   ['espresso', '☕'], ['latte', '☕'], ['coffee', '☕'],
   ['matcha', '🍵'], ['chai', '🍵'], ['tea', '🍵'], ['kombucha', '🍵'],
   ['beer', '🍺'], ['ipa', '🍺'], ['lager', '🍺'], ['ale', '🍺'], ['stout', '🍺'],
-  ['champagne', '🍾'], ['prosecco', '🍾'], ['wine', '🍷'],
-  ['whiskey', '🥃'], ['vodka', '🥃'], ['tequila', '🥃'], ['rum', '🥃'], ['gin', '🥃'],
-  ['smoothie', '🥤'], ['shake', '🥤'], ['protein', '💪'],
-  ['red bull', '⚡'], ['monster', '⚡'], ['energy drink', '⚡'],
+  ['champagne', '🥂'], ['prosecco', '🍾'], ['wine', '🍷'], ['cider', '🍎'],
+  ['whiskey', '🥃'], ['vodka', '🍸'], ['tequila', '🍸'], ['rum', '🍹'], ['gin', '🍸'],
+  ['liquor', '🥃'],
+  ['protein shake', '💪'], ['smoothie', '🥤'], ['shake', '🥤'],
+  ['sports drink', '🥤'], ['energy drink', '⚡'], ['red bull', '⚡'], ['monster', '⚡'],
+  ['protein', '💪'],
   // Frozen
-  ['frozen', '❄️'], ['popsicle', '🍦'], ['pizza', '🍕'],
+  ['frozen', '❄️'], ['pizza', '🍕'],
   // Household & Cleaning
   ['dish soap', '🧼'], ['hand soap', '🧼'], ['soap', '🧼'],
-  ['detergent', '🧴'], ['laundry', '🧴'], ['fabric softener', '🧴'],
+  ['detergent', '🧴'], ['laundry', '🧴'], ['fabric softener', '🧺'], ['dryer sheet', '🧺'],
+  ['stain remover', '🧺'],
   ['sponge', '🧽'], ['scrub', '🧽'],
   ['paper towel', '🧻'], ['toilet paper', '🧻'], ['tissue', '🧻'], ['napkin', '🧻'],
   ['trash bag', '🗑️'], ['garbage', '🗑️'],
-  ['foil', '🫙'], ['plastic wrap', '🫙'], ['ziploc', '🛍️'],
-  ['bleach', '🧴'], ['cleaner', '🧴'], ['disinfectant', '🧴'], ['wipes', '🧴'],
+  ['aluminum foil', '🫕'], ['foil', '🫕'], ['plastic wrap', '🫕'], ['parchment paper', '📜'], ['wax paper', '📜'],
+  ['ziplock', '🤐'], ['sandwich bag', '🤐'], ['ziploc', '🛍️'],
+  ['bleach', '🧴'], ['disinfectant', '🧴'], ['cleaner', '🧴'], ['wipes', '🧴'],
+  ['rubber glove', '🧤'],
+  ['mop', '🧹'], ['broom', '🧹'], ['dustpan', '🧹'], ['vacuum bag', '🧹'], ['lint roller', '🧹'],
+  ['air freshener', '🌸'], ['light bulb', '💡'], ['battery', '🔋'], ['candle', '🕯️'],
+  ['match', '🔥'], ['charcoal', '🔥'], ['propane', '⛽'], ['extension cord', '🔌'],
+  ['duct tape', '🛠️'], ['super glue', '🛠️'], ['command strip', '🛠️'],
+  ['storage bin', '📦'], ['hanger', '👔'],
   // Health & Personal Care
-  ['vitamin', '💊'], ['supplement', '💊'], ['medicine', '💊'], ['tylenol', '💊'], ['advil', '💊'],
+  ['vitamin', '💊'], ['supplement', '💊'], ['medicine', '💊'], ['tylenol', '💊'], ['advil', '💊'], ['ibuprofen', '💊'],
   ['toothpaste', '🪥'], ['toothbrush', '🪥'], ['floss', '🪥'], ['mouthwash', '🪥'],
   ['shampoo', '🧴'], ['conditioner', '🧴'], ['body wash', '🧴'],
-  ['lotion', '🧴'], ['sunscreen', '🧴'], ['deodorant', '🧴'],
-  ['bandaid', '🩹'], ['band-aid', '🩹'],
+  ['lotion', '🧴'], ['moisturizer', '🧴'], ['sunscreen', '🧴'], ['deodorant', '🧴'],
+  ['bandaid', '🩹'], ['band-aid', '🩹'], ['first aid', '🩹'],
   ['razor', '🪒'], ['shaving', '🪒'],
-  // Baby & Pet
-  ['diaper', '🧒'], ['baby food', '🍼'], ['formula', '🍼'], ['baby', '👶'],
-  ['dog food', '🐕'], ['dog treat', '🐕'], ['cat food', '🐈'], ['cat litter', '🐈'], ['pet', '🐾'],
+  // Baby
+  ['baby food', '🍼'], ['baby cereal', '🍼'], ['baby wipe', '👶'], ['formula', '🍼'],
+  ['pacifier', '👶'], ['diaper', '👶'], ['sippy cup', '🥤'], ['bib', '👶'],
+  ['teething', '👶'], ['nursing pad', '🤱'], ['baby', '👶'],
+  // Pet
+  ['dog food', '🐕'], ['dog treat', '🐕'], ['cat food', '🐈'], ['cat litter', '🐱'],
+  ['bird seed', '🐦'], ['fish food', '🐠'], ['hamster food', '🐹'], ['rabbit food', '🐰'],
+  ['pet treat', '🦴'], ['leash', '🐕'], ['collar', '🐕'], ['flea', '🐕'],
+  ['pet shampoo', '🐕'], ['litter', '🐱'], ['chew toy', '🦴'], ['catnip', '🐱'],
+  ['pet', '🐾'],
 ]
+
+/**
+ * Check if `lower` contains `kw` — for short keywords (<=3 chars), require word boundaries
+ * (preceded by start-of-string or space, followed by end-of-string or space).
+ */
+function containsWord(lower: string, kw: string): boolean {
+  if (kw.length <= 3) {
+    let idx = 0
+    while (idx <= lower.length - kw.length) {
+      const pos = lower.indexOf(kw, idx)
+      if (pos < 0) return false
+      const startOK = pos === 0 || lower[pos - 1] === ' '
+      const endPos = pos + kw.length
+      const endOK = endPos === lower.length || lower[endPos] === ' '
+      if (startOK && endOK) return true
+      idx = pos + 1
+    }
+    return false
+  }
+  return lower.includes(kw)
+}
 
 /** Return an emoji for a grocery item name, falling back to department emoji, then 🛒 */
 export function getItemEmoji(itemName: string, department?: string): string {
   const lower = itemName.toLowerCase()
   for (const [keyword, emoji] of ITEM_EMOJIS) {
-    if (lower.includes(keyword)) return emoji
+    if (containsWord(lower, keyword)) return emoji
   }
   if (department && DEPT_ICONS[department]) return DEPT_ICONS[department]
   return '🛒'

@@ -327,7 +327,8 @@ func (s *Server) handleSavedListLoad(w http.ResponseWriter, r *http.Request, id 
 
 	added := 0
 	for _, si := range savedItems {
-		_, _, err := upsertListItem(s.db, session.UserID, si.Name, si.Brand, si.Department, si.Size, si.Quantity, "app", "", "")
+		siEmoji := inferItemEmoji(si.Name, si.Department)
+		_, _, err := upsertListItem(s.db, session.UserID, si.Name, si.Brand, si.Department, si.Size, si.Quantity, "app", "", siEmoji)
 		if err != nil {
 			log.Printf("Error upserting saved list item %q: %v", si.Name, err)
 			continue

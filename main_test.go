@@ -994,22 +994,12 @@ func TestLogo_SQLiteCacheHit(t *testing.T) {
 
 func TestLogo_PlaceholderFallback(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
-	// No token, no cache → should get SVG placeholder
+	// No token, no cache → should get 404 so frontend falls back to emoji
 	server.config.LogoDevToken = ""
 
 	rr := doRequest(server.handleLogoProxy, "GET", "/api/logo?domain=unknownbrand.com", nil, nil)
-	if rr.Code != http.StatusOK {
-		t.Errorf("Expected 200, got %d", rr.Code)
-	}
-	if rr.Header().Get("Content-Type") != "image/svg+xml" {
-		t.Errorf("Expected SVG placeholder, got %s", rr.Header().Get("Content-Type"))
-	}
-	body := rr.Body.String()
-	if !strings.Contains(body, "<svg") {
-		t.Error("Expected SVG content in placeholder")
-	}
-	if !strings.Contains(body, "U") { // "unknownbrand" → initial "U"
-		t.Errorf("Expected initial 'U' in placeholder, got: %s", body)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Expected 404, got %d", rr.Code)
 	}
 }
 
@@ -1021,13 +1011,9 @@ func TestLogo_PlaceholderUseBrandName(t *testing.T) {
 	server.db.Exec("INSERT OR IGNORE INTO brands (name, domain) VALUES ('Zesty Foods', 'zestyfoods.com')")
 
 	rr := doRequest(server.handleLogoProxy, "GET", "/api/logo?domain=zestyfoods.com", nil, nil)
-	if rr.Code != http.StatusOK {
-		t.Errorf("Expected 200, got %d", rr.Code)
-	}
-	body := rr.Body.String()
-	// "Zesty Foods" → initials "ZF"
-	if !strings.Contains(body, "ZF") {
-		t.Errorf("Expected initials 'ZF' in placeholder, got: %s", body)
+	// No real logo found → 404 so frontend emoji fallback triggers
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Expected 404, got %d", rr.Code)
 	}
 }
 

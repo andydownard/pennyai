@@ -3109,6 +3109,10 @@ func upsertListItem(db *sql.DB, userID int, name, brand, department, size string
 		}
 	} else {
 		// No match — insert new (attributed to the requesting user)
+		// Guarantee every new item has an emoji
+		if emoji == "" {
+			emoji = inferItemEmoji(name, department)
+		}
 		result, err := tx.Exec(
 			"INSERT INTO list_items (user_id, name, brand, department, quantity, size, source, notes, emoji) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			userID, name, brand, department, quantity, size, source, notes, emoji,
@@ -3161,6 +3165,10 @@ func addParsedItems(db *sql.DB, userID int, parsed []ParsedItem, source string) 
 			continue
 		}
 		p.Name = stripBrandFromName(p.Name, p.Brand)
+		// Guarantee emoji even when Claude returns empty
+		if p.Emoji == "" {
+			p.Emoji = inferItemEmoji(p.Name, p.Department)
+		}
 		item, isNew, err := upsertListItem(db, userID, p.Name, p.Brand, p.Department, p.Size, p.Quantity, source, p.Notes, p.Emoji)
 		if err != nil {
 			log.Printf("[%s] error upserting item %q: %v", source, p.Name, err)
@@ -3199,8 +3207,37 @@ func collectListItems(db *sql.DB, userID int) ([]itemData, error) {
 	return items, nil
 }
 
+// containsWord checks if `lower` contains `kw` as a word-boundary match.
+// For short keywords (len <= 3), requires the match to be at word boundaries
+// (preceded by start-of-string or space, followed by end-of-string or space).
+// For longer keywords, uses simple substring match.
+func containsWord(lower, kw string) bool {
+	if len(kw) <= 3 {
+		idx := 0
+		for {
+			pos := strings.Index(lower[idx:], kw)
+			if pos < 0 {
+				return false
+			}
+			absPos := idx + pos
+			startOK := absPos == 0 || lower[absPos-1] == ' '
+			endPos := absPos + len(kw)
+			endOK := endPos == len(lower) || lower[endPos] == ' '
+			if startOK && endOK {
+				return true
+			}
+			idx = absPos + 1
+			if idx >= len(lower) {
+				return false
+			}
+		}
+	}
+	return strings.Contains(lower, kw)
+}
+
 // inferItemEmoji returns a specific emoji for a grocery item name based on keyword matching.
 // Falls back to department emoji, then 🛒.
+// Short keywords (<=3 chars) use word-boundary matching to prevent false positives.
 func inferItemEmoji(name, department string) string {
 	lower := strings.ToLower(name)
 	// Item-specific keywords → emoji (most specific first)
@@ -3216,6 +3253,8 @@ func inferItemEmoji(name, department string) string {
 		{"tomato", "🍅"}, {"plum", "🍑"}, {"fig", "🍇"}, {"date", "🍇"}, {"pomegranate", "🍎"},
 		{"cranberr", "🫐"}, {"grapefruit", "🍊"}, {"tangerine", "🍊"}, {"clementine", "🍊"},
 		{"nectarine", "🍑"}, {"apricot", "🍑"}, {"papaya", "🥭"}, {"guava", "🥭"},
+		{"dragon fruit", "🐉"}, {"passion fruit", "🍑"}, {"starfruit", "⭐"}, {"persimmon", "🍊"},
+		{"lychee", "🍑"}, {"jackfruit", "🍈"}, {"plantain", "🍌"},
 		// Produce — vegetables
 		{"broccoli", "🥦"}, {"cauliflower", "🥦"}, {"carrot", "🥕"}, {"corn", "🌽"},
 		{"pepper", "🌶️"}, {"jalapeño", "🌶️"}, {"jalapeno", "🌶️"}, {"habanero", "🌶️"},
@@ -3224,100 +3263,142 @@ func inferItemEmoji(name, department string) string {
 		{"cabbage", "🥬"}, {"collard", "🥬"}, {"romaine", "🥬"}, {"cilantro", "🌿"}, {"parsley", "🌿"},
 		{"basil", "🌿"}, {"mint", "🌿"}, {"dill", "🌿"}, {"rosemary", "🌿"}, {"thyme", "🌿"},
 		{"oregano", "🌿"}, {"sage", "🌿"}, {"herb", "🌿"},
-		{"potato", "🥔"}, {"sweet potato", "🍠"}, {"yam", "🍠"},
+		{"sweet potato", "🍠"}, {"potato", "🥔"}, {"yam", "🍠"},
 		{"onion", "🧅"}, {"shallot", "🧅"}, {"scallion", "🧅"}, {"leek", "🧅"}, {"chive", "🧅"},
 		{"garlic", "🧄"}, {"ginger", "🫚"},
 		{"mushroom", "🍄"}, {"eggplant", "🍆"}, {"celery", "🥬"},
 		{"asparagus", "🥬"}, {"artichoke", "🥬"}, {"beet", "🥬"}, {"turnip", "🥬"}, {"radish", "🥬"},
-		{"pea", "🟢"}, {"green bean", "🟢"}, {"snap pea", "🟢"}, {"edamame", "🟢"},
+		{"bok choy", "🥬"}, {"napa cabbage", "🥬"}, {"daikon", "🥕"},
+		{"jicama", "🥔"}, {"taro", "🥔"}, {"yuca", "🥔"},
+		{"snap pea", "🟢"}, {"green bean", "🟢"}, {"edamame", "🫘"}, {"pea", "🟢"},
 		{"salad", "🥗"},
 		// Dairy & Eggs
-		{"milk", "🥛"}, {"cream", "🥛"}, {"half and half", "🥛"}, {"half & half", "🥛"},
+		{"half and half", "🥛"}, {"half & half", "🥛"}, {"almond milk", "🥛"}, {"oat milk", "🥛"},
+		{"soy milk", "🥛"}, {"coconut milk", "🥥"}, {"milk", "🥛"}, {"cream", "🥛"},
+		{"cream cheese", "🧀"}, {"cottage cheese", "🧀"}, {"goat cheese", "🧀"},
 		{"cheese", "🧀"}, {"cheddar", "🧀"}, {"mozzarella", "🧀"}, {"parmesan", "🧀"},
 		{"gouda", "🧀"}, {"brie", "🧀"}, {"feta", "🧀"}, {"gruyere", "🧀"}, {"provolone", "🧀"},
-		{"colby", "🧀"}, {"swiss", "🧀"}, {"jack", "🧀"}, {"ricotta", "🧀"}, {"goat cheese", "🧀"},
-		{"cream cheese", "🧀"}, {"cottage cheese", "🧀"},
+		{"colby", "🧀"}, {"swiss", "🧀"}, {"jack", "🧀"}, {"ricotta", "🧀"},
 		{"butter", "🧈"}, {"margarine", "🧈"},
 		{"egg", "🥚"},
 		{"yogurt", "🫙"}, {"kefir", "🫙"},
 		{"ice cream", "🍦"}, {"gelato", "🍦"}, {"sorbet", "🍦"}, {"popsicle", "🍦"},
 		// Meat & Seafood
-		{"chicken", "🍗"}, {"thigh", "🍗"}, {"drumstick", "🍗"}, {"wing", "🍗"},
+		{"rotisserie", "🍗"}, {"chicken", "🍗"}, {"thigh", "🍗"}, {"drumstick", "🍗"}, {"wing", "🍗"},
 		{"beef", "🥩"}, {"steak", "🥩"}, {"ribeye", "🥩"}, {"sirloin", "🥩"}, {"filet", "🥩"},
 		{"ground", "🥩"}, {"roast", "🥩"}, {"brisket", "🥩"},
 		{"pork", "🥩"}, {"chop", "🥩"}, {"tenderloin", "🥩"}, {"ribs", "🥩"},
 		{"bacon", "🥓"}, {"ham", "🥓"}, {"prosciutto", "🥓"}, {"pancetta", "🥓"},
 		{"sausage", "🌭"}, {"hot dog", "🌭"}, {"bratwurst", "🌭"}, {"kielbasa", "🌭"},
 		{"turkey", "🦃"}, {"lamb", "🥩"}, {"veal", "🥩"}, {"venison", "🥩"}, {"bison", "🥩"},
-		{"fish", "🐟"}, {"salmon", "🐟"}, {"tuna", "🐟"}, {"cod", "🐟"}, {"tilapia", "🐟"},
-		{"trout", "🐟"}, {"halibut", "🐟"}, {"mahi", "🐟"}, {"swordfish", "🐟"}, {"catfish", "🐟"},
+		{"deli meat", "🥩"}, {"lunch meat", "🥩"}, {"jerky", "🥩"},
+		{"fish sauce", "🐟"}, {"fish food", "🐠"}, {"fish", "🐟"}, {"salmon", "🐟"}, {"tuna", "🐟"},
+		{"cod", "🐟"}, {"tilapia", "🐟"}, {"trout", "🐟"}, {"halibut", "🐟"}, {"mahi", "🐟"},
+		{"swordfish", "🐟"}, {"catfish", "🐟"}, {"anchovy", "🐟"},
 		{"shrimp", "🦐"}, {"prawn", "🦐"}, {"crab", "🦀"}, {"lobster", "🦞"},
-		{"scallop", "🦪"}, {"oyster", "🦪"}, {"clam", "🦪"}, {"mussel", "🦪"},
-		// Deli
+		{"scallop", "🦪"}, {"oyster sauce", "🦪"}, {"oyster", "🦪"}, {"clam", "🦪"}, {"mussel", "🦪"},
+		// Deli & Prepared
 		{"deli", "🥪"}, {"sandwich", "🥪"}, {"wrap", "🌯"}, {"burrito", "🌯"},
+		{"spring roll", "🥟"}, {"dumpling", "🥟"}, {"wonton", "🥟"}, {"samosa", "🥟"},
+		{"falafel", "🧆"}, {"quesadilla", "🌮"}, {"enchilada", "🌮"}, {"tamale", "🫔"},
+		{"hot pocket", "🍕"}, {"pizza roll", "🍕"},
+		{"microwave meal", "🍱"}, {"frozen dinner", "🍱"}, {"tv dinner", "🍱"},
+		{"protein bar", "💪"}, {"energy bar", "💪"}, {"granola bar", "🥜"},
 		{"hummus", "🫘"}, {"guacamole", "🥑"}, {"salsa", "🫙"},
 		// Bakery
-		{"bread", "🍞"}, {"sourdough", "🍞"}, {"baguette", "🥖"}, {"ciabatta", "🍞"}, {"brioche", "🍞"},
-		{"roll", "🍞"}, {"bun", "🍞"}, {"loaf", "🍞"}, {"rye", "🍞"}, {"wheat bread", "🍞"},
+		{"sourdough", "🍞"}, {"baguette", "🥖"}, {"ciabatta", "🍞"}, {"brioche", "🍞"},
+		{"bread", "🍞"}, {"roll", "🍞"}, {"bun", "🍞"}, {"loaf", "🍞"}, {"rye", "🍞"}, {"wheat bread", "🍞"},
 		{"pita", "🫓"}, {"naan", "🫓"}, {"tortilla", "🫓"}, {"flatbread", "🫓"},
 		{"bagel", "🥯"}, {"croissant", "🥐"}, {"pretzel", "🥨"},
-		{"muffin", "🧁"}, {"scone", "🧁"}, {"danish", "🧁"}, {"pastry", "🧁"},
-		{"cake", "🎂"}, {"cupcake", "🧁"}, {"pie", "🥧"}, {"tart", "🥧"},
-		{"cookie", "🍪"}, {"brownie", "🍪"}, {"biscuit", "🍪"},
+		{"english muffin", "🧇"}, {"muffin", "🧁"}, {"scone", "🧁"}, {"danish", "🧁"}, {"pastry", "🥐"},
+		{"cake mix", "🎂"}, {"cake", "🎂"}, {"cupcake", "🧁"}, {"pie", "🥧"}, {"tart", "🥧"},
+		{"cookie", "🍪"}, {"brownie", "🍫"}, {"biscuit", "🍪"},
 		{"donut", "🍩"}, {"doughnut", "🍩"},
-		{"waffle", "🧇"}, {"pancake", "🥞"},
+		{"waffle", "🧇"}, {"pancake", "🥞"}, {"mochi", "🍡"},
+		// Baking
+		{"vanilla extract", "🧁"}, {"baking soda", "🧁"}, {"baking powder", "🧁"},
+		{"cornstarch", "🧁"}, {"powdered sugar", "🍚"}, {"brown sugar", "🍬"},
+		{"frosting", "🧁"}, {"sprinkles", "🎂"}, {"food coloring", "🎨"},
+		{"cupcake liner", "🧁"}, {"pie crust", "🥧"},
+		{"bread flour", "🌾"},
 		// Pantry & Dry Goods
 		{"rice", "🍚"}, {"jasmine", "🍚"}, {"basmati", "🍚"}, {"quinoa", "🍚"}, {"couscous", "🍚"},
 		{"pasta", "🍝"}, {"spaghetti", "🍝"}, {"penne", "🍝"}, {"rigatoni", "🍝"}, {"fusilli", "🍝"},
 		{"linguine", "🍝"}, {"fettuccine", "🍝"}, {"macaroni", "🍝"}, {"rotini", "🍝"},
 		{"orzo", "🍝"}, {"farfalle", "🍝"}, {"angel hair", "🍝"}, {"lasagna", "🍝"},
 		{"ramen", "🍜"}, {"noodle", "🍜"}, {"udon", "🍜"}, {"soba", "🍜"}, {"lo mein", "🍜"},
+		{"miso", "🍜"},
 		{"cereal", "🥣"}, {"oat", "🥣"}, {"granola", "🥣"}, {"muesli", "🥣"},
-		{"bean", "🫘"}, {"lentil", "🫘"}, {"chickpea", "🫘"}, {"black bean", "🫘"},
-		{"peanut butter", "🥜"}, {"almond butter", "🥜"}, {"nut", "🥜"}, {"almond", "🥜"},
-		{"walnut", "🥜"}, {"pecan", "🥜"}, {"cashew", "🥜"}, {"pistachio", "🥜"},
-		{"seed", "🌻"}, {"sunflower", "🌻"}, {"chia", "🌻"}, {"flax", "🌻"},
+		{"chickpea", "🫘"}, {"black bean", "🫘"}, {"bean", "🫘"}, {"lentil", "🫘"},
+		{"tofu", "🫘"}, {"tempeh", "🫘"}, {"seitan", "🌾"},
+		{"peanut butter", "🥜"}, {"almond butter", "🥜"}, {"tahini", "🥜"},
+		{"peanut", "🥜"}, {"almond", "🥜"}, {"walnut", "🥜"}, {"pecan", "🥜"},
+		{"cashew", "🥜"}, {"pistachio", "🥜"}, {"nut", "🥜"},
+		{"sunflower seed", "🌻"}, {"pumpkin seed", "🎃"}, {"sunflower", "🌻"},
+		{"chia", "🌻"}, {"flax", "🌻"}, {"seed", "🌻"},
 		{"honey", "🍯"}, {"maple syrup", "🍯"}, {"agave", "🍯"},
 		{"jam", "🫙"}, {"jelly", "🫙"}, {"preserves", "🫙"}, {"marmalade", "🫙"},
-		{"oil", "🫒"}, {"olive", "🫒"}, {"coconut oil", "🥥"}, {"sesame oil", "🫒"},
+		{"coconut oil", "🥥"}, {"olive oil", "🫒"}, {"sesame oil", "🫒"}, {"oil", "🫒"}, {"olive", "🫒"},
 		{"vinegar", "🫙"}, {"balsamic", "🫙"},
-		{"sauce", "🫙"}, {"sriracha", "🌶️"}, {"hot sauce", "🌶️"}, {"tabasco", "🌶️"},
-		{"soy sauce", "🫙"}, {"teriyaki", "🫙"}, {"bbq sauce", "🫙"}, {"barbecue", "🫙"},
+		// Condiments
+		{"relish", "🌶️"}, {"horseradish", "🌶️"}, {"aioli", "🧄"}, {"pesto", "🌿"},
+		{"chimichurri", "🌿"}, {"chutney", "🥭"}, {"tzatziki", "🥒"}, {"tapenade", "🫒"}, {"capers", "🫒"},
+		{"worcestershire", "🥫"}, {"hoisin", "🥫"},
+		{"harissa", "🌶️"}, {"gochujang", "🌶️"}, {"curry paste", "🍛"},
+		{"sriracha", "🌶️"}, {"hot sauce", "🌶️"}, {"tabasco", "🌶️"}, {"buffalo sauce", "🌶️"},
+		{"soy sauce", "🥫"}, {"teriyaki", "🥫"}, {"bbq sauce", "🥫"}, {"barbecue", "🥫"},
+		{"sauce", "🫙"},
 		{"ketchup", "🫙"}, {"mustard", "🫙"}, {"mayo", "🫙"}, {"mayonnaise", "🫙"},
 		{"dressing", "🫙"}, {"ranch", "🫙"},
-		{"salt", "🧂"}, {"pepper", "🧂"}, {"seasoning", "🧂"}, {"spice", "🧂"}, {"cumin", "🧂"},
-		{"paprika", "🧂"}, {"cinnamon", "🧂"}, {"nutmeg", "🧂"}, {"turmeric", "🧂"},
+		{"cumin", "🧂"}, {"paprika", "🧂"}, {"cinnamon", "🧂"}, {"nutmeg", "🧂"}, {"turmeric", "🧂"},
+		{"salt", "🧂"}, {"seasoning", "🧂"}, {"spice", "🧂"},
 		{"flour", "🌾"}, {"sugar", "🧂"}, {"baking", "🧁"}, {"yeast", "🍞"},
 		{"soup", "🍲"}, {"broth", "🍲"}, {"stock", "🍲"}, {"chili", "🍲"}, {"stew", "🍲"},
-		{"canned", "🥫"}, {"can of", "🥫"}, {"tomato sauce", "🥫"}, {"tomato paste", "🥫"},
+		{"tomato sauce", "🥫"}, {"tomato paste", "🥫"}, {"can of", "🥫"}, {"canned", "🥫"},
 		{"taco", "🌮"}, {"tortilla chip", "🌮"},
+		// International / Specialty
+		{"kimchi", "🥬"}, {"sauerkraut", "🥬"}, {"wasabi", "🟢"},
+		{"nori", "🍣"}, {"seaweed", "🍣"},
 		// Snacks
-		{"chip", "🍿"}, {"popcorn", "🍿"}, {"cracker", "🍘"}, {"pretzel", "🥨"},
+		{"chip", "🍟"}, {"popcorn", "🍿"}, {"cracker", "🍘"},
 		{"chocolate", "🍫"}, {"candy", "🍬"}, {"gum", "🍬"}, {"gummy", "🍬"},
-		{"trail mix", "🥜"}, {"jerky", "🥩"}, {"granola bar", "🥣"},
-		{"fruit snack", "🍬"}, {"dried fruit", "🍇"},
+		{"trail mix", "🥜"}, {"fruit snack", "🍬"}, {"dried fruit", "🍇"}, {"raisin", "🍇"},
+		{"cranberry", "🍒"},
 		// Beverages
-		{"water", "💧"}, {"sparkling", "💧"}, {"seltzer", "💧"}, {"la croix", "💧"}, {"lacroix", "💧"},
+		{"sparkling water", "💧"}, {"seltzer", "💧"}, {"tonic", "💧"},
+		{"la croix", "💧"}, {"lacroix", "💧"}, {"water", "💧"},
+		{"coconut water", "🥥"},
 		{"juice", "🧃"}, {"oj", "🍊"}, {"lemonade", "🍋"},
-		{"soda", "🥤"}, {"coke", "🥤"}, {"pepsi", "🥤"}, {"sprite", "🥤"}, {"dr pepper", "🥤"},
-		{"diet", "🥤"}, {"pop", "🥤"}, {"ginger ale", "🥤"},
-		{"coffee", "☕"}, {"espresso", "☕"}, {"latte", "☕"},
-		{"tea", "🍵"}, {"matcha", "🍵"}, {"chai", "🍵"}, {"kombucha", "🍵"},
+		{"coke", "🥤"}, {"pepsi", "🥤"}, {"sprite", "🥤"}, {"dr pepper", "🥤"},
+		{"ginger ale", "🥤"}, {"cola", "🥤"}, {"root beer", "🍺"}, {"ginger beer", "🍺"},
+		{"soda", "🥤"}, {"pop", "🥤"},
+		{"espresso", "☕"}, {"latte", "☕"}, {"coffee", "☕"},
+		{"matcha", "🍵"}, {"chai", "🍵"}, {"tea", "🍵"}, {"kombucha", "🍵"},
 		{"beer", "🍺"}, {"ipa", "🍺"}, {"lager", "🍺"}, {"ale", "🍺"}, {"stout", "🍺"},
-		{"wine", "🍷"}, {"champagne", "🍾"}, {"prosecco", "🍾"},
-		{"liquor", "🥃"}, {"whiskey", "🥃"}, {"vodka", "🥃"}, {"tequila", "🥃"}, {"rum", "🥃"}, {"gin", "🥃"},
-		{"smoothie", "🥤"}, {"shake", "🥤"}, {"protein", "💪"},
-		{"energy drink", "⚡"}, {"red bull", "⚡"}, {"monster", "⚡"},
+		{"champagne", "🥂"}, {"prosecco", "🍾"}, {"wine", "🍷"}, {"cider", "🍎"},
+		{"whiskey", "🥃"}, {"vodka", "🍸"}, {"tequila", "🍸"}, {"rum", "🍹"}, {"gin", "🍸"},
+		{"liquor", "🥃"},
+		{"protein shake", "💪"}, {"smoothie", "🥤"}, {"shake", "🥤"},
+		{"sports drink", "🥤"}, {"energy drink", "⚡"}, {"red bull", "⚡"}, {"monster", "⚡"},
+		{"protein", "💪"},
 		// Frozen
 		{"frozen", "❄️"}, {"pizza", "🍕"},
 		// Household & Cleaning
-		{"soap", "🧼"}, {"dish soap", "🧼"}, {"hand soap", "🧼"},
-		{"detergent", "🧴"}, {"laundry", "🧴"}, {"fabric softener", "🧴"},
+		{"dish soap", "🧼"}, {"hand soap", "🧼"}, {"soap", "🧼"},
+		{"detergent", "🧴"}, {"laundry", "🧴"}, {"fabric softener", "🧺"}, {"dryer sheet", "🧺"},
+		{"stain remover", "🧺"},
 		{"sponge", "🧽"}, {"scrub", "🧽"}, {"brush", "🧽"},
 		{"paper towel", "🧻"}, {"toilet paper", "🧻"}, {"tissue", "🧻"}, {"napkin", "🧻"},
 		{"trash bag", "🗑️"}, {"garbage", "🗑️"},
-		{"foil", "🫙"}, {"plastic wrap", "🫙"}, {"zip lock", "🛍️"}, {"ziploc", "🛍️"},
-		{"bleach", "🧴"}, {"cleaner", "🧴"}, {"disinfectant", "🧴"}, {"wipes", "🧴"},
+		{"aluminum foil", "🫕"}, {"foil", "🫕"}, {"plastic wrap", "🫕"}, {"parchment paper", "📜"}, {"wax paper", "📜"},
+		{"ziplock", "🤐"}, {"sandwich bag", "🤐"}, {"zip lock", "🛍️"}, {"ziploc", "🛍️"},
+		{"bleach", "🧴"}, {"disinfectant", "🧴"}, {"cleaner", "🧴"}, {"wipes", "🧴"},
+		{"rubber glove", "🧤"},
+		{"mop", "🧹"}, {"broom", "🧹"}, {"dustpan", "🧹"}, {"vacuum bag", "🧹"}, {"lint roller", "🧹"},
+		{"air freshener", "🌸"}, {"light bulb", "💡"}, {"battery", "🔋"}, {"candle", "🕯️"},
+		{"match", "🔥"}, {"charcoal", "🔥"}, {"propane", "⛽"}, {"extension cord", "🔌"},
+		{"duct tape", "🛠️"}, {"super glue", "🛠️"}, {"command strip", "🛠️"},
+		{"storage bin", "📦"}, {"hanger", "👔"},
 		// Health & Personal Care
 		{"vitamin", "💊"}, {"supplement", "💊"}, {"medicine", "💊"}, {"tylenol", "💊"}, {"advil", "💊"}, {"ibuprofen", "💊"},
 		{"toothpaste", "🪥"}, {"toothbrush", "🪥"}, {"floss", "🪥"}, {"mouthwash", "🪥"},
@@ -3325,14 +3406,20 @@ func inferItemEmoji(name, department string) string {
 		{"lotion", "🧴"}, {"moisturizer", "🧴"}, {"sunscreen", "🧴"}, {"deodorant", "🧴"},
 		{"bandaid", "🩹"}, {"band-aid", "🩹"}, {"first aid", "🩹"},
 		{"razor", "🪒"}, {"shaving", "🪒"},
-		// Baby & Pet
-		{"diaper", "🧒"}, {"baby food", "🍼"}, {"formula", "🍼"}, {"baby", "👶"},
-		{"dog food", "🐕"}, {"dog treat", "🐕"}, {"cat food", "🐈"}, {"cat litter", "🐈"},
+		// Baby
+		{"baby food", "🍼"}, {"baby cereal", "🍼"}, {"baby wipe", "👶"}, {"formula", "🍼"},
+		{"pacifier", "👶"}, {"diaper", "👶"}, {"sippy cup", "🥤"}, {"bib", "👶"},
+		{"teething", "👶"}, {"nursing pad", "🤱"}, {"baby", "👶"},
+		// Pet
+		{"dog food", "🐕"}, {"dog treat", "🐕"}, {"cat food", "🐈"}, {"cat litter", "🐱"},
+		{"bird seed", "🐦"}, {"fish food", "🐠"}, {"hamster food", "🐹"}, {"rabbit food", "🐰"},
+		{"pet treat", "🦴"}, {"leash", "🐕"}, {"collar", "🐕"}, {"flea", "🐕"},
+		{"pet shampoo", "🐕"}, {"litter", "🐱"}, {"chew toy", "🦴"}, {"catnip", "🐱"},
 		{"pet", "🐾"},
 	}
 
 	for _, kw := range keywords {
-		if strings.Contains(lower, kw.kw) {
+		if containsWord(lower, kw.kw) {
 			return kw.emoji
 		}
 	}
@@ -3346,10 +3433,12 @@ func inferItemEmoji(name, department string) string {
 		"Bakery":               "🍞",
 		"Pantry & Dry Goods":   "🥫",
 		"Snacks":               "🍿",
+		"Snacks & Candy":       "🍿",
 		"Beverages":            "🥤",
 		"Frozen":               "❄️",
 		"Household & Cleaning": "🧹",
 		"Health & Personal":    "💊",
+		"Health & Personal Care": "💊",
 		"Baby & Pet":           "🐾",
 	}
 	if e, ok := deptEmojis[department]; ok {
@@ -3389,7 +3478,7 @@ func backfillItemEmojis(db *sql.DB) {
 	updated := 0
 	for _, it := range items {
 		emoji := inferItemEmoji(it.name, it.department)
-		if emoji != "" && emoji != "🛒" {
+		if emoji != "" {
 			_, err := db.Exec("UPDATE list_items SET emoji = ? WHERE id = ? AND emoji = ''", emoji, it.id)
 			if err == nil {
 				updated++

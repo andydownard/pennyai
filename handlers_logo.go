@@ -97,12 +97,9 @@ func (s *Server) handleLogoProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Layer 4: SVG placeholder
-	name := brandName
-	if name == "" {
-		name = strings.TrimSuffix(domain, ".com")
-	}
-	s.servePlaceholderLogo(w, name)
+	// No real logo found — return 404 so frontend falls back to emoji
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.WriteHeader(http.StatusNotFound)
 }
 
 // fetchBrandLogo fetches a brand logo from Logo.dev.
