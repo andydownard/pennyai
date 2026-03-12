@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react'
 import { BrandLogo } from './BrandLogo'
 import { StatusBadge } from './StatusBadge'
 import { SwapCard, type SwapOffer } from './SwapCard'
-import { FONT, FONT_2XS, FONT_XS, FONT_BASE, DEPT_ICONS, layout, buttons, text } from '../styles'
+import { FONT, FONT_2XS, FONT_XS, FONT_BASE, layout, buttons, text } from '../styles'
 
 export type ListItem = {
   id: number
@@ -198,18 +198,7 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onD
           </span>
         </button>
         <div style={{ marginRight: '8px' }}>
-          {item.brand ? (
-            <BrandLogo brand={item.brand} size={36} opacity={item.checked ? 0.4 : 1} itemName={item.name} department={item.department} emoji={item.emoji} />
-          ) : (
-            <div style={{
-              ...layout.rowCenter,
-              width: 36, height: 36, borderRadius: '8px', flexShrink: 0,
-              fontSize: '20px', opacity: item.checked ? 0.4 : 1,
-              transition: 'opacity 0.15s',
-            }}>
-              {DEPT_ICONS[item.department] || '🛒'}
-            </div>
-          )}
+          <BrandLogo brand={item.brand} size={36} opacity={item.checked ? 0.4 : 1} itemName={item.name} department={item.department} emoji={item.emoji} />
         </div>
         <div style={styles.center} onClick={() => onTap(item)} role="button" tabIndex={0} aria-label={`Edit ${item.brand && !item.name.toLowerCase().includes(item.brand.toLowerCase()) ? item.brand + ' ' : ''}${item.name}`} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTap(item) } }}>
           <span style={styles.name(item.checked)}>
