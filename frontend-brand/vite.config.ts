@@ -7,6 +7,7 @@ export default defineConfig({
     port: 5174,
     proxy: {
       '/brand': 'http://localhost:8080',
+      '/api': 'http://localhost:8080',
     },
   },
   build: {

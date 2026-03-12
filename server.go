@@ -111,6 +111,8 @@ func loadConfig() Config {
 		FeedbackPhones:      feedbackPhones,
 		GitHubPAT:           os.Getenv("GH_PAT"),
 		GitHubRepo:          os.Getenv("GH_REPO"),
+		StripeSecretKey:     os.Getenv("STRIPE_SECRET_KEY"),
+		StripeWebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
 	}
 }
 

@@ -33,6 +33,8 @@ type Config struct {
 	FeedbackPhones      []string // phone numbers allowed to submit feedback
 	GitHubPAT           string   // personal access token for creating issues
 	GitHubRepo          string   // "owner/repo" format
+	StripeSecretKey     string   // Stripe secret key (sk_live_... or sk_test_...)
+	StripeWebhookSecret string   // Stripe webhook signing secret (whsec_...)
 }
 
 // FeedbackRequest represents a founder feedback item destined for the roadmap.

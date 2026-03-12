@@ -158,10 +158,25 @@ export function App() {
   const [password, setPassword] = useState('')
   const [companyName, setCompanyName] = useState('')
 
-  // Auth check on mount
+  // Auth check on mount + Stripe redirect detection
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const depositStatus = params.get('deposit')
+
     api<BrandUser>('/brand/me')
-      .then(u => { setUser(u); setScreen('dashboard') })
+      .then(u => {
+        setUser(u)
+        if (depositStatus === 'success') {
+          setScreen('transactions')
+          // Clean URL
+          window.history.replaceState({}, '', window.location.pathname)
+        } else if (depositStatus === 'cancel') {
+          setScreen('deposit')
+          window.history.replaceState({}, '', window.location.pathname)
+        } else {
+          setScreen('dashboard')
+        }
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
@@ -602,7 +617,9 @@ export function App() {
             {filtered.map(deal => (
               <div key={deal.id} style={{ ...cardStyle, marginTop: '12px', cursor: 'pointer', transition: 'box-shadow 0.15s' }} onClick={() => openDealDetail(deal.id)}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                    <BrandLogo brand={deal.offer_brand} size={40} />
+                    <div>
                     <div style={{ fontFamily: FONT, fontSize: '16px', fontWeight: 600, color: TEXT }}>{deal.offer_brand} {deal.offer_product}</div>
                     <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC, marginTop: '2px' }}>replaces: {deal.competitor_product}</div>
                     <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC }}>Discount: {formatCents(deal.discount_cents)} | Budget: {formatCents(deal.daily_budget_cents)}</div>
@@ -616,6 +633,7 @@ export function App() {
                         <span style={{ fontFamily: FONT, fontSize: '11px', color: TEXT_SEC }}>{Math.round((deal.budget_spent_cents / deal.daily_budget_cents) * 100)}% used</span>
                       </div>
                     )}
+                  </div>
                   </div>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <span style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, padding: '4px 8px', borderRadius: '4px', backgroundColor: deal.status === 'active' ? BRAND_LIGHT : '#FFF3E0', color: deal.status === 'active' ? BRAND : '#E65100' }}>{deal.status}</span>
@@ -656,6 +674,7 @@ export function App() {
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
                 <button onClick={() => setScreen('deals')} style={{ ...linkBtn, fontSize: '14px' }}>&larr; Back</button>
+                <BrandLogo brand={deal.offer_brand} size={40} />
                 <h1 style={{ ...h1Style, flex: 1 }}>{deal.offer_brand} {deal.offer_product}</h1>
                 <span style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, padding: '4px 8px', borderRadius: '4px', backgroundColor: deal.status === 'active' ? BRAND_LIGHT : '#FFF3E0', color: deal.status === 'active' ? BRAND : '#E65100' }}>{deal.status}</span>
               </div>
@@ -896,9 +915,7 @@ export function App() {
             <h1 style={h1Style}>Account</h1>
             <div style={{ ...cardStyle, marginTop: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px' }}>
-                <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: BRAND, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT, fontSize: '22px', fontWeight: 700, color: WHITE }}>
-                  {user.company_name.charAt(0).toUpperCase()}
-                </div>
+                <BrandLogo brand={user.company_name} size={56} />
                 <div>
                   <div style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 600, color: TEXT }}>{user.company_name}</div>
                   <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SEC }}>{user.email}</div>
@@ -963,6 +980,33 @@ function MetricCard({ label, value, highlight }: { label: string; value: string;
       <div style={{ fontFamily: FONT, fontSize: '13px', color: TEXT_SEC }}>{label}</div>
       <div style={{ fontFamily: FONT, fontSize: '24px', fontWeight: 700, color: highlight ? BRAND : TEXT, marginTop: '4px' }}>{value}</div>
     </div>
+  )
+}
+
+function BrandLogo({ brand, size = 32 }: { brand: string; size?: number }) {
+  const [failed, setFailed] = useState(false)
+  if (!brand || failed) {
+    return (
+      <div style={{
+        width: size, height: size, borderRadius: '6px', backgroundColor: BRAND_LIGHT,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: FONT, fontSize: Math.round(size * 0.4), fontWeight: 700, color: BRAND,
+        flexShrink: 0,
+      }}>
+        {brand ? brand.charAt(0).toUpperCase() : '?'}
+      </div>
+    )
+  }
+  return (
+    <img
+      src={`/api/logo?brand=${encodeURIComponent(brand)}&v=4`}
+      alt={brand}
+      width={size}
+      height={size}
+      loading="lazy"
+      style={{ borderRadius: '6px', objectFit: 'contain', border: `1px solid ${BORDER}`, flexShrink: 0, backgroundColor: WHITE }}
+      onError={() => setFailed(true)}
+    />
   )
 }
 
@@ -1230,11 +1274,17 @@ function DepositForm({ user, onDeposited, onCancel }: { user: BrandUser | null; 
     setError('')
     setSubmitting(true)
     try {
-      await api('/brand/deposit', {
+      const data = await api<{ checkout_url?: string; message?: string }>('/brand/deposit', {
         method: 'POST',
         body: JSON.stringify({ amount_cents: amount * 100 }),
       })
-      onDeposited()
+      if (data.checkout_url) {
+        // Stripe Checkout redirect
+        window.location.href = data.checkout_url
+      } else {
+        // Dev/test mode: direct credit
+        onDeposited()
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Deposit failed')
     } finally {

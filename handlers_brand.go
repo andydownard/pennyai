@@ -1,14 +1,19 @@
 package main
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/mail"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -964,8 +969,7 @@ func (s *Server) handleBrandDeposit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		AmountCents int    `json:"amount_cents"`
-		StripeToken string `json:"stripe_token"`
+		AmountCents int `json:"amount_cents"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -976,14 +980,54 @@ func (s *Server) handleBrandDeposit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// In production, this would create a Stripe Checkout Session.
-	// For now, we directly credit the balance (Stripe integration placeholder).
-	stripeID := ""
-	if req.StripeToken != "" {
-		stripeID = "pi_placeholder_" + req.StripeToken
+	// If Stripe is configured, create a Checkout Session (redirect flow).
+	// Otherwise, fall back to direct credit (dev/test mode).
+	if s.config.StripeSecretKey != "" {
+		baseURL := s.config.WebhookBaseURL
+		if baseURL == "" {
+			baseURL = "https://brands.thrift.ly"
+		}
+
+		form := url.Values{}
+		form.Set("mode", "payment")
+		form.Set("line_items[0][price_data][currency]", "usd")
+		form.Set("line_items[0][price_data][product_data][name]", "Thriftly Brand Account Deposit")
+		form.Set("line_items[0][price_data][unit_amount]", strconv.Itoa(req.AmountCents))
+		form.Set("line_items[0][quantity]", "1")
+		form.Set("payment_intent_data[metadata][brand_user_id]", strconv.Itoa(bs.BrandUserID))
+		form.Set("success_url", baseURL+"?deposit=success")
+		form.Set("cancel_url", baseURL+"?deposit=cancel")
+
+		httpReq, _ := http.NewRequest("POST", "https://api.stripe.com/v1/checkout/sessions", strings.NewReader(form.Encode()))
+		httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		httpReq.SetBasicAuth(s.config.StripeSecretKey, "")
+
+		resp, err := http.DefaultClient.Do(httpReq)
+		if err != nil {
+			log.Printf("[stripe] checkout session request failed: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Payment service unavailable"})
+			return
+		}
+		defer resp.Body.Close()
+
+		var session struct {
+			ID  string `json:"id"`
+			URL string `json:"url"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&session); err != nil || session.URL == "" {
+			log.Printf("[stripe] failed to parse checkout session response (status %d): %v", resp.StatusCode, err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Payment service error"})
+			return
+		}
+
+		log.Printf("[brand-portal] created Stripe checkout session %s for brand user %d (%d cents)", session.ID, bs.BrandUserID, req.AmountCents)
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"checkout_url": session.URL,
+		})
+		return
 	}
 
-	// Credit balance
+	// Dev/test fallback: credit directly
 	_, err := s.db.Exec(`
 		UPDATE brand_balance SET balance_cents = balance_cents + ?, last_deposit_at = CURRENT_TIMESTAMP
 		WHERE brand_user_id = ?`, req.AmountCents, bs.BrandUserID)
@@ -991,15 +1035,11 @@ func (s *Server) handleBrandDeposit(w http.ResponseWriter, r *http.Request) {
 		dbError(w, err, "Failed to process deposit")
 		return
 	}
-
-	// Record transaction
 	s.db.Exec(`INSERT INTO brand_transactions (brand_user_id, type, amount_cents, description, stripe_id)
-		VALUES (?, 'deposit', ?, 'Balance deposit', ?)`, bs.BrandUserID, req.AmountCents, stripeID)
-
-	log.Printf("[brand-portal] brand user %d deposited %d cents", bs.BrandUserID, req.AmountCents)
-
+		VALUES (?, 'deposit', ?, 'Balance deposit (test)', '')`, bs.BrandUserID, req.AmountCents)
+	log.Printf("[brand-portal] brand user %d deposited %d cents (test mode)", bs.BrandUserID, req.AmountCents)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"message":    "Deposit processed",
+		"message":      "Deposit processed",
 		"amount_cents": req.AmountCents,
 	})
 }
@@ -1248,21 +1288,24 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read raw body for signature verification
-	body := make([]byte, 0)
-	if r.Body != nil {
-		r.Body = http.MaxBytesReader(w, r.Body, 1*1024*1024)
-		var err error
-		body, err = json.RawMessage(nil), nil
-		buf := make([]byte, 1024)
-		for {
-			n, readErr := r.Body.Read(buf)
-			body = append(body, buf[:n]...)
-			if readErr != nil {
-				_ = err
-				break
-			}
+	// Read raw body
+	r.Body = http.MaxBytesReader(w, r.Body, 1*1024*1024)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Failed to read body"})
+		return
+	}
+
+	// Verify Stripe signature if webhook secret is configured
+	if s.config.StripeWebhookSecret != "" {
+		sig := r.Header.Get("Stripe-Signature")
+		if !verifyStripeSignature(body, sig, s.config.StripeWebhookSecret) {
+			log.Printf("[stripe] webhook signature verification failed")
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid signature"})
+			return
 		}
+	} else {
+		log.Printf("[stripe] WARNING: webhook received without signature verification (STRIPE_WEBHOOK_SECRET not set)")
 	}
 
 	// Parse the event
@@ -1319,6 +1362,56 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// verifyStripeSignature verifies a Stripe webhook signature (v1 scheme).
+// Format: "t=timestamp,v1=signature[,v1=signature...]"
+func verifyStripeSignature(payload []byte, sigHeader, secret string) bool {
+	if sigHeader == "" {
+		return false
+	}
+
+	var timestamp string
+	var signatures []string
+	for _, part := range strings.Split(sigHeader, ",") {
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		switch kv[0] {
+		case "t":
+			timestamp = kv[1]
+		case "v1":
+			signatures = append(signatures, kv[1])
+		}
+	}
+
+	if timestamp == "" || len(signatures) == 0 {
+		return false
+	}
+
+	// Replay protection: reject if timestamp is older than 5 minutes
+	ts, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		return false
+	}
+	if math.Abs(float64(time.Now().Unix()-ts)) > 300 {
+		return false
+	}
+
+	// Compute expected signature
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(timestamp))
+	mac.Write([]byte("."))
+	mac.Write(payload)
+	expected := hex.EncodeToString(mac.Sum(nil))
+
+	for _, sig := range signatures {
+		if hmac.Equal([]byte(sig), []byte(expected)) {
+			return true
+		}
+	}
+	return false
 }
 
 // handlePricingTiers returns category pricing tiers so brands know the minimum
