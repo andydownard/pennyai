@@ -29,3 +29,7 @@ Claude Code MUST implement these. If they conflict with existing code or CLAUDE.
 - ~~[CRITICAL] 2026-03-08 21:01 UTC — Master list per store (WF, Costco etc.)~~ — Fixed: saved lists now support store_name + is_master columns, store filter pills in home screen header, save sheet has optional store field, Penny chat handles "load my Costco list" / "save as my WF list"
 
 ## All CRITICAL items resolved.
+
+## [CRITICAL] 2026-03-12 10:32 UTC
+[Brand Portal] doesn't use logo. billing needs to be wired into stripe. create env variables in railway and i'll populate them
+_Submitted: 2026-03-12 10:32 UTC_
