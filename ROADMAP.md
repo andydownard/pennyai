@@ -862,7 +862,7 @@ Break-even math:
 | ~~**Error monitoring**~~ | ~~log.Printf() only~~ | **Sentry** ✅ Done | — | — | $0 |
 | ~~**Internal analytics**~~ | ~~custom SQL~~ | **PostHog** ✅ Done | — | — | $0 |
 | **Brand reporting (M9)** | Not built (1-2 week estimate) | **Metabase OSS** on Railway | Half day | M9 entirely | $5/mo |
-| **Real-time sync (R4)** | Polling every few seconds | **Pusher** or **Ably** free tier | 1 day | R4 entirely (2-3 weeks) | $0 |
+| ~~**Real-time sync (R4)**~~ | ~~Polling~~ | **SSE (built-in)** ✅ Done | — | — | $0 |
 | **Auth system** | ~500 LOC custom (4 auth methods) | **Clerk** free tier (10K MAU) | 3-5 days | Auth maintenance burden | $0 |
 
 ### BUY LATER — When Phase 3 starts
