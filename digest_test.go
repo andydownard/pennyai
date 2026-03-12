@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -297,6 +298,47 @@ func TestSettingsDailyDigestEnabled_AfterOptOut_DoesNotSend(t *testing.T) {
 	smsTo, _ := mock.GetLastSMS()
 	if smsTo != "" {
 		t.Error("After opt-out, digest should NOT send")
+	}
+}
+
+func TestProcessDailyDigest_RapidCallsDoNotDuplicate(t *testing.T) {
+	mock := &MockTwilioClient{}
+	server := newTestServer(t, mock)
+
+	// Create opted-in user with no prior digest (NULL last_sent)
+	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled) VALUES (1, '+15551234567', 'Rapid', 1)")
+	server.db.Exec("INSERT INTO list_items (user_id, name) VALUES (1, 'milk')")
+
+	// Call processDailyDigest twice in rapid succession
+	server.processDailyDigest()
+	countAfterFirst := mock.GetSMSCount()
+	if countAfterFirst != 1 {
+		t.Fatalf("Expected 1 SMS after first call, got %d", countAfterFirst)
+	}
+
+	server.processDailyDigest()
+	countAfterSecond := mock.GetSMSCount()
+	if countAfterSecond != 1 {
+		t.Errorf("Rapid second call should NOT send duplicate SMS (sent %d total, expected 1)", countAfterSecond)
+	}
+}
+
+func TestProcessDailyDigest_DedupFlagSetBeforeSMS(t *testing.T) {
+	// Verify that even if SMS fails, the dedup flag was already set
+	// (miss one digest is better than risk duplicate)
+	mock := &MockTwilioClient{SMSErr: fmt.Errorf("twilio error")}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled) VALUES (1, '+15551234567', 'Guard', 1)")
+	server.db.Exec("INSERT INTO list_items (user_id, name) VALUES (1, 'eggs')")
+
+	server.processDailyDigest()
+
+	// Dedup flag should still be set even though SMS failed
+	var lastSent string
+	server.db.QueryRow("SELECT COALESCE(daily_digest_last_sent, '') FROM users WHERE id = 1").Scan(&lastSent)
+	if lastSent == "" {
+		t.Error("daily_digest_last_sent should be set BEFORE SMS attempt (dedup-first pattern)")
 	}
 }
 

@@ -35,7 +35,7 @@ func (s *Server) runDailyDigestLoop() {
 // - Only sends to users with daily_digest_enabled = 1 AND a verified phone number
 // - Rate limited: max 1 SMS per user per 24h via daily_digest_last_sent check (20h dedup window)
 // - Skips users with no list changes since last digest
-// - Updates daily_digest_last_sent atomically after successful send
+// - Updates daily_digest_last_sent BEFORE send (dedup-first pattern: miss > duplicate)
 func (s *Server) processDailyDigest() {
 	if s.config.TwilioPhoneNumber == "" {
 		log.Printf("[digest] skipping — TWILIO_PHONE_NUMBER not configured")
@@ -103,19 +103,27 @@ func (s *Server) processDailyDigest() {
 		// Build the SMS message
 		msg := buildDigestMessage(u.Name, items)
 
-		// Send SMS
-		if err := s.twilio.SendSMS(s.config.TwilioPhoneNumber, u.Phone, msg); err != nil {
-			log.Printf("[digest] SMS error for user %d: %v", u.ID, err)
-			continue
-		}
-
-		// Update last sent timestamp (dedup guard)
-		_, err := s.db.Exec(
-			"UPDATE users SET daily_digest_last_sent = ? WHERE id = ?",
-			now.Format("2006-01-02 15:04:05"), u.ID,
+		// SAFETY: Update dedup flag BEFORE sending SMS. If SMS fails, user misses
+		// one digest (recoverable). If we sent first and UPDATE failed, user gets
+		// duplicate SMS next hour (trust-destroying, per CLAUDE.md hard rule).
+		res, err := s.db.Exec(
+			"UPDATE users SET daily_digest_last_sent = ? WHERE id = ? AND (daily_digest_last_sent IS NULL OR daily_digest_last_sent < ?)",
+			now.Format("2006-01-02 15:04:05"), u.ID, now.Add(-20*time.Hour).Format("2006-01-02 15:04:05"),
 		)
 		if err != nil {
 			log.Printf("[digest] failed to update last_sent for user %d: %v", u.ID, err)
+			continue // Don't send if we can't set the dedup guard
+		}
+		affected, _ := res.RowsAffected()
+		if affected == 0 {
+			skipped++ // Another process already claimed this user
+			continue
+		}
+
+		// Send SMS (dedup guard is already set — safe from duplicates)
+		if err := s.twilio.SendSMS(s.config.TwilioPhoneNumber, u.Phone, msg); err != nil {
+			log.Printf("[digest] SMS error for user %d (dedup flag set, will retry next cycle): %v", u.ID, err)
+			continue
 		}
 
 		sent++

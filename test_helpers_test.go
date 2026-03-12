@@ -27,6 +27,7 @@ type MockTwilioClient struct {
 	LastCheckCode  string
 	LastSMSTo      string
 	LastSMSBody    string
+	SMSCount       int
 
 	SendErr       error
 	CheckApproved bool
@@ -54,7 +55,15 @@ func (m *MockTwilioClient) SendSMS(from, to, body string) error {
 	defer m.mu.Unlock()
 	m.LastSMSTo = to
 	m.LastSMSBody = body
+	m.SMSCount++
 	return m.SMSErr
+}
+
+// GetSMSCount returns the total number of SMS messages sent.
+func (m *MockTwilioClient) GetSMSCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.SMSCount
 }
 
 // GetLastSMS returns the last SMS recipient and body in a thread-safe way.
