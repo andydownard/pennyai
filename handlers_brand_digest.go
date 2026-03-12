@@ -159,12 +159,22 @@ func (s *Server) sendBrandDigest(brandUserID int, email, companyName string) err
 	html := buildBrandDigestHTML(data)
 	subject := fmt.Sprintf("Your Thriftly Weekly Recap — %s", data.WeekLabel)
 
+	// SAFETY: Update dedup flag BEFORE sending email. Missing one weekly digest
+	// is recoverable; duplicate email is trust-eroding (per CLAUDE.md hard rule).
+	res, err := s.db.Exec(`UPDATE brand_users SET last_digest_at = datetime('now') WHERE id = ? AND (last_digest_at IS NULL OR last_digest_at < ?)`,
+		brandUserID, time.Now().Add(-7*24*time.Hour).Format("2006-01-02 15:04:05"))
+	if err != nil {
+		return fmt.Errorf("update last_digest_at: %w", err)
+	}
+	if affected, _ := res.RowsAffected(); affected == 0 {
+		return nil // Already sent by another process
+	}
+
 	if err := s.sendTransactionalEmail(email, subject, html); err != nil {
+		log.Printf("[brand-digest] email failed for brand_user %d (dedup flag set, will retry next week): %v", brandUserID, err)
 		return err
 	}
 
-	// Mark digest as sent (idempotency: update timestamp)
-	s.db.Exec(`UPDATE brand_users SET last_digest_at = datetime('now') WHERE id = ?`, brandUserID)
 	return nil
 }
 
