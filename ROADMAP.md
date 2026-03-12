@@ -84,12 +84,16 @@ Strategic direction from founder + CEO panel focused on three gates: First-5-Min
 6. **Feature Pause: Feedback Widget** — Operations stability concerns. Hold for 1+ week until SMS/email delivery is 99.9% reliable.
 
 8. **F3: Auto-Learn Store Department Order** — P2, Size M
-   - Track the sequence users check off items per store. After 3+ trips, Penny reorders departments to match the user's actual walk pattern. Per-store personalization. Redesigned from user request for manual drag (auto-learn passes Gate 3, manual drag doesn't).
+   - [x] department_order_events table tracks check-off sequence per store
+   - [x] GET /api/list/department-order returns learned order after 3+ trips
+   - [x] Frontend uses learned order with opacity transition on store switch
+   - [x] "Reorder list by how I shop" toggle in Penny Settings
+   - [x] One-time Penny chime-in when order activates per store
+   - [x] store_order_enabled user setting (default on)
    - Source: User feedback F3 (2026-03-08)
-   - Gates: Fails G1 (requires 3+ trips before value), Marginal G2 (efficiency, not coordination), Passes G3 (check-off sequence data compounds and personalizes per store)
-   - Sprint-ready: No (needs UX design round)
+   - Gates: Passes G3 (check-off sequence data compounds per store)
+   - **Status:** Done
    - **Owner:** Product + AI + UX Designer
-   - **Timeline:** TBD — requires UX spec before sprint planning
 
 ---
 
