@@ -419,6 +419,9 @@ function AppInner() {
   const [settingsPennyPhone, setSettingsPennyPhone] = useState('')
   const [settingsUserPhone, setSettingsUserPhone] = useState('')
   const [inviteLoading, setInviteLoading] = useState(false)
+  const [showInviteSheet, setShowInviteSheet] = useState(false)
+  const [invitePhone, setInvitePhone] = useState('')
+  const [inviteSent, setInviteSent] = useState(false)
   // --- Referral state ---
   const [referralCode, setReferralCode] = useState('')
   const [referralFriends, setReferralFriends] = useState<{ name: string; created_at: string }[]>([])
@@ -2065,7 +2068,7 @@ function AppInner() {
           if (pennyMsg) {
             typePennyHome(pennyMsg, [{
               label: 'Invite',
-              onClick: () => handleTextInviteLink(),
+              onClick: () => handleOpenInviteSheet(),
             }])
           }
         } else if (action === 'save') {
@@ -2261,7 +2264,7 @@ function AppInner() {
             syncOnboardingFlags()
             setTimeout(() => {
               typePennyHome("Shopping for the family? You can invite them to share this list.", [
-                { label: 'Invite someone', onClick: () => handleTextInviteLink() },
+                { label: 'Invite someone', onClick: () => handleOpenInviteSheet() },
                 { label: 'Just me', onClick: () => typePennyHome("Got it — solo mission!") },
               ])
             }, 3000)
@@ -2909,8 +2912,38 @@ const handleCodeChange = (index: number, value: string) => {
     settingsSaveTimer.current = setTimeout(doSettingsSave, 500)
   }
 
-  const withInviteLink = async (onLink: (link: string) => void) => {
-    if (inviteLoading) return
+  // Open the invite sheet (phone input + share options)
+  const handleOpenInviteSheet = () => {
+    setInvitePhone('')
+    setInviteSent(false)
+    setShowInviteSheet(true)
+  }
+
+  // Send SMS invite directly via backend
+  const handleSendSMSInvite = async () => {
+    const digits = invitePhone.replace(/\D/g, '')
+    if (digits.length < 10) { showToast('Enter a valid phone number', 'error'); return }
+    setInviteLoading(true)
+    try {
+      const data = await fetchAPI('/api/settings/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: digits }),
+      })
+      if (data && !Array.isArray(data) && data.link) {
+        track('invite_shared', { method: 'sms_direct' })
+        setInviteSent(true)
+        showToast('Invite sent!')
+        setTimeout(() => setShowInviteSheet(false), 1500)
+      } else {
+        showToast('Couldn\'t send invite — please try again', 'error')
+      }
+    } catch { showToast('Couldn\'t connect — check your connection and try again', 'error') }
+    finally { setInviteLoading(false) }
+  }
+
+  // Share invite link via native share sheet or clipboard
+  const handleShareInviteLink = async () => {
     setInviteLoading(true)
     try {
       const data = await fetchAPI('/api/settings/invite', {
@@ -2918,35 +2951,27 @@ const handleCodeChange = (index: number, value: string) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: '' }),
       })
-      if (data && !Array.isArray(data) && data.link) onLink(data.link as string)
-      else showToast('Couldn\'t create invite link — please try again', 'error')
+      if (!data || Array.isArray(data) || !data.link) {
+        showToast('Couldn\'t create invite link — please try again', 'error')
+        return
+      }
+      const link = data.link as string
+      const message = `Join our household shopping list on Thriftly! ${link}`
+      if (navigator.share) {
+        track('invite_shared', { method: 'native_share' })
+        try { await navigator.share({ title: 'Join my Thriftly list', text: message, url: link }); setShowInviteSheet(false); return } catch { /* fall through */ }
+      }
+      const isMobile = /Mobi|Android/i.test(navigator.userAgent)
+      track('invite_shared', { method: isMobile ? 'sms' : 'clipboard' })
+      if (isMobile) {
+        window.location.href = `sms:?&body=${encodeURIComponent(message)}`
+      } else {
+        try { await navigator.clipboard.writeText(link); showToast('Invite link copied!') } catch { window.location.href = `sms:?&body=${encodeURIComponent(message)}` }
+      }
+      setShowInviteSheet(false)
     } catch { showToast('Couldn\'t connect — check your connection and try again', 'error') }
     finally { setInviteLoading(false) }
   }
-
-  const handleTextInviteLink = () => withInviteLink(async link => {
-    const message = `Join our household shopping list on Thriftly! ${link}`
-    // Prefer native share sheet (lets user pick iMessage, WhatsApp, email, etc.)
-    if (navigator.share) {
-      track('invite_shared', { method: 'native_share' })
-      try {
-        await navigator.share({ title: 'Join my Thriftly list', text: message, url: link })
-        return
-      } catch { /* user cancelled or share failed — fall through */ }
-    }
-    const isMobile = /Mobi|Android/i.test(navigator.userAgent)
-    track('invite_shared', { method: isMobile ? 'sms' : 'clipboard' })
-    if (isMobile) {
-      window.location.href = `sms:?&body=${encodeURIComponent(message)}`
-    } else {
-      try {
-        await navigator.clipboard.writeText(link)
-        showToast('Invite link copied!')
-      } catch {
-        window.location.href = `sms:?&body=${encodeURIComponent(message)}`
-      }
-    }
-  })
 
   // =========================================================================
   // LOGOUT
@@ -3322,13 +3347,13 @@ const handleCodeChange = (index: number, value: string) => {
 
   if (screen === 'settings-share') {
     return withFeedbackFAB(
-      <ShareScreen
+      <><ShareScreen
         referralCode={referralCode}
         referralFriends={referralFriends}
         settingsMembers={settingsMembers}
         inviteLoading={inviteLoading}
         confirmModal={confirmModal}
-        onInvite={handleTextInviteLink}
+        onInvite={handleOpenInviteSheet}
         onLeaveHousehold={() => openConfirmModal({
           title: 'Leave shared list?',
           message: "You'll keep your own list but will no longer share with this group.",
@@ -3387,6 +3412,60 @@ const handleCodeChange = (index: number, value: string) => {
         renderBottomTabs={renderBottomTabs}
         transitionStyle={transitionStyle}
       />
+      {showInviteSheet && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9000, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={() => setShowInviteSheet(false)}>
+          <div style={{ width: '100%', maxWidth: '480px', backgroundColor: 'var(--surface)', borderRadius: '20px 20px 0 0', padding: '20px 20px 40px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ width: '36px', height: '4px', borderRadius: '2px', backgroundColor: 'var(--border)', margin: '0 auto 16px' }} />
+            <h3 style={{ fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '18px', fontWeight: 700, color: 'var(--text)', margin: '0 0 16px' }}>Invite to your list</h3>
+
+            {/* SMS invite */}
+            <label style={{ fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '14px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Their phone number</label>
+            <input
+              type="tel"
+              placeholder="(555) 123-4567"
+              value={invitePhone}
+              onChange={e => setInvitePhone(e.target.value)}
+              autoFocus
+              style={{ width: '100%', padding: '12px 16px', fontSize: '16px', fontFamily: 'Avenir, Avenir Next, sans-serif', color: 'var(--text)', backgroundColor: 'var(--bg)', border: '1.5px solid var(--border)', borderRadius: '12px', outline: 'none', boxSizing: 'border-box' }}
+            />
+            <p style={{ fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '12px', color: 'var(--text-secondary)', margin: '6px 0 12px' }}>
+              We'll text them a link to join your shared grocery list
+            </p>
+            <button
+              onClick={handleSendSMSInvite}
+              disabled={inviteLoading || inviteSent || invitePhone.replace(/\D/g, '').length < 10}
+              style={{
+                width: '100%', padding: '14px', fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '16px', fontWeight: 600,
+                color: '#fff', backgroundColor: 'var(--brand)', border: 'none', borderRadius: '12px', cursor: 'pointer',
+                opacity: (inviteLoading || inviteSent || invitePhone.replace(/\D/g, '').length < 10) ? 0.5 : 1,
+              }}
+            >
+              {inviteSent ? '✓ Sent!' : inviteLoading ? 'Sending…' : 'Send SMS invite'}
+            </button>
+
+            {/* Divider */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '20px 0' }}>
+              <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--border)' }} />
+              <span style={{ fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '13px', color: 'var(--text-secondary)' }}>or</span>
+              <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--border)' }} />
+            </div>
+
+            {/* Share link fallback */}
+            <button
+              onClick={handleShareInviteLink}
+              disabled={inviteLoading}
+              style={{
+                width: '100%', padding: '14px', fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '16px', fontWeight: 600,
+                color: 'var(--brand)', backgroundColor: 'transparent', border: '1.5px solid var(--brand)', borderRadius: '12px', cursor: 'pointer',
+                opacity: inviteLoading ? 0.5 : 1,
+              }}
+            >
+              Share link instead
+            </button>
+          </div>
+        </div>
+      )}
+      </>
     )
   }
 

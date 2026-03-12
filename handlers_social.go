@@ -110,10 +110,21 @@ func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 
 	// Send SMS invite only if phone was provided
 	if hasPhone {
-		smsBody := fmt.Sprintf("Join my Thriftly list! https://app.thrift.ly/join/%s", code)
+		// Personalize with inviter's name if available
+		var inviterName string
+		s.db.QueryRow("SELECT COALESCE(name,'') FROM users WHERE id = ?", session.UserID).Scan(&inviterName)
+		inviterName = strings.TrimSpace(inviterName)
+		var smsBody string
+		if inviterName != "" {
+			smsBody = fmt.Sprintf("%s invited you to their grocery list on Thriftly! Tap to join: https://app.thrift.ly/join/%s", inviterName, code)
+		} else {
+			smsBody = fmt.Sprintf("You've been invited to a shared grocery list on Thriftly! Tap to join: https://app.thrift.ly/join/%s", code)
+		}
 		if err := s.twilio.SendSMS(s.config.TwilioPhoneNumber, e164, smsBody); err != nil {
 			log.Printf("[invite] error sending SMS to %s: %v", e164, err)
 			// Still return success — invite is created, SMS delivery is best-effort
+		} else {
+			log.Printf("[invite] SMS sent to %s for invite %s", e164, code)
 		}
 	}
 
