@@ -1440,6 +1440,9 @@ func initDB(path string) (*sql.DB, error) {
 	// NPS dismiss guard — server-side timestamp survives localStorage clears
 	db.Exec("ALTER TABLE users ADD COLUMN nps_dismissed_at TEXT NOT NULL DEFAULT ''")
 
+	// Backfill emojis for existing items that have no AI-parsed emoji
+	backfillItemEmojis(db)
+
 	return db, nil
 }
 
@@ -3194,4 +3197,206 @@ func collectListItems(db *sql.DB, userID int) ([]itemData, error) {
 		return items, fmt.Errorf("row iteration: %w", err)
 	}
 	return items, nil
+}
+
+// inferItemEmoji returns a specific emoji for a grocery item name based on keyword matching.
+// Falls back to department emoji, then 🛒.
+func inferItemEmoji(name, department string) string {
+	lower := strings.ToLower(name)
+	// Item-specific keywords → emoji (most specific first)
+	keywords := []struct {
+		kw    string
+		emoji string
+	}{
+		// Produce — fruits
+		{"apple", "🍎"}, {"banana", "🍌"}, {"orange", "🍊"}, {"lemon", "🍋"}, {"lime", "🍋"},
+		{"grape", "🍇"}, {"strawberr", "🍓"}, {"blueberr", "🫐"}, {"raspberry", "🫐"}, {"blackberr", "🫐"},
+		{"cherry", "🍒"}, {"peach", "🍑"}, {"pear", "🍐"}, {"watermelon", "🍉"}, {"melon", "🍈"},
+		{"pineapple", "🍍"}, {"mango", "🥭"}, {"kiwi", "🥝"}, {"coconut", "🥥"}, {"avocado", "🥑"},
+		{"tomato", "🍅"}, {"plum", "🍑"}, {"fig", "🍇"}, {"date", "🍇"}, {"pomegranate", "🍎"},
+		{"cranberr", "🫐"}, {"grapefruit", "🍊"}, {"tangerine", "🍊"}, {"clementine", "🍊"},
+		{"nectarine", "🍑"}, {"apricot", "🍑"}, {"papaya", "🥭"}, {"guava", "🥭"},
+		// Produce — vegetables
+		{"broccoli", "🥦"}, {"cauliflower", "🥦"}, {"carrot", "🥕"}, {"corn", "🌽"},
+		{"pepper", "🌶️"}, {"jalapeño", "🌶️"}, {"jalapeno", "🌶️"}, {"habanero", "🌶️"},
+		{"cucumber", "🥒"}, {"zucchini", "🥒"}, {"squash", "🥒"},
+		{"lettuce", "🥬"}, {"spinach", "🥬"}, {"kale", "🥬"}, {"arugula", "🥬"}, {"chard", "🥬"},
+		{"cabbage", "🥬"}, {"collard", "🥬"}, {"romaine", "🥬"}, {"cilantro", "🌿"}, {"parsley", "🌿"},
+		{"basil", "🌿"}, {"mint", "🌿"}, {"dill", "🌿"}, {"rosemary", "🌿"}, {"thyme", "🌿"},
+		{"oregano", "🌿"}, {"sage", "🌿"}, {"herb", "🌿"},
+		{"potato", "🥔"}, {"sweet potato", "🍠"}, {"yam", "🍠"},
+		{"onion", "🧅"}, {"shallot", "🧅"}, {"scallion", "🧅"}, {"leek", "🧅"}, {"chive", "🧅"},
+		{"garlic", "🧄"}, {"ginger", "🫚"},
+		{"mushroom", "🍄"}, {"eggplant", "🍆"}, {"celery", "🥬"},
+		{"asparagus", "🥬"}, {"artichoke", "🥬"}, {"beet", "🥬"}, {"turnip", "🥬"}, {"radish", "🥬"},
+		{"pea", "🟢"}, {"green bean", "🟢"}, {"snap pea", "🟢"}, {"edamame", "🟢"},
+		{"salad", "🥗"},
+		// Dairy & Eggs
+		{"milk", "🥛"}, {"cream", "🥛"}, {"half and half", "🥛"}, {"half & half", "🥛"},
+		{"cheese", "🧀"}, {"cheddar", "🧀"}, {"mozzarella", "🧀"}, {"parmesan", "🧀"},
+		{"gouda", "🧀"}, {"brie", "🧀"}, {"feta", "🧀"}, {"gruyere", "🧀"}, {"provolone", "🧀"},
+		{"colby", "🧀"}, {"swiss", "🧀"}, {"jack", "🧀"}, {"ricotta", "🧀"}, {"goat cheese", "🧀"},
+		{"cream cheese", "🧀"}, {"cottage cheese", "🧀"},
+		{"butter", "🧈"}, {"margarine", "🧈"},
+		{"egg", "🥚"},
+		{"yogurt", "🫙"}, {"kefir", "🫙"},
+		{"ice cream", "🍦"}, {"gelato", "🍦"}, {"sorbet", "🍦"}, {"popsicle", "🍦"},
+		// Meat & Seafood
+		{"chicken", "🍗"}, {"thigh", "🍗"}, {"drumstick", "🍗"}, {"wing", "🍗"},
+		{"beef", "🥩"}, {"steak", "🥩"}, {"ribeye", "🥩"}, {"sirloin", "🥩"}, {"filet", "🥩"},
+		{"ground", "🥩"}, {"roast", "🥩"}, {"brisket", "🥩"},
+		{"pork", "🥩"}, {"chop", "🥩"}, {"tenderloin", "🥩"}, {"ribs", "🥩"},
+		{"bacon", "🥓"}, {"ham", "🥓"}, {"prosciutto", "🥓"}, {"pancetta", "🥓"},
+		{"sausage", "🌭"}, {"hot dog", "🌭"}, {"bratwurst", "🌭"}, {"kielbasa", "🌭"},
+		{"turkey", "🦃"}, {"lamb", "🥩"}, {"veal", "🥩"}, {"venison", "🥩"}, {"bison", "🥩"},
+		{"fish", "🐟"}, {"salmon", "🐟"}, {"tuna", "🐟"}, {"cod", "🐟"}, {"tilapia", "🐟"},
+		{"trout", "🐟"}, {"halibut", "🐟"}, {"mahi", "🐟"}, {"swordfish", "🐟"}, {"catfish", "🐟"},
+		{"shrimp", "🦐"}, {"prawn", "🦐"}, {"crab", "🦀"}, {"lobster", "🦞"},
+		{"scallop", "🦪"}, {"oyster", "🦪"}, {"clam", "🦪"}, {"mussel", "🦪"},
+		// Deli
+		{"deli", "🥪"}, {"sandwich", "🥪"}, {"wrap", "🌯"}, {"burrito", "🌯"},
+		{"hummus", "🫘"}, {"guacamole", "🥑"}, {"salsa", "🫙"},
+		// Bakery
+		{"bread", "🍞"}, {"sourdough", "🍞"}, {"baguette", "🥖"}, {"ciabatta", "🍞"}, {"brioche", "🍞"},
+		{"roll", "🍞"}, {"bun", "🍞"}, {"loaf", "🍞"}, {"rye", "🍞"}, {"wheat bread", "🍞"},
+		{"pita", "🫓"}, {"naan", "🫓"}, {"tortilla", "🫓"}, {"flatbread", "🫓"},
+		{"bagel", "🥯"}, {"croissant", "🥐"}, {"pretzel", "🥨"},
+		{"muffin", "🧁"}, {"scone", "🧁"}, {"danish", "🧁"}, {"pastry", "🧁"},
+		{"cake", "🎂"}, {"cupcake", "🧁"}, {"pie", "🥧"}, {"tart", "🥧"},
+		{"cookie", "🍪"}, {"brownie", "🍪"}, {"biscuit", "🍪"},
+		{"donut", "🍩"}, {"doughnut", "🍩"},
+		{"waffle", "🧇"}, {"pancake", "🥞"},
+		// Pantry & Dry Goods
+		{"rice", "🍚"}, {"jasmine", "🍚"}, {"basmati", "🍚"}, {"quinoa", "🍚"}, {"couscous", "🍚"},
+		{"pasta", "🍝"}, {"spaghetti", "🍝"}, {"penne", "🍝"}, {"rigatoni", "🍝"}, {"fusilli", "🍝"},
+		{"linguine", "🍝"}, {"fettuccine", "🍝"}, {"macaroni", "🍝"}, {"rotini", "🍝"},
+		{"orzo", "🍝"}, {"farfalle", "🍝"}, {"angel hair", "🍝"}, {"lasagna", "🍝"},
+		{"ramen", "🍜"}, {"noodle", "🍜"}, {"udon", "🍜"}, {"soba", "🍜"}, {"lo mein", "🍜"},
+		{"cereal", "🥣"}, {"oat", "🥣"}, {"granola", "🥣"}, {"muesli", "🥣"},
+		{"bean", "🫘"}, {"lentil", "🫘"}, {"chickpea", "🫘"}, {"black bean", "🫘"},
+		{"peanut butter", "🥜"}, {"almond butter", "🥜"}, {"nut", "🥜"}, {"almond", "🥜"},
+		{"walnut", "🥜"}, {"pecan", "🥜"}, {"cashew", "🥜"}, {"pistachio", "🥜"},
+		{"seed", "🌻"}, {"sunflower", "🌻"}, {"chia", "🌻"}, {"flax", "🌻"},
+		{"honey", "🍯"}, {"maple syrup", "🍯"}, {"agave", "🍯"},
+		{"jam", "🫙"}, {"jelly", "🫙"}, {"preserves", "🫙"}, {"marmalade", "🫙"},
+		{"oil", "🫒"}, {"olive", "🫒"}, {"coconut oil", "🥥"}, {"sesame oil", "🫒"},
+		{"vinegar", "🫙"}, {"balsamic", "🫙"},
+		{"sauce", "🫙"}, {"sriracha", "🌶️"}, {"hot sauce", "🌶️"}, {"tabasco", "🌶️"},
+		{"soy sauce", "🫙"}, {"teriyaki", "🫙"}, {"bbq sauce", "🫙"}, {"barbecue", "🫙"},
+		{"ketchup", "🫙"}, {"mustard", "🫙"}, {"mayo", "🫙"}, {"mayonnaise", "🫙"},
+		{"dressing", "🫙"}, {"ranch", "🫙"},
+		{"salt", "🧂"}, {"pepper", "🧂"}, {"seasoning", "🧂"}, {"spice", "🧂"}, {"cumin", "🧂"},
+		{"paprika", "🧂"}, {"cinnamon", "🧂"}, {"nutmeg", "🧂"}, {"turmeric", "🧂"},
+		{"flour", "🌾"}, {"sugar", "🧂"}, {"baking", "🧁"}, {"yeast", "🍞"},
+		{"soup", "🍲"}, {"broth", "🍲"}, {"stock", "🍲"}, {"chili", "🍲"}, {"stew", "🍲"},
+		{"canned", "🥫"}, {"can of", "🥫"}, {"tomato sauce", "🥫"}, {"tomato paste", "🥫"},
+		{"taco", "🌮"}, {"tortilla chip", "🌮"},
+		// Snacks
+		{"chip", "🍿"}, {"popcorn", "🍿"}, {"cracker", "🍘"}, {"pretzel", "🥨"},
+		{"chocolate", "🍫"}, {"candy", "🍬"}, {"gum", "🍬"}, {"gummy", "🍬"},
+		{"trail mix", "🥜"}, {"jerky", "🥩"}, {"granola bar", "🥣"},
+		{"fruit snack", "🍬"}, {"dried fruit", "🍇"},
+		// Beverages
+		{"water", "💧"}, {"sparkling", "💧"}, {"seltzer", "💧"}, {"la croix", "💧"}, {"lacroix", "💧"},
+		{"juice", "🧃"}, {"oj", "🍊"}, {"lemonade", "🍋"},
+		{"soda", "🥤"}, {"coke", "🥤"}, {"pepsi", "🥤"}, {"sprite", "🥤"}, {"dr pepper", "🥤"},
+		{"diet", "🥤"}, {"pop", "🥤"}, {"ginger ale", "🥤"},
+		{"coffee", "☕"}, {"espresso", "☕"}, {"latte", "☕"},
+		{"tea", "🍵"}, {"matcha", "🍵"}, {"chai", "🍵"}, {"kombucha", "🍵"},
+		{"beer", "🍺"}, {"ipa", "🍺"}, {"lager", "🍺"}, {"ale", "🍺"}, {"stout", "🍺"},
+		{"wine", "🍷"}, {"champagne", "🍾"}, {"prosecco", "🍾"},
+		{"liquor", "🥃"}, {"whiskey", "🥃"}, {"vodka", "🥃"}, {"tequila", "🥃"}, {"rum", "🥃"}, {"gin", "🥃"},
+		{"smoothie", "🥤"}, {"shake", "🥤"}, {"protein", "💪"},
+		{"energy drink", "⚡"}, {"red bull", "⚡"}, {"monster", "⚡"},
+		// Frozen
+		{"frozen", "❄️"}, {"pizza", "🍕"},
+		// Household & Cleaning
+		{"soap", "🧼"}, {"dish soap", "🧼"}, {"hand soap", "🧼"},
+		{"detergent", "🧴"}, {"laundry", "🧴"}, {"fabric softener", "🧴"},
+		{"sponge", "🧽"}, {"scrub", "🧽"}, {"brush", "🧽"},
+		{"paper towel", "🧻"}, {"toilet paper", "🧻"}, {"tissue", "🧻"}, {"napkin", "🧻"},
+		{"trash bag", "🗑️"}, {"garbage", "🗑️"},
+		{"foil", "🫙"}, {"plastic wrap", "🫙"}, {"zip lock", "🛍️"}, {"ziploc", "🛍️"},
+		{"bleach", "🧴"}, {"cleaner", "🧴"}, {"disinfectant", "🧴"}, {"wipes", "🧴"},
+		// Health & Personal Care
+		{"vitamin", "💊"}, {"supplement", "💊"}, {"medicine", "💊"}, {"tylenol", "💊"}, {"advil", "💊"}, {"ibuprofen", "💊"},
+		{"toothpaste", "🪥"}, {"toothbrush", "🪥"}, {"floss", "🪥"}, {"mouthwash", "🪥"},
+		{"shampoo", "🧴"}, {"conditioner", "🧴"}, {"body wash", "🧴"},
+		{"lotion", "🧴"}, {"moisturizer", "🧴"}, {"sunscreen", "🧴"}, {"deodorant", "🧴"},
+		{"bandaid", "🩹"}, {"band-aid", "🩹"}, {"first aid", "🩹"},
+		{"razor", "🪒"}, {"shaving", "🪒"},
+		// Baby & Pet
+		{"diaper", "🧒"}, {"baby food", "🍼"}, {"formula", "🍼"}, {"baby", "👶"},
+		{"dog food", "🐕"}, {"dog treat", "🐕"}, {"cat food", "🐈"}, {"cat litter", "🐈"},
+		{"pet", "🐾"},
+	}
+
+	for _, kw := range keywords {
+		if strings.Contains(lower, kw.kw) {
+			return kw.emoji
+		}
+	}
+
+	// Department fallback
+	deptEmojis := map[string]string{
+		"Produce":              "🥬",
+		"Dairy & Eggs":         "🥛",
+		"Meat & Seafood":       "🥩",
+		"Deli":                 "🥪",
+		"Bakery":               "🍞",
+		"Pantry & Dry Goods":   "🥫",
+		"Snacks":               "🍿",
+		"Beverages":            "🥤",
+		"Frozen":               "❄️",
+		"Household & Cleaning": "🧹",
+		"Health & Personal":    "💊",
+		"Baby & Pet":           "🐾",
+	}
+	if e, ok := deptEmojis[department]; ok {
+		return e
+	}
+	return "🛒"
+}
+
+// backfillItemEmojis sets emoji for all list_items that have emoji = ''.
+// Runs once at startup — idempotent (only updates empty emoji fields).
+func backfillItemEmojis(db *sql.DB) {
+	rows, err := db.Query("SELECT id, name, department FROM list_items WHERE emoji = ''")
+	if err != nil {
+		log.Printf("[emoji-backfill] query error: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	type item struct {
+		id         int
+		name       string
+		department string
+	}
+	var items []item
+	for rows.Next() {
+		var it item
+		if err := rows.Scan(&it.id, &it.name, &it.department); err != nil {
+			continue
+		}
+		items = append(items, it)
+	}
+
+	if len(items) == 0 {
+		return
+	}
+
+	updated := 0
+	for _, it := range items {
+		emoji := inferItemEmoji(it.name, it.department)
+		if emoji != "" && emoji != "🛒" {
+			_, err := db.Exec("UPDATE list_items SET emoji = ? WHERE id = ? AND emoji = ''", emoji, it.id)
+			if err == nil {
+				updated++
+			}
+		}
+	}
+	if updated > 0 {
+		log.Printf("[emoji-backfill] updated %d items with inferred emojis", updated)
+	}
 }
