@@ -326,6 +326,7 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 		}
 
 		writeJSON(w, http.StatusCreated, resp)
+		go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
 		return
 	}
 
@@ -430,6 +431,7 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 			resp.Message = "I couldn't match any receipt items to your list. You might have already checked them off!"
 		}
 		writeJSON(w, http.StatusCreated, resp)
+		go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
 		return
 	}
 
@@ -851,6 +853,7 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 			resp.Skipped = []SkippedItem{}
 		}
 		writeJSON(w, http.StatusCreated, resp)
+		go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
 		return
 	}
 
@@ -908,6 +911,7 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, resp)
+	go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
 }
 
 // handleListGet handles GET /api/list
@@ -1048,6 +1052,7 @@ func (s *Server) handleListAdd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, item)
+	go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
 }
 
 // handleListToggle handles PATCH /api/list/{id}/toggle
@@ -1106,6 +1111,7 @@ func (s *Server) handleListToggle(w http.ResponseWriter, r *http.Request, id int
 	}
 
 	writeJSON(w, http.StatusOK, item)
+	go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
 }
 
 // handleListUrgent handles PATCH /api/list/{id}/urgent
@@ -1139,6 +1145,7 @@ func (s *Server) handleListUrgent(w http.ResponseWriter, r *http.Request, id int
 	recordModification(s.db, id, session.UserID, action, "", "app")
 
 	writeJSON(w, http.StatusOK, item)
+	go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
 }
 
 // handleListClaim handles PATCH /api/list/{id}/claim
@@ -1179,6 +1186,7 @@ func (s *Server) handleListClaim(w http.ResponseWriter, r *http.Request, id int)
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
+	go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
 }
 
 // handleItemHistory handles GET /api/list/{id}/history
@@ -1305,6 +1313,7 @@ func (s *Server) handleListEdit(w http.ResponseWriter, r *http.Request, id int) 
 	}
 
 	writeJSON(w, http.StatusOK, item)
+	go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
 }
 
 // handleListDelete handles DELETE /api/list/{id}
@@ -1330,6 +1339,7 @@ func (s *Server) handleListDelete(w http.ResponseWriter, r *http.Request, id int
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+	go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
 }
 
 // =============================================================================
@@ -1529,6 +1539,7 @@ func (s *Server) handleListClear(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+	go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
 }
 
 // handleListRestore handles POST /api/list/restore — bulk re-insert items (used by undo)
@@ -1595,6 +1606,105 @@ func (s *Server) handleListRestore(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+	go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
+}
+
+// =============================================================================
+// SSE — Real-time list synchronization
+// =============================================================================
+
+// broadcastListUpdate sends an SSE event to all connected clients in the given
+// household (or to all clients of a specific user if householdID is 0).
+// This is fire-and-forget — slow or disconnected clients are skipped.
+func (s *Server) broadcastListUpdate(householdID int64, userID int) {
+	msg := []byte("event: list-update\ndata: {}\n\n")
+	s.sseClients.Range(func(key, _ any) bool {
+		client := key.(*sseClient)
+		// Match by household if the user is in one, otherwise match by user ID
+		if householdID > 0 && client.householdID == householdID {
+			select {
+			case client.ch <- msg:
+			default:
+				// Channel full — skip this client (it will catch up on next event)
+			}
+		} else if householdID == 0 && client.userID == userID {
+			select {
+			case client.ch <- msg:
+			default:
+			}
+		}
+		return true
+	})
+}
+
+// handleListStream handles GET /api/list/stream — SSE endpoint for real-time list updates.
+func (s *Server) handleListStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
+		return
+	}
+
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	// Check that the ResponseWriter supports flushing (required for SSE)
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Streaming not supported"})
+		return
+	}
+
+	householdID := getUserHouseholdID(s.db, session.UserID)
+
+	// Set SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering if behind proxy
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	// Register this client
+	client := &sseClient{
+		householdID: householdID,
+		userID:      session.UserID,
+		ch:          make(chan []byte, 8),
+	}
+	s.sseClients.Store(client, struct{}{})
+	defer s.sseClients.Delete(client)
+
+	log.Printf("[sse] client connected: user=%d household=%d", session.UserID, householdID)
+
+	// Use request context to detect client disconnection
+	ctx := r.Context()
+
+	// Heartbeat ticker — keeps the connection alive (30s)
+	heartbeat := time.NewTicker(30 * time.Second)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("[sse] client disconnected: user=%d", session.UserID)
+			return
+		case msg := <-client.ch:
+			_, err := w.Write(msg)
+			if err != nil {
+				log.Printf("[sse] write error for user=%d: %v", session.UserID, err)
+				return
+			}
+			flusher.Flush()
+		case <-heartbeat.C:
+			_, err := w.Write([]byte(": heartbeat\n\n"))
+			if err != nil {
+				log.Printf("[sse] heartbeat error for user=%d: %v", session.UserID, err)
+				return
+			}
+			flusher.Flush()
+		}
+	}
 }
 
 // =============================================================================

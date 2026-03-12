@@ -1211,6 +1211,53 @@ function AppInner() {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [screen])
 
+  // SSE — Real-time list synchronization via Server-Sent Events.
+  // Connects when on the home screen, falls back to polling on failure.
+  const sseRef = useRef<EventSource | null>(null)
+  const sseDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (screen !== 'home') {
+      // Close SSE when navigating away from home
+      if (sseRef.current) {
+        sseRef.current.close()
+        sseRef.current = null
+      }
+      return
+    }
+
+    // Try to connect to SSE stream
+    let es: EventSource
+    try {
+      es = new EventSource('/api/list/stream')
+    } catch {
+      return // SSE not supported — polling fallback handles it
+    }
+    sseRef.current = es
+
+    es.addEventListener('list-update', () => {
+      // Debounce: rapid mutations shouldn't cause excessive re-fetches
+      if (sseDebounceRef.current) clearTimeout(sseDebounceRef.current)
+      sseDebounceRef.current = setTimeout(() => {
+        reloadList().catch(() => {})
+      }, 500)
+    })
+
+    es.onerror = () => {
+      // On error, close and let the existing polling/visibility fallback handle it.
+      // The browser will NOT auto-reconnect since we close explicitly on error.
+      if (sseRef.current) {
+        sseRef.current.close()
+        sseRef.current = null
+      }
+    }
+
+    return () => {
+      if (sseDebounceRef.current) clearTimeout(sseDebounceRef.current)
+      es.close()
+      sseRef.current = null
+    }
+  }, [screen])
+
   // Preload adjacent screen chunks after home loads (improves tab switching)
   const preloadedRef = useRef(false)
   useEffect(() => {

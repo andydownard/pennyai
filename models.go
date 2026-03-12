@@ -158,6 +158,13 @@ type rateBucket struct {
 	times []time.Time
 }
 
+// sseClient represents a connected SSE client listening for list updates.
+type sseClient struct {
+	householdID int64
+	userID      int
+	ch          chan []byte
+}
+
 // Server holds all runtime state for the HTTP server.
 type Server struct {
 	config       Config
@@ -171,6 +178,9 @@ type Server struct {
 	smsBuffer    *messageBuffer
 	logoCache    sync.Map // domain -> *cachedLogo
 	parseCache   sync.Map // normalized text -> *parseCacheEntry
+
+	// SSE clients for real-time list updates: key = *sseClient, value = struct{}
+	sseClients sync.Map
 
 	// Cached LLM-generated Penny quotes, keyed by context (login, chime, done)
 	pennyQuoteMu   sync.Mutex

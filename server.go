@@ -222,6 +222,7 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/auth/me", server.handleMe)
 	http.HandleFunc("/api/auth/link", server.handleAuthLink)
 	http.HandleFunc("/api/config", server.handleAPIConfig)
+	http.HandleFunc("/api/list/stream", server.handleListStream)
 	http.HandleFunc("/api/list", server.handleList)
 	http.HandleFunc("/api/list/", server.handleList)
 	http.HandleFunc("/api/list/department-order", server.handleDepartmentOrder)
