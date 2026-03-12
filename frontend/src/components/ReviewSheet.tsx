@@ -4,7 +4,7 @@ import { type ListItem } from './ItemRow'
 import { FONT, FONT_2XS, FONT_BASE, FONT_MD, layout, buttons, text } from '../styles'
 
 type SkippedItem = {
-  parsed: { name: string; brand: string; quantity: number; size: string; department: string }
+  parsed: { name: string; brand: string; quantity: number; size: string; department: string; emoji: string }
   existing_id: number
 }
 
@@ -43,7 +43,7 @@ export function ReviewSheet({
               borderBottom: '1px solid var(--border)',
               gap: '10px',
             }}>
-              <BrandLogo brand={item.brand} size={52} />
+              <BrandLogo brand={item.brand} size={52} itemName={item.name} department={item.department} emoji={item.emoji} />
               <div role="button" tabIndex={0} style={{ flex: 1, cursor: 'pointer' }} onClick={() => onOpenDetail(item)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenDetail(item) } }} aria-label={`Edit ${item.brand ? item.brand + ' ' : ''}${item.name}`}>
                 <span style={{ fontFamily: FONT, fontSize: FONT_MD, color: 'var(--text)' }}>
                   {item.brand ? `${item.brand} ` : ''}{item.name}
@@ -103,7 +103,7 @@ export function ReviewSheet({
                 borderBottom: '1px solid var(--border)',
                 gap: '10px',
               }}>
-                <BrandLogo brand={skipped.parsed.brand} size={52} />
+                <BrandLogo brand={skipped.parsed.brand} size={52} itemName={skipped.parsed.name} department={skipped.parsed.department} emoji={skipped.parsed.emoji} />
                 <div role={existing ? 'button' : undefined} tabIndex={existing ? 0 : undefined} style={{ flex: 1, cursor: existing ? 'pointer' : undefined }} onClick={() => existing && onOpenDetail(existing)} onKeyDown={e => { if (existing && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpenDetail(existing) } }} aria-label={existing ? `Edit ${existing.brand ? existing.brand + ' ' : ''}${existing.name}` : undefined}>
                   <span style={{ fontFamily: FONT, fontSize: FONT_MD, color: 'var(--text)' }}>
                     {skipped.parsed.brand ? `${skipped.parsed.brand} ` : ''}{skipped.parsed.name}

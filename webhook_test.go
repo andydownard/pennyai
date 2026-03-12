@@ -959,13 +959,13 @@ func TestSMSDupe_AlwaysIncreasesQuantity(t *testing.T) {
 	_, userID := loginUser(t, server, "5551234567")
 
 	// Add "Milk" with qty 1 via app
-	_, _, err := upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 1, "app", "")
+	_, _, err := upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 1, "app", "", "")
 	if err != nil {
 		t.Fatalf("upsertListItem: %v", err)
 	}
 
 	// Add "Milk" again via SMS with qty 2
-	item, isNew, err := upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 2, "sms", "")
+	item, isNew, err := upsertListItem(server.db, userID, "Milk", "", "Dairy & Eggs", "", 2, "sms", "", "")
 	if err != nil {
 		t.Fatalf("upsertListItem (sms): %v", err)
 	}
@@ -993,10 +993,10 @@ func TestEmailDupe_AlwaysIncreasesQuantity(t *testing.T) {
 	_, userID := loginUser(t, server, "5551234567")
 
 	// Add "Eggs" with qty 1 via app
-	upsertListItem(server.db, userID, "Eggs", "", "Dairy & Eggs", "", 1, "app", "")
+	upsertListItem(server.db, userID, "Eggs", "", "Dairy & Eggs", "", 1, "app", "", "")
 
 	// Add "Eggs" again via email with qty 1
-	item, isNew, _ := upsertListItem(server.db, userID, "Eggs", "", "Dairy & Eggs", "", 1, "email", "")
+	item, isNew, _ := upsertListItem(server.db, userID, "Eggs", "", "Dairy & Eggs", "", 1, "email", "", "")
 
 	if !isNew {
 		t.Error("Email dupe should report isNew=true")
@@ -1011,10 +1011,10 @@ func TestAppDupe_StillReportsSkipped(t *testing.T) {
 	_, userID := loginUser(t, server, "5551234567")
 
 	// Add "Bread" via app
-	upsertListItem(server.db, userID, "Bread", "", "Bakery", "", 1, "app", "")
+	upsertListItem(server.db, userID, "Bread", "", "Bakery", "", 1, "app", "", "")
 
 	// Add "Bread" again via app — should report as NOT new (skipped)
-	_, isNew, _ := upsertListItem(server.db, userID, "Bread", "", "Bakery", "", 1, "app", "")
+	_, isNew, _ := upsertListItem(server.db, userID, "Bread", "", "Bakery", "", 1, "app", "", "")
 	if isNew {
 		t.Error("App dupe should report isNew=false (skipped)")
 	}
@@ -1025,7 +1025,7 @@ func TestSMSDupe_PreservesOriginalAdder(t *testing.T) {
 
 	// User 1 adds item via app
 	_, userID1 := loginUser(t, server, "5551111111")
-	item, _, _ := upsertListItem(server.db, userID1, "Yogurt", "", "Dairy & Eggs", "", 1, "app", "")
+	item, _, _ := upsertListItem(server.db, userID1, "Yogurt", "", "Dairy & Eggs", "", 1, "app", "", "")
 
 	// User 2 (same household) adds same item via SMS
 	_, userID2 := loginUser(t, server, "5552222222")
@@ -1035,7 +1035,7 @@ func TestSMSDupe_PreservesOriginalAdder(t *testing.T) {
 	server.db.Exec("UPDATE users SET household_id = ? WHERE id = ?", hid, userID2)
 	server.db.Exec("INSERT OR IGNORE INTO household_members (household_id, user_id, role) VALUES (?, ?, 'member')", hid, userID2)
 
-	upsertListItem(server.db, userID2, "Yogurt", "", "Dairy & Eggs", "", 2, "sms", "")
+	upsertListItem(server.db, userID2, "Yogurt", "", "Dairy & Eggs", "", 2, "sms", "", "")
 
 	// Original adder should still be user 1
 	var ownerID int

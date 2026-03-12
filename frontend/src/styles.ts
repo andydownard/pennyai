@@ -177,6 +177,70 @@ export const DEPT_ICONS: Record<string, string> = {
   'Other': '🛒',
 }
 
+// Item-level emoji mapping — used when brand logo is unavailable
+// Keys are lowercase substrings matched against item name
+const ITEM_EMOJIS: [string, string][] = [
+  // Produce
+  ['apple', '🍎'], ['banana', '🍌'], ['orange', '🍊'], ['lemon', '🍋'], ['lime', '🍋‍🟩'],
+  ['grape', '🍇'], ['strawberr', '🍓'], ['blueberr', '🫐'], ['cherry', '🍒'], ['peach', '🍑'],
+  ['pear', '🍐'], ['watermelon', '🍉'], ['melon', '🍈'], ['pineapple', '🍍'], ['mango', '🥭'],
+  ['kiwi', '🥝'], ['coconut', '🥥'], ['avocado', '🥑'], ['tomato', '🍅'],
+  ['broccoli', '🥦'], ['carrot', '🥕'], ['corn', '🌽'], ['pepper', '🌶️'], ['cucumber', '🥒'],
+  ['lettuce', '🥬'], ['salad', '🥗'], ['potato', '🥔'], ['sweet potato', '🍠'], ['onion', '🧅'],
+  ['garlic', '🧄'], ['mushroom', '🍄'], ['eggplant', '🍆'], ['celery', '🥬'],
+  ['spinach', '🥬'], ['kale', '🥬'], ['zucchini', '🥒'],
+  // Dairy & Eggs
+  ['milk', '🥛'], ['cheese', '🧀'], ['butter', '🧈'], ['egg', '🥚'], ['yogurt', '🫙'],
+  ['cream', '🥛'], ['ice cream', '🍦'],
+  // Meat & Seafood
+  ['chicken', '🍗'], ['beef', '🥩'], ['steak', '🥩'], ['pork', '🥩'], ['bacon', '🥓'],
+  ['sausage', '🌭'], ['turkey', '🦃'], ['fish', '🐟'], ['salmon', '🐟'], ['tuna', '🐟'],
+  ['shrimp', '🦐'], ['crab', '🦀'], ['lobster', '🦞'],
+  // Bakery
+  ['bread', '🍞'], ['bagel', '🥯'], ['croissant', '🥐'], ['pretzel', '🥨'],
+  ['muffin', '🧁'], ['cake', '🎂'], ['pie', '🥧'], ['cookie', '🍪'], ['donut', '🍩'],
+  ['waffle', '🧇'], ['pancake', '🥞'], ['tortilla', '🫓'], ['flatbread', '🫓'],
+  // Pantry
+  ['rice', '🍚'], ['pasta', '🍝'], ['noodle', '🍜'], ['cereal', '🥣'],
+  ['oat', '🥣'], ['granola', '🥣'], ['bean', '🫘'], ['lentil', '🫘'],
+  ['peanut butter', '🥜'], ['nut', '🥜'], ['almond', '🥜'],
+  ['honey', '🍯'], ['jam', '🫙'], ['jelly', '🫙'], ['syrup', '🧴'],
+  ['oil', '🫒'], ['olive', '🫒'], ['vinegar', '🫙'], ['sauce', '🫙'],
+  ['ketchup', '🫙'], ['mustard', '🫙'], ['mayo', '🫙'],
+  ['salt', '🧂'], ['flour', '🌾'], ['sugar', '🧂'],
+  ['soup', '🍲'], ['broth', '🍲'], ['stock', '🍲'],
+  ['can of', '🥫'], ['canned', '🥫'],
+  // Snacks
+  ['chip', '🍿'], ['popcorn', '🍿'], ['pretzel', '🥨'], ['cracker', '🍘'],
+  ['chocolate', '🍫'], ['candy', '🍬'], ['gum', '🍬'],
+  // Beverages
+  ['water', '💧'], ['juice', '🧃'], ['soda', '🥤'], ['pop', '🥤'],
+  ['coffee', '☕'], ['tea', '🍵'], ['beer', '🍺'], ['wine', '🍷'],
+  ['smoothie', '🥤'], ['lemonade', '🍋'], ['kombucha', '🍵'],
+  // Frozen
+  ['frozen', '❄️'], ['popsicle', '🍦'], ['pizza', '🍕'],
+  // Household & Cleaning
+  ['soap', '🧼'], ['detergent', '🧴'], ['sponge', '🧽'], ['paper towel', '🧻'],
+  ['toilet paper', '🧻'], ['tissue', '🧻'], ['trash bag', '🗑️'],
+  ['wrap', '🫙'], ['foil', '🫙'], ['bag', '🛍️'],
+  // Health & Personal Care
+  ['vitamin', '💊'], ['medicine', '💊'], ['toothpaste', '🪥'], ['shampoo', '🧴'],
+  ['lotion', '🧴'], ['sunscreen', '🧴'], ['bandaid', '🩹'], ['band-aid', '🩹'],
+  // Baby & Pet
+  ['diaper', '🧒'], ['baby food', '🍼'], ['formula', '🍼'],
+  ['dog food', '🐕'], ['cat food', '🐈'], ['pet', '🐾'],
+]
+
+/** Return an emoji for a grocery item name, falling back to department emoji, then 🛒 */
+export function getItemEmoji(itemName: string, department?: string): string {
+  const lower = itemName.toLowerCase()
+  for (const [keyword, emoji] of ITEM_EMOJIS) {
+    if (lower.includes(keyword)) return emoji
+  }
+  if (department && DEPT_ICONS[department]) return DEPT_ICONS[department]
+  return '🛒'
+}
+
 export const CONFETTI_COLORS = [
   '#35644F', '#377256', '#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#FF6F91',
 ]

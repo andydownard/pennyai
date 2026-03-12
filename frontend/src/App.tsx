@@ -327,7 +327,7 @@ function AppInner() {
 
   // --- Review state (items from last parse) ---
   const [lastAdded, setLastAdded] = useState<ListItem[]>([])
-  const [lastSkipped, setLastSkipped] = useState<{ parsed: { name: string; brand: string; quantity: number; size: string; department: string }; existing_id: number }[]>([])
+  const [lastSkipped, setLastSkipped] = useState<{ parsed: { name: string; brand: string; quantity: number; size: string; department: string; emoji: string }; existing_id: number }[]>([])
   const [showReviewSheet, setShowReviewSheet] = useState(false)
   const [returnToReview, setReturnToReview] = useState(false)
   const hasReviewedRef = useRef(false)

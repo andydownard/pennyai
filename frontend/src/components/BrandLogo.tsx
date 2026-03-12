@@ -1,14 +1,14 @@
 import { useState } from 'react'
-import { FONT } from '../styles'
+import { getItemEmoji } from '../styles'
 
-export function BrandLogo({ brand, size = 52, opacity = 1 }: { brand?: string; size?: number; opacity?: number }) {
+export function BrandLogo({ brand, size = 52, opacity = 1, itemName, department, emoji }: { brand?: string; size?: number; opacity?: number; itemName?: string; department?: string; emoji?: string }) {
   const [failed, setFailed] = useState(false)
   const radius = size > 60 ? '12px' : size > 48 ? '10px' : '8px'
   const pad = size > 60 ? '4px' : size > 48 ? '3px' : '2px'
-  const fontSize = Math.max(14, Math.round(size * 0.36))
+  const emojiSize = Math.max(16, Math.round(size * 0.5))
 
-  // Monogram fallback: first letter of brand
-  const monogram = brand ? brand.charAt(0).toUpperCase() : ''
+  // Emoji fallback priority: stored emoji from AI → static keyword match → department → 🛒
+  const fallbackEmoji = emoji || getItemEmoji(itemName || brand || '', department)
 
   return (
     <div style={{ width: size, height: size, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -27,9 +27,9 @@ export function BrandLogo({ brand, size = 52, opacity = 1 }: { brand?: string; s
           width: size, height: size, borderRadius: radius,
           backgroundColor: 'var(--skeleton)', border: '1px solid var(--border)', opacity,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontFamily: FONT, fontSize, fontWeight: 600, color: 'var(--text-secondary)',
+          fontSize: emojiSize, lineHeight: 1,
         }}>
-          {monogram}
+          {fallbackEmoji}
         </div>
       )}
     </div>

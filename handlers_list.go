@@ -708,7 +708,7 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 						loadRows.Close()
 						added := 0
 						for _, si := range savedItems {
-							_, _, err := upsertListItem(s.db, session.UserID, si.Name, si.Brand, si.Department, si.Size, si.Quantity, "app", "")
+							_, _, err := upsertListItem(s.db, session.UserID, si.Name, si.Brand, si.Department, si.Size, si.Quantity, "app", "", "")
 							if err == nil {
 								added++
 							}
@@ -737,7 +737,7 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 					loadRows.Close()
 					added := 0
 					for _, si := range savedItems {
-						_, _, err := upsertListItem(s.db, session.UserID, si.Name, si.Brand, si.Department, si.Size, si.Quantity, "app", "")
+						_, _, err := upsertListItem(s.db, session.UserID, si.Name, si.Brand, si.Department, si.Size, si.Quantity, "app", "", "")
 						if err == nil {
 							added++
 						}
@@ -1038,7 +1038,7 @@ func (s *Server) handleListAdd(w http.ResponseWriter, r *http.Request) {
 		req.Quantity = 1
 	}
 
-	item, _, err := upsertListItem(s.db, session.UserID, req.Name, "", req.Department, "", req.Quantity, "app", "")
+	item, _, err := upsertListItem(s.db, session.UserID, req.Name, "", req.Department, "", req.Quantity, "app", "", "")
 	if err != nil {
 		dbError(w, err, "We couldn't save your item right now. Please try again.")
 		return
