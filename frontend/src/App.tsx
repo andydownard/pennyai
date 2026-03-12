@@ -107,6 +107,24 @@ const SCREEN_PATHS: Record<Screen, string> = {
   receipts: '/receipts',
 }
 
+const SCREEN_TITLES: Record<Screen, string> = {
+  phone: 'Sign In — Thriftly',
+  code: 'Verify — Thriftly',
+  home: 'Shopping List — Thriftly',
+  penny: 'Penny — Thriftly',
+  profile: 'Profile — Thriftly',
+  'settings-share': 'Share & Earn — Thriftly',
+  admin: 'Admin — Thriftly',
+  'email-login': 'Sign In — Thriftly',
+  'email-register': 'Register — Thriftly',
+  'forgot-password': 'Reset Password — Thriftly',
+  'reset-password': 'Reset Password — Thriftly',
+  'shared-list': 'Shared List — Thriftly',
+  help: 'Help — Thriftly',
+  earnings: 'Earnings — Thriftly',
+  receipts: 'Receipts — Thriftly',
+}
+
 const PATH_TO_SCREEN: Record<string, Screen> = {
   '/login': 'phone',
   '/verify': 'code',
@@ -282,6 +300,9 @@ function AppInner() {
       gtag('event', 'page_view', { page_title: s, page_location: path })
     }
   }
+
+  // Update page title on screen change
+  useEffect(() => { document.title = SCREEN_TITLES[screen] || 'Thriftly' }, [screen])
 
   // Screen transition animation styles (must be called before any conditional returns)
   const transitionStyle = useScreenTransition(screen)
