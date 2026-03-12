@@ -96,6 +96,7 @@ type ParsedItem struct {
 	Quantity          int      `json:"quantity"`
 	Size              string   `json:"size"`
 	Notes             string   `json:"notes"`
+	Emoji             string   `json:"emoji"`
 }
 
 // ParsedCommand is the top-level response from Claude for natural language list operations.
@@ -232,6 +233,7 @@ For each item return:
 - "quantity": number of units to buy, integer, default 1
 - "size": package size/weight if specified, otherwise "" (e.g. "16 oz", "1 lb", "Large", "1 gal")
 - "notes": any extra detail the user mentioned that doesn't fit above, otherwise "" (e.g. "the one in the blue box", "boneless skinless", "ripe ones")
+- "emoji": a single emoji that best represents this specific item. Pick the most specific match (🍌 for bananas, 🥩 for steak, 🧀 for cheese). If no specific emoji fits, use a category emoji (🥬 for produce, 🥛 for dairy). Last resort: 🛒
 
 CRITICAL RULES:
 1. NEVER genericize product names. Keep the specific product the user asked for.
@@ -242,14 +244,14 @@ CRITICAL RULES:
 6. If the user provides extra qualifiers (e.g. "organic", "gluten-free", "sugar-free"), keep them in the name. Put secondary details like color, preference, or preparation style in "notes".
 
 Separate brand from product name. Examples:
-- "jif pb" → {"name":"Peanut Butter","brand":"Jif","department":"Pantry & Dry Goods","quantity":1,"size":"","notes":""}
-- "2 boxes kraft mac and cheese" → {"name":"Macaroni & Cheese","brand":"Kraft","department":"Pantry & Dry Goods","quantity":2,"size":"","notes":""}
-- "large organic eggs" → {"name":"Organic Eggs","brand":"","department":"Dairy & Eggs","quantity":1,"size":"Large","notes":""}
-- "gallon of whole milk" → {"name":"Whole Milk","brand":"","department":"Dairy & Eggs","quantity":1,"size":"1 gal","notes":""}
-- "lacroix tangerine" → {"name":"Tangerine Sparkling Water","brand":"LaCroix","department":"Beverages","quantity":1,"size":"","notes":""}
-- "waterloo grape" → {"name":"Grape Sparkling Water","brand":"Waterloo","department":"Beverages","quantity":1,"size":"","notes":""}
-- "tillamook sharp cheddar block" → {"name":"Sharp Cheddar","brand":"Tillamook","department":"Dairy & Eggs","quantity":1,"size":"Block","notes":""}
-- "diet coke 12 pack" → {"name":"Diet Coke","brand":"Coca-Cola","department":"Beverages","quantity":1,"size":"12 pack","notes":""}
+- "jif pb" → {"name":"Peanut Butter","brand":"Jif","department":"Pantry & Dry Goods","quantity":1,"size":"","notes":"","emoji":"🥜"}
+- "2 boxes kraft mac and cheese" → {"name":"Macaroni & Cheese","brand":"Kraft","department":"Pantry & Dry Goods","quantity":2,"size":"","notes":"","emoji":"🧀"}
+- "large organic eggs" → {"name":"Organic Eggs","brand":"","department":"Dairy & Eggs","quantity":1,"size":"Large","notes":"","emoji":"🥚"}
+- "gallon of whole milk" → {"name":"Whole Milk","brand":"","department":"Dairy & Eggs","quantity":1,"size":"1 gal","notes":"","emoji":"🥛"}
+- "lacroix tangerine" → {"name":"Tangerine Sparkling Water","brand":"LaCroix","department":"Beverages","quantity":1,"size":"","notes":"","emoji":"🍊"}
+- "waterloo grape" → {"name":"Grape Sparkling Water","brand":"Waterloo","department":"Beverages","quantity":1,"size":"","notes":"","emoji":"🍇"}
+- "tillamook sharp cheddar block" → {"name":"Sharp Cheddar","brand":"Tillamook","department":"Dairy & Eggs","quantity":1,"size":"Block","notes":"","emoji":"🧀"}
+- "diet coke 12 pack" → {"name":"Diet Coke","brand":"Coca-Cola","department":"Beverages","quantity":1,"size":"12 pack","notes":"","emoji":"🥤"}
 
 Image handling — adapt to what you see:
 - Grocery items or products: extract each item.

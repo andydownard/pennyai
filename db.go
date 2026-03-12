@@ -99,6 +99,7 @@ func initDB(path string) (*sql.DB, error) {
 		"ALTER TABLE list_items ADD COLUMN claimed_at DATETIME DEFAULT NULL",
 		"ALTER TABLE list_items ADD COLUMN notes TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE list_items ADD COLUMN swap_savings_cents INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE list_items ADD COLUMN emoji TEXT NOT NULL DEFAULT ''",
 	} {
 		db.Exec(stmt) // "duplicate column name" error is expected and harmless
 	}
@@ -2971,7 +2972,7 @@ func scanListItem(scanner interface{ Scan(dest ...interface{}) error }) (ListIte
 	var addedByName, addedByPhone sql.NullString
 	var claimedByID sql.NullInt64
 	var claimedByName sql.NullString
-	err := scanner.Scan(&item.ID, &item.Name, &item.Brand, &item.Department, &item.Quantity, &item.Size, &item.Notes, &item.Source, &checked, &urgent, &item.CreatedAt, &addedByName, &addedByPhone, &claimedByID, &claimedByName, &item.SwapSavingsCents)
+	err := scanner.Scan(&item.ID, &item.Name, &item.Brand, &item.Department, &item.Quantity, &item.Size, &item.Notes, &item.Source, &checked, &urgent, &item.CreatedAt, &addedByName, &addedByPhone, &claimedByID, &claimedByName, &item.SwapSavingsCents, &item.Emoji)
 	if err != nil {
 		return ListItem{}, err
 	}
@@ -3018,7 +3019,7 @@ func getItemByID(db *sql.DB, id, userID int) (ListItem, error) {
 // resulting ListItem and whether it was newly created.
 // The SELECT+UPDATE/INSERT is wrapped in a transaction to prevent duplicate
 // items from concurrent requests.
-func upsertListItem(db *sql.DB, userID int, name, brand, department, size string, quantity int, source, notes string) (ListItem, bool, error) {
+func upsertListItem(db *sql.DB, userID int, name, brand, department, size string, quantity int, source, notes, emoji string) (ListItem, bool, error) {
 	if quantity < 1 {
 		quantity = 1
 	}
@@ -3063,9 +3064,10 @@ func upsertListItem(db *sql.DB, userID int, name, brand, department, size string
 			if newSize == "" {
 				newSize = existingSize
 			}
+			newEmoji := emoji
 			_, err := tx.Exec(
-				"UPDATE list_items SET checked = 0, quantity = ?, brand = ?, size = ?, notes = ? WHERE id = ?",
-				quantity, newBrand, newSize, notes, existingID,
+				"UPDATE list_items SET checked = 0, quantity = ?, brand = ?, size = ?, notes = ?, emoji = CASE WHEN ? != '' THEN ? ELSE emoji END WHERE id = ?",
+				quantity, newBrand, newSize, notes, newEmoji, newEmoji, existingID,
 			)
 			if err != nil {
 				return ListItem{}, false, fmt.Errorf("updating existing item: %w", err)
@@ -3089,8 +3091,8 @@ func upsertListItem(db *sql.DB, userID int, name, brand, department, size string
 				mergeNotes = existingNotes
 			}
 			_, err := tx.Exec(
-				"UPDATE list_items SET quantity = ?, brand = ?, size = ?, notes = ? WHERE id = ?",
-				newQty, newBrand, newSize, mergeNotes, existingID,
+				"UPDATE list_items SET quantity = ?, brand = ?, size = ?, notes = ?, emoji = CASE WHEN ? != '' THEN ? ELSE emoji END WHERE id = ?",
+				newQty, newBrand, newSize, mergeNotes, emoji, emoji, existingID,
 			)
 			if err != nil {
 				return ListItem{}, false, fmt.Errorf("updating existing item: %w", err)
@@ -3105,8 +3107,8 @@ func upsertListItem(db *sql.DB, userID int, name, brand, department, size string
 	} else {
 		// No match — insert new (attributed to the requesting user)
 		result, err := tx.Exec(
-			"INSERT INTO list_items (user_id, name, brand, department, quantity, size, source, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-			userID, name, brand, department, quantity, size, source, notes,
+			"INSERT INTO list_items (user_id, name, brand, department, quantity, size, source, notes, emoji) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			userID, name, brand, department, quantity, size, source, notes, emoji,
 		)
 		if err != nil {
 			return ListItem{}, false, fmt.Errorf("inserting item: %w", err)
@@ -3156,7 +3158,7 @@ func addParsedItems(db *sql.DB, userID int, parsed []ParsedItem, source string) 
 			continue
 		}
 		p.Name = stripBrandFromName(p.Name, p.Brand)
-		item, isNew, err := upsertListItem(db, userID, p.Name, p.Brand, p.Department, p.Size, p.Quantity, source, p.Notes)
+		item, isNew, err := upsertListItem(db, userID, p.Name, p.Brand, p.Department, p.Size, p.Quantity, source, p.Notes, p.Emoji)
 		if err != nil {
 			log.Printf("[%s] error upserting item %q: %v", source, p.Name, err)
 			continue

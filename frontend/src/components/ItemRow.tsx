@@ -21,6 +21,7 @@ export type ListItem = {
   claimed_by_id: number | null
   claimed_by_name: string
   swap_savings_cents: number
+  emoji: string
 }
 
 interface ItemRowProps {
@@ -198,7 +199,7 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onD
         </button>
         <div style={{ marginRight: '8px' }}>
           {item.brand ? (
-            <BrandLogo brand={item.brand} size={36} opacity={item.checked ? 0.4 : 1} />
+            <BrandLogo brand={item.brand} size={36} opacity={item.checked ? 0.4 : 1} itemName={item.name} department={item.department} emoji={item.emoji} />
           ) : (
             <div style={{
               ...layout.rowCenter,

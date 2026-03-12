@@ -1,11 +1,11 @@
 // Thriftly Service Worker — app shell caching for offline support and fast loads
-const CACHE_NAME = 'thriftly-v1'
+const CACHE_NAME = 'thriftly-v2'
 
 // App shell: cache on install
 const APP_SHELL = [
   '/',
   '/manifest.json',
-  '/penny.png',
+  '/penny.png?v=2',
   '/apple-touch-icon.png',
   '/favicon-32x32.png',
 ]

@@ -999,7 +999,7 @@ func (s *Server) linkPhone(w http.ResponseWriter, r *http.Request, userID int, p
 }
 
 // listItemColumns is the shared SELECT column list for list_items queries.
-const listItemColumns = "li.id, li.name, li.brand, li.department, li.quantity, li.size, li.notes, li.source, li.checked, li.urgent, li.created_at, COALESCE(u.name,''), COALESCE(u.phone_number,''), li.claimed_by, COALESCE(cu.name,''), li.swap_savings_cents"
+const listItemColumns = "li.id, li.name, li.brand, li.department, li.quantity, li.size, li.notes, li.source, li.checked, li.urgent, li.created_at, COALESCE(u.name,''), COALESCE(u.phone_number,''), li.claimed_by, COALESCE(cu.name,''), li.swap_savings_cents, li.emoji"
 
 // listItemJoins is the shared FROM/JOIN clause for list_items queries.
 const listItemJoins = "list_items li JOIN users u ON u.id = li.user_id LEFT JOIN users cu ON cu.id = li.claimed_by"

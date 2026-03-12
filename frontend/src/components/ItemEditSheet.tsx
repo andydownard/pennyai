@@ -78,7 +78,7 @@ export function ItemEditSheet({
               />
             </FloatingLabelField>
           </div>
-          <BrandLogo brand={displayBrand || undefined} size={52} />
+          <BrandLogo brand={displayBrand || undefined} size={52} itemName={editForm.name} department={editForm.dept} emoji={item.emoji} />
         </div>
 
         <FloatingLabelField label="Name">
