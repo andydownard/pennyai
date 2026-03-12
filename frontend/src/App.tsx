@@ -484,6 +484,12 @@ function AppInner() {
   const [pennySlider, setPennySlider] = useState(35)
   const [pennyAutotune, setPennyAutotune] = useState(true)
   const [pennyDeals, setPennyDeals] = useState(false)
+  const [storeOrderEnabled, setStoreOrderEnabled] = useState(true)
+
+  // --- Store department order (learned from shopping trips) ---
+  const [storeDeptOrder, setStoreDeptOrder] = useState<string[] | null>(null)
+  const [storeDeptOrderLearned, setStoreDeptOrderLearned] = useState(false)
+  const [deptListOpacity, setDeptListOpacity] = useState(1)
 
   // --- Earnings state ---
   const [earningsTotalCents, setEarningsTotalCents] = useState(0)
@@ -1095,6 +1101,33 @@ function AppInner() {
     }
   }
 
+  const loadStoreDeptOrder = async (store: string | null) => {
+    if (!storeOrderEnabled || !store) {
+      setStoreDeptOrder(null)
+      setStoreDeptOrderLearned(false)
+      return
+    }
+    try {
+      const data = await fetchAPI(`/api/list/department-order?store=${encodeURIComponent(store)}`)
+      if (data && !Array.isArray(data)) {
+        const departments = data.departments as string[] | undefined
+        const learned = data.learned as boolean
+        setStoreDeptOrder(departments || null)
+        setStoreDeptOrderLearned(learned)
+        // One-time chime-in when Penny first learns a store's order
+        if (learned && departments && departments.length > 0) {
+          const key = `storeOrderNotified_${store}`
+          if (!localStorage.getItem(key)) {
+            localStorage.setItem(key, '1')
+            showChimeIn(`I reordered your list to match how you shop at ${store}`, 5000)
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[load] department order failed:', e)
+    }
+  }
+
   const npsCheckedRef = useRef(false)
   useEffect(() => {
     if (screen !== 'home') return
@@ -1102,6 +1135,7 @@ function AppInner() {
     loadTrips().catch(e => console.warn('[load] trips failed:', e))
     loadStoreLists().catch(e => console.warn('[load] store lists failed:', e))
     loadRestockNudges().catch(e => console.warn('[load] nudges failed:', e))
+    loadStoreDeptOrder(activeStore).catch(e => console.warn('[load] dept order failed:', e))
     // Show account merge message if auth just linked accounts
     const mergeMsg = sessionStorage.getItem('thriftly_merge_msg')
     if (mergeMsg) {
@@ -1125,6 +1159,16 @@ function AppInner() {
       }
     }
   }, [screen])
+
+  // Reload department order when active store changes
+  useEffect(() => {
+    if (screen !== 'home') return
+    // Animate opacity on store change
+    setDeptListOpacity(0.7)
+    loadStoreDeptOrder(activeStore).catch(() => {})
+    const t = setTimeout(() => setDeptListOpacity(1), 150)
+    return () => clearTimeout(t)
+  }, [activeStore, storeOrderEnabled])
 
   // Track online/offline status and auto-refresh when coming back online
   useEffect(() => {
@@ -1356,6 +1400,7 @@ function AppInner() {
           if (data.penny_slider != null) setPennySlider(data.penny_slider as number)
           if (data.penny_autotune != null) setPennyAutotune(data.penny_autotune as boolean)
           if (data.penny_deals != null) setPennyDeals(data.penny_deals as boolean)
+          if (data.store_order_enabled != null) setStoreOrderEnabled(data.store_order_enabled as boolean)
           if (data.swap_credits_cents != null) {
             setEarningsTotalCents(data.swap_credits_cents as number)
           }
@@ -3323,15 +3368,26 @@ const handleCodeChange = (index: number, value: string) => {
         body: JSON.stringify({ penny_deals: next }),
       })
     }
+    const toggleStoreOrder = () => {
+      const next = !storeOrderEnabled
+      setStoreOrderEnabled(next)
+      fetchAPI('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ store_order_enabled: next }),
+      })
+    }
     return withFeedbackFAB(
       <PennySettingsScreen
         pennyPhone={settingsPennyPhone}
         pennySlider={pennySlider}
         pennyAutotune={pennyAutotune}
         pennyDeals={pennyDeals}
+        storeOrderEnabled={storeOrderEnabled}
         onSliderChange={setPennySlider}
         onAutotuneToggle={toggleAutotune}
         onDealsToggle={toggleDeals}
+        onStoreOrderToggle={toggleStoreOrder}
 
         track={track}
         renderHeader={() => renderPageHeader('Penny', 'penny')}
@@ -3623,8 +3679,16 @@ const handleCodeChange = (index: number, value: string) => {
   }
 
   // Departments that have items, in store-aisle order (+ any unknown depts appended)
-  const activeDepts = DEPARTMENTS.filter(d => items.some(i => i.department === d))
-  const extraDepts = [...new Set(items.map(i => i.department))].filter(d => !DEPARTMENTS.includes(d))
+  // Use learned store order when available, fall back to default DEPARTMENTS order
+  const deptOrderBase = (storeDeptOrderLearned && storeDeptOrder && storeOrderEnabled)
+    ? storeDeptOrder
+    : DEPARTMENTS
+  const activeDepts = deptOrderBase.filter(d => items.some(i => i.department === d))
+  // Append any departments not in the ordering source, alphabetically
+  const allItemDepts = [...new Set(items.map(i => i.department))]
+  const extraDepts = allItemDepts
+    .filter(d => !deptOrderBase.includes(d))
+    .sort((a, b) => a.localeCompare(b))
   if (extraDepts.length > 0) activeDepts.push(...extraDepts)
 
   return (
@@ -3966,7 +4030,8 @@ const handleCodeChange = (index: number, value: string) => {
             </div>
           </div>
         ) : (
-          activeDepts.map((dept, deptIdx) => {
+          <div style={{ opacity: deptListOpacity, transition: 'opacity 0.15s ease-out' }}>
+          {activeDepts.map((dept, deptIdx) => {
             const deptItems = items.filter(i => i.department === dept)
             const deptTotal = deptItems.reduce((s, i) => s + (i.quantity || 1), 0)
             const deptChecked = deptItems.filter(i => i.checked).reduce((s, i) => s + (i.quantity || 1), 0)
@@ -4004,7 +4069,8 @@ const handleCodeChange = (index: number, value: string) => {
                 ))}
               </div>
             )
-          })
+          })}
+          </div>
         )}
       </div>
 

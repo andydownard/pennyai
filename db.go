@@ -1440,6 +1440,24 @@ func initDB(path string) (*sql.DB, error) {
 	// NPS dismiss guard — server-side timestamp survives localStorage clears
 	db.Exec("ALTER TABLE users ADD COLUMN nps_dismissed_at TEXT NOT NULL DEFAULT ''")
 
+	// F3: Auto-Learn Store Department Order
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS department_order_events (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id    INTEGER NOT NULL,
+			store_name TEXT NOT NULL DEFAULT '',
+			department TEXT NOT NULL,
+			checked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			trip_date  TEXT NOT NULL DEFAULT '',
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("creating department_order_events table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_dept_order_user_store ON department_order_events(user_id, store_name)")
+	db.Exec("ALTER TABLE users ADD COLUMN store_order_enabled INTEGER NOT NULL DEFAULT 1")
+
 	// Backfill emojis for existing items that have no AI-parsed emoji
 	backfillItemEmojis(db)
 

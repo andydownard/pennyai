@@ -224,6 +224,7 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/config", server.handleAPIConfig)
 	http.HandleFunc("/api/list", server.handleList)
 	http.HandleFunc("/api/list/", server.handleList)
+	http.HandleFunc("/api/list/department-order", server.handleDepartmentOrder)
 	http.HandleFunc("/api/list/clear", server.handleListClear)
 	http.HandleFunc("/api/list/restore", server.handleListRestore)
 	http.HandleFunc("/api/list/share", server.handleShareList)

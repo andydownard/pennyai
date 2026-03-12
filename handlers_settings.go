@@ -270,11 +270,11 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var name, email, phone, address, pennyBrandMode, onboardingFlags sql.NullString
-	var pennySlider, pennyAutotune, pennyDeals, swapCreditsCents int
+	var pennySlider, pennyAutotune, pennyDeals, swapCreditsCents, storeOrderEnabled int
 	err := s.db.QueryRow(
-		"SELECT COALESCE(name,''), COALESCE(email,''), phone_number, COALESCE(address,''), COALESCE(penny_brand_mode,'ask'), COALESCE(penny_slider,35), COALESCE(penny_autotune,1), COALESCE(penny_deals,0), COALESCE(swap_credits_cents,0), COALESCE(onboarding_flags,'{}') FROM users WHERE id = ?",
+		"SELECT COALESCE(name,''), COALESCE(email,''), phone_number, COALESCE(address,''), COALESCE(penny_brand_mode,'ask'), COALESCE(penny_slider,35), COALESCE(penny_autotune,1), COALESCE(penny_deals,0), COALESCE(swap_credits_cents,0), COALESCE(onboarding_flags,'{}'), COALESCE(store_order_enabled,1) FROM users WHERE id = ?",
 		session.UserID,
-	).Scan(&name, &email, &phone, &address, &pennyBrandMode, &pennySlider, &pennyAutotune, &pennyDeals, &swapCreditsCents, &onboardingFlags)
+	).Scan(&name, &email, &phone, &address, &pennyBrandMode, &pennySlider, &pennyAutotune, &pennyDeals, &swapCreditsCents, &onboardingFlags, &storeOrderEnabled)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load settings"})
 		return
@@ -314,20 +314,21 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"name":               name.String,
-		"email":              email.String,
-		"phone":              phone.String,
-		"address":            address.String,
-		"penny_phone":        s.config.TwilioPhoneNumber,
-		"household_members":  members,
+		"name":                name.String,
+		"email":               email.String,
+		"phone":               phone.String,
+		"address":             address.String,
+		"penny_phone":         s.config.TwilioPhoneNumber,
+		"household_members":   members,
 		"google_places_ready": s.config.GooglePlacesAPIKey != "",
-		"penny_brand_mode":  pennyBrandMode.String,
-		"penny_slider":      pennySlider,
-		"penny_autotune":    pennyAutotune == 1,
-		"penny_deals":        pennyDeals == 1,
-		"swap_credits_cents": swapCreditsCents,
-		"list_name":          listName,
-		"onboarding_flags":   onboardingFlags.String,
+		"penny_brand_mode":   pennyBrandMode.String,
+		"penny_slider":       pennySlider,
+		"penny_autotune":     pennyAutotune == 1,
+		"penny_deals":         pennyDeals == 1,
+		"swap_credits_cents":  swapCreditsCents,
+		"list_name":           listName,
+		"onboarding_flags":    onboardingFlags.String,
+		"store_order_enabled": storeOrderEnabled == 1,
 	})
 }
 
@@ -345,16 +346,17 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name            *string `json:"name"`
-		Email           *string `json:"email"`
-		Phone           *string `json:"phone"`
-		Address         *string `json:"address"`
-		PennyBrandMode  *string `json:"penny_brand_mode"`
-		PennySlider     *int    `json:"penny_slider"`
-		PennyAutotune   *bool   `json:"penny_autotune"`
-		PennyDeals      *bool   `json:"penny_deals"`
-		ListName        *string `json:"list_name"`
-		OnboardingFlags *string `json:"onboarding_flags"`
+		Name              *string `json:"name"`
+		Email             *string `json:"email"`
+		Phone             *string `json:"phone"`
+		Address           *string `json:"address"`
+		PennyBrandMode    *string `json:"penny_brand_mode"`
+		PennySlider       *int    `json:"penny_slider"`
+		PennyAutotune     *bool   `json:"penny_autotune"`
+		PennyDeals        *bool   `json:"penny_deals"`
+		ListName          *string `json:"list_name"`
+		OnboardingFlags   *string `json:"onboarding_flags"`
+		StoreOrderEnabled *bool   `json:"store_order_enabled"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -445,6 +447,13 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.OnboardingFlags != nil {
 		addSetClause(&setClauses, &args, "onboarding_flags", *req.OnboardingFlags)
+	}
+	if req.StoreOrderEnabled != nil {
+		val := 0
+		if *req.StoreOrderEnabled {
+			val = 1
+		}
+		addSetClause(&setClauses, &args, "store_order_enabled", val)
 	}
 	if len(setClauses) > 0 {
 		args = append(args, session.UserID)

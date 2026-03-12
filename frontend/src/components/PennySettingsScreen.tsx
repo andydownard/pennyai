@@ -11,9 +11,11 @@ interface PennySettingsScreenProps {
   pennySlider: number
   pennyAutotune: boolean
   pennyDeals: boolean
+  storeOrderEnabled: boolean
   onSliderChange: (val: number) => void
   onAutotuneToggle: () => void
   onDealsToggle: () => void
+  onStoreOrderToggle: () => void
   track: (event: string, props?: Record<string, unknown>) => void
   renderHeader: () => React.ReactNode
   renderToast: () => React.ReactNode
@@ -22,8 +24,8 @@ interface PennySettingsScreenProps {
 }
 
 export function PennySettingsScreen({
-  pennyPhone, pennySlider, pennyAutotune, pennyDeals,
-  onSliderChange, onAutotuneToggle, onDealsToggle,
+  pennyPhone, pennySlider, pennyAutotune, pennyDeals, storeOrderEnabled,
+  onSliderChange, onAutotuneToggle, onDealsToggle, onStoreOrderToggle,
   track,
   renderHeader, renderToast, renderBottomTabs, transitionStyle,
 }: PennySettingsScreenProps) {
@@ -101,6 +103,18 @@ export function PennySettingsScreen({
               <div style={{ fontFamily: FONT, fontSize: '0.6875rem', color: 'var(--text-secondary)', marginTop: '1px' }}>Penny remembers your brand preferences over time</div>
             </div>
             <ToggleSwitch value={pennyAutotune} onChange={onAutotuneToggle} />
+          </div>
+
+          {/* Reorder list by how I shop toggle */}
+          <div role="button" tabIndex={0} onClick={onStoreOrderToggle} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onStoreOrderToggle() } }} aria-label="Toggle reorder list by how I shop" style={pageStyles.settingsCard}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+            </svg>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text)' }}>Reorder list by how I shop</div>
+              <div style={{ fontFamily: FONT, fontSize: '0.6875rem', color: 'var(--text-secondary)', marginTop: '1px' }}>Penny learns your aisle pattern at each store</div>
+            </div>
+            <ToggleSwitch value={storeOrderEnabled} onChange={onStoreOrderToggle} />
           </div>
 
           {/* "What Penny Knows" — only visible when autotune is ON */}

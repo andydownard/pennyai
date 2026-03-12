@@ -1080,6 +1080,31 @@ func (s *Server) handleListToggle(w http.ResponseWriter, r *http.Request, id int
 	}
 	recordModification(s.db, id, session.UserID, action, "", "app")
 
+	// F3: Record department order event when item is checked (fire-and-forget)
+	if item.Checked && item.Department != "" {
+		go func(db *sql.DB, userID int, department string) {
+			// Determine store from active shopping trip (if any)
+			var storeName string
+			var storeID sql.NullInt64
+			db.QueryRow(
+				"SELECT COALESCE(store_id, 0) FROM shopping_trips WHERE user_id = ? AND trip_date >= date('now', '-1 day') ORDER BY created_at DESC LIMIT 1",
+				userID,
+			).Scan(&storeID)
+			if storeID.Valid && storeID.Int64 > 0 {
+				db.QueryRow("SELECT COALESCE(name, '') FROM stores WHERE id = ?", storeID.Int64).Scan(&storeName)
+			}
+
+			tripDate := time.Now().Format("2006-01-02")
+			_, err := db.Exec(
+				"INSERT INTO department_order_events (user_id, store_name, department, checked_at, trip_date) VALUES (?, ?, ?, datetime('now'), ?)",
+				userID, storeName, department, tripDate,
+			)
+			if err != nil {
+				log.Printf("[dept-order] failed to record event for user %d: %v", userID, err)
+			}
+		}(s.db, session.UserID, item.Department)
+	}
+
 	writeJSON(w, http.StatusOK, item)
 }
 
@@ -1305,6 +1330,153 @@ func (s *Server) handleListDelete(w http.ResponseWriter, r *http.Request, id int
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// =============================================================================
+// DEPARTMENT ORDER
+// =============================================================================
+
+// getLearnedDepartmentOrder computes the learned department order for a user
+// at a specific store based on their check-off history. Returns the sorted
+// department list and true if enough data exists (>= 3 distinct trip dates),
+// otherwise returns nil and false.
+func getLearnedDepartmentOrder(db *sql.DB, userID int, storeName string) ([]string, int, bool) {
+	// Count distinct trip dates for this user+store
+	var tripCount int
+	err := db.QueryRow(
+		"SELECT COUNT(DISTINCT trip_date) FROM department_order_events WHERE user_id = ? AND store_name = ? AND trip_date != ''",
+		userID, storeName,
+	).Scan(&tripCount)
+	if err != nil || tripCount < 3 {
+		return nil, tripCount, false
+	}
+
+	// For each department, compute average position within each trip.
+	// Within a trip (same trip_date), items are ordered by checked_at.
+	// We use a window function to assign position within each trip, then average across trips.
+	rows, err := db.Query(`
+		WITH ranked AS (
+			SELECT department, trip_date,
+				ROW_NUMBER() OVER (PARTITION BY trip_date ORDER BY checked_at) as pos
+			FROM department_order_events
+			WHERE user_id = ? AND store_name = ? AND trip_date != ''
+		),
+		first_seen AS (
+			SELECT department, trip_date, MIN(pos) as first_pos
+			FROM ranked
+			GROUP BY department, trip_date
+		)
+		SELECT department, AVG(first_pos) as avg_pos
+		FROM first_seen
+		GROUP BY department
+		ORDER BY avg_pos
+	`, userID, storeName)
+	if err != nil {
+		log.Printf("[dept-order] query error for user %d store %q: %v", userID, storeName, err)
+		return nil, tripCount, false
+	}
+	defer rows.Close()
+
+	var departments []string
+	for rows.Next() {
+		var dept string
+		var avgPos float64
+		if err := rows.Scan(&dept, &avgPos); err != nil {
+			log.Printf("[dept-order] scan error: %v", err)
+			continue
+		}
+		departments = append(departments, dept)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[dept-order] row iteration error: %v", err)
+	}
+
+	if len(departments) == 0 {
+		return nil, tripCount, false
+	}
+
+	return departments, tripCount, true
+}
+
+// handleDepartmentOrder handles GET /api/list/department-order?store=StoreName
+func (s *Server) handleDepartmentOrder(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	storeName := r.URL.Query().Get("store")
+
+	// Check if store_order_enabled is on for this user
+	var storeOrderEnabled int
+	if err := s.db.QueryRow(
+		"SELECT COALESCE(store_order_enabled, 1) FROM users WHERE id = ?",
+		session.UserID,
+	).Scan(&storeOrderEnabled); err != nil {
+		log.Printf("[dept-order] failed to read store_order_enabled for user %d: %v", session.UserID, err)
+		storeOrderEnabled = 1
+	}
+
+	// If disabled, return alphabetical order of departments from user's list
+	if storeOrderEnabled == 0 {
+		departments := s.getAlphabeticalDepartments(session.UserID)
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"departments": departments,
+			"learned":     false,
+			"store":       storeName,
+			"trips":       0,
+		})
+		return
+	}
+
+	departments, tripCount, learned := getLearnedDepartmentOrder(s.db, session.UserID, storeName)
+	if !learned {
+		departments = s.getAlphabeticalDepartments(session.UserID)
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"departments": departments,
+			"learned":     false,
+			"store":       storeName,
+			"trips":       tripCount,
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"departments": departments,
+		"learned":     true,
+		"store":       storeName,
+		"trips":       tripCount,
+	})
+}
+
+// getAlphabeticalDepartments returns distinct departments from the user's active
+// list items, sorted alphabetically. Used as fallback when learned order is unavailable.
+func (s *Server) getAlphabeticalDepartments(userID int) []string {
+	whereClause, whereArgs := householdItemsWhereClause(s.db, userID)
+	rows, err := s.db.Query(
+		"SELECT DISTINCT department FROM list_items WHERE "+whereClause+" AND checked = 0 ORDER BY department",
+		whereArgs...,
+	)
+	if err != nil {
+		return []string{}
+	}
+	defer rows.Close()
+
+	var departments []string
+	for rows.Next() {
+		var dept string
+		if rows.Scan(&dept) == nil && dept != "" {
+			departments = append(departments, dept)
+		}
+	}
+	if departments == nil {
+		departments = []string{}
+	}
+	return departments
 }
 
 // handleListClear handles POST /api/list/clear
