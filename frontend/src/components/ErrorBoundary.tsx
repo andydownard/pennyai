@@ -1,5 +1,6 @@
 import { Component } from 'react'
 import type { ReactNode, ErrorInfo } from 'react'
+import * as Sentry from '@sentry/react'
 import { FONT, FONT_BASE } from '../styles'
 
 export class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -10,6 +11,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { hasError
   static getDerivedStateFromError() { return { hasError: true } }
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[ErrorBoundary] Uncaught error:', error, info.componentStack)
+    Sentry.captureException(error, { contexts: { react: { componentStack: info.componentStack || '' } } })
   }
   render() {
     if (this.state.hasError) {

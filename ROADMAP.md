@@ -859,8 +859,8 @@ Break-even math:
 
 | Area | Current State | Replace With | Effort | Saves | Cost |
 |------|--------------|-------------|--------|-------|------|
-| **Error monitoring** | log.Printf() only, no alerting | **Sentry** free tier | 30 min | Hours/incident | $0 |
-| **Internal analytics** | ~300 LOC custom SQL in handlers_admin.go | **PostHog** free tier (1M events/mo) | 1 day | Ongoing metric requests | $0 |
+| ~~**Error monitoring**~~ | ~~log.Printf() only~~ | **Sentry** ✅ Done | — | — | $0 |
+| ~~**Internal analytics**~~ | ~~custom SQL~~ | **PostHog** ✅ Done | — | — | $0 |
 | **Brand reporting (M9)** | Not built (1-2 week estimate) | **Metabase OSS** on Railway | Half day | M9 entirely | $5/mo |
 | **Real-time sync (R4)** | Polling every few seconds | **Pusher** or **Ably** free tier | 1 day | R4 entirely (2-3 weeks) | $0 |
 | **Auth system** | ~500 LOC custom (4 auth methods) | **Clerk** free tier (10K MAU) | 3-5 days | Auth maintenance burden | $0 |
