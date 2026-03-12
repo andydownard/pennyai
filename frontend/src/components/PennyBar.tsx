@@ -190,7 +190,7 @@ export function PennyBar({
         {!hidePennyText && (
         <div style={{ padding: keyboardOpen ? '4px 12px' : '8px 14px', transition: 'padding 200ms ease' }}>
           <div style={layout.rowGap}>
-            <PennyAvatar size={keyboardOpen ? 24 : 28} />
+            <PennyAvatar size={keyboardOpen ? 24 : 28} mood={pennyTyping ? 'thinking' : 'default'} />
             <span style={{
               flex: 1, fontFamily: FONT, fontSize: keyboardOpen ? FONT_2XS : FONT_XS,
               color: textColor, fontWeight: 500,

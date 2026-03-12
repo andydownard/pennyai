@@ -944,7 +944,7 @@ This is a **P2** initiative — do incrementally between feature sprints, not as
 - [x] **Offline detection** — Banner when offline, auto-refresh on reconnect and visibility change. ✅ Done (full offline caching still pending)
 
 ### Penny Personality
-- **Richer animations** — Penny avatar expressions (happy, thinking, excited) based on context.
+- [x] **Richer animations** — Penny avatar expressions (happy, thinking, excited) based on context. ✅ Done: PennyAvatar `mood` prop with CSS animations (pulse for thinking, glow for happy, bounce for excited), prefers-reduced-motion respected, wired in PennyBar (thinking state during typing).
 - [x] **Contextual suggestions** — Time-of-day greetings, weekend-specific messages, repurchase nudges, idle nudges. ✅ Done
 - [x] **Celebration moments** — Confetti on first swap, "You're done!" overlay with savings total, fireworks on all-done, haptic feedback on department completion. ✅ Done
 

@@ -1,5 +1,5 @@
 // Thriftly Service Worker — app shell caching for offline support and fast loads
-const CACHE_NAME = 'thriftly-v4'
+const CACHE_NAME = 'thriftly-v5'
 
 // App shell: cache on install
 const APP_SHELL = [
