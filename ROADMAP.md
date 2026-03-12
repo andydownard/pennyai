@@ -68,12 +68,14 @@ Strategic direction from founder + CEO panel focused on three gates: First-5-Min
 ### P1 — Ship After Core Gates Validated (cont.)
 
 7. **F1: UX Friction Audit — Fewer Taps, More Automatic** — P1, Size M
-   - Audit tap-count for common actions (add item, check off, clear list). Targets: (1) auto-submit when Penny parses single unambiguous item, (2) swipe-to-check on list items, (3) reduce brand confirmation for commodity items. Instrument taps-per-session before/after.
+   - [x] Auto-submit: 1.5s debounce auto-sends simple grocery items (1-4 words), circular progress ring on send button
+   - [x] Swipe-to-check: right-swipe on list items toggles checked state (60px threshold, green reveal)
+   - [x] Commodity fast-track: 29 common items skip brand disambiguation entirely when auto-assigned
+   - [x] Auto-confirm timer reduced from 8s to 4s for non-commodity auto-assigned brands
    - Source: User feedback F1 (2026-03-08)
    - Gates: Passes G1 (faster first-5-minutes), G2 (less friction = more household trust), G3 (tap data improves Penny's UX model)
-   - Sprint-ready: Yes
+   - **Status:** Done
    - **Owner:** Product + Frontend
-   - **Timeline:** 1 sprint
 
 ### P2 — Hold Until P0/P1 Validated (Do Not Start)
 
