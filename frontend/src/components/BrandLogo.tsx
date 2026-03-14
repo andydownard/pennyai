@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getItemEmoji } from '../styles'
+import { getItemEmoji, DEPT_ICONS } from '../styles'
 
 export function BrandLogo({ brand, size = 52, opacity = 1, itemName, department, emoji }: { brand?: string; size?: number; opacity?: number; itemName?: string; department?: string; emoji?: string }) {
   const [failed, setFailed] = useState(false)
@@ -7,8 +7,13 @@ export function BrandLogo({ brand, size = 52, opacity = 1, itemName, department,
   const pad = size > 60 ? '4px' : size > 48 ? '3px' : '2px'
   const emojiSize = Math.max(16, Math.round(size * 0.5))
 
-  // Emoji fallback priority: stored emoji from AI → static keyword match → department → 🛒
-  const fallbackEmoji = emoji || getItemEmoji(itemName || brand || '', department)
+  // Emoji fallback priority: item-specific keyword match → stored AI emoji → department → 🛒
+  // Always compute from item name first — the keyword list is more granular than
+  // what the backend may have stored (which can be a department-level emoji).
+  const computed = getItemEmoji(itemName || brand || '', department)
+  const deptEmoji = department ? DEPT_ICONS[department] : undefined
+  const isComputedSpecific = computed !== deptEmoji && computed !== '🛒'
+  const fallbackEmoji = isComputedSpecific ? computed : (emoji || computed)
 
   return (
     <div style={{ width: size, height: size, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

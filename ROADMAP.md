@@ -25,10 +25,10 @@
 
 ### Sprint 3: Frontend — Extract App.tsx State (P1) — In Progress
 
-- [ ] **Extract `useAuthState()` hook** — `phone`, `code`, `loading`, `checking`, `isOffline` + related handlers. (In progress)
+- [x] **Extract `useAuthState()` hook** — `phone`, `code`, `loading`, `checking`, `isOffline` + related handlers.
 - [ ] **Extract `useListState()` hook** — `items`, `selectedItem`, `editForm`, `itemHistory`, `newItemIds` + related handlers.
 - [ ] **Extract `useChatState()` hook** — `chatText`, `chatLoading`, `homePennyText`, `homePennyTyping`, `homePennyBtns`, `pennyChimeIn` + related handlers.
-- [ ] **Extract `useSettingsState()` hook** — all `settings*` state, `loadSettings()`, debounced save logic.
+- [x] **Extract `useSettingsState()` hook** — all `settings*` state, `loadSettings()`, debounced save logic.
 - [ ] **Extract `useSwapState()` hook** — `lastAdded`, `lastSkipped`, `showReviewSheet`, `pennyDisambig` + related handlers.
 
 ### Sprint 4: Frontend — Component Cleanup (P1) — **Done**

@@ -12,6 +12,7 @@ import { useConfirmModal } from './hooks/useConfirmModal'
 import { useKeyboardOpen } from './hooks/useKeyboardOpen'
 import { useAuthState } from './hooks/useAuthState'
 import { useSettingsState } from './hooks/useSettingsState'
+import { useSwapState } from './hooks/useSwapState'
 
 import { PennyAvatar } from './components/PennyAvatar'
 import { ActionSheet } from './components/ActionSheet'
@@ -337,6 +338,7 @@ function AppInner() {
 
   // --- List state ---
   const [items, setItems] = useState<ListItem[]>([])
+  const sortItems = (arr: ListItem[]) => [...arr].sort((a, b) => a.name.localeCompare(b.name))
   const [listLoading, setListLoading] = useState(true)
   const [pullRefreshing, setPullRefreshing] = useState(false)
   const pullStartY = useRef(0)
@@ -355,12 +357,7 @@ function AppInner() {
   // --- Toast state ---
   const { toast, showToast: _showToast, clearToast } = useToast()
 
-  // --- Review state (items from last parse) ---
-  const [lastAdded, setLastAdded] = useState<ListItem[]>([])
-  const [lastSkipped, setLastSkipped] = useState<{ parsed: { name: string; brand: string; quantity: number; size: string; department: string; emoji: string }; existing_id: number }[]>([])
-  const [showReviewSheet, setShowReviewSheet] = useState(false)
   const [returnToReview, setReturnToReview] = useState(false)
-  const hasReviewedRef = useRef(false)
 
   // --- Photo state ---
   const [pendingImages, setPendingImages] = useState<string[]>([])
@@ -436,8 +433,6 @@ function AppInner() {
     }).catch(() => {})
   }
 
-  // --- Swap offer state ---
-  const [swapsByItemId, setSwapsByItemId] = useState<Record<number, SwapOffer>>({})
   const [pendingReceiptMode, setPendingReceiptMode] = useState(false)
 
   // --- Admin state ---
@@ -458,11 +453,7 @@ function AppInner() {
   // --- Penny loading spinner state ---
   const [pennyStatus, setPennyStatus] = useState<string | null>(null)
 
-  // --- Brand disambiguation state ---
-  const [pennyDisambig, setPennyDisambig] = useState<{
-    item_id: number; product_category: string; current_brand: string; alternatives: string[]; auto_assigned?: boolean;
-  }[]>([])
-  const [pennyDisambigIndex, setPennyDisambigIndex] = useState(0)
+  // Brand disambiguation state — extracted to useSwapState hook
 
   // --- Store department order (learned from shopping trips) ---
   const [storeDeptOrder, setStoreDeptOrder] = useState<string[] | null>(null)
@@ -524,8 +515,32 @@ function AppInner() {
     },
   })
 
-  // --- Post-swap share prompt ---
-  const [postSwapShare, setPostSwapShare] = useState<{ brand: string; savings: number } | null>(null)
+  // --- Swap, review, and disambiguation state (extracted) ---
+  // Stable refs for callbacks defined later in the component
+  const typePennyHomeRef = useRef<(msg: string, btns?: { label: string; onClick: () => void }[]) => void>(() => {})
+  const handleSessionExpiredRef = useRef<() => void>(() => {})
+
+  const {
+    swapsByItemId, setSwapsByItemId,
+    lastAdded, setLastAdded,
+    lastSkipped, setLastSkipped,
+    showReviewSheet, setShowReviewSheet,
+    hasReviewedRef,
+    pennyDisambig, setPennyDisambig,
+    pennyDisambigIndex, setPennyDisambigIndex,
+    postSwapShare, setPostSwapShare,
+    handleSwapAccept, handleSwapDecline,
+    handleBrandPick, advanceDisambig,
+  } = useSwapState({
+    setItems,
+    sortItems,
+    typePennyHome: (...args) => typePennyHomeRef.current(...args),
+    showToast: (msg, type) => _showToast(msg, type),
+    handleSessionExpired: () => handleSessionExpiredRef.current(),
+    setEarningsTotalCents,
+    setShowFireworks,
+  })
+
   const [showWrapped, setShowWrapped] = useState(false)
   const [milestoneData, setMilestoneData] = useState<{ cents: number; dollars: string; share_text: string; total_cents: number } | null>(null)
 
@@ -1035,8 +1050,7 @@ function AppInner() {
   // LOAD LIST when on home screen
   // =========================================================================
 
-  const sortItems = (arr: ListItem[]) =>
-    [...arr].sort((a, b) => a.name.localeCompare(b.name))
+  // sortItems moved earlier in the file (after items state declaration)
 
   const handleSessionExpired = useCallback(() => {
     setChatLoading(false)
@@ -1047,6 +1061,7 @@ function AppInner() {
   }, [_showToast])
 
   // Register session expiry handler once
+  handleSessionExpiredRef.current = handleSessionExpired
   useEffect(() => {
     setSessionExpiredHandler(handleSessionExpired)
   }, [handleSessionExpired])
@@ -1460,6 +1475,8 @@ function AppInner() {
       }
     }, 25)
   }
+  // Wire stable refs for swap state hook
+  typePennyHomeRef.current = typePennyHome
 
   // Watch for penny messages on home page and type them out
   useEffect(() => {
@@ -1799,74 +1816,7 @@ function AppInner() {
     }
   }
 
-  // --- Swap accept/decline ---
-  const handleSwapAccept = async (dealId: number, itemId: number) => {
-    haptic.success()
-    // Capture offer brand for share prompt
-    const swap = swapsByItemId[itemId]
-    const offerBrand = swap?.offer_brand || ''
-    const discountCents = swap?.discount_cents || 0
-    // Optimistic: remove swap card immediately
-    const oldSwaps = { ...swapsByItemId }
-    setSwapsByItemId(prev => { const next = { ...prev }; delete next[itemId]; return next })
-    typePennyHome('Nice swap!')
-    try {
-      const res = await fetch('/api/list/parse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: 'accept_swap', swap_deal_id: dealId, swap_item_id: itemId }),
-      })
-      if (res.status === 401) { handleSessionExpired(); return }
-      if (res.ok) {
-        const data = await res.json()
-        if (data.updated?.length > 0) {
-          setItems(prev => {
-            const map = new Map(prev.map(i => [i.id, i]))
-            for (const item of data.updated) map.set(item.id, item)
-            return sortItems(Array.from(map.values()))
-          })
-        }
-        if (data.swap_credits_cents != null) {
-          setEarningsTotalCents(data.swap_credits_cents)
-        }
-        // First-swap celebration — confetti + special toast
-        const firstSwapKey = 'thriftly_first_swap'
-        if (!localStorage.getItem(firstSwapKey)) {
-          localStorage.setItem(firstSwapKey, '1')
-          setShowFireworks(true)
-          typePennyHome('Your first swap — nice save!')
-          track('first_swap_celebration', { deal_id: dealId, offer_brand: offerBrand })
-        }
-        // Post-swap share prompt — show after successful swap
-        if (discountCents > 0) {
-          setPostSwapShare({ brand: offerBrand, savings: discountCents })
-          track('post_swap_share_shown', { deal_id: dealId, offer_brand: offerBrand })
-          setTimeout(() => setPostSwapShare(null), 8000) // auto-dismiss after 8s
-        }
-      } else {
-        // Rollback swap card on failure
-        setSwapsByItemId(oldSwaps)
-        const err = await res.json().catch(() => null)
-        showToast(err?.error || 'Couldn\'t accept the swap', 'error')
-      }
-    } catch {
-      setSwapsByItemId(oldSwaps)
-      showToast('Connection error — try again', 'error')
-    }
-  }
-
-  const handleSwapDecline = async (dealId: number, itemId: number) => {
-    haptic.double()
-    track('swap_declined', { deal_id: dealId })
-    setSwapsByItemId(prev => { const next = { ...prev }; delete next[itemId]; return next })
-    try {
-      await fetch('/api/list/parse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: 'decline_swap', swap_deal_id: dealId, swap_item_id: itemId }),
-      })
-    } catch { /* silent — optimistic removal already done */ }
-  }
+  // Swap accept/decline/brand-pick/disambig — extracted to useSwapState hook
 
   // --- Receipt submit ---
   const handleReceiptSubmit = async (imageData: string[]) => {
@@ -1961,50 +1911,7 @@ function AppInner() {
     }
   }
 
-  const advanceDisambig = () => {
-    const next = pennyDisambigIndex + 1
-    if (next >= pennyDisambig.length) {
-      setPennyDisambig([])
-      setPennyDisambigIndex(0)
-      typePennyHome("All set! I'll remember those for next time.")
-    } else {
-      setPennyDisambigIndex(next)
-    }
-  }
-
-  // Auto-confirm auto-assigned brands after 4s of inactivity
-  useEffect(() => {
-    if (pennyDisambig.length === 0 || pennyDisambigIndex >= pennyDisambig.length) return
-    const d = pennyDisambig[pennyDisambigIndex]
-    if (!d?.auto_assigned || !d?.current_brand) return
-    const timer = setTimeout(() => {
-      handleBrandPick(d.current_brand)
-    }, 4000)
-    return () => clearTimeout(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pennyDisambigIndex, pennyDisambig])
-
-  const handleBrandPick = async (brand: string) => {
-    const d = pennyDisambig[pennyDisambigIndex]
-    if (!d) return
-    const result = await fetchAction('/api/list/brand-resolve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ item_id: d.item_id, brand, product_category: d.product_category }),
-    })
-    if (result.ok) {
-      setItems(prev => prev.map(i => i.id === d.item_id ? { ...i, brand } : i))
-      setLastAdded(prev => prev.map(i => i.id === d.item_id ? { ...i, brand } : i))
-      // Track A/B event for onboarding test
-      if (d.auto_assigned) {
-        const event = brand === d.current_brand ? 'brand_default_confirmed' : 'brand_default_corrected'
-        trackEvent('onboarding_v2', event)
-      }
-      advanceDisambig()
-    } else if (result.status !== 401) {
-      showToast('Couldn\'t save brand preference — try again', 'error')
-    }
-  }
+  // advanceDisambig, auto-confirm effect, handleBrandPick — extracted to useSwapState hook
 
   const handleSendChat = async () => {
     if ((!chatText.trim() && pendingImages.length === 0) || chatLoading) return
