@@ -4,8 +4,8 @@ import * as Sentry from '@sentry/react'
 import posthog from 'posthog-js'
 import App from './App'
 
-// Sentry error monitoring — gracefully skipped if DSN not set
-const sentryDsn = (window as any).__SENTRY_DSN__ || import.meta.env.VITE_SENTRY_DSN
+// Sentry error monitoring (DSN is public/safe — only allows sending errors)
+const sentryDsn = 'https://c462ececfb7290bede91712b2d58e30a@o4511042213773312.ingest.us.sentry.io/4511042223407104'
 if (sentryDsn) {
   Sentry.init({
     dsn: sentryDsn,
