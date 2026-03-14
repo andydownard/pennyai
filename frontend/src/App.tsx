@@ -2398,6 +2398,7 @@ function AppInner() {
           track('referral_copied')
           navigator.clipboard.writeText(`https://app.thrift.ly/r/${referralCode}`).then(() => showToast('Link copied!')).catch(() => showToast('Could not copy', 'error'))
         }}
+        onShowToast={showToast}
         runConfirmAction={runConfirmAction}
         closeConfirmModal={closeConfirmModal}
         renderHeader={() => renderPageHeader('Share & Earn', 'settings-share')}
