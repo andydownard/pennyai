@@ -1,3 +1,4 @@
 export { useToast, type ToastData } from './useToast'
 export { useConfirmModal, type ConfirmModalData } from './useConfirmModal'
 export { useKeyboardOpen } from './useKeyboardOpen'
+export { useAuthState, type UseAuthStateOptions, type AuthSuccessData } from './useAuthState'

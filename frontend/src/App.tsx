@@ -10,6 +10,7 @@ import { fetchAPI, fetchAction, setSessionExpiredHandler } from './api'
 import { useToast } from './hooks/useToast'
 import { useConfirmModal } from './hooks/useConfirmModal'
 import { useKeyboardOpen } from './hooks/useKeyboardOpen'
+import { useAuthState } from './hooks/useAuthState'
 
 import { PennyAvatar } from './components/PennyAvatar'
 import { ActionSheet } from './components/ActionSheet'
@@ -307,12 +308,8 @@ function AppInner() {
   // Screen transition animation styles (must be called before any conditional returns)
   const transitionStyle = useScreenTransition(screen)
 
-  const [phone, setPhone] = useState('')           // raw digits: "5551234567"
-  const [code, setCode] = useState(['', '', '', '', '', '']) // 6 digits
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [checking, setChecking] = useState(true)    // checking existing session on load
-  const [isOffline, setIsOffline] = useState(!navigator.onLine)
+  // Auth state extracted to useAuthState hook (initialized below after setScreen & showToast are available)
+
   const [installPrompt, setInstallPrompt] = useState<any>(null)
   const [showInstallBanner, setShowInstallBanner] = useState(false)
 
@@ -326,10 +323,6 @@ function AppInner() {
   const [joinPromptName, setJoinPromptName] = useState('')
   const [joinPromptCode, setJoinPromptCode] = useState('')
 
-
-  // Login page Penny typewriter
-  const [loginPennyText, setLoginPennyText] = useState('')
-  const loginTypingRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Home page Penny typewriter
   const [homePennyText, setHomePennyText] = useState('')
@@ -476,19 +469,7 @@ function AppInner() {
   // --- NPS state ---
   const [showNPS, setShowNPS] = useState(false)
 
-  // --- SMS opt-in state ---
-  const [smsOptIn, setSmsOptIn] = useState(true)
-
-  // --- Email/Google auth state ---
-  const [emailInput, setEmailInput] = useState('')
-  const [passwordInput, setPasswordInput] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [nameInput, setNameInput] = useState('')
-  const [lastNameInput, setLastNameInput] = useState('')
-  const [googleClientId, setGoogleClientId] = useState('')
-  const [resetToken, setResetToken] = useState('')
-  const [resetSent, setResetSent] = useState(false)
-  const [magicLinkSent, setMagicLinkSent] = useState(false)
+  // SMS opt-in, email/Google auth state — extracted to useAuthState hook
 
   // --- New item highlight state ---
   const [newItemIds, setNewItemIds] = useState<Set<number>>(new Set())
@@ -677,10 +658,7 @@ function AppInner() {
     }).catch(() => {})
   }, [screen]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // --- Refs ---
-  // We need refs to programmatically focus inputs (autofocus, auto-advance)
-  const phoneInputRef = useRef<HTMLInputElement>(null)
-  const codeInputRefs = useRef<(HTMLInputElement | null)[]>([])
+  // phoneInputRef and codeInputRefs — extracted to useAuthState hook
 
   // =========================================================================
   // CHECK EXISTING SESSION ON LOAD
@@ -822,6 +800,39 @@ function AppInner() {
     }
   }, [])
 
+  // =========================================================================
+  // AUTH STATE HOOK — phone, code, email, password, handlers, typewriter, etc.
+  // =========================================================================
+
+  const auth = useAuthState({
+    setScreen: (s: string, replace?: boolean) => setScreen(s as Screen, replace),
+    showToast: _showToast,
+    onAuthSuccess: (data) => {
+      if (data.is_admin) setIsAdmin(true)
+      if (data.user_id) setCurrentUserId(data.user_id)
+      if (data.auth_methods) setAuthMethods(data.auth_methods)
+    },
+    tryJoinCode,
+    pathToScreen: PATH_TO_SCREEN,
+  })
+
+  // Destructure auth state for use in JSX and handlers
+  const {
+    phone, setPhone, code, error, setError, loading, setLoading,
+    checking, setChecking, isOffline,
+    emailInput, setEmailInput, passwordInput, setPasswordInput,
+    confirmPassword, setConfirmPassword, nameInput, setNameInput,
+    lastNameInput, setLastNameInput, googleClientId,
+    resetSent, setResetSent, magicLinkSent, setMagicLinkSent,
+    smsOptIn, setSmsOptIn, loginPennyText,
+    phoneInputRef, codeInputRefs,
+    handlePhoneChange, handleSendCode,
+    handleCodeChange, handleCodeKeyDown, handleCodePaste,
+    handleEmailRegister, handleEmailLogin, handleForgotPassword,
+    handleMagicLink, handleResetPassword, handleLogout,
+    startLoginTypewriter,
+  } = auth
+
   useEffect(() => {
     // Migrate old hash-based URLs to pathname
     const hash = window.location.hash.replace('#', '')
@@ -907,19 +918,7 @@ function AppInner() {
       })
   }, [])
 
-  // Fetch Google Client ID and extract reset token from URL
-  useEffect(() => {
-    fetch('/api/config').then(r => r.json()).then((data: { google_client_id?: string }) => {
-      if (data.google_client_id) setGoogleClientId(data.google_client_id)
-    }).catch(() => {})
-
-    // Extract reset token from URL if present
-    const params = new URLSearchParams(window.location.search)
-    const token = params.get('token')
-    if (token && window.location.pathname === '/reset-password') {
-      setResetToken(token)
-    }
-  }, [])
+  // Google config fetch and reset token extraction — moved to useAuthState hook
 
   // Initialize Google Sign-In when on login screens
   useEffect(() => {
@@ -1001,51 +1000,9 @@ function AppInner() {
     }
   }, [screen, checking])
 
-  // Login page typewriter — cycles Penny quotes with value props
-  const LOGIN_MESSAGES = [
-    "Hi, I'm Penny — your household's AI shopping assistant.",
-    "Tell me what you need and I'll organize your list by aisle.",
-    "I learn your brand preferences over time.",
-    "Share your list with your whole household.",
-    "Text or email me items anytime — I'll add them for you.",
-    "Snap a photo of your fridge and I'll spot what's missing.",
-  ]
-
-  useEffect(() => {
-    if (screen !== 'phone' && screen !== 'email-login' && screen !== 'email-register') {
-      if (loginTypingRef.current) clearTimeout(loginTypingRef.current)
-      return
-    }
-    let cancelled = false
-    let msgIndex = 0
-    let charIndex = 0
-
-    const typeMessage = () => {
-      if (cancelled) return
-      const msg = LOGIN_MESSAGES[msgIndex]
-      charIndex++
-      setLoginPennyText(msg.slice(0, charIndex))
-      if (charIndex < msg.length) {
-        loginTypingRef.current = setTimeout(typeMessage, 35)
-      } else {
-        // Pause, then move to next message
-        loginTypingRef.current = setTimeout(() => {
-          if (cancelled) return
-          msgIndex = (msgIndex + 1) % LOGIN_MESSAGES.length
-          charIndex = 0
-          setLoginPennyText('')
-          loginTypingRef.current = setTimeout(typeMessage, 400)
-        }, 4000)
-      }
-    }
-    setLoginPennyText('')
-    loginTypingRef.current = setTimeout(typeMessage, 300)
-    return () => {
-      cancelled = true
-      if (loginTypingRef.current) clearTimeout(loginTypingRef.current)
-    }
+  // Login typewriter effect — managed by useAuthState.startLoginTypewriter
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screen])
+  useEffect(() => startLoginTypewriter(screen), [screen])
 
 
   // =========================================================================
@@ -1192,16 +1149,14 @@ function AppInner() {
     return () => clearTimeout(t)
   }, [activeStore, storeOrderEnabled])
 
-  // Track online/offline status and auto-refresh when coming back online
+  // Online/offline state tracking is handled by useAuthState hook.
+  // Auto-refresh list when coming back online:
   useEffect(() => {
     const goOnline = () => {
-      setIsOffline(false)
       if (screen === 'home') reloadList().catch(() => {})
     }
-    const goOffline = () => setIsOffline(true)
     window.addEventListener('online', goOnline)
-    window.addEventListener('offline', goOffline)
-    return () => { window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline) }
+    return () => window.removeEventListener('online', goOnline)
   }, [screen])
 
   // PWA install prompt — capture the browser event and show a banner after the user has items
@@ -2744,319 +2699,10 @@ function AppInner() {
     } else if (result.status !== 401) { showToast('Couldn\'t load that list — please try again', 'error') }
   }
 
-  // =========================================================================
-  // EMAIL AUTH HANDLERS
-  // =========================================================================
-
-  const handleEmailRegister = async () => {
-    setError('')
-    if (!emailInput.trim()) { setError('Please enter your email'); return }
-    if (passwordInput.length < 8) { setError('Password must be at least 8 characters'); return }
-    if (passwordInput !== confirmPassword) { setError('Passwords do not match'); return }
-    setLoading(true)
-    try {
-      const res = await fetch('/auth/email/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailInput.trim(), password: passwordInput, name: `${nameInput.trim()} ${lastNameInput.trim()}`.trim() }),
-      })
-      const data = await res.json()
-      if (res.ok && data.success) {
-        setPasswordInput(''); setConfirmPassword('')
-        if (data.account_merged && data.merge_message) {
-          sessionStorage.setItem('thriftly_merge_msg', data.merge_message)
-        }
-        setScreen('home', true)
-      } else {
-        setError(data.error || 'Registration failed')
-      }
-    } catch { setError('Registration failed') }
-    finally { setLoading(false) }
-  }
-
-  const handleEmailLogin = async () => {
-    setError('')
-    if (!emailInput.trim() || !passwordInput) { setError('Please enter email and password'); return }
-    setLoading(true)
-    try {
-      const res = await fetch('/auth/email/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailInput.trim(), password: passwordInput }),
-      })
-      const data = await res.json()
-      if (res.ok && data.success) {
-        setPasswordInput(''); setConfirmPassword('')
-        setScreen('home', true)
-      } else {
-        setError(data.error || 'Invalid email or password')
-      }
-    } catch { setError('Sign in failed') }
-    finally { setLoading(false) }
-  }
-
-  const handleForgotPassword = async () => {
-    setError('')
-    if (!emailInput.trim()) { setError('Please enter your email'); return }
-    setLoading(true)
-    try {
-      await fetch('/auth/email/forgot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailInput.trim() }),
-      })
-      setResetSent(true)
-    } catch { setError('Failed to send reset link') }
-    finally { setLoading(false) }
-  }
-
-  const handleMagicLink = async () => {
-    setError('')
-    if (!emailInput.trim()) { setError('Please enter your email'); return }
-    setLoading(true)
-    try {
-      await fetch('/auth/email/magic-link', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailInput.trim() }),
-      })
-      setMagicLinkSent(true)
-    } catch { setError('Couldn\'t send the link — check your connection and try again') }
-    finally { setLoading(false) }
-  }
-
-  const handleResetPassword = async () => {
-    setError('')
-    if (passwordInput.length < 8) { setError('Password must be at least 8 characters'); return }
-    if (passwordInput !== confirmPassword) { setError('Passwords do not match'); return }
-    setLoading(true)
-    try {
-      const res = await fetch('/auth/email/reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: resetToken, password: passwordInput }),
-      })
-      const data = await res.json()
-      if (res.ok && data.success) {
-        showToast('Password reset! Please sign in.')
-        setPasswordInput('')
-        setConfirmPassword('')
-        setScreen('email-login')
-      } else {
-        setError(data.error || 'Failed to reset password')
-      }
-    } catch { setError('Failed to reset password') }
-    finally { setLoading(false) }
-  }
-
-  // =========================================================================
-  // PHONE INPUT HANDLER
-  //
-  // Strips non-digits, caps at 10 characters. The display value is formatted
-  // by formatPhone(), but we store only raw digits.
-  // =========================================================================
-
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Strip everything that isn't a digit
-    let raw = e.target.value.replace(/\D/g, '')
-
-    // If they typed or pasted a number starting with 1 (like 15551234567),
-    // drop the leading 1 — we add +1 on the backend
-    if (raw.length > 10 && raw.startsWith('1')) {
-      raw = raw.slice(1)
-    }
-
-    const digits = raw.slice(0, 10)
-    setPhone(digits)
-    setError('')
-
-    // Auto-advance to code screen when 10 digits entered and SMS opt-in checked
-    if (digits.length === 10 && smsOptIn) {
-      setTimeout(() => handleSendCode(digits), 300)
-    }
-  }
-
-  // =========================================================================
-  // SEND CODE
-  //
-  // Called when the user taps "Send Code" (only enabled at 10 digits).
-  // Posts the raw 10-digit number to the backend.
-  // =========================================================================
-
-  const handleSendCode = async (phoneOverride?: string) => {
-    const p = phoneOverride || phone
-    if (p.length !== 10 || loading) return
-
-    setLoading(true)
-    setError('')
-
-    try {
-      const res = await fetch('/auth/send-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone_number: p }),
-      })
-
-      const data = await res.json().catch(() => ({} as Record<string, string>))
-
-      if (res.ok) {
-        setScreen('code')
-        setCode(['', '', '', '', '', '']) // reset code inputs
-      } else {
-        setError(data.error || 'Failed to send code')
-      }
-    } catch {
-      setError('Network error. Please try again.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-// =========================================================================
-  // VERIFY CODE (auto-called when 6 digits are entered)
-  //
-  // This function is called by handleCodeChange when all 6 boxes are filled.
-  // It sends the code to the backend and either logs in or shows an error.
-  // =========================================================================
-
-  const verifyingRef = useRef(false)
-
-  const verifyCode = useCallback(async (fullCode: string) => {
-    // Prevent double-submission — Twilio codes are single-use
-    if (verifyingRef.current) return
-    verifyingRef.current = true
-
-    setLoading(true)
-    setError('')
-
-    try {
-      const res = await fetch('/auth/verify-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone_number: phone, code: fullCode }),
-      })
-
-      const data = await res.json().catch(() => ({} as Record<string, unknown>))
-
-      if (res.ok) {
-        if (data.is_admin) setIsAdmin(true)
-        if (data.user_id) setCurrentUserId(data.user_id)
-        if (data.auth_methods) setAuthMethods(data.auth_methods as string[])
-        tryJoinCode()
-        // Check for post-login redirect (deep link before auth)
-        const redirect = sessionStorage.getItem('thriftly_redirect')
-        if (redirect) {
-          sessionStorage.removeItem('thriftly_redirect')
-          const target = PATH_TO_SCREEN[redirect]
-          setScreen((target || 'home') as Screen, true)
-        } else {
-          setScreen('home', true)
-        }
-      } else {
-        setError(data.error || 'Invalid code')
-        setCode(['', '', '', '', '', ''])
-        setTimeout(() => codeInputRefs.current[0]?.focus(), 50)
-      }
-    } catch {
-      setError('Network error. Please try again.')
-      setCode(['', '', '', '', '', ''])
-    } finally {
-      setLoading(false)
-      verifyingRef.current = false
-    }
-  }, [phone])
-
-  // =========================================================================
-  // CODE INPUT HANDLER
-  //
-  // Each of the 6 code boxes is a separate <input>. When a digit is entered:
-  //   1. Store it in the code array at the right index
-  //   2. Auto-advance focus to the next box
-  //   3. If all 6 are filled, auto-submit immediately
-  // =========================================================================
-
-const handleCodeChange = (index: number, value: string) => {
-    const digits = value.replace(/\D/g, '')
-
-    // iOS autofill may put the full code into one input — distribute across all boxes
-    if (digits.length > 1) {
-      const newCode = [...code]
-      for (let i = 0; i < digits.length && i < 6; i++) {
-        newCode[i] = digits[i]
-      }
-      setCode(newCode)
-      setError('')
-      const nextEmpty = newCode.findIndex(d => !d)
-      if (nextEmpty >= 0) {
-        codeInputRefs.current[nextEmpty]?.focus()
-      } else {
-        codeInputRefs.current[5]?.focus()
-        verifyCode(newCode.join(''))
-      }
-      return
-    }
-
-    const digit = digits.slice(-1)
-    const newCode = [...code]
-    newCode[index] = digit
-    setCode(newCode)
-    setError('')
-
-    if (digit && index < 5) {
-      codeInputRefs.current[index + 1]?.focus()
-    }
-
-    // Auto-submit when all 6 digits are filled
-    if (digit && newCode.join('').length === 6) {
-      verifyCode(newCode.join(''))
-    }
-  }
-
-  // Handle backspace in code inputs: go back to previous box
-  const handleCodeKeyDown = (index: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace' && !code[index] && index > 0) {
-      codeInputRefs.current[index - 1]?.focus()
-    }
-  }
-
-  // iOS autofill fallback: native `input` event listener on the first code box.
-  // iOS may set .value directly (bypassing React onChange), so we detect multi-digit
-  // values via a native listener and distribute across all boxes.
-  useEffect(() => {
-    const el = codeInputRefs.current[0]
-    if (!el) return
-    const handler = () => {
-      const digits = (el.value || '').replace(/\D/g, '')
-      if (digits.length > 1) {
-        handleCodeChange(0, digits)
-      }
-    }
-    el.addEventListener('input', handler)
-    return () => el.removeEventListener('input', handler)
-  })
-
-  // Handle paste in code inputs: fill all boxes from clipboard
-  const handleCodePaste = (e: React.ClipboardEvent) => {
-    e.preventDefault()
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6)
-    if (pasted.length === 0) return
-
-    const newCode = [...code]
-    for (let i = 0; i < pasted.length && i < 6; i++) {
-      newCode[i] = pasted[i]
-    }
-    setCode(newCode)
-
-    // Focus the next empty box, or the last one
-    const nextEmpty = newCode.findIndex(d => !d)
-    if (nextEmpty >= 0) {
-      codeInputRefs.current[nextEmpty]?.focus()
-    } else {
-      codeInputRefs.current[5]?.focus()
-      // All filled — auto-submit
-      verifyCode(newCode.join(''))
-    }
-  }
+  // Auth handlers (handleEmailRegister, handleEmailLogin, handleForgotPassword,
+  // handleMagicLink, handleResetPassword, handlePhoneChange, handleSendCode,
+  // verifyCode, handleCodeChange, handleCodeKeyDown, handleCodePaste)
+  // — all extracted to useAuthState hook
 
   // =========================================================================
   // SETTINGS HANDLERS
@@ -3153,17 +2799,7 @@ const handleCodeChange = (index: number, value: string) => {
     finally { setInviteLoading(false) }
   }
 
-  // =========================================================================
-  // LOGOUT
-  // =========================================================================
-
-  const handleLogout = async () => {
-    await fetch('/auth/logout', { method: 'POST' })
-    setScreen('phone', true)
-    setPhone('')
-    setCode(['', '', '', '', '', ''])
-    setError('')
-  }
+  // handleLogout — extracted to useAuthState hook
 
   // =========================================================================
   // LOADING STATE (checking existing session)
