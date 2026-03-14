@@ -11,6 +11,7 @@ import { useToast } from './hooks/useToast'
 import { useConfirmModal } from './hooks/useConfirmModal'
 import { useKeyboardOpen } from './hooks/useKeyboardOpen'
 import { useAuthState } from './hooks/useAuthState'
+import { useSettingsState } from './hooks/useSettingsState'
 
 import { PennyAvatar } from './components/PennyAvatar'
 import { ActionSheet } from './components/ActionSheet'
@@ -353,7 +354,6 @@ function AppInner() {
 
   // --- Toast state ---
   const { toast, showToast: _showToast, clearToast } = useToast()
-  const settingsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // --- Review state (items from last parse) ---
   const [lastAdded, setLastAdded] = useState<ListItem[]>([])
@@ -436,26 +436,6 @@ function AppInner() {
     }).catch(() => {})
   }
 
-  // --- Settings state ---
-  const [settingsFirstName, setSettingsFirstName] = useState('')
-  const [settingsLastName, setSettingsLastName] = useState('')
-  const [settingsEmail, setSettingsEmail] = useState('')
-  const [settingsAddress, setSettingsAddress] = useState('')
-  const [placesReady, setPlacesReady] = useState(false)
-  const [settingsMembers, setSettingsMembers] = useState<{ name: string; phone: string }[]>([])
-  const [listName, setListName] = useState('')
-  const [editingListName, setEditingListName] = useState(false)
-  const [listNameDraft, setListNameDraft] = useState('')
-  const [settingsPennyPhone, setSettingsPennyPhone] = useState('')
-  const [settingsUserPhone, setSettingsUserPhone] = useState('')
-  const [inviteLoading, setInviteLoading] = useState(false)
-  const [showInviteSheet, setShowInviteSheet] = useState(false)
-  const [invitePhone, setInvitePhone] = useState('')
-  const [inviteSent, setInviteSent] = useState(false)
-  // --- Referral state ---
-  const [referralCode, setReferralCode] = useState('')
-  const [referralFriends, setReferralFriends] = useState<{ name: string; created_at: string }[]>([])
-
   // --- Swap offer state ---
   const [swapsByItemId, setSwapsByItemId] = useState<Record<number, SwapOffer>>({})
   const [pendingReceiptMode, setPendingReceiptMode] = useState(false)
@@ -483,11 +463,6 @@ function AppInner() {
     item_id: number; product_category: string; current_brand: string; alternatives: string[]; auto_assigned?: boolean;
   }[]>([])
   const [pennyDisambigIndex, setPennyDisambigIndex] = useState(0)
-  const [pennySlider, setPennySlider] = useState(35)
-  const [pennyAutotune, setPennyAutotune] = useState(true)
-  const [pennyDeals, setPennyDeals] = useState(false)
-  const [storeOrderEnabled, setStoreOrderEnabled] = useState(true)
-  const [dailyDigestEnabled, setDailyDigestEnabled] = useState(false)
 
   // --- Store department order (learned from shopping trips) ---
   const [storeDeptOrder, setStoreDeptOrder] = useState<string[] | null>(null)
@@ -497,6 +472,57 @@ function AppInner() {
   // --- Earnings state ---
   const [earningsTotalCents, setEarningsTotalCents] = useState(0)
   const keyboardOpen = useKeyboardOpen()
+
+  // --- Settings state (extracted to useSettingsState hook) ---
+  const {
+    settingsFirstName, setSettingsFirstName,
+    settingsLastName, setSettingsLastName,
+    settingsEmail, setSettingsEmail,
+    settingsAddress, setSettingsAddress,
+    placesReady,
+    settingsMembers,
+    listName, setListName,
+    editingListName, setEditingListName,
+    listNameDraft, setListNameDraft,
+    settingsPennyPhone,
+    settingsUserPhone, setSettingsUserPhone,
+    inviteLoading,
+    showInviteSheet, setShowInviteSheet,
+    invitePhone, setInvitePhone,
+    inviteSent,
+    referralCode,
+    referralFriends,
+    pennySlider, setPennySlider,
+    pennyAutotune,
+    pennyDeals,
+    storeOrderEnabled,
+    dailyDigestEnabled,
+    loadSettings,
+    handleSettingsAutoSave,
+    handleOpenInviteSheet,
+    handleSendSMSInvite,
+    handleShareInviteLink,
+    toggleAutotune,
+    toggleDeals,
+    toggleStoreOrder,
+    toggleDailyDigest,
+  } = useSettingsState({
+    screen,
+    currentUserId,
+    showToast: (msg, type) => {
+      if (type === 'error') haptic.error()
+      _showToast(msg, type)
+    },
+    onEarningsTotalCents: (cents) => setEarningsTotalCents(cents),
+    onOnboardingFlags: (flags) => {
+      if (flags.ob_name) { onboardingNameAsked.current = true; localStorage.setItem('ob_name', '1') }
+      if (flags.ob_share) { onboardingShareMentioned.current = true; localStorage.setItem('ob_share', '1') }
+      if (flags.ob_text) { onboardingTextMentioned.current = true; localStorage.setItem('ob_text', '1') }
+      if (flags.ob_swaps) { onboardingSwapsMentioned.current = true; localStorage.setItem('ob_swaps', '1') }
+      if (flags.ob_link_phone) { onboardingLinkPhoneMentioned.current = true; localStorage.setItem('ob_link_phone', '1') }
+      if (flags.ob_link_email) { onboardingLinkEmailMentioned.current = true; localStorage.setItem('ob_link_email', '1') }
+    },
+  })
 
   // --- Post-swap share prompt ---
   const [postSwapShare, setPostSwapShare] = useState<{ brand: string; savings: number } | null>(null)
@@ -1408,67 +1434,7 @@ function AppInner() {
   }, [trips])
 
 
-  const loadSettings = () => {
-    fetchAPI('/api/settings')
-      .then(data => {
-        if (data && !Array.isArray(data)) {
-          const parts = ((data.name as string) || '').split(' ')
-          setSettingsFirstName(parts[0] || '')
-          setSettingsLastName(parts.slice(1).join(' '))
-          setSettingsEmail((data.email as string) || '')
-          setSettingsAddress((data.address as string) || '')
-          if (data.google_places_ready) setPlacesReady(true)
-          if (data.phone) setSettingsUserPhone(data.phone as string)
-          if (data.penny_phone) setSettingsPennyPhone(data.penny_phone as string)
-          setSettingsMembers((data.household_members as { name: string; phone: string }[]) || [])
-          if (data.penny_slider != null) setPennySlider(data.penny_slider as number)
-          if (data.penny_autotune != null) setPennyAutotune(data.penny_autotune as boolean)
-          if (data.penny_deals != null) setPennyDeals(data.penny_deals as boolean)
-          if (data.store_order_enabled != null) setStoreOrderEnabled(data.store_order_enabled as boolean)
-          if (data.daily_digest_enabled != null) setDailyDigestEnabled(data.daily_digest_enabled as boolean)
-          if (data.swap_credits_cents != null) {
-            setEarningsTotalCents(data.swap_credits_cents as number)
-          }
-          if (data.list_name != null) setListName(data.list_name as string)
-          // Hydrate onboarding flags from server (server is source of truth)
-          if (data.onboarding_flags && typeof data.onboarding_flags === 'string') {
-            try {
-              const flags = JSON.parse(data.onboarding_flags as string) as Record<string, string>
-              if (flags.ob_name) { onboardingNameAsked.current = true; localStorage.setItem('ob_name', '1') }
-              if (flags.ob_share) { onboardingShareMentioned.current = true; localStorage.setItem('ob_share', '1') }
-              if (flags.ob_text) { onboardingTextMentioned.current = true; localStorage.setItem('ob_text', '1') }
-              if (flags.ob_swaps) { onboardingSwapsMentioned.current = true; localStorage.setItem('ob_swaps', '1') }
-              if (flags.ob_link_phone) { onboardingLinkPhoneMentioned.current = true; localStorage.setItem('ob_link_phone', '1') }
-              if (flags.ob_link_email) { onboardingLinkEmailMentioned.current = true; localStorage.setItem('ob_link_email', '1') }
-            } catch { /* ignore parse errors */ }
-          }
-        }
-      })
-      .catch(e => console.warn('[load] settings failed:', e))
-  }
-
-  useEffect(() => {
-    // Only re-fetch settings when entering profile (where edits happen) or share (household changes)
-    if (screen !== 'penny' && screen !== 'profile' && screen !== 'settings-share') return
-    loadSettings()
-  }, [screen])
-
-  const loadReferralData = () => {
-    fetchAPI('/api/referral')
-      .then(data => {
-        if (data && !Array.isArray(data)) {
-          setReferralCode((data.code as string) || '')
-          setReferralFriends((data.friends as { name: string; created_at: string }[]) || [])
-        }
-      })
-      .catch(e => console.warn('[load] referral failed:', e))
-  }
-
-  useEffect(() => {
-    if (screen !== 'settings-share') return
-    loadReferralData()
-  }, [screen])
-
+  // loadSettings, loadReferralData, and their effects are now in useSettingsState hook
 
   const showToast = (message: string, type: 'success' | 'error' = 'success', action?: { label: string; onClick: () => void }) => {
     if (type === 'error') haptic.error()
@@ -2705,101 +2671,7 @@ function AppInner() {
   // — all extracted to useAuthState hook
 
   // =========================================================================
-  // SETTINGS HANDLERS
-  // =========================================================================
-
-  const settingsFirstNameRef = useRef(settingsFirstName)
-  const settingsLastNameRef = useRef(settingsLastName)
-  const settingsEmailRef = useRef(settingsEmail)
-  const settingsPhoneRef = useRef(settingsUserPhone)
-  const settingsAddressRef = useRef(settingsAddress)
-  settingsFirstNameRef.current = settingsFirstName
-  settingsLastNameRef.current = settingsLastName
-  settingsEmailRef.current = settingsEmail
-  settingsPhoneRef.current = settingsUserPhone
-  settingsAddressRef.current = settingsAddress
-  const settingsSaving = useRef(false)
-  const settingsQueued = useRef(false)
-  const doSettingsSave = async () => {
-    if (settingsSaving.current) { settingsQueued.current = true; return }
-    settingsSaving.current = true
-    try {
-      await fetchAPI('/api/settings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: [settingsFirstNameRef.current.trim(), settingsLastNameRef.current.trim()].filter(Boolean).join(' '), email: settingsEmailRef.current.trim(), phone: settingsPhoneRef.current.trim() || undefined, address: settingsAddressRef.current.trim() }),
-      })
-    } catch { /* silent */ }
-    settingsSaving.current = false
-    if (settingsQueued.current) { settingsQueued.current = false; doSettingsSave() }
-  }
-  const handleSettingsAutoSave = () => {
-    if (settingsSaveTimer.current) clearTimeout(settingsSaveTimer.current)
-    settingsSaveTimer.current = setTimeout(doSettingsSave, 500)
-  }
-
-  // Open the invite sheet (phone input + share options)
-  const handleOpenInviteSheet = () => {
-    setInvitePhone('')
-    setInviteSent(false)
-    setShowInviteSheet(true)
-  }
-
-  // Send SMS invite directly via backend
-  const handleSendSMSInvite = async () => {
-    const digits = invitePhone.replace(/\D/g, '')
-    if (digits.length < 10) { showToast('Enter a valid phone number', 'error'); return }
-    setInviteLoading(true)
-    try {
-      const data = await fetchAPI('/api/settings/invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: digits }),
-      })
-      if (data && !Array.isArray(data) && data.link) {
-        track('invite_shared', { method: 'sms_direct' })
-        setInviteSent(true)
-        showToast('Invite sent!')
-        setTimeout(() => setShowInviteSheet(false), 1500)
-      } else {
-        showToast('Couldn\'t send invite — please try again', 'error')
-      }
-    } catch { showToast('Couldn\'t connect — check your connection and try again', 'error') }
-    finally { setInviteLoading(false) }
-  }
-
-  // Share invite link via native share sheet or clipboard
-  const handleShareInviteLink = async () => {
-    setInviteLoading(true)
-    try {
-      const data = await fetchAPI('/api/settings/invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: '' }),
-      })
-      if (!data || Array.isArray(data) || !data.link) {
-        showToast('Couldn\'t create invite link — please try again', 'error')
-        return
-      }
-      const link = data.link as string
-      const message = `Join our household shopping list on Thriftly! ${link}`
-      if (navigator.share) {
-        track('invite_shared', { method: 'native_share' })
-        try { await navigator.share({ title: 'Join my Thriftly list', text: message, url: link }); setShowInviteSheet(false); return } catch { /* fall through */ }
-      }
-      const isMobile = /Mobi|Android/i.test(navigator.userAgent)
-      track('invite_shared', { method: isMobile ? 'sms' : 'clipboard' })
-      if (isMobile) {
-        window.location.href = `sms:?&body=${encodeURIComponent(message)}`
-      } else {
-        try { await navigator.clipboard.writeText(link); showToast('Invite link copied!') } catch { window.location.href = `sms:?&body=${encodeURIComponent(message)}` }
-      }
-      setShowInviteSheet(false)
-    } catch { showToast('Couldn\'t connect — check your connection and try again', 'error') }
-    finally { setInviteLoading(false) }
-  }
-
-  // handleLogout — extracted to useAuthState hook
+  // Settings handlers (doSettingsSave, handleSettingsAutoSave, invite handlers) — extracted to useSettingsState hook
 
   // =========================================================================
   // LOADING STATE (checking existing session)
@@ -3071,42 +2943,6 @@ function AppInner() {
   // =========================================================================
 
   if (screen === 'penny') {
-    const toggleAutotune = () => {
-      const next = !pennyAutotune
-      setPennyAutotune(next)
-      fetchAPI('/api/settings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ penny_autotune: next }),
-      })
-    }
-    const toggleDeals = () => {
-      const next = !pennyDeals
-      setPennyDeals(next)
-      fetchAPI('/api/settings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ penny_deals: next }),
-      })
-    }
-    const toggleStoreOrder = () => {
-      const next = !storeOrderEnabled
-      setStoreOrderEnabled(next)
-      fetchAPI('/api/settings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ store_order_enabled: next }),
-      })
-    }
-    const toggleDailyDigest = () => {
-      const next = !dailyDigestEnabled
-      setDailyDigestEnabled(next)
-      fetchAPI('/api/settings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ daily_digest_enabled: next }),
-      })
-    }
     return withFeedbackFAB(
       <PennySettingsScreen
         pennyPhone={settingsPennyPhone}
