@@ -756,8 +756,13 @@ Break-even math:
 
 ### Open
 
-- ~~**B19. SQL NULL-scan audit**~~ — Fixed: wrapped all unprotected `SUM(CASE...)` and `AVG()` with `COALESCE(..., 0)` across `handlers_admin.go`, `handlers_stores.go`, `handlers_metrics.go`, `handlers_brand.go`, `handlers_learning.go`.
-- ~~**B20. Defensive COALESCE sweep**~~ — Fixed: all aggregate queries now defensively wrapped. Zero NULL-scan errors in test suite.
+- ~~**B21. "I couldn't understand that" on parse failure**~~ — Fixed: fallback adds raw text as item, async re-enrichment retries categorization. Files: `handlers_parse.go`.
+- ~~**B22. "Large" treated as user's name**~~ — Fixed: name detection now requires grocery noun, not just modifier words. Files: `useChatState.ts:152-163`.
+- ~~**B23. Department emoji shown instead of item-specific**~~ — Fixed: SW v6 cache bust + backfill re-computes ALL item emojis. Files: `schema.go`, `frontend/public/sw.js`.
+- ~~**B24. Permanent loading spinner on list**~~ — Fixed: setListLoading(false) on reloadList failure. Files: `App.tsx:1189`.
+- **B25. User confusion — "What do I do next?"** — New user didn't understand app purpose. Need better onboarding UX — clearer value prop, first-run tutorial, or contextual hints. See screenshot `~/Desktop/bugs/Screenshot 2026-03-14 at 7.33.51 AM.png`.
+- ~~**B19. SQL NULL-scan audit**~~ — Fixed.
+- ~~**B20. Defensive COALESCE sweep**~~ — Fixed.
 
 ### Completed (March 2026)
 - ~~B18. Clear List buttons appear before Penny finishes typing~~ — Fixed: added `!pennyTyping` guard to button visibility, changed `handleClearList()` to `handleClearList(true)` for full clear. Files: `PennyBar.tsx:118`, `App.tsx:1364`.
