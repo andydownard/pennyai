@@ -1050,12 +1050,12 @@ func collectListItems(db *sql.DB, userID int) ([]itemData, error) {
 	return items, nil
 }
 
-// containsWord checks if `lower` contains `kw` as a word-boundary match.
-// For short keywords (len <= 3), requires the match to be at word boundaries
-// (preceded by start-of-string or space, followed by end-of-string or space).
-// For longer keywords, uses simple substring match.
+// containsWord checks if `lower` contains `kw` using word-boundary matching.
+// For short keywords (len <= 4), requires start boundary (start-of-string or space)
+// and end boundary (end-of-string, space, or trailing "s"/"es" for plurals).
+// For longer keywords (len > 4), uses simple substring match (they're specific enough).
 func containsWord(lower, kw string) bool {
-	if len(kw) <= 3 {
+	if len(kw) <= 4 {
 		idx := 0
 		for {
 			pos := strings.Index(lower[idx:], kw)
@@ -1065,7 +1065,8 @@ func containsWord(lower, kw string) bool {
 			absPos := idx + pos
 			startOK := absPos == 0 || lower[absPos-1] == ' '
 			endPos := absPos + len(kw)
-			endOK := endPos == len(lower) || lower[endPos] == ' '
+			endOK := endPos == len(lower) || lower[endPos] == ' ' || lower[endPos] == 's'
+			// Also allow "es" plural (e.g., "tomatoes" for "tomato" — but tomato is >4 chars)
 			if startOK && endOK {
 				return true
 			}
@@ -1116,6 +1117,7 @@ func inferItemEmoji(name, department string) string {
 		{"snap pea", "🟢"}, {"green bean", "🟢"}, {"edamame", "🫘"}, {"pea", "🟢"},
 		{"salad", "🥗"},
 		// Dairy & Eggs
+		{"milky way", "🍫"},
 		{"half and half", "🥛"}, {"half & half", "🥛"}, {"almond milk", "🥛"}, {"oat milk", "🥛"},
 		{"soy milk", "🥛"}, {"coconut milk", "🥥"}, {"milk", "🥛"}, {"cream", "🥛"},
 		{"cream cheese", "🧀"}, {"cottage cheese", "🧀"}, {"goat cheese", "🧀"},

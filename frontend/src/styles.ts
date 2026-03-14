@@ -210,6 +210,7 @@ const ITEM_EMOJIS: [string, string][] = [
   ['jicama', '🥔'], ['taro', '🥔'], ['yuca', '🥔'],
   ['green bean', '🟢'], ['snap pea', '🟢'], ['edamame', '🫘'], ['pea', '🟢'],
   // Dairy & Eggs
+  ['milky way', '🍫'],
   ['half and half', '🥛'], ['half & half', '🥛'], ['almond milk', '🥛'], ['oat milk', '🥛'],
   ['soy milk', '🥛'], ['coconut milk', '🥥'], ['milk', '🥛'], ['cream', '🥛'],
   ['cream cheese', '🧀'], ['cottage cheese', '🧀'], ['goat cheese', '🧀'],
@@ -355,18 +356,20 @@ const ITEM_EMOJIS: [string, string][] = [
 ]
 
 /**
- * Check if `lower` contains `kw` — for short keywords (<=3 chars), require word boundaries
- * (preceded by start-of-string or space, followed by end-of-string or space).
+ * Check if `lower` contains `kw` using word-boundary matching.
+ * For short keywords (<=4 chars), requires start boundary (start or space)
+ * and end boundary (end, space, or trailing "s" for plurals like "eggs" matching "egg").
+ * For longer keywords (>4 chars), uses simple substring match.
  */
 function containsWord(lower: string, kw: string): boolean {
-  if (kw.length <= 3) {
+  if (kw.length <= 4) {
     let idx = 0
     while (idx <= lower.length - kw.length) {
       const pos = lower.indexOf(kw, idx)
       if (pos < 0) return false
       const startOK = pos === 0 || lower[pos - 1] === ' '
       const endPos = pos + kw.length
-      const endOK = endPos === lower.length || lower[endPos] === ' '
+      const endOK = endPos === lower.length || lower[endPos] === ' ' || lower[endPos] === 's'
       if (startOK && endOK) return true
       idx = pos + 1
     }
