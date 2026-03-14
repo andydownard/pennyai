@@ -5,6 +5,16 @@ COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci
 COPY frontend/ ./
 RUN npm run build
+# Verify frontend build produced valid output (catches missing JS bundles)
+RUN set -e && \
+    test -f /app/static/index.html || (echo "ERROR: index.html missing" && exit 1) && \
+    test -d /app/static/assets || (echo "ERROR: assets/ directory missing" && exit 1) && \
+    JS_COUNT=$(ls /app/static/assets/*.js 2>/dev/null | wc -l) && \
+    test "$JS_COUNT" -gt 0 || (echo "ERROR: No JS bundles in assets/" && exit 1) && \
+    for asset in $(grep -oE '/assets/[^"]+' /app/static/index.html); do \
+        test -f "/app/static${asset}" || (echo "ERROR: Missing referenced asset: ${asset}" && exit 1); \
+    done && \
+    echo "Frontend build OK: ${JS_COUNT} JS bundles, all references valid"
 
 # Stage 1b: Build brand portal frontend
 FROM node:20.18-alpine3.20 AS frontend-brand

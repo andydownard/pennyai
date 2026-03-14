@@ -33,4 +33,20 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 // Register service worker for offline caching and fast repeat loads
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   navigator.serviceWorker.register('/sw.js').catch(() => {})
+
+  // Safety net: if a JS chunk fails to load (stale SW serving old HTML with
+  // new asset hashes), unregister the SW, clear caches, and hard-refresh.
+  window.addEventListener('error', (event) => {
+    const target = event.target as HTMLElement | null
+    if (target?.tagName === 'SCRIPT' && (target as HTMLScriptElement).src?.includes('/assets/')) {
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        regs.forEach(r => r.unregister())
+      })
+      caches.keys().then(keys => {
+        Promise.all(keys.map(k => caches.delete(k))).then(() => {
+          window.location.reload()
+        })
+      })
+    }
+  }, true) // capture phase to catch module load errors
 }

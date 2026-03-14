@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -207,7 +208,25 @@ Get these from https://console.twilio.com (see README for full setup).
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
+		// Verify frontend assets exist (prevents deploying broken frontend)
+		frontendOK := true
+		if data, err := os.ReadFile("static/index.html"); err == nil {
+			re := regexp.MustCompile(`(?:src|href)="(/assets/[^"]+)"`)
+			for _, m := range re.FindAllStringSubmatch(string(data), -1) {
+				if _, err := os.Stat("static" + m[1]); os.IsNotExist(err) {
+					frontendOK = false
+					break
+				}
+			}
+		} else {
+			frontendOK = false
+		}
+		if !frontendOK {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"status":"degraded","frontend_ok":false}`))
+			return
+		}
+		w.Write([]byte(`{"status":"ok","frontend_ok":true}`))
 	})
 	http.HandleFunc("/auth/send-code", server.handleSendCode)
 	http.HandleFunc("/auth/verify-code", server.handleVerifyCode)
@@ -425,7 +444,7 @@ Get these from https://console.twilio.com (see README for full setup).
 			}
 		} else {
 			w.Header().Set("X-Frame-Options", "DENY")
-			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com; frame-src https://accounts.google.com; font-src 'self'")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://*.ingest.us.sentry.io https://us.i.posthog.com https://www.google-analytics.com https://www.googletagmanager.com; frame-src https://accounts.google.com; font-src 'self'")
 		}
 		if server.config.SecureCookies {
 			w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")

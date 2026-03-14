@@ -2,8 +2,10 @@
 const CACHE_NAME = 'thriftly-v6'
 
 // App shell: cache on install
+// NOTE: '/' is intentionally NOT cached in APP_SHELL because index.html
+// contains Vite-hashed asset references that change on every deploy.
+// Pre-caching it risks serving stale HTML referencing non-existent JS bundles.
 const APP_SHELL = [
-  '/',
   '/manifest.json',
   '/penny.png?v=2',
   '/apple-touch-icon.png',
