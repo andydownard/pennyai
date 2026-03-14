@@ -12,7 +12,8 @@ import { useConfirmModal } from './hooks/useConfirmModal'
 import { useKeyboardOpen } from './hooks/useKeyboardOpen'
 import { useAuthState } from './hooks/useAuthState'
 import { useSettingsState } from './hooks/useSettingsState'
-import { useSwapState } from './hooks/useSwapState'
+import { useSwapState, type SkippedItem } from './hooks/useSwapState'
+import { useListState } from './hooks/useListState'
 
 import { PennyAvatar } from './components/PennyAvatar'
 import { ActionSheet } from './components/ActionSheet'
@@ -54,7 +55,7 @@ const ShareScreen = lazy(() => import('./components/ShareScreen').then(m => ({ d
 const AdminScreen = lazy(() => import('./components/AdminScreen').then(m => ({ default: m.AdminScreen })))
 const SharedListScreen = lazy(() => import('./components/SharedListScreen').then(m => ({ default: m.SharedListScreen })))
 const EmbedView = lazy(() => import('./components/EmbedView').then(m => ({ default: m.EmbedView })))
-import { type ItemModification } from './types'
+// ItemModification type — extracted to useListState hook
 import {
   FONT, DEPARTMENTS, DEPT_ICONS,
   FONT_2XS, FONT_XS, FONT_SM, FONT_BASE, FONT_MD, FONT_LG, FONT_XL,
@@ -336,28 +337,16 @@ function AppInner() {
   const hasGreetedEmpty = useRef(false)
   const hasGreetedWithItems = useRef(false)
 
-  // --- List state ---
-  const [items, setItems] = useState<ListItem[]>([])
-  const sortItems = (arr: ListItem[]) => [...arr].sort((a, b) => a.name.localeCompare(b.name))
-  const [listLoading, setListLoading] = useState(true)
+  // --- Pull-to-refresh state (stays in App — depends on screen) ---
   const [pullRefreshing, setPullRefreshing] = useState(false)
   const pullStartY = useRef(0)
   const [pullDistance, setPullDistance] = useState(0)
   const isPulling = useRef(false)
   const [chatText, setChatText] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
-  const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set())
-  const [selectedItem, setSelectedItem] = useState<ListItem | null>(null)
-  const [editForm, setEditForm] = useState({ name: '', brand: '', dept: '', qty: 1, size: '', notes: '' })
-  const [displayBrand, setDisplayBrand] = useState('')
-  const [editLoading] = useState(false)
-  const [itemHistory, setItemHistory] = useState<ItemModification[]>([])
-  const deptRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   // --- Toast state ---
   const { toast, showToast: _showToast, clearToast } = useToast()
-
-  const [returnToReview, setReturnToReview] = useState(false)
 
   // --- Photo state ---
   const [pendingImages, setPendingImages] = useState<string[]>([])
@@ -372,6 +361,10 @@ function AppInner() {
   const [cameraConfirmation, setCameraConfirmation] = useState<string | null>(null)
 
   // Menu state is now internal to NavigationMenu component
+
+  // --- Penny chime-in state (must be before useListState) ---
+  const [pennyChimeIn, setPennyChimeIn] = useState<string | null>(null)
+  const chimeInTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // --- Done toast state ---
   const [showDoneToast, setShowDoneToast] = useState(false)
@@ -446,9 +439,7 @@ function AppInner() {
 
   // SMS opt-in, email/Google auth state — extracted to useAuthState hook
 
-  // --- New item highlight state ---
-  const [newItemIds, setNewItemIds] = useState<Set<number>>(new Set())
-  const newItemTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // New item highlight state — extracted to useListState hook
 
   // --- Penny loading spinner state ---
   const [pennyStatus, setPennyStatus] = useState<string | null>(null)
@@ -515,11 +506,61 @@ function AppInner() {
     },
   })
 
-  // --- Swap, review, and disambiguation state (extracted) ---
-  // Stable refs for callbacks defined later in the component
+  // --- Stable refs for callbacks defined later (circular dependency resolution) ---
   const typePennyHomeRef = useRef<(msg: string, btns?: { label: string; onClick: () => void }[]) => void>(() => {})
   const handleSessionExpiredRef = useRef<() => void>(() => {})
+  const showChimeInRef = useRef<(msg: string, duration?: number) => void>(() => {})
+  // Refs for swap state (useListState needs swap setters, useSwapState needs list setters)
+  const setSwapsByItemIdRef = useRef<React.Dispatch<React.SetStateAction<Record<number, SwapOffer>>>>(() => {})
+  const lastAddedRef = useRef<ListItem[]>([])
+  const setLastAddedRef = useRef<React.Dispatch<React.SetStateAction<ListItem[]>>>(() => {})
+  const lastSkippedRef = useRef<SkippedItem[]>([])
+  const setLastSkippedRef = useRef<React.Dispatch<React.SetStateAction<SkippedItem[]>>>(() => {})
+  const setShowReviewSheetRef = useRef<React.Dispatch<React.SetStateAction<boolean>>>(() => {})
 
+  // --- List state (extracted) ---
+  const {
+    items, setItems,
+    listLoading,
+    expandedDepts, setExpandedDepts,
+    selectedItem, setSelectedItem,
+    editForm, setEditForm,
+    displayBrand, setDisplayBrand,
+    editLoading,
+    itemHistory,
+    newItemIds, setNewItemIds,
+    newItemTimerRef,
+    deptRefs,
+    sortItems,
+    reloadList, openDetail, openDetailFromReview, closeEditSheet,
+    handleEditSave, handleEditDelete,
+    handleToggle, handleUrgentToggle, handleClaim,
+    handleSwipeDelete, handleClearList, handleDeptClick,
+  } = useListState({
+    currentUserId,
+    showToast: (msg, type) => { if (type === 'error') haptic.error(); _showToast(msg, type) },
+    showChimeIn: (...args) => showChimeInRef.current(...args),
+    typePennyHome: (...args) => typePennyHomeRef.current(...args),
+    setSwapsByItemId: (...args) => setSwapsByItemIdRef.current(...args),
+    lastAdded: lastAddedRef.current,
+    setLastAdded: (...args) => setLastAddedRef.current(...args),
+    lastSkipped: lastSkippedRef.current,
+    setLastSkipped: (...args) => setLastSkippedRef.current(...args),
+    setShowReviewSheet: (...args) => setShowReviewSheetRef.current(...args),
+    setShowDoneToast,
+    setShowFireworks,
+    setShowDoneOverlay,
+    setPennyChimeIn,
+    pushModalState: () => {
+      const path = SCREEN_PATHS[screen] || '/'
+      window.history.pushState({ screen, modal: true }, '', path)
+    },
+    popModalState: () => {
+      if (window.history.state?.modal) window.history.back()
+    },
+  })
+
+  // --- Swap, review, and disambiguation state (extracted) ---
   const {
     swapsByItemId, setSwapsByItemId,
     lastAdded, setLastAdded,
@@ -541,12 +582,18 @@ function AppInner() {
     setShowFireworks,
   })
 
+  // Wire refs after both hooks are initialized
+  setSwapsByItemIdRef.current = setSwapsByItemId
+  lastAddedRef.current = lastAdded
+  setLastAddedRef.current = setLastAdded
+  lastSkippedRef.current = lastSkipped
+  setLastSkippedRef.current = setLastSkipped
+  setShowReviewSheetRef.current = setShowReviewSheet
+
   const [showWrapped, setShowWrapped] = useState(false)
   const [milestoneData, setMilestoneData] = useState<{ cents: number; dollars: string; share_text: string; total_cents: number } | null>(null)
 
-  // --- Penny chime-in state ---
-  const [pennyChimeIn, setPennyChimeIn] = useState<string | null>(null)
-  const chimeInTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // pennyChimeIn, chimeInTimer — moved before useListState
   const prevCheckedRef = useRef(-1)
 
   const CHIME_IN_MESSAGES = [
@@ -1050,7 +1097,7 @@ function AppInner() {
   // LOAD LIST when on home screen
   // =========================================================================
 
-  // sortItems moved earlier in the file (after items state declaration)
+  // sortItems — extracted to useListState hook
 
   const handleSessionExpired = useCallback(() => {
     setChatLoading(false)
@@ -1066,9 +1113,7 @@ function AppInner() {
     setSessionExpiredHandler(handleSessionExpired)
   }, [handleSessionExpired])
 
-  // Update a single item in the items list by id
-  const updateItem = (id: number, updates: Partial<ListItem>) =>
-    setItems(prev => prev.map(item => item.id === id ? { ...item, ...updates } : item))
+  // updateItem, reloadList — extracted to useListState hook
 
   // Show a Penny chime-in message with auto-clear
   const showChimeIn = (msg: string, duration = 4000) => {
@@ -1076,30 +1121,7 @@ function AppInner() {
     setPennyChimeIn(msg)
     chimeInTimer.current = setTimeout(() => setPennyChimeIn(null), duration)
   }
-
-  const reloadList = async () => {
-    const data = await fetchAPI('/api/list')
-    if (data) {
-      const loaded = sortItems(Array.isArray(data) ? data as ListItem[] : [])
-      setItems(loaded)
-      // Default all departments with items to expanded
-      setExpandedDepts(prev => {
-        if (prev.size > 0) return prev // preserve user's expand/collapse choices
-        const depts = new Set(loaded.map(i => i.department))
-        return depts
-      })
-    }
-    // Restore pending swaps from server
-    try {
-      const swaps = await fetchAPI('/api/list/swaps')
-      if (Array.isArray(swaps) && swaps.length > 0) {
-        const byItem: Record<number, SwapOffer> = {}
-        for (const s of swaps) byItem[(s as SwapOffer).item_id] = s as SwapOffer
-        setSwapsByItemId(prev => ({ ...prev, ...byItem }))
-      }
-    } catch { /* swaps are optional */ }
-    setListLoading(false)
-  }
+  showChimeInRef.current = showChimeIn
 
   const loadTrips = async () => {
     const data = await fetchAPI('/api/trips')
@@ -1810,12 +1832,7 @@ function AppInner() {
     }
   }
 
-  const checkAllDone = (next: ListItem[]) => {
-    if (next.length > 0 && next.every(i => i.checked)) {
-      setTimeout(() => { setShowDoneToast(true); setShowFireworks(true); setShowDoneOverlay(true) }, 300)
-    }
-  }
-
+  // checkAllDone — extracted to useListState hook
   // Swap accept/decline/brand-pick/disambig — extracted to useSwapState hook
 
   // --- Receipt submit ---
@@ -1851,66 +1868,7 @@ function AppInner() {
     }
   }
 
-  const handleToggle = async (id: number) => {
-    haptic.tap()
-    // Capture current checked state before optimistic update
-    const oldChecked = items.find(i => i.id === id)?.checked
-    setItems(prev => prev.map(item => item.id === id ? { ...item, checked: !item.checked } : item))
-    try {
-      const data = await fetchAPI(`/api/list/${id}/toggle`, { method: 'PATCH' })
-      if (data) {
-        const updated = data as ListItem
-        setItems(prev => { const next = prev.map(item => item.id === updated.id ? updated : item); checkAllDone(next); return next })
-      } else {
-        updateItem(id, { checked: oldChecked })
-        showToast('Couldn\'t update that item — please try again', 'error')
-      }
-    } catch {
-      updateItem(id, { checked: oldChecked })
-      showToast("Hmm, that change didn't stick. Try again?", 'error')
-    }
-  }
-
-  const handleUrgentToggle = async (id: number) => {
-    haptic.double()
-    const was = items.find(i => i.id === id)?.urgent
-    updateItem(id, { urgent: !was })
-    try {
-      const data = await fetchAPI(`/api/list/${id}/urgent`, { method: 'PATCH' })
-      if (data) {
-        const updated = data as ListItem
-        updateItem(updated.id, updated)
-        showChimeIn(updated.urgent ? `Marked ${updated.name} as urgent!` : `${updated.name} back to normal`, 3000)
-      } else {
-        updateItem(id, { urgent: was })
-        showToast('Couldn\'t update that item — please try again', 'error')
-      }
-    } catch {
-      updateItem(id, { urgent: was })
-      showToast("Hmm, that change didn't stick. Try again?", 'error')
-    }
-  }
-
-  const handleClaim = async (id: number) => {
-    const oldItem = items.find(i => i.id === id)
-    const wasClaimed = oldItem?.claimed_by_id === currentUserId
-    updateItem(id, { claimed_by_id: wasClaimed ? null : currentUserId, claimed_by_name: wasClaimed ? '' : 'Me' })
-    try {
-      const data = await fetchAPI(`/api/list/${id}/claim`, { method: 'PATCH' })
-      if (data) {
-        const updated = data as ListItem
-        updateItem(updated.id, updated)
-        showChimeIn(updated.claimed_by_id ? `You claimed ${updated.name}!` : `Unclaimed ${updated.name}`, 3000)
-      } else {
-        if (oldItem) updateItem(id, oldItem)
-        showToast('Couldn\'t claim that item — please try again', 'error')
-      }
-    } catch {
-      if (oldItem) updateItem(id, oldItem)
-      showToast("Couldn't claim that item. Try again?", 'error')
-    }
-  }
-
+  // handleToggle, handleUrgentToggle, handleClaim — extracted to useListState hook
   // advanceDisambig, auto-confirm effect, handleBrandPick — extracted to useSwapState hook
 
   const handleSendChat = async () => {
@@ -2399,22 +2357,7 @@ function AppInner() {
     window.history.pushState({ screen, modal: true }, '', path)
   }
 
-  const openDetail = (item: ListItem) => {
-    pushModalState()
-    setSelectedItem(item)
-    setEditForm({ name: item.name, brand: item.brand, dept: item.department, qty: item.quantity || 1, size: item.size, notes: item.notes || '' })
-    setDisplayBrand(item.brand)
-    setItemHistory([])
-    fetchAPI(`/api/list/${item.id}/history`)
-      .then(data => setItemHistory(Array.isArray(data) ? data as ItemModification[] : []))
-      .catch(e => console.warn('[load] item history failed:', e))
-  }
-
-  const openDetailFromReview = (item: ListItem) => {
-    setShowReviewSheet(false)
-    setReturnToReview(true)
-    openDetail(item)
-  }
+  // openDetail, openDetailFromReview — extracted to useListState hook
 
   const popModalState = () => {
     // Pop the modal history entry (only if we're not already handling popstate)
@@ -2423,30 +2366,7 @@ function AppInner() {
     }
   }
 
-  const closeEditSheet = (deletedId?: number, updatedItem?: ListItem) => {
-    popModalState()
-    setSelectedItem(null)
-    if (returnToReview) {
-      setReturnToReview(false)
-      if (updatedItem) {
-        setLastAdded(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i))
-      }
-      if (deletedId) {
-        setLastAdded(prev => {
-          const remaining = prev.filter(i => i.id !== deletedId)
-          if (remaining.length === 0 && lastSkipped.length === 0) return remaining
-          return remaining
-        })
-        setLastSkipped(prev => prev.filter(s => s.existing_id !== deletedId))
-      }
-      // Reopen review if there are still items to review
-      const hasAdded = deletedId ? lastAdded.some(i => i.id !== deletedId) : lastAdded.length > 0
-      const hasSkipped = deletedId ? lastSkipped.some(s => s.existing_id !== deletedId) : lastSkipped.length > 0
-      if (hasAdded || hasSkipped) {
-        setTimeout(() => setShowReviewSheet(true), 100)
-      }
-    }
-  }
+  // closeEditSheet — extracted to useListState hook
 
   // --- Escape key closes topmost modal/sheet ---
   useEffect(() => {
@@ -2462,86 +2382,7 @@ function AppInner() {
     return () => window.removeEventListener('keydown', handleEscape)
   })
 
-  const handleEditSave = async () => {
-    if (!selectedItem || !editForm.name.trim() || editLoading) return
-    setDisplayBrand(editForm.brand)
-    const optimistic: Partial<ListItem> = { name: editForm.name.trim(), brand: editForm.brand.trim(), department: editForm.dept, quantity: editForm.qty, size: editForm.size.trim(), notes: editForm.notes.trim() }
-    const oldItem = { ...selectedItem }
-    // Optimistic: update UI and close sheet immediately
-    setItems(prev => sortItems(prev.map(item => item.id === selectedItem.id ? { ...item, ...optimistic } : item)))
-    closeEditSheet(undefined, { ...selectedItem, ...optimistic })
-    try {
-      const data = await fetchAPI(`/api/list/${selectedItem.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(optimistic),
-      })
-      if (data) {
-        const updated = data as ListItem
-        setItems(prev => sortItems(prev.map(item => item.id === updated.id ? updated : item)))
-      } else {
-        // Rollback
-        setItems(prev => sortItems(prev.map(item => item.id === oldItem.id ? oldItem : item)))
-        showToast('Couldn\'t save changes — please try again', 'error')
-      }
-    } catch {
-      setItems(prev => sortItems(prev.map(item => item.id === oldItem.id ? oldItem : item)))
-      showToast('Couldn\'t save changes — please try again', 'error')
-    }
-  }
-
-  const handleEditDelete = async () => {
-    if (!selectedItem || editLoading) return
-    const deletingId = selectedItem.id
-    const oldItems = items
-    // Optimistic: remove from UI and close sheet immediately
-    setItems(prev => prev.filter(item => item.id !== deletingId))
-    closeEditSheet(deletingId)
-    try {
-      const result = await fetchAction(`/api/list/${deletingId}`, { method: 'DELETE' })
-      if (!result.ok && result.status !== 401) {
-        setItems(oldItems) // Rollback
-        showToast('Couldn\'t delete that item — please try again', 'error')
-      }
-    } catch {
-      setItems(oldItems) // Rollback
-      showToast('Couldn\'t delete that item — please try again', 'error')
-    }
-  }
-
-  const handleSwipeDelete = useCallback(async (id: number) => {
-    haptic.heavy()
-    const oldItems = items
-    setItems(prev => prev.filter(item => item.id !== id))
-    try {
-      const result = await fetchAction(`/api/list/${id}`, { method: 'DELETE' })
-      if (!result.ok && result.status !== 401) {
-        setItems(oldItems)
-        showToast('Couldn\'t delete that item — please try again', 'error')
-      }
-    } catch {
-      setItems(oldItems)
-      showToast('Couldn\'t delete that item — please try again', 'error')
-    }
-  }, [items]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleClearList = async (all?: boolean) => {
-    haptic.heavy()
-    const oldItems = items
-    // Optimistic: clear UI immediately
-    if (all) {
-      setItems([]); setExpandedDepts(new Set()); setShowDoneToast(false); setShowFireworks(false); setPennyChimeIn(null)
-    } else {
-      setItems(prev => prev.filter(i => !i.checked)); setExpandedDepts(new Set()); setShowDoneToast(false); setShowFireworks(false); setPennyChimeIn(null)
-    }
-    typePennyHome('List cleared — ready for a fresh start!')
-    const url = all ? '/api/list/clear?all=true' : '/api/list/clear'
-    const result = await fetchAction(url, { method: 'POST' })
-    if (!result.ok && result.status !== 401) {
-      setItems(oldItems) // Rollback
-      showToast('Couldn\'t clear your list — please try again', 'error')
-    }
-  }
+  // handleEditSave, handleEditDelete, handleSwipeDelete, handleClearList — extracted to useListState hook
 
   const handleSaveList = async () => {
     if (!saveNameInput.trim()) return
@@ -3137,21 +2978,7 @@ function AppInner() {
   // HOME SCREEN — Shopping list
   // =========================================================================
 
-  const handleDeptClick = (dept: string) => {
-    haptic.tap()
-    setExpandedDepts(prev => {
-      const next = new Set(prev)
-      if (next.has(dept)) {
-        next.delete(dept)
-      } else {
-        next.add(dept)
-        setTimeout(() => {
-          deptRefs.current[dept]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        }, 0)
-      }
-      return next
-    })
-  }
+  // handleDeptClick — extracted to useListState hook
 
   // Departments that have items, in store-aisle order (+ any unknown depts appended)
   // Use learned store order when available, fall back to default DEPARTMENTS order
