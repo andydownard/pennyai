@@ -5,3 +5,4 @@ export { useAuthState, type UseAuthStateOptions, type AuthSuccessData } from './
 export { useSettingsState, type UseSettingsStateOptions } from './useSettingsState'
 export { useSwapState, type DisambigItem, type SkippedItem } from './useSwapState'
 export { useListState } from './useListState'
+export { useChatState } from './useChatState'

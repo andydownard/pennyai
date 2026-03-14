@@ -14,6 +14,7 @@ import { useAuthState } from './hooks/useAuthState'
 import { useSettingsState } from './hooks/useSettingsState'
 import { useSwapState, type SkippedItem } from './hooks/useSwapState'
 import { useListState } from './hooks/useListState'
+import { useChatState } from './hooks/useChatState'
 
 import { PennyAvatar } from './components/PennyAvatar'
 import { ActionSheet } from './components/ActionSheet'
@@ -25,7 +26,6 @@ import { ItemRow, type ListItem } from './components/ItemRow'
 import { PennyBar } from './components/PennyBar'
 import { NPSSurveyModal } from './components/NPSSurveyModal'
 import { track, identify } from './analytics'
-import { trackEvent } from './ab'
 import { TripPlannerSheet, type ShoppingTrip } from './components/TripPlannerSheet'
 import { ItemEditSheet } from './components/ItemEditSheet'
 import { ReviewSheet } from './components/ReviewSheet'
@@ -63,21 +63,7 @@ import {
   layout, buttons, text,
 } from './styles'
 
-// Commodity items that should skip brand disambiguation when auto-assigned
-const COMMODITY_KEYWORDS = new Set([
-  'milk', 'bread', 'eggs', 'butter', 'cheese', 'yogurt', 'water', 'rice',
-  'flour', 'sugar', 'salt', 'pepper', 'oil', 'pasta', 'cereal', 'juice',
-  'coffee', 'tea', 'chicken', 'beef', 'pork', 'fish', 'onion', 'potato',
-  'tomato', 'lettuce', 'apple', 'banana', 'orange',
-])
-
-function isCommodityItem(productCategory: string): boolean {
-  const lower = productCategory.toLowerCase()
-  for (const kw of COMMODITY_KEYWORDS) {
-    if (lower.includes(kw)) return true
-  }
-  return false
-}
+// COMMODITY_KEYWORDS, isCommodityItem — extracted to useChatState hook
 
 // =============================================================================
 // TYPES
@@ -327,23 +313,13 @@ function AppInner() {
   const [joinPromptCode, setJoinPromptCode] = useState('')
 
 
-  // Home page Penny typewriter
-  const [homePennyText, setHomePennyText] = useState('')
-  const [homePennyTyping, setHomePennyTyping] = useState(false)
-  const [homePennyBtns, setHomePennyBtns] = useState<{ label: string; onClick: () => void }[]>([])
-  const homePennySource = useRef('')
-  const homePennyInterval = useRef<ReturnType<typeof setInterval> | null>(null)
-  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const hasGreetedEmpty = useRef(false)
-  const hasGreetedWithItems = useRef(false)
+  // Penny/chat state — extracted to useChatState hook
 
   // --- Pull-to-refresh state (stays in App — depends on screen) ---
   const [pullRefreshing, setPullRefreshing] = useState(false)
   const pullStartY = useRef(0)
   const [pullDistance, setPullDistance] = useState(0)
   const isPulling = useRef(false)
-  const [chatText, setChatText] = useState('')
-  const [chatLoading, setChatLoading] = useState(false)
 
   // --- Toast state ---
   const { toast, showToast: _showToast, clearToast } = useToast()
@@ -353,7 +329,6 @@ function AppInner() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const receiptInputRef = useRef<HTMLInputElement>(null)
-  const chatInputRef = useRef<HTMLTextAreaElement>(null)
 
   // --- Continuous camera mode ---
   const cameraModeRef = useRef(false)
@@ -401,30 +376,9 @@ function AppInner() {
     setTheme(newTheme)
   }
 
-  // --- Onboarding state (persisted via localStorage + server) ---
+  // --- Auth/session state ---
   const [loginCount, setLoginCount] = useState(0)
-  const onboardingNameAsked = useRef(localStorage.getItem('ob_name') === '1')
-  const onboardingShareMentioned = useRef(localStorage.getItem('ob_share') === '1')
-  const onboardingTextMentioned = useRef(localStorage.getItem('ob_text') === '1')
-  const onboardingSwapsMentioned = useRef(localStorage.getItem('ob_swaps') === '1')
-  const onboardingLinkPhoneMentioned = useRef(localStorage.getItem('ob_link_phone') === '1')
-  const onboardingLinkEmailMentioned = useRef(localStorage.getItem('ob_link_email') === '1')
-  const nameInputMode = useRef(false)
-
-  const syncOnboardingFlags = () => {
-    const flags: Record<string, string> = {}
-    if (onboardingNameAsked.current) flags.ob_name = '1'
-    if (onboardingShareMentioned.current) flags.ob_share = '1'
-    if (onboardingTextMentioned.current) flags.ob_text = '1'
-    if (onboardingSwapsMentioned.current) flags.ob_swaps = '1'
-    if (onboardingLinkPhoneMentioned.current) flags.ob_link_phone = '1'
-    if (onboardingLinkEmailMentioned.current) flags.ob_link_email = '1'
-    fetchAPI('/api/settings', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ onboarding_flags: JSON.stringify(flags) }),
-    }).catch(() => {})
-  }
+  // Onboarding refs + syncOnboardingFlags — extracted to useChatState hook
 
   const [pendingReceiptMode, setPendingReceiptMode] = useState(false)
 
@@ -441,8 +395,7 @@ function AppInner() {
 
   // New item highlight state — extracted to useListState hook
 
-  // --- Penny loading spinner state ---
-  const [pennyStatus, setPennyStatus] = useState<string | null>(null)
+  // pennyStatus — extracted to useChatState hook
 
   // Brand disambiguation state — extracted to useSwapState hook
 
@@ -496,17 +449,11 @@ function AppInner() {
       _showToast(msg, type)
     },
     onEarningsTotalCents: (cents) => setEarningsTotalCents(cents),
-    onOnboardingFlags: (flags) => {
-      if (flags.ob_name) { onboardingNameAsked.current = true; localStorage.setItem('ob_name', '1') }
-      if (flags.ob_share) { onboardingShareMentioned.current = true; localStorage.setItem('ob_share', '1') }
-      if (flags.ob_text) { onboardingTextMentioned.current = true; localStorage.setItem('ob_text', '1') }
-      if (flags.ob_swaps) { onboardingSwapsMentioned.current = true; localStorage.setItem('ob_swaps', '1') }
-      if (flags.ob_link_phone) { onboardingLinkPhoneMentioned.current = true; localStorage.setItem('ob_link_phone', '1') }
-      if (flags.ob_link_email) { onboardingLinkEmailMentioned.current = true; localStorage.setItem('ob_link_email', '1') }
-    },
+    onOnboardingFlags: (flags) => updateOnboardingFlagsRef.current(flags),
   })
 
   // --- Stable refs for callbacks defined later (circular dependency resolution) ---
+  const updateOnboardingFlagsRef = useRef<(flags: Record<string, string>) => void>(() => {})
   const typePennyHomeRef = useRef<(msg: string, btns?: { label: string; onClick: () => void }[]) => void>(() => {})
   const handleSessionExpiredRef = useRef<() => void>(() => {})
   const showChimeInRef = useRef<(msg: string, duration?: number) => void>(() => {})
@@ -582,13 +529,79 @@ function AppInner() {
     setShowFireworks,
   })
 
-  // Wire refs after both hooks are initialized
+  // Wire refs after list + swap hooks are initialized
   setSwapsByItemIdRef.current = setSwapsByItemId
   lastAddedRef.current = lastAdded
   setLastAddedRef.current = setLastAdded
   lastSkippedRef.current = lastSkipped
   setLastSkippedRef.current = setLastSkipped
   setShowReviewSheetRef.current = setShowReviewSheet
+
+  // Ref for handleLoadSavedList (defined later but only called from effects/handlers)
+  const handleLoadSavedListRef = useRef<(id: number, mode: 'merge' | 'overwrite') => Promise<void>>(async () => {})
+
+  // --- Chat, Penny, and onboarding state (extracted) ---
+  const {
+    chatText, setChatText,
+    chatLoading, setChatLoading,
+    chatInputRef,
+    homePennyText,
+    homePennyTyping,
+    homePennyBtns,
+    homePennyInterval,
+    idleTimer,
+    hasGreetedEmpty, hasGreetedWithItems,
+    pennyStatus, setPennyStatus,
+    onboardingNameAsked, onboardingShareMentioned,
+    onboardingTextMentioned, onboardingSwapsMentioned,
+    onboardingLinkPhoneMentioned, onboardingLinkEmailMentioned,
+    nameInputMode,
+    typePennyHome,
+    handleSendChat,
+  } = useChatState({
+    // List state
+    items, setItems, sortItems,
+    setExpandedDepts,
+    setNewItemIds, newItemTimerRef, deptRefs,
+    reloadList, handleClearList,
+    // Swap state
+    setLastAdded, setLastSkipped, hasReviewedRef,
+    pennyDisambig, setPennyDisambig,
+    pennyDisambigIndex, setPennyDisambigIndex,
+    setSwapsByItemId,
+    advanceDisambig, handleBrandPick,
+    setShowReviewSheet,
+    // Settings state
+    settingsFirstName, setSettingsFirstName,
+    settingsLastName: settingsLastName ?? '',
+    setSettingsLastName,
+    settingsEmail, settingsUserPhone,
+    handleOpenInviteSheet,
+    // App state
+    loginCount, authMethods,
+    handleSessionExpired: () => handleSessionExpiredRef.current(),
+    handleLoadSavedList: (...args) => handleLoadSavedListRef.current(...args),
+    showToast: (msg, type) => { if (type === 'error') haptic.error(); _showToast(msg, type) },
+    setScreen: (s) => setScreen(s as Screen),
+    // UI state
+    pendingImages, setPendingImages,
+    setFloatingLabels,
+    setShowDoneToast, setShowFireworks,
+    setPendingReceiptMode,
+    receiptInputRef,
+    setEarningsTotalCents,
+  })
+
+  // Wire refs for chat state
+  typePennyHomeRef.current = typePennyHome
+  updateOnboardingFlagsRef.current = (flags) => {
+    if (flags.ob_name) { onboardingNameAsked.current = true; localStorage.setItem('ob_name', '1') }
+    if (flags.ob_share) { onboardingShareMentioned.current = true; localStorage.setItem('ob_share', '1') }
+    if (flags.ob_text) { onboardingTextMentioned.current = true; localStorage.setItem('ob_text', '1') }
+    if (flags.ob_swaps) { onboardingSwapsMentioned.current = true; localStorage.setItem('ob_swaps', '1') }
+    if (flags.ob_link_phone) { onboardingLinkPhoneMentioned.current = true; localStorage.setItem('ob_link_phone', '1') }
+    if (flags.ob_link_email) { onboardingLinkEmailMentioned.current = true; localStorage.setItem('ob_link_email', '1') }
+  }
 
   const [showWrapped, setShowWrapped] = useState(false)
   const [milestoneData, setMilestoneData] = useState<{ cents: number; dollars: string; share_text: string; total_cents: number } | null>(null)
@@ -1478,27 +1491,7 @@ function AppInner() {
     _showToast(message, type, action)
   }
 
-  // Type out a message in Penny's home bar, letter by letter
-  const typePennyHome = (msg: string, btns: { label: string; onClick: () => void }[] = []) => {
-    if (homePennyInterval.current) clearInterval(homePennyInterval.current)
-    if (msg === homePennySource.current && !btns.length) return // don't re-type same message
-    homePennySource.current = msg
-    setHomePennyText('')
-    setHomePennyBtns(btns)
-    setHomePennyTyping(true)
-    let i = 0
-    homePennyInterval.current = setInterval(() => {
-      i++
-      setHomePennyText(msg.slice(0, i))
-      if (i >= msg.length) {
-        if (homePennyInterval.current) clearInterval(homePennyInterval.current)
-        homePennyInterval.current = null
-        setHomePennyTyping(false)
-      }
-    }, 25)
-  }
-  // Wire stable refs for swap state hook
-  typePennyHomeRef.current = typePennyHome
+  // typePennyHome — extracted to useChatState hook
 
   // Watch for penny messages on home page and type them out
   useEffect(() => {
@@ -1871,430 +1864,7 @@ function AppInner() {
   // handleToggle, handleUrgentToggle, handleClaim — extracted to useListState hook
   // advanceDisambig, auto-confirm effect, handleBrandPick — extracted to useSwapState hook
 
-  const handleSendChat = async () => {
-    if ((!chatText.trim() && pendingImages.length === 0) || chatLoading) return
-
-    // Name input mode: user typed their name in response to "what should I call you?"
-    if (nameInputMode.current && chatText.trim() && pendingImages.length === 0) {
-      nameInputMode.current = false
-      const input = chatText.trim()
-      setChatText('')
-      // Detect if user typed grocery items instead of their name
-      const groceryWords = new Set(['milk','eggs','bread','butter','cheese','chicken','beef','pork','rice','pasta',
-        'flour','sugar','salt','pepper','oil','water','juice','coffee','tea','cereal','yogurt','cream',
-        'banana','bananas','apple','apples','orange','oranges','tomato','tomatoes','onion','onions',
-        'potato','potatoes','lettuce','spinach','broccoli','carrot','carrots','avocado','avocados',
-        'large','small','medium','organic','frozen','fresh','whole','skim','low','fat','free','diet',
-        'pack','box','bag','can','bottle','gallon','dozen','lb','oz','lbs'])
-      const words = input.toLowerCase().split(/\s+/)
-      const looksLikeGroceries = words.length > 2 || words.every(w => groceryWords.has(w)) || /^\d/.test(input)
-      if (looksLikeGroceries) {
-        // User typed groceries, not their name — route to normal parsing
-        setChatText(input)
-        // Fall through to normal send flow below (nameInputMode already false)
-      } else {
-        // Save name to backend
-        const parts = input.split(' ')
-        const firstName = parts[0] || ''
-        const lastName = parts.slice(1).join(' ')
-        setSettingsFirstName(firstName)
-        setSettingsLastName(lastName)
-        fetch('/api/settings', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: input }),
-        }).catch(() => {})
-        typePennyHome(`Nice to meet you, ${firstName}! Keep adding — I'll sort everything by aisle.`)
-        return
-      }
-    }
-
-    // Disambiguation-aware routing: handle brand picks via chat input
-    if (pennyDisambig.length > 0 && chatText.trim() && pendingImages.length === 0) {
-      const text = chatText.trim().toLowerCase()
-      // Simple phrases to skip/dismiss
-      if (['skip', 'next'].includes(text)) {
-        setChatText('')
-        advanceDisambig()
-        return
-      }
-      if (['skip all', 'just pick for me', 'just pick', 'you decide'].includes(text)) {
-        setChatText('')
-        setPennyDisambig([])
-        setPennyDisambigIndex(0)
-        typePennyHome("All set! I'll remember those for next time.")
-        return
-      }
-      // Check if text matches an alternative for the current item
-      const d = pennyDisambig[pennyDisambigIndex]
-      if (d) {
-        const matchedAlt = d.alternatives.find(a => a.toLowerCase() === text)
-        if (matchedAlt !== undefined) {
-          setChatText('')
-          handleBrandPick(matchedAlt || d.current_brand)
-          return
-        }
-        // Treat as a custom brand name for the current item
-        if (text.length < 40 && !text.includes(' and ') && !text.includes(',')) {
-          setChatText('')
-          handleBrandPick(chatText.trim())
-          return
-        }
-      }
-      // Otherwise fall through to normal parsing (e.g. "also get bread")
-    }
-
-    const chatPayloadText = chatText.trim()
-    const chatPayloadImages = [...pendingImages]
-    setChatText('')
-    setPendingImages([])
-    if (chatInputRef.current) chatInputRef.current.style.height = 'auto'
-    setChatLoading(true)
-    setLastAdded([])
-    setLastSkipped([])
-    hasReviewedRef.current = false
-    setPennyDisambig([])
-    setPennyDisambigIndex(0)
-    try {
-      const payload = JSON.stringify({ text: chatPayloadText, images: chatPayloadImages })
-
-      const res = await fetch('/api/list/parse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: payload,
-      })
-
-      if (res.status === 401) { handleSessionExpired(); return }
-      if (res.ok) {
-        const data = await res.json()
-        const action: string = data.action || 'add'
-        const addedItems: ListItem[] = data.items || []
-        const skippedItems = data.skipped || []
-        const removedItems: ListItem[] = data.removed || []
-        const updatedItems: ListItem[] = data.updated || []
-        const checkedItems: ListItem[] = data.checked || []
-        const pennyMsg: string = data.message || ''
-
-        if (action === 'remove' && removedItems.length > 0) {
-          // Remove items from local state
-          const removedIds = new Set(removedItems.map(i => i.id))
-          setItems(prev => sortItems(prev.filter(i => !removedIds.has(i.id))))
-          const now = Date.now()
-          setFloatingLabels(removedItems.slice(0, 5).map((item, i) => ({
-            text: `−${item.name}`,
-            key: now + i,
-          })))
-        } else if (action === 'check' || action === 'uncheck') {
-          // Update checked state in local items
-          const checkedIds = new Map(checkedItems.map(i => [i.id, i.checked]))
-          setItems(prev => sortItems(prev.map(i => checkedIds.has(i.id) ? { ...i, checked: checkedIds.get(i.id)! } : i)))
-        } else if (action === 'update' && updatedItems.length > 0) {
-          // Merge updated items into local state
-          setItems(prev => {
-            const map = new Map(prev.map(i => [i.id, i]))
-            for (const item of updatedItems) map.set(item.id, item)
-            return sortItems(Array.from(map.values()))
-          })
-        } else if (action === 'share') {
-          // Show Penny's message with inline Invite button
-          if (pennyMsg) {
-            typePennyHome(pennyMsg, [{
-              label: 'Invite',
-              onClick: () => handleOpenInviteSheet(),
-            }])
-          }
-        } else if (action === 'save') {
-          // Saved — just show message
-        } else if (action === 'load_saved_list') {
-          const savedListsData: { id: number; name: string; item_count: number }[] = data.saved_lists || []
-          if (savedListsData.length === 0) {
-            // No saved lists — Penny's message already says so
-          } else if (data.added > 0) {
-            // A specific list was auto-loaded — reload list
-            reloadList()
-          } else {
-            // Show saved list options as buttons
-            const btns = savedListsData.map(sl => ({
-              label: `${sl.name} (${sl.item_count})`,
-              onClick: () => {
-                handleLoadSavedList(sl.id, 'merge')
-              },
-            }))
-            typePennyHome(pennyMsg, btns)
-            return // typePennyHome already handles the message
-          }
-        } else if (action === 'delete_saved_list') {
-          // Deleted — just show Penny's message
-        } else if (action === 'clear') {
-          // Present clear options based on what's on the list
-          const checkedCount = items.filter(i => i.checked).length
-          const totalCount = items.length
-          if (totalCount === 0) {
-            typePennyHome('Your list is already empty!')
-          } else if (checkedCount > 0) {
-            // Offer both options — make it clear what each does
-            const btns: { label: string; onClick: () => void }[] = [
-              { label: `Clear ${checkedCount} checked item${checkedCount !== 1 ? 's' : ''}`, onClick: () => { handleClearList(false); typePennyHome(`Cleared ${checkedCount} checked item${checkedCount !== 1 ? 's' : ''}!`) } },
-            ]
-            if (totalCount > checkedCount) {
-              btns.push({ label: `Clear entire list (${totalCount} items)`, onClick: () => { handleClearList(true); typePennyHome('List cleared!') } })
-            } else {
-              // All items are checked — "clear checked" and "clear all" are the same
-              // Just show one option
-            }
-            btns.push({ label: 'Cancel', onClick: () => typePennyHome('No problem, your list is safe!') })
-            typePennyHome(pennyMsg || `You have ${checkedCount} checked and ${totalCount - checkedCount} unchecked item${totalCount - checkedCount !== 1 ? 's' : ''}. What would you like to clear?`, btns)
-          } else {
-            // No checked items — only option is clear all
-            typePennyHome(pennyMsg || `Clear all ${totalCount} item${totalCount !== 1 ? 's' : ''} from your list?`, [
-              { label: `Yes, clear all ${totalCount} items`, onClick: () => { handleClearList(true); typePennyHome('List cleared!') } },
-              { label: 'Cancel', onClick: () => typePennyHome('No problem, your list is safe!') },
-            ])
-          }
-          return // typePennyHome already handles the message
-        } else if (action === 'search') {
-          // Search result — Penny answers a question (may also add items like recipe ingredients)
-          typePennyHome(pennyMsg || 'Here\'s what I found!')
-          if (addedItems.length > 0) {
-            reloadList()
-          }
-          return
-        } else if (action === 'done_shopping') {
-          typePennyHome(pennyMsg || 'Nice trip! Snap your receipt and I\'ll check off what you got.', [
-            {
-              label: 'Snap receipt',
-              onClick: () => {
-                setPendingReceiptMode(true)
-                receiptInputRef.current?.click()
-              },
-            },
-            { label: 'Skip', onClick: () => typePennyHome('All good! Happy shopping!') },
-          ])
-          return
-        } else if (action === 'receipt_processed') {
-          // Receipt was processed — update checked items in local state
-          if (checkedItems.length > 0) {
-            const checkedIds = new Set(checkedItems.map(i => i.id))
-            setItems(prev => sortItems(prev.map(i => checkedIds.has(i.id) ? { ...i, checked: true } : i)))
-          }
-          setPendingReceiptMode(false)
-        } else if (action === 'receipt_duplicate') {
-          setPendingReceiptMode(false)
-        } else if (action === 'swap_accepted') {
-          track('swap_accepted', { items: updatedItems.length })
-          // Swap accepted — update the item in local state
-          if (updatedItems.length > 0) {
-            setItems(prev => {
-              const map = new Map(prev.map(i => [i.id, i]))
-              for (const item of updatedItems) map.set(item.id, item)
-              return sortItems(Array.from(map.values()))
-            })
-          }
-          // Remove swap offer from local state
-          setSwapsByItemId(prev => {
-            const next = { ...prev }
-            for (const item of updatedItems) delete next[item.id]
-            return next
-          })
-        } else {
-          // Default "add" flow
-          setItems(prev => {
-            const map = new Map(prev.map(i => [i.id, i]))
-            for (const item of addedItems) map.set(item.id, item)
-            return sortItems(Array.from(map.values()))
-          })
-          setLastAdded(addedItems)
-          setLastSkipped(skippedItems)
-          if (addedItems.length > 0) {
-            track('items_added', { count: addedItems.length })
-            trackEvent('onboarding_v2', 'items_added_day1', addedItems.length)
-            const now = Date.now()
-            setFloatingLabels(addedItems.slice(0, 5).map((item, i) => ({
-              text: `+${item.quantity || 1} ${item.name}`,
-              key: now + i,
-            })))
-          }
-          if (addedItems.length > 0) {
-            const newDepts = new Set(addedItems.map(i => i.department))
-            setExpandedDepts(prev => {
-              const next = new Set(prev)
-              newDepts.forEach(d => next.add(d))
-              return next
-            })
-            const ids = new Set(addedItems.map(i => i.id))
-            setNewItemIds(ids)
-            if (newItemTimerRef.current) clearTimeout(newItemTimerRef.current)
-            newItemTimerRef.current = setTimeout(() => setNewItemIds(new Set()), 1500)
-            const firstDept = DEPARTMENTS.find(d => newDepts.has(d))
-            if (firstDept) {
-              setTimeout(() => {
-                deptRefs.current[firstDept]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-              }, 100)
-            }
-          }
-
-          // Store any pending swap offer
-          if (data.pending_swap) {
-            const swap = data.pending_swap
-            setSwapsByItemId(prev => ({ ...prev, [swap.item_id]: swap }))
-            track('swap_offered', { deal_id: swap.deal_id, offer_brand: swap.offer_brand, discount_cents: swap.discount_cents })
-          }
-
-          // Show household duplicate warnings
-          const dupeWarnings = (data.duplicate_warnings || []) as Array<{ item_name: string; added_by: string; hours_ago: number }>
-          if (dupeWarnings.length > 0) {
-            const msg = dupeWarnings.map(d =>
-              `${d.added_by} already added ${d.item_name}${d.hours_ago > 0 ? ` ${d.hours_ago}h ago` : ' just now'}`
-            ).join('. ')
-            typePennyHome(`Heads up — ${msg}`)
-            track('household_duplicate_warned', { count: dupeWarnings.length })
-          }
-        }
-        setTimeout(() => chatInputRef.current?.focus(), 150)
-
-        // Handle brand disambiguations — fast-track commodity items
-        const disambiguations = (data.brand_disambiguations || []) as { item_id: number; product_category: string; current_brand: string; alternatives: string[]; auto_assigned?: boolean }[]
-        if (disambiguations.length > 0) {
-          const commodityAutoAssigned: typeof disambiguations = []
-          const remaining: typeof disambiguations = []
-          for (const d of disambiguations) {
-            if (d.auto_assigned && d.current_brand && isCommodityItem(d.product_category)) {
-              commodityAutoAssigned.push(d)
-            } else {
-              remaining.push(d)
-            }
-          }
-          // Instantly confirm commodity auto-assigned items (no UI)
-          for (const d of commodityAutoAssigned) {
-            fetchAction('/api/list/brand-resolve', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ item_id: d.item_id, brand: d.current_brand, product_category: d.product_category }),
-            }).then(result => {
-              if (result.ok) {
-                setItems(prev => prev.map(i => i.id === d.item_id ? { ...i, brand: d.current_brand } : i))
-                setLastAdded(prev => prev.map(i => i.id === d.item_id ? { ...i, brand: d.current_brand } : i))
-                trackEvent('onboarding_v2', 'brand_default_confirmed')
-              }
-            })
-          }
-          // Show a brief toast for commodity items
-          if (commodityAutoAssigned.length > 0 && remaining.length === 0) {
-            const names = commodityAutoAssigned.map(d => `${d.product_category} (${d.current_brand})`)
-            showToast(`Added ${names.join(', ')}`, 'success')
-          } else if (commodityAutoAssigned.length > 0) {
-            const names = commodityAutoAssigned.map(d => d.product_category)
-            showToast(`Auto-picked brands for ${names.join(', ')}`, 'success')
-          }
-          // Only show disambiguation UI for non-commodity items
-          if (remaining.length > 0) {
-            setPennyDisambig(remaining)
-            setPennyDisambigIndex(0)
-          }
-        }
-
-        // Show Penny's message or fallback summary — Penny speaks, not toasts
-        if (action === 'share') {
-          // Already handled via typePennyHome above
-        } else if (pennyMsg) {
-          typePennyHome(pennyMsg)
-        } else {
-          const parts: string[] = []
-          if (data.added > 0) parts.push(`Added ${data.added} item${data.added === 1 ? '' : 's'}`)
-          if (skippedItems.length > 0) parts.push(`${skippedItems.length} already on your list`)
-          if (removedItems.length > 0) parts.push(`Removed ${removedItems.length} item${removedItems.length === 1 ? '' : 's'}`)
-          if (updatedItems.length > 0) parts.push(`Updated ${updatedItems.length} item${updatedItems.length === 1 ? '' : 's'}`)
-          if (checkedItems.length > 0) parts.push(`${action === 'check' ? 'Checked' : 'Unchecked'} ${checkedItems.length} item${checkedItems.length === 1 ? '' : 's'}`)
-          if (parts.length > 0) typePennyHome(parts.join(' · '))
-          else if (action === 'add' && addedItems.length === 0 && skippedItems.length === 0) typePennyHome("I couldn't find any items in that — try rewording it?")
-        }
-
-        // --- Onboarding nudges (spaced, non-intrusive) ---
-        if (action === 'add' && addedItems.length > 0) {
-          // Session 1: After first add, casually ask for name (once per session)
-          if (loginCount <= 1 && !settingsFirstName && !onboardingNameAsked.current) {
-            onboardingNameAsked.current = true
-            localStorage.setItem('ob_name', '1')
-            syncOnboardingFlags()
-            setTimeout(() => {
-              typePennyHome("By the way, what should I call you?", [
-                { label: 'Skip', onClick: () => { nameInputMode.current = false; typePennyHome("No worries! Just keep adding items.") } },
-              ])
-              nameInputMode.current = true
-            }, 2500)
-          }
-          // After 3rd item on list: mention sharing (item-count-based, not session-based)
-          else if (!onboardingShareMentioned.current && items.length + addedItems.length >= 3) {
-            onboardingShareMentioned.current = true
-            localStorage.setItem('ob_share', '1')
-            syncOnboardingFlags()
-            setTimeout(() => {
-              typePennyHome("Shopping for the family? You can invite them to share this list.", [
-                { label: 'Invite someone', onClick: () => handleOpenInviteSheet() },
-                { label: 'Just me', onClick: () => typePennyHome("Got it — solo mission!") },
-              ])
-            }, 3000)
-          }
-          // Session 3: Mention texting Penny
-          else if (loginCount === 3 && !onboardingTextMentioned.current) {
-            onboardingTextMentioned.current = true
-            localStorage.setItem('ob_text', '1')
-            syncOnboardingFlags()
-            setTimeout(() => {
-              typePennyHome("Quick tip — you can text me your list anytime. Just save my number!", [
-                { label: 'Save contact', onClick: () => { window.open('/api/penny.vcf', '_blank') } },
-                { label: 'Maybe later', onClick: () => typePennyHome("I'll be here!") },
-              ])
-            }, 3000)
-          }
-          // After 5+ items on list and haven't mentioned swaps yet
-          else if (!onboardingSwapsMentioned.current && items.length + addedItems.length >= 5) {
-            onboardingSwapsMentioned.current = true
-            localStorage.setItem('ob_swaps', '1')
-            syncOnboardingFlags()
-            setTimeout(() => {
-              typePennyHome("By the way — I keep an eye out for deals on your items. If I spot a swap that saves you money, I'll let you know!")
-            }, 3500)
-          }
-          // Session 2+: Prompt to add phone if signed up via Google/email (no phone on file)
-          else if (loginCount >= 2 && !onboardingLinkPhoneMentioned.current && !settingsUserPhone && settingsEmail && (authMethods.includes('google') || authMethods.includes('email'))) {
-            onboardingLinkPhoneMentioned.current = true
-            localStorage.setItem('ob_link_phone', '1')
-            syncOnboardingFlags()
-            setTimeout(() => {
-              typePennyHome("Want to text me your grocery list on the go? Add your phone number and I can help over SMS.", [
-                { label: 'Add phone', onClick: () => setScreen('profile') },
-                { label: 'Not now', onClick: () => typePennyHome("No problem — I'm always here in the app!") },
-              ])
-            }, 3500)
-          }
-          // Session 2+: Prompt to add email if signed up via phone only (no email on file)
-          else if (loginCount >= 2 && !onboardingLinkEmailMentioned.current && settingsUserPhone && !settingsEmail && authMethods.includes('phone')) {
-            onboardingLinkEmailMentioned.current = true
-            localStorage.setItem('ob_link_email', '1')
-            syncOnboardingFlags()
-            setTimeout(() => {
-              typePennyHome("Add your email so you can log in from any device and I can send you receipts.", [
-                { label: 'Add email', onClick: () => setScreen('profile') },
-                { label: 'Maybe later', onClick: () => typePennyHome("Just let me know when you're ready!") },
-              ])
-            }, 3500)
-          }
-        }
-      } else if (res.status === 429) {
-        showToast('Hold on — give it a minute and try again', 'error')
-      } else {
-        const errData = await res.json().catch(() => null)
-        const errMsg = errData?.error || `Error ${res.status}`
-        console.error('[penny] parse failed:', res.status, errMsg)
-        showToast(errMsg, 'error')
-      }
-    } catch (err) {
-      console.error('[penny] parse error:', err)
-      showToast('Couldn\'t connect — check your connection and try again', 'error')
-    }
-    finally { setChatLoading(false) }
-  }
+  // handleSendChat — extracted to useChatState hook
 
   const handleNPSSubmit = async (score: number, comment: string) => {
     const result = await fetchAction('/api/nps', {
@@ -2412,6 +1982,7 @@ function AppInner() {
       typePennyHome('List loaded — let\'s get shopping!')
     } else if (result.status !== 401) { showToast('Couldn\'t load that list — please try again', 'error') }
   }
+  handleLoadSavedListRef.current = handleLoadSavedList
 
   // Auth handlers (handleEmailRegister, handleEmailLogin, handleForgotPassword,
   // handleMagicLink, handleResetPassword, handlePhoneChange, handleSendCode,

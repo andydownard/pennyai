@@ -29,7 +29,7 @@
 - [ ] **Extract `useListState()` hook** — `items`, `selectedItem`, `editForm`, `itemHistory`, `newItemIds` + related handlers.
 - [ ] **Extract `useChatState()` hook** — `chatText`, `chatLoading`, `homePennyText`, `homePennyTyping`, `homePennyBtns`, `pennyChimeIn` + related handlers.
 - [x] **Extract `useSettingsState()` hook** — all `settings*` state, `loadSettings()`, debounced save logic.
-- [ ] **Extract `useSwapState()` hook** — `lastAdded`, `lastSkipped`, `showReviewSheet`, `pennyDisambig` + related handlers.
+- [x] **Extract `useSwapState()` hook** — `lastAdded`, `lastSkipped`, `showReviewSheet`, `pennyDisambig` + related handlers.
 
 ### Sprint 4: Frontend — Component Cleanup (P1) — **Done**
 
