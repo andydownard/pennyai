@@ -2213,27 +2213,19 @@ function AppInner() {
     const isSubScreen = SUB_SCREENS.includes(active)
     return (
       <div style={{ flexShrink: 0, backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ ...layout.row, padding: '16px 20px', position: 'relative' }}>
-          {isSubScreen ? (
+        <div style={{ ...layout.row, padding: '16px 20px' }}>
+          {isSubScreen && (
             <button
               onClick={() => setScreen(active === 'earnings' || active === 'receipts' ? 'home' : active === 'admin' ? 'profile' : 'profile')}
               aria-label="Back"
-              style={{ ...buttons.icon, padding: '0 4px' }}
+              style={{ ...buttons.icon, padding: '0 4px', marginRight: '8px' }}
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="15 18 9 12 15 6"/>
               </svg>
             </button>
-          ) : (
-            <span
-              style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: FONT_LG, fontWeight: 700 }}
-              onClick={() => setScreen('home')}
-            >thriftly</span>
           )}
           <span style={{
-            position: 'absolute',
-            left: '50%',
-            transform: 'translateX(-50%)',
             fontFamily: FONT,
             fontSize: FONT_BASE,
             fontWeight: 600,
