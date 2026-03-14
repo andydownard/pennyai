@@ -468,7 +468,7 @@ function AppInner() {
   // --- List state (extracted) ---
   const {
     items, setItems,
-    listLoading,
+    listLoading, setListLoading,
     expandedDepts, setExpandedDepts,
     selectedItem, setSelectedItem,
     editForm, setEditForm,
@@ -1186,7 +1186,7 @@ function AppInner() {
   const npsCheckedRef = useRef(false)
   useEffect(() => {
     if (screen !== 'home') return
-    reloadList().catch(e => console.warn('[load] list failed:', e))
+    reloadList().catch(e => { console.warn('[load] list failed:', e); setListLoading(false) })
     loadTrips().catch(e => console.warn('[load] trips failed:', e))
     loadStoreLists().catch(e => console.warn('[load] store lists failed:', e))
     loadRestockNudges().catch(e => console.warn('[load] nudges failed:', e))
