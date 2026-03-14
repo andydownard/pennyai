@@ -83,6 +83,7 @@ func initDB(path string) (*sql.DB, error) {
 		"ALTER TABLE list_items ADD COLUMN notes TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE list_items ADD COLUMN swap_savings_cents INTEGER NOT NULL DEFAULT 0",
 		"ALTER TABLE list_items ADD COLUMN emoji TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE list_items ADD COLUMN needs_enrichment INTEGER NOT NULL DEFAULT 0",
 	} {
 		db.Exec(stmt) // "duplicate column name" error is expected and harmless
 	}

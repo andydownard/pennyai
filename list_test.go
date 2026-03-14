@@ -725,12 +725,20 @@ func TestParseAndAdd_ClaudeError(t *testing.T) {
 		return nil, fmt.Errorf("Claude API error")
 	}
 
+	// On Claude failure, should fall back to adding raw text as item (201, not 500)
 	rr := doRequest(server.handleList, "POST", "/api/list/parse",
 		map[string]string{"text": "milk"},
 		[]*http.Cookie{cookie})
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Errorf("Status: got %d, want 500", rr.Code)
+	if rr.Code != http.StatusCreated {
+		t.Errorf("Status: got %d, want 201 (fallback add)", rr.Code)
+	}
+	// Verify the item was added with the raw text
+	var resp map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	items, ok := resp["items"].([]interface{})
+	if !ok || len(items) == 0 {
+		t.Error("Expected fallback item to be added")
 	}
 }
 

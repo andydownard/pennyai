@@ -349,11 +349,17 @@ func (s *Server) handleTextCommand(w http.ResponseWriter, session Session, text 
 	// Build learning context for Penny's system prompt
 	learningCtx := s.buildLearningContext(session.UserID)
 
+	needsEnrichment := false
 	cmd, err := s.parseCommand(s.config.AnthropicAPIKey, text, currentItems, firstName, learningCtx)
 	if err != nil {
-		log.Printf("[parse] command error for user %d: %v", session.UserID, err)
-		dbError(w, err, "I couldn't understand that. Try again?")
-		return
+		log.Printf("[parse] command error for user %d: %v — falling back to raw add", session.UserID, err)
+		// Fallback: add the raw text as an item instead of showing an error
+		cmd = &ParsedCommand{
+			Action:  "add",
+			Items:   []ParsedItem{{Name: text, Department: "Other", Quantity: 1}},
+			Message: fmt.Sprintf("Added %s to your list!", text),
+		}
+		needsEnrichment = true
 	}
 
 	resp := ParseResponse{
@@ -541,6 +547,13 @@ func (s *Server) handleTextCommand(w http.ResponseWriter, session Session, text 
 		resp.Skipped = skippedItems
 		resp.Added = len(added)
 		s.enrichAddedItems(session.UserID, added, cmd.Items, &resp)
+		// Flag fallback items for async enrichment retry
+		if needsEnrichment {
+			for _, item := range added {
+				s.db.Exec("UPDATE list_items SET needs_enrichment = 1 WHERE id = ?", item.ID)
+			}
+			go s.retryEnrichItems(session.UserID)
+		}
 	}
 
 	if resp.Items == nil {
@@ -748,4 +761,69 @@ func (s *Server) loadSavedListIntoActive(savedListID int, userID int) int {
 		}
 	}
 	return added
+}
+
+// retryEnrichItems re-attempts AI parsing for items flagged needs_enrichment.
+// Runs async (in a goroutine). Updates department, emoji, brand on success.
+func (s *Server) retryEnrichItems(userID int) {
+	// Small delay to avoid back-to-back API calls
+	rows, err := s.db.Query(
+		"SELECT id, name FROM list_items WHERE user_id = ? AND needs_enrichment = 1 LIMIT 10",
+		userID,
+	)
+	if err != nil {
+		log.Printf("[enrich-retry] query error: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	type pending struct {
+		id   int
+		name string
+	}
+	var items []pending
+	for rows.Next() {
+		var p pending
+		if err := rows.Scan(&p.id, &p.name); err != nil {
+			continue
+		}
+		items = append(items, p)
+	}
+	if len(items) == 0 {
+		return
+	}
+
+	for _, item := range items {
+		// Re-parse each item individually via Claude
+		cmd, err := parseCommandWithClaude(s.config.AnthropicAPIKey, item.name, nil, "", "")
+		if err != nil {
+			log.Printf("[enrich-retry] failed for item %d (%s): %v", item.id, item.name, err)
+			// Mark as no longer needing enrichment after 1 failed retry
+			s.db.Exec("UPDATE list_items SET needs_enrichment = 0 WHERE id = ?", item.id)
+			continue
+		}
+		if len(cmd.Items) > 0 {
+			p := cmd.Items[0]
+			emoji := inferItemEmoji(p.Name, p.Department)
+			name := p.Name
+			if name == "" {
+				name = item.name
+			}
+			dept := p.Department
+			if dept == "" {
+				dept = "Other"
+			}
+			_, err := s.db.Exec(
+				"UPDATE list_items SET name = ?, department = ?, brand = ?, emoji = ?, needs_enrichment = 0 WHERE id = ?",
+				name, dept, p.Brand, emoji, item.id,
+			)
+			if err != nil {
+				log.Printf("[enrich-retry] update error for item %d: %v", item.id, err)
+			} else {
+				log.Printf("[enrich-retry] enriched item %d: %s → %s (%s)", item.id, item.name, name, dept)
+			}
+		} else {
+			s.db.Exec("UPDATE list_items SET needs_enrichment = 0 WHERE id = ?", item.id)
+		}
+	}
 }

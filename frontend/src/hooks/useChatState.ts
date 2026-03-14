@@ -150,14 +150,19 @@ export function useChatState(options: UseChatStateOptions) {
       const input = chatText.trim()
       setChatText('')
       // Detect if user typed grocery items instead of their name
-      const groceryWords = new Set(['milk','eggs','bread','butter','cheese','chicken','beef','pork','rice','pasta',
+      const groceryNouns = new Set(['milk','eggs','bread','butter','cheese','chicken','beef','pork','rice','pasta',
         'flour','sugar','salt','pepper','oil','water','juice','coffee','tea','cereal','yogurt','cream',
         'banana','bananas','apple','apples','orange','oranges','tomato','tomatoes','onion','onions',
-        'potato','potatoes','lettuce','spinach','broccoli','carrot','carrots','avocado','avocados',
+        'potato','potatoes','lettuce','spinach','broccoli','carrot','carrots','avocado','avocados'])
+      // Modifiers that look like groceries only when paired with a noun
+      const groceryModifiers = new Set([
         'large','small','medium','organic','frozen','fresh','whole','skim','low','fat','free','diet',
         'pack','box','bag','can','bottle','gallon','dozen','lb','oz','lbs'])
       const words = input.toLowerCase().split(/\s+/)
-      const looksLikeGroceries = words.length > 2 || words.every(w => groceryWords.has(w)) || /^\d/.test(input)
+      // Treat as groceries if: 3+ words, starts with digit, or contains at least one grocery noun
+      const hasGroceryNoun = words.some(w => groceryNouns.has(w))
+      const allGroceryRelated = words.every(w => groceryNouns.has(w) || groceryModifiers.has(w))
+      const looksLikeGroceries = words.length > 2 || (hasGroceryNoun && allGroceryRelated) || /^\d/.test(input)
       if (looksLikeGroceries) {
         // User typed groceries, not their name — route to normal parsing
         setChatText(input)
