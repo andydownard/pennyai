@@ -2189,10 +2189,10 @@ func seedBrands(db *sql.DB) error {
 	return tx.Commit()
 }
 
-// backfillItemEmojis sets emoji for all list_items that have emoji = ''.
-// Runs once at startup — idempotent (only updates empty emoji fields).
+// backfillItemEmojis re-computes emoji for all list_items using the latest keyword list.
+// Runs once at startup — idempotent (only updates items whose computed emoji differs).
 func backfillItemEmojis(db *sql.DB) {
-	rows, err := db.Query("SELECT id, name, department FROM list_items WHERE emoji = ''")
+	rows, err := db.Query("SELECT id, name, department, emoji FROM list_items")
 	if err != nil {
 		log.Printf("[emoji-backfill] query error: %v", err)
 		return
@@ -2203,11 +2203,12 @@ func backfillItemEmojis(db *sql.DB) {
 		id         int
 		name       string
 		department string
+		emoji      string
 	}
 	var items []item
 	for rows.Next() {
 		var it item
-		if err := rows.Scan(&it.id, &it.name, &it.department); err != nil {
+		if err := rows.Scan(&it.id, &it.name, &it.department, &it.emoji); err != nil {
 			continue
 		}
 		items = append(items, it)
@@ -2219,15 +2220,15 @@ func backfillItemEmojis(db *sql.DB) {
 
 	updated := 0
 	for _, it := range items {
-		emoji := inferItemEmoji(it.name, it.department)
-		if emoji != "" {
-			_, err := db.Exec("UPDATE list_items SET emoji = ? WHERE id = ? AND emoji = ''", emoji, it.id)
+		computed := inferItemEmoji(it.name, it.department)
+		if computed != "" && computed != it.emoji {
+			_, err := db.Exec("UPDATE list_items SET emoji = ? WHERE id = ?", computed, it.id)
 			if err == nil {
 				updated++
 			}
 		}
 	}
 	if updated > 0 {
-		log.Printf("[emoji-backfill] updated %d items with inferred emojis", updated)
+		log.Printf("[emoji-backfill] refreshed %d items with updated emojis", updated)
 	}
 }
