@@ -23,18 +23,18 @@
 - [x] **Delete dead code** — Removed `NavigationMenu.tsx` (unused since BottomTabBar). Audited `models.go` — no unused struct types.
 - [x] **Split `handlers_list.go` (1,903 → 1,139 lines)** — Swap/parse logic moved to `handlers_parse.go` (751 lines).
 
-### Sprint 3: Frontend — Extract App.tsx State (P1) — In Progress
+### Sprint 3: Frontend — Extract App.tsx State (P1) — **Done**
 
 - [x] **Extract `useAuthState()` hook** — `phone`, `code`, `loading`, `checking`, `isOffline` + related handlers.
-- [ ] **Extract `useListState()` hook** — `items`, `selectedItem`, `editForm`, `itemHistory`, `newItemIds` + related handlers.
-- [ ] **Extract `useChatState()` hook** — `chatText`, `chatLoading`, `homePennyText`, `homePennyTyping`, `homePennyBtns`, `pennyChimeIn` + related handlers.
+- [x] **Extract `useListState()` hook** — `items`, `selectedItem`, `editForm`, `itemHistory`, `newItemIds` + related handlers. (346 lines)
+- [x] **Extract `useChatState()` hook** — `chatText`, `chatLoading`, `homePennyText`, `homePennyTyping`, `homePennyBtns`, `pennyChimeIn` + related handlers. (577 lines)
 - [x] **Extract `useSettingsState()` hook** — all `settings*` state, `loadSettings()`, debounced save logic.
 - [x] **Extract `useSwapState()` hook** — `lastAdded`, `lastSkipped`, `showReviewSheet`, `pennyDisambig` + related handlers.
 
 ### Sprint 4: Frontend — Component Cleanup (P1) — **Done**
 
 - [x] **Split `AdminScreen.tsx` (1,162 → 253 lines)** — Extracted 8 tab components: OverviewTab, BusinessMetricsTab, ChurnRiskTab, CohortsTab, MarketplaceHealthTab, FeedbackTab, Sparkline, types.
-- [ ] **Create generic `<BottomSheet>` component** — Consolidate layout/overlay/animation patterns from `ItemEditSheet`, `ReviewSheet`, `TripPlannerSheet`, `ActionSheet` into a shared primitive.
+- [x] **Create generic `<BottomSheet>` component** — Shared primitive created. ActionSheet, ReviewSheet, TripPlannerSheet all use it. ItemEditSheet still has its own overlay (low priority — it's a complex sheet with custom layout).
 - [x] **Delete `NavigationMenu.tsx`** — Done in Sprint 2.
 
 ### Sprint 5: Backend — Schema & Query Cleanup (P2) — **Done**
@@ -643,7 +643,7 @@ Playwright E2E tests covering critical user flows: login, add items, check items
 | 16 | **M9. Brand Dashboard v2** | S→M | 3 | P2 | **Scope reduced** — Metabase handles most reporting. Competitive Intel, purchase verification funnel, date range filter, CSV export, weekly digest all shipped. | **Done** |
 | 17 | **R2. Trip Planner Discoverability** | S | — | P3 | Quality of life, quick win. Do when there's a spare afternoon. | **Done** (Sprint 4) |
 | — | ~~R4. SSE Real-Time Updates~~ | — | — | — | **Replaced by Pusher/Ably** (Buy-vs-Build: BUY NOW). No longer a build item. | Replaced |
-| 18 | **R6. Codebase Refactor** | L | — | P2 | Split monolithic files (App.tsx, handlers), extract middleware, shared styles, API layer. Do incrementally between sprints. | **Mostly Done** (API layer ✅, error handling ✅, hooks ✅, test helpers ✅, shared styles ✅, middleware ✅, test org ✅, file splitting ✅; remaining: request types) |
+| 18 | **R6. Codebase Refactor** | L | — | P2 | Split monolithic files (App.tsx, handlers), extract middleware, shared styles, API layer. Do incrementally between sprints. | **Mostly Done** (API layer ✅, error handling ✅, hooks ✅ (5 extracted), test helpers ✅, shared styles ✅, middleware ✅, test org ✅, file splitting ✅; remaining: request types) |
 | 19 | **R7. UX Overhaul** | L | — | P1 | Design system, dark mode, bottom tabs, screen transitions, optimistic updates, offline support. Dedicated sprint after revenue stabilizes. | **Mostly Done** (dark mode ✅, bottom tabs ✅, transitions ✅, a11y ✅, font scaling ✅, code splitting ✅; remaining: Penny avatar expressions) |
 
 ### What changed (March 2026 groom)
