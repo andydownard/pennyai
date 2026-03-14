@@ -300,7 +300,7 @@ func (s *Server) handleMilestoneAck(w http.ResponseWriter, r *http.Request) {
 	}
 	if !decodeJSON(w, r, &body) || body.Cents <= 0 {
 		if body.Cents <= 0 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid milestone"})
+			writeBadRequest(w, "Invalid milestone")
 		}
 		return
 	}

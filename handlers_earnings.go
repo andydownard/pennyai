@@ -134,7 +134,7 @@ func (s *Server) handleEarningsUpload(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimSuffix(path, "/upload")
 	rebateID, err := strconv.Atoi(idStr)
 	if err != nil || rebateID <= 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid rebate ID"})
+		writeBadRequest(w, "Invalid rebate ID")
 		return
 	}
 
@@ -142,7 +142,7 @@ func (s *Server) handleEarningsUpload(w http.ResponseWriter, r *http.Request) {
 	var ownerID int
 	err = s.db.QueryRow("SELECT user_id FROM swap_rebates WHERE id = ?", rebateID).Scan(&ownerID)
 	if err == sql.ErrNoRows {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Rebate not found"})
+		writeNotFound(w, "Rebate not found")
 		return
 	}
 	if err != nil {
@@ -160,13 +160,13 @@ func (s *Server) handleEarningsUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Parse multipart file
 	if err := r.ParseMultipartForm(5 << 20); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "File too large or invalid form"})
+		writeBadRequest(w, "File too large or invalid form")
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "No file provided"})
+		writeBadRequest(w, "No file provided")
 		return
 	}
 	defer file.Close()
@@ -197,7 +197,7 @@ func (s *Server) handleEarningsUpload(w http.ResponseWriter, r *http.Request) {
 		"application/pdf": true,
 	}
 	if !allowedTypes[ct] {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid file type. Must be image or PDF."})
+		writeBadRequest(w, "Invalid file type. Must be image or PDF.")
 		return
 	}
 

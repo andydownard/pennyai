@@ -6,6 +6,53 @@
 
 ---
 
+## R8. Codebase Simplification — TOP PRIORITY (2026-03-14)
+
+> **CEO directive: simplify the codebase.** Multi-sprint initiative. Product team convened; plan reviewed.
+> Goal: reduce cognitive load, improve maintainability, eliminate dead code, and make the codebase approachable for new contributors.
+
+### Sprint 1: Backend — Split Monolithic Handlers (P0)
+
+- [ ] **Split `handleParseAndAdd()` (837 lines → 4-6 functions)** — Extract `acceptSwap()`, `declineSwap()`, `parseAndInsertItems()`, `handleDoneShoppingAction()` from the mega-function in `handlers_list.go`. Each extracted function is independently testable.
+- [ ] **Split `handlers_brand.go` (2,084 lines → 3 files)** — Extract `handlers_brand_auth.go` (auth, registration, session), `handlers_brand_deals.go` (CRUD, optimization, competitive intel), `handlers_brand_payments.go` (Stripe deposit, webhook). No endpoint changes.
+- [ ] **Extract error response helpers** — Replace 80+ `writeJSON(w, http.StatusBadRequest, map[string]string{"error": "..."})` with `writeBadRequest(w, "msg")`, `writeConflict(w, "msg")`, `writeNotFound(w, "msg")` in `utils.go`.
+
+### Sprint 2: Backend — Consolidate & Clean (P0)
+
+- [ ] **Split `handlers_list.go` (1,903 lines → 2 files)** — Move swap accept/decline/deal logic to existing `handlers_swap.go`. Keep list CRUD in `handlers_list.go`.
+- [ ] **Split `handlers_settings.go` (995 lines → 3 files)** — Extract NPS logic to `handlers_nps.go`, referral logic to `handlers_referral.go`. Keep user settings in `handlers_settings.go`.
+- [ ] **Consolidate rate limiters** — Replace 5 scattered `checkRateLimitBucket()` patterns with a named `s.limiter.Check(bucket, key, limit, window)` wrapper.
+- [ ] **Delete dead code** — Remove `NavigationMenu.tsx` (unused since Sprint 8), audit `models.go` for unused struct types.
+
+### Sprint 3: Frontend — Extract App.tsx State (P1)
+
+- [ ] **Extract `useListState()` hook** — `items`, `selectedItem`, `editForm`, `itemHistory`, `newItemIds` + related handlers.
+- [ ] **Extract `useChatState()` hook** — `chatText`, `chatLoading`, `homePennyText`, `homePennyTyping`, `homePennyBtns`, `pennyChimeIn` + related handlers.
+- [ ] **Extract `useAuthState()` hook** — `phone`, `code`, `loading`, `checking`, `isOffline` + related handlers.
+- [ ] **Extract `useSettingsState()` hook** — all `settings*` state, `loadSettings()`, debounced save logic.
+- [ ] **Extract `useSwapState()` hook** — `lastAdded`, `lastSkipped`, `showReviewSheet`, `pennyDisambig` + related handlers.
+
+### Sprint 4: Frontend — Component Cleanup (P1)
+
+- [ ] **Split `AdminScreen.tsx` (1,162 lines → tab components)** — Extract each dashboard tab (Users, NPS, Analytics, Cohorts, Churn, Marketplace, Payouts, Deals) into separate components.
+- [ ] **Create generic `<BottomSheet>` component** — Consolidate layout/overlay/animation patterns from `ItemEditSheet`, `ReviewSheet`, `TripPlannerSheet`, `ActionSheet` into a shared primitive.
+- [ ] **Delete `NavigationMenu.tsx`** — Unused since BottomTabBar replaced it.
+
+### Sprint 5: Backend — Schema & Query Cleanup (P2)
+
+- [ ] **Consolidate schema migrations in `db.go`** — Group 71+ ALTER TABLE statements by table. Add comments marking which sprint added each column. Remove redundant IF NOT EXISTS checks for columns that have existed for months.
+- [ ] **Extract `schema.go`** — Move all CREATE TABLE and ALTER TABLE from `db.go` into a dedicated file. Keep query helpers in `db.go`.
+- [ ] **Split `coverage_boost_test.go` (7,552 lines)** — Distribute tests into domain-specific test files (`swap_strategy_test.go`, `deal_lifecycle_test.go`, `category_test.go`).
+
+### Rules
+- No endpoint changes (paths, methods, request/response shapes)
+- No feature removal
+- No database table/column drops
+- All tests must pass after each sprint
+- Each sprint is independently shippable
+
+---
+
 ## CEO Directive: Vibeflourishing Embed — TOP PRIORITY (2026-03-09)
 
 > **⚠️ THIS IS THE #1 P0. Nothing else ships until this is done.**

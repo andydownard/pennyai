@@ -86,19 +86,19 @@ func (s *Server) handleReceiptItems(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/receipts/")
 	parts := strings.Split(path, "/")
 	if len(parts) < 2 || parts[1] != "items" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid path"})
+		writeBadRequest(w, "Invalid path")
 		return
 	}
 	receiptID, err := strconv.Atoi(parts[0])
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid receipt ID"})
+		writeBadRequest(w, "Invalid receipt ID")
 		return
 	}
 
 	// Verify ownership
 	var ownerID int
 	if err := s.db.QueryRow("SELECT user_id FROM receipts WHERE id = ?", receiptID).Scan(&ownerID); err != nil || ownerID != session.UserID {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Receipt not found"})
+		writeNotFound(w, "Receipt not found")
 		return
 	}
 
@@ -148,19 +148,19 @@ func (s *Server) handleReceiptConfirm(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/receipts/")
 	parts := strings.Split(path, "/")
 	if len(parts) < 2 || parts[1] != "confirm" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid path"})
+		writeBadRequest(w, "Invalid path")
 		return
 	}
 	receiptID, err := strconv.Atoi(parts[0])
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid receipt ID"})
+		writeBadRequest(w, "Invalid receipt ID")
 		return
 	}
 
 	// Verify ownership
 	var ownerID int
 	if err := s.db.QueryRow("SELECT user_id FROM receipts WHERE id = ?", receiptID).Scan(&ownerID); err != nil || ownerID != session.UserID {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Receipt not found"})
+		writeNotFound(w, "Receipt not found")
 		return
 	}
 
@@ -496,7 +496,7 @@ func (s *Server) handleReceiptRouting(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, http.StatusNotFound, map[string]string{"error": "Not found"})
+	writeNotFound(w, "Not found")
 }
 
 // checkReceiptRateLimit enforces 3/day and 10/week per user.

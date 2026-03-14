@@ -2,11 +2,9 @@ package main
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -38,7 +36,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(tail, "/")
 	id, err := strconv.Atoi(parts[0])
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid ID"})
+		writeBadRequest(w, "Invalid ID")
 		return
 	}
 
@@ -72,7 +70,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusNotFound, map[string]string{"error": "Not found"})
+	writeNotFound(w, "Not found")
 }
 
 // handleParseAndAdd handles POST /api/list/parse
@@ -99,7 +97,7 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 		if err.Error() == "http: request body too large" {
 			msg = "Request too large"
 		}
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+		writeBadRequest(w, msg)
 		return
 	}
 	req.Text = strings.TrimSpace(req.Text)
@@ -113,331 +111,22 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 	if len(images) > 5 {
 		images = images[:5]
 	}
-	// =========================================================================
-	// SWAP ACCEPT/DECLINE — short-circuit before Claude call
-	// =========================================================================
+
+	// Branch 1: Swap accept/decline — short-circuit before Claude call
 	if req.SwapDealID > 0 {
-		hhIDs, _ := getHouseholdUserIDs(s.db, session.UserID)
-		whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID, hhIDs)
-		resp := ParseResponse{Items: []ListItem{}, Skipped: []SkippedItem{}}
-
-		if req.Text == "accept_swap" {
-			// 1-swap-per-user-per-campaign: prevent accepting the same deal more than once (B14)
-			var priorAccepts int
-			s.db.QueryRow(
-				"SELECT COUNT(*) FROM swap_events WHERE user_id = ? AND deal_id = ? AND action = 'accepted'",
-				session.UserID, req.SwapDealID,
-			).Scan(&priorAccepts)
-			if priorAccepts > 0 {
-				writeJSON(w, http.StatusConflict, map[string]string{"error": "Swap already accepted"})
-				return
-			}
-
-			// Wrap entire accept in a transaction — budget check + mutations are atomic (B11 fix)
-			tx, err := s.db.Begin()
-			if err != nil {
-				log.Printf("[swaps] failed to begin tx: %v", err)
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
-				return
-			}
-			defer tx.Rollback()
-
-			// Verify deal is active and read deal data — inside tx for atomicity
-			var offerBrand, offerProduct, status, dealType, trialProductName, trialSize string
-			var discountCents, budgetTotal, budgetSpent, quantityOffered int
-			err = tx.QueryRow(
-				`SELECT offer_brand, offer_product, discount_cents, total_budget_cents, budget_spent_cents, status,
-				        deal_type, quantity_offered, trial_product_name, trial_size
-				 FROM brand_deals WHERE id = ?`,
-				req.SwapDealID,
-			).Scan(&offerBrand, &offerProduct, &discountCents, &budgetTotal, &budgetSpent, &status,
-				&dealType, &quantityOffered, &trialProductName, &trialSize)
-			if err != nil || status != "active" {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Deal no longer available"})
-				return
-			}
-			if budgetTotal > 0 && budgetSpent >= budgetTotal {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Deal budget exhausted"})
-				return
-			}
-
-			// Atomic budget increment — conditional UPDATE prevents overspend under concurrency
-			// Only increments if budget_spent_cents + discount would not exceed the total
-			if budgetTotal > 0 {
-				result, err := tx.Exec(
-					"UPDATE brand_deals SET budget_spent_cents = budget_spent_cents + ? WHERE id = ? AND (total_budget_cents = 0 OR budget_spent_cents + ? <= total_budget_cents)",
-					discountCents, req.SwapDealID, discountCents,
-				)
-				if err != nil {
-					log.Printf("[swaps] failed to update deal %d budget: %v", req.SwapDealID, err)
-					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
-					return
-				}
-				rows, _ := result.RowsAffected()
-				if rows == 0 {
-					writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Deal budget exhausted"})
-					return
-				}
-			} else {
-				// No budget cap — just increment
-				if _, err := tx.Exec("UPDATE brand_deals SET budget_spent_cents = budget_spent_cents + ? WHERE id = ?",
-					discountCents, req.SwapDealID); err != nil {
-					log.Printf("[swaps] failed to update deal %d budget: %v", req.SwapDealID, err)
-				}
-			}
-
-			// Apply deal to list — behavior varies by deal_type
-			if req.SwapItemID > 0 {
-				switch dealType {
-				case "bogo":
-					// BOGO: keep original item but set quantity to quantity_offered (typically 2)
-					qty := quantityOffered
-					if qty < 2 {
-						qty = 2
-					}
-					updateArgs := append([]interface{}{offerProduct, offerBrand, qty, req.SwapItemID}, whereArgs...)
-					_, err = tx.Exec(
-						"UPDATE list_items SET name = ?, brand = ?, quantity = ? WHERE id = ? AND "+whereClause,
-						updateArgs...,
-					)
-					if err != nil {
-						log.Printf("[swaps] bogo accept update error: %v", err)
-					}
-				case "trial":
-					// Trial: keep original item unchanged, add trial product as new item
-					trialResult, trialErr := tx.Exec(
-						"INSERT INTO list_items (user_id, name, brand, size, quantity, department, source, swap_savings_cents) VALUES (?, ?, ?, ?, 1, 'Other', 'swap', ?)",
-						session.UserID, trialProductName, offerBrand, trialSize, discountCents,
-					)
-					if trialErr != nil {
-						log.Printf("[swaps] trial accept insert error: %v", trialErr)
-					}
-					_ = trialResult
-				default:
-					// sku_swap / seasonal: replace item on list
-					updateArgs := append([]interface{}{offerProduct, offerBrand, req.SwapItemID}, whereArgs...)
-					_, err = tx.Exec(
-						"UPDATE list_items SET name = ?, brand = ? WHERE id = ? AND "+whereClause,
-						updateArgs...,
-					)
-					if err != nil {
-						log.Printf("[swaps] accept update error: %v", err)
-					}
-				}
-
-				// Record savings on the swapped list item so household members see "Saved $X via Penny"
-				if dealType != "trial" {
-					savingsArgs := append([]interface{}{discountCents, req.SwapItemID}, whereArgs...)
-					if _, err := tx.Exec(
-						"UPDATE list_items SET swap_savings_cents = ? WHERE id = ? AND "+whereClause,
-						savingsArgs...,
-					); err != nil {
-						log.Printf("[swaps] failed to set swap_savings_cents on item %d: %v", req.SwapItemID, err)
-					}
-				}
-			}
-
-			// Log accepted event
-			whyTappedInt := 0
-			if req.WhyTapped {
-				whyTappedInt = 1
-			}
-			result, err := tx.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, time_to_action_ms, why_tapped) VALUES (?, ?, ?, 'accepted', ?, ?)",
-				session.UserID, req.SwapDealID, req.SwapItemID, req.TimeToActionMs, whyTappedInt)
-			if err != nil {
-				log.Printf("[swaps] failed to insert swap event: %v", err)
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
-				return
-			}
-			swapEventID, _ := result.LastInsertId()
-
-			// Insert rebate ledger entry
-			if _, err := tx.Exec(
-				"INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, ?, ?, ?, 'pending')",
-				session.UserID, swapEventID, req.SwapDealID, discountCents,
-			); err != nil {
-				log.Printf("[swaps] failed to insert rebate: %v", err)
-			}
-
-			// Update user counters and rebate balance
-			if _, err := tx.Exec("UPDATE users SET deal_accept_count = deal_accept_count + 1, swap_credits_cents = swap_credits_cents + ? WHERE id = ?",
-				discountCents, session.UserID); err != nil {
-				log.Printf("[swaps] failed to update user credits for user %d: %v", session.UserID, err)
-			}
-
-			// Auto-pause deal if budget now exhausted (re-read inside tx)
-			var newBudgetSpent int
-			tx.QueryRow("SELECT budget_spent_cents FROM brand_deals WHERE id = ?", req.SwapDealID).Scan(&newBudgetSpent)
-			if budgetTotal > 0 && newBudgetSpent >= budgetTotal {
-				if _, err := tx.Exec("UPDATE brand_deals SET status = 'paused' WHERE id = ?", req.SwapDealID); err != nil {
-					log.Printf("[swaps] failed to auto-pause deal %d: %v", req.SwapDealID, err)
-				}
-				log.Printf("[swaps] deal %d auto-paused: budget exhausted", req.SwapDealID)
-			}
-
-			if err := tx.Commit(); err != nil {
-				log.Printf("[swaps] failed to commit accept tx: %v", err)
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
-				return
-			}
-
-			// Read updated balance for cumulative total in response
-			var newBalance int
-			s.db.QueryRow("SELECT swap_credits_cents FROM users WHERE id = ?", session.UserID).Scan(&newBalance)
-
-			// Record learning signal
-			go s.recordSignal(session.UserID, "swap_accepted", offerBrand, fmt.Sprintf("%d", discountCents), map[string]interface{}{
-				"deal_id": req.SwapDealID, "deal_type": dealType, "discount_cents": discountCents,
-			})
-
-			resp.Action = "swap_accepted"
-			resp.SwapCreditsCents = newBalance
-			switch dealType {
-			case "bogo":
-				resp.Message = fmt.Sprintf("BOGO! Get %d for the price of 1. You save $%.2f. ($%.2f total saved!)", quantityOffered, float64(discountCents)/100, float64(newBalance)/100)
-			case "trial":
-				resp.Message = fmt.Sprintf("Free trial added! %s (%s). You save $%.2f. ($%.2f total saved!)", trialProductName, trialSize, float64(discountCents)/100, float64(newBalance)/100)
-			default:
-				resp.Message = fmt.Sprintf("Swapped! You save $%.2f. ($%.2f total saved!)", float64(discountCents)/100, float64(newBalance)/100)
-			}
-			if req.SwapItemID > 0 {
-				if item, err := getItemByID(s.db, req.SwapItemID, session.UserID); err == nil {
-					resp.Updated = []ListItem{item}
-				}
-			}
-		} else {
-			// decline_swap
-			declineWhyTapped := 0
-			if req.WhyTapped {
-				declineWhyTapped = 1
-			}
-			s.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, decline_reason, time_to_action_ms, why_tapped) VALUES (?, ?, ?, 'declined', ?, ?, ?)",
-				session.UserID, req.SwapDealID, req.SwapItemID, req.DeclineReason, req.TimeToActionMs, declineWhyTapped)
-			s.db.Exec(`INSERT INTO swap_suppressions (user_id, deal_id, decline_count) VALUES (?, ?, 1)
-				ON CONFLICT(user_id, deal_id) DO UPDATE SET decline_count = decline_count + 1`,
-				session.UserID, req.SwapDealID)
-
-			go s.recordSignal(session.UserID, "swap_declined", "", req.DeclineReason, map[string]interface{}{
-				"deal_id": req.SwapDealID, "reason": req.DeclineReason,
-			})
-
-			resp.Action = "swap_declined"
-			resp.Message = "No problem, keeping your original choice."
-		}
-
-		writeJSON(w, http.StatusCreated, resp)
-		go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
+		s.handleSwapAction(w, req, session)
 		return
 	}
 
-	// =========================================================================
-	// RECEIPT PHOTO — cross-reference receipt against list
-	// =========================================================================
+	// Branch 2: Receipt photo — cross-reference receipt against list
 	if req.IsReceipt && len(images) > 0 {
-		if s.config.AnthropicAPIKey == "" {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "AI parsing not configured"})
-			return
-		}
-
-		// Rate limit: 3/day, 10/week
-		if checkReceiptRateLimit(session.UserID) {
-			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "You've reached the receipt scanning limit. Try again tomorrow."})
-			return
-		}
-
-		// SHA-256 dedup check
-		hasher := sha256.New()
-		for _, img := range images {
-			hasher.Write([]byte(img))
-		}
-		imageHash := hex.EncodeToString(hasher.Sum(nil))
-
-		var existingReceiptID int
-		if err := s.db.QueryRow("SELECT id FROM receipts WHERE user_id = ? AND image_hash = ?",
-			session.UserID, imageHash).Scan(&existingReceiptID); err == nil {
-			writeJSON(w, http.StatusOK, ParseResponse{
-				Items:   []ListItem{},
-				Skipped: []SkippedItem{},
-				Action:  "receipt_duplicate",
-				Message: "Looks like I've already processed this receipt!",
-			})
-			return
-		}
-
-		// Load current list items
-		hhIDs, _ := getHouseholdUserIDs(s.db, session.UserID)
-		whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID, hhIDs)
-		rows, err := s.db.Query(
-			"SELECT "+listItemColumns+" FROM "+listItemJoins+" WHERE li."+whereClause+" AND li.checked = 0 ORDER BY li.name",
-			whereArgs...,
-		)
-		var currentItems []ListItem
-		if err == nil {
-			defer rows.Close()
-			for rows.Next() {
-				item, err := scanListItem(rows)
-				if err == nil {
-					currentItems = append(currentItems, item)
-				}
-			}
-		}
-
-		// Parse receipt
-		receiptParser := s.parseReceipt
-		if receiptParser == nil {
-			receiptParser = parseReceiptWithClaude
-		}
-		matchedNames, err := receiptParser(s.config.AnthropicAPIKey, images, currentItems)
-		if err != nil {
-			log.Printf("[receipt] parse error for user %d: %v", session.UserID, err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Couldn't read the receipt. Try again?"})
-			return
-		}
-
-		// Check off matched items
-		var checkedItems []ListItem
-		for _, matchName := range matchedNames {
-			for _, item := range currentItems {
-				if strings.EqualFold(item.Name, matchName) && !item.Checked {
-					s.db.Exec("UPDATE list_items SET checked = 1 WHERE id = ?", item.ID)
-					recordModification(s.db, item.ID, session.UserID, "checked", "receipt scan", "app")
-					item.Checked = true
-					checkedItems = append(checkedItems, item)
-					break
-				}
-			}
-		}
-
-		// Insert receipt record
-		result, insertErr := s.db.Exec("INSERT INTO receipts (user_id, image_hash, items_found, items_matched) VALUES (?, ?, ?, ?)",
-			session.UserID, imageHash, len(matchedNames), len(checkedItems))
-
-		// Enhanced receipt processing (structured extraction + swap verification) — async
-		if insertErr == nil {
-			receiptID64, _ := result.LastInsertId()
-			receiptID := int(receiptID64)
-			go s.processReceiptEnhanced(session.UserID, receiptID, matchedNames, images)
-		}
-
-		resp := ParseResponse{
-			Items:   []ListItem{},
-			Skipped: []SkippedItem{},
-			Checked: checkedItems,
-			Action:  "receipt_processed",
-		}
-		if len(checkedItems) > 0 {
-			resp.Message = fmt.Sprintf("Found %d items on your receipt — checked them off!", len(checkedItems))
-		} else {
-			resp.Message = "I couldn't match any receipt items to your list. You might have already checked them off!"
-		}
-		writeJSON(w, http.StatusCreated, resp)
-		go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
+		s.handleReceiptScan(w, session, images)
 		return
 	}
 
 	if req.Text == "" && len(images) == 0 {
 		log.Printf("[parse] empty text and images")
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Text or image is required"})
+		writeBadRequest(w, "Text or image is required")
 		return
 	}
 	if s.config.AnthropicAPIKey == "" {
@@ -451,467 +140,14 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 	// Cache household IDs once for this request to avoid repeated queries
 	hhIDs, _ := getHouseholdUserIDs(s.db, session.UserID)
 
-	// For text-only requests, use the command parser which supports natural language operations
+	// Branch 3: Text-only — command parser with natural language operations
 	if len(images) == 0 && req.Text != "" {
-		// Get current list items so the LLM can reference them
-		whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID, hhIDs)
-		rows, err := s.db.Query(
-			"SELECT "+listItemColumns+" FROM "+listItemJoins+" WHERE li."+whereClause+" ORDER BY li.name",
-			whereArgs...,
-		)
-		var currentItems []ListItem
-		if err == nil {
-			defer rows.Close()
-			for rows.Next() {
-				item, err := scanListItem(rows)
-				if err == nil {
-					currentItems = append(currentItems, item)
-				}
-			}
-		}
-
-		// Get user name for personalized messages
-		var userName string
-		s.db.QueryRow("SELECT COALESCE(name,'') FROM users WHERE id = ?", session.UserID).Scan(&userName)
-		firstName := strings.Split(strings.TrimSpace(userName), " ")[0]
-
-		// Build learning context for Penny's system prompt
-		learningCtx := s.buildLearningContext(session.UserID)
-
-		cmd, err := s.parseCommand(s.config.AnthropicAPIKey, req.Text, currentItems, firstName, learningCtx)
-		if err != nil {
-			log.Printf("[parse] command error for user %d: %v", session.UserID, err)
-			dbError(w, err, "I couldn't understand that. Try again?")
-			return
-		}
-
-		resp := ParseResponse{
-			Action:  cmd.Action,
-			Message: cmd.Message,
-			Items:   []ListItem{},
-			Skipped: []SkippedItem{},
-		}
-
-		switch cmd.Action {
-		case "remove":
-			for _, p := range cmd.Items {
-				if p.Name == "" {
-					continue
-				}
-				// Find matching item on the list (case-insensitive)
-				for _, existing := range currentItems {
-					if strings.EqualFold(existing.Name, p.Name) || strings.EqualFold(existing.Brand+" "+existing.Name, p.Name) {
-						// ON DELETE CASCADE handles item_modifications cleanup
-						delArgs := append([]interface{}{existing.ID}, whereArgs...)
-						if _, err := s.db.Exec("DELETE FROM list_items WHERE id = ? AND "+whereClause, delArgs...); err != nil {
-							log.Printf("[parse] remove item error: %v", err)
-						}
-						resp.Removed = append(resp.Removed, existing)
-						break
-					}
-				}
-			}
-		case "check":
-			for _, p := range cmd.Items {
-				if p.Name == "" {
-					continue
-				}
-				for _, existing := range currentItems {
-					if strings.EqualFold(existing.Name, p.Name) && !existing.Checked {
-						if _, err := s.db.Exec("UPDATE list_items SET checked = 1 WHERE id = ?", existing.ID); err != nil {
-							log.Printf("[parse] check item error: %v", err)
-						}
-						existing.Checked = true
-						resp.Checked = append(resp.Checked, existing)
-						break
-					}
-				}
-			}
-		case "uncheck":
-			for _, p := range cmd.Items {
-				if p.Name == "" {
-					continue
-				}
-				for _, existing := range currentItems {
-					if strings.EqualFold(existing.Name, p.Name) && existing.Checked {
-						if _, err := s.db.Exec("UPDATE list_items SET checked = 0 WHERE id = ?", existing.ID); err != nil {
-							log.Printf("[parse] uncheck item error: %v", err)
-						}
-						existing.Checked = false
-						resp.Checked = append(resp.Checked, existing)
-						break
-					}
-				}
-			}
-		case "update":
-			for _, p := range cmd.Items {
-				if p.Name == "" {
-					continue
-				}
-				for _, existing := range currentItems {
-					if strings.EqualFold(existing.Name, p.Name) {
-						var setClauses []string
-						var setArgs []interface{}
-						if p.NewName != "" && !strings.EqualFold(p.NewName, existing.Name) {
-							setClauses = append(setClauses, "name = ?")
-							setArgs = append(setArgs, p.NewName)
-						}
-						if p.Quantity > 0 {
-							setClauses = append(setClauses, "quantity = ?")
-							setArgs = append(setArgs, p.Quantity)
-						}
-						if p.Size != "" {
-							setClauses = append(setClauses, "size = ?")
-							setArgs = append(setArgs, p.Size)
-						}
-						if p.Brand != "" {
-							setClauses = append(setClauses, "brand = ?")
-							setArgs = append(setArgs, p.Brand)
-						}
-						if p.Department != "" {
-							setClauses = append(setClauses, "department = ?")
-							setArgs = append(setArgs, p.Department)
-						}
-						if p.Notes != "" {
-							setClauses = append(setClauses, "notes = ?")
-							setArgs = append(setArgs, p.Notes)
-						}
-						if len(setClauses) > 0 {
-							query := "UPDATE list_items SET " + strings.Join(setClauses, ", ") + " WHERE id = ? AND " + whereClause
-							setArgs = append(setArgs, existing.ID)
-							setArgs = append(setArgs, whereArgs...)
-							if _, err := s.db.Exec(query, setArgs...); err != nil {
-								log.Printf("[parse] update item error: %v", err)
-							}
-							updated, err := getItemByID(s.db, existing.ID, session.UserID)
-							if err == nil {
-								resp.Updated = append(resp.Updated, updated)
-							}
-						}
-						break
-					}
-				}
-			}
-		case "save":
-			name := cmd.SaveName
-			if name == "" {
-				name = "Saved List"
-			}
-			storeName := strings.TrimSpace(cmd.StoreName)
-			itemsToSave, err := collectListItems(s.db, session.UserID)
-			if err == nil && len(itemsToSave) > 0 {
-				tx, err := s.db.Begin()
-				if err == nil {
-					result, err := tx.Exec("INSERT INTO saved_lists (user_id, name, store_name) VALUES (?, ?, ?)", session.UserID, name, storeName)
-					if err == nil {
-						savedListID, _ := result.LastInsertId()
-						insertSavedListItems(tx, savedListID, itemsToSave)
-						tx.Commit()
-					} else {
-						tx.Rollback()
-					}
-				}
-			}
-		case "clear":
-			// Don't auto-delete — let the frontend confirm what to clear.
-			// Just pass the action through so the UI can present options.
-			resp.Action = "clear"
-		case "restore":
-			var stashJSON string
-			if err := s.db.QueryRow("SELECT COALESCE(last_cleared_items,'[]') FROM users WHERE id = ?", session.UserID).Scan(&stashJSON); err == nil && stashJSON != "[]" {
-				var stashed []ParsedItem
-				if json.Unmarshal([]byte(stashJSON), &stashed) == nil && len(stashed) > 0 {
-					added, _ := addParsedItems(s.db, session.UserID, stashed, "app")
-					resp.Items = added
-					resp.Added = len(added)
-					s.db.Exec("UPDATE users SET last_cleared_items = '[]' WHERE id = ?", session.UserID)
-					resp.Message = cmd.Message
-				} else {
-					resp.Message = "I don't have anything to restore right now."
-				}
-			} else {
-				resp.Message = "I don't have anything to restore right now."
-			}
-		case "share":
-			resp.Action = "share"
-			resp.Message = cmd.Message
-		case "load_saved_list":
-			resp.Action = "load_saved_list"
-			// Query user's saved lists (household-scoped), including store_name and is_master
-			slWhereClause, slWhereArgs := householdItemsWhereClause(s.db, session.UserID, hhIDs)
-			slQuery := "SELECT sl.id, sl.name, COUNT(sli.id), COALESCE(sl.store_name,''), COALESCE(sl.is_master,0) FROM saved_lists sl LEFT JOIN saved_list_items sli ON sli.saved_list_id = sl.id WHERE sl." + slWhereClause
-			// If a store_name was specified in the command, filter by store
-			cmdStoreName := strings.TrimSpace(cmd.StoreName)
-			if cmdStoreName != "" {
-				slQuery += " AND LOWER(sl.store_name) = LOWER(?)"
-				slWhereArgs = append(slWhereArgs, cmdStoreName)
-			}
-			slQuery += " GROUP BY sl.id ORDER BY sl.name"
-			slRows, slErr := s.db.Query(slQuery, slWhereArgs...)
-			if slErr == nil {
-				defer slRows.Close()
-				for slRows.Next() {
-					var sl SavedListSummary
-					var isMaster int
-					if err := slRows.Scan(&sl.ID, &sl.Name, &sl.ItemCount, &sl.StoreName, &isMaster); err == nil {
-						sl.IsMaster = isMaster == 1
-						resp.SavedLists = append(resp.SavedLists, sl)
-					}
-				}
-			}
-			if len(resp.SavedLists) == 0 {
-				if cmdStoreName != "" {
-					resp.Message = fmt.Sprintf("You don't have any saved lists for %s yet. Try saving your current list with a store name!", cmdStoreName)
-				} else {
-					resp.Message = "You don't have any saved lists yet. Tell me to save your current list and give it a name!"
-				}
-			} else if cmd.SavedListName != "" {
-				// Try to match a specific list by name (case-insensitive)
-				targetName := strings.ToLower(strings.TrimSpace(cmd.SavedListName))
-				var matchedList *SavedListSummary
-				for i := range resp.SavedLists {
-					if strings.ToLower(resp.SavedLists[i].Name) == targetName {
-						matchedList = &resp.SavedLists[i]
-						break
-					}
-				}
-				if matchedList == nil {
-					// Fuzzy match — check if name contains the search term
-					for i := range resp.SavedLists {
-						if strings.Contains(strings.ToLower(resp.SavedLists[i].Name), targetName) {
-							matchedList = &resp.SavedLists[i]
-							break
-						}
-					}
-				}
-				if matchedList == nil && cmdStoreName != "" {
-					// If store was specified but no name match, try loading the master list for that store
-					for i := range resp.SavedLists {
-						if resp.SavedLists[i].IsMaster {
-							matchedList = &resp.SavedLists[i]
-							break
-						}
-					}
-				}
-				if matchedList != nil {
-					// Auto-load the matched list using upsertListItem for dupe prevention
-					loadRows, loadErr := s.db.Query(
-						"SELECT name, brand, department, quantity, size, notes FROM saved_list_items WHERE saved_list_id = ?",
-						matchedList.ID,
-					)
-					if loadErr == nil {
-						var savedItems []itemData
-						for loadRows.Next() {
-							var si itemData
-							if err := loadRows.Scan(&si.Name, &si.Brand, &si.Department, &si.Quantity, &si.Size, &si.Notes); err == nil {
-								savedItems = append(savedItems, si)
-							}
-						}
-						loadRows.Close()
-						added := 0
-						for _, si := range savedItems {
-							siEmoji := inferItemEmoji(si.Name, si.Department)
-							_, _, err := upsertListItem(s.db, session.UserID, si.Name, si.Brand, si.Department, si.Size, si.Quantity, "app", "", siEmoji)
-							if err == nil {
-								added++
-							}
-						}
-						resp.Added = added
-						resp.Message = cmd.Message
-					}
-				} else {
-					resp.Message = fmt.Sprintf("I couldn't find a list called %q. Here are your saved lists — pick one!", cmd.SavedListName)
-				}
-			} else if cmdStoreName != "" && len(resp.SavedLists) == 1 {
-				// Single list for this store — auto-load it
-				matchedList := &resp.SavedLists[0]
-				loadRows, loadErr := s.db.Query(
-					"SELECT name, brand, department, quantity, size, notes FROM saved_list_items WHERE saved_list_id = ?",
-					matchedList.ID,
-				)
-				if loadErr == nil {
-					var savedItems []itemData
-					for loadRows.Next() {
-						var si itemData
-						if err := loadRows.Scan(&si.Name, &si.Brand, &si.Department, &si.Quantity, &si.Size, &si.Notes); err == nil {
-							savedItems = append(savedItems, si)
-						}
-					}
-					loadRows.Close()
-					added := 0
-					for _, si := range savedItems {
-						siEmoji := inferItemEmoji(si.Name, si.Department)
-						_, _, err := upsertListItem(s.db, session.UserID, si.Name, si.Brand, si.Department, si.Size, si.Quantity, "app", "", siEmoji)
-						if err == nil {
-							added++
-						}
-					}
-					resp.Added = added
-					resp.Message = cmd.Message
-				}
-			} else {
-				resp.Message = cmd.Message
-			}
-		case "delete_saved_list":
-			resp.Action = "delete_saved_list"
-			if cmd.SavedListName == "" {
-				resp.Message = "Which saved list would you like me to delete? Just tell me the name."
-			} else {
-				targetName := strings.ToLower(strings.TrimSpace(cmd.SavedListName))
-				slWhereClause, slWhereArgs := householdItemsWhereClause(s.db, session.UserID, hhIDs)
-				var matchedID int
-				var matchedName string
-				rows, err := s.db.Query(
-					"SELECT id, name FROM saved_lists WHERE "+slWhereClause,
-					slWhereArgs...,
-				)
-				if err == nil {
-					defer rows.Close()
-					for rows.Next() {
-						var id int
-						var name string
-						if err := rows.Scan(&id, &name); err == nil {
-							if strings.ToLower(name) == targetName || strings.Contains(strings.ToLower(name), targetName) {
-								matchedID = id
-								matchedName = name
-								break
-							}
-						}
-					}
-				}
-				if matchedID > 0 {
-					s.db.Exec("DELETE FROM saved_lists WHERE id = ?", matchedID)
-					resp.Message = fmt.Sprintf("Deleted your %q list!", matchedName)
-				} else {
-					resp.Message = fmt.Sprintf("I couldn't find a saved list called %q.", cmd.SavedListName)
-				}
-			}
-		case "done_shopping":
-			resp.Action = "done_shopping"
-			resp.Message = cmd.Message
-			if resp.Message == "" {
-				resp.Message = "Nice trip! Want to snap a photo of your receipt? I'll check off what you got."
-			}
-		case "search":
-			resp.Action = "search"
-			resp.Message = cmd.Message
-			// Search may also include items to add (e.g., recipe ingredients)
-			if len(cmd.Items) > 0 {
-				added, skippedItems := addParsedItems(s.db, session.UserID, cmd.Items, "app")
-				resp.Items = added
-				resp.Skipped = skippedItems
-				resp.Added = len(added)
-			}
-		case "update_preference":
-			for _, item := range cmd.Items {
-				if item.Brand != "" && item.Name != "" {
-					category := strings.ToLower(strings.TrimSpace(item.Name))
-					recordBrandChoice(s.db, session.UserID, category, item.Brand, "command")
-					// Force streak to 3 for explicit intent
-					s.db.Exec("UPDATE brand_preferences SET streak = 3 WHERE user_id = ? AND product_category = ?",
-						session.UserID, category)
-					// Also update existing unchecked items matching this category
-					updateArgs := append(append([]interface{}{item.Brand}, whereArgs...), "%"+category+"%")
-					s.db.Exec("UPDATE list_items SET brand = ? WHERE "+whereClause+" AND checked = 0 AND LOWER(name) LIKE ?",
-						updateArgs...)
-				}
-			}
-			resp.Message = cmd.Message
-		default:
-			// Default "add" action — use the existing addParsedItems flow
-			added, skippedItems := addParsedItems(s.db, session.UserID, cmd.Items, "app")
-			resp.Items = added
-			resp.Skipped = skippedItems
-			resp.Added = len(added)
-
-			// Resolve brand alternatives using preferences
-			var pennyBrandMode string
-			s.db.QueryRow("SELECT COALESCE(penny_brand_mode,'ask') FROM users WHERE id = ?", session.UserID).Scan(&pennyBrandMode)
-			// A/B test: brand_defaults variant gets global popularity defaults
-			abVariant, _ := getVariant(s.db, "onboarding_v2", session.UserID)
-			useDefaults := abVariant == "brand_defaults"
-			disambiguations := resolveBrandAlternatives(s.db, session.UserID, pennyBrandMode, added, cmd.Items, useDefaults)
-			if len(disambiguations) > 0 {
-				resp.BrandDisambiguations = disambiguations
-			}
-
-			// Check for matching swap deals on newly added items
-			if swap := s.checkDealsForItems(session.UserID, added); swap != nil {
-				resp.PendingSwap = swap
-			}
-
-			// Check household duplicate items
-			if dupes := s.checkHouseholdDuplicates(session.UserID, added); len(dupes) > 0 {
-				resp.DuplicateWarnings = dupes
-			}
-		}
-
-		if resp.Items == nil {
-			resp.Items = []ListItem{}
-		}
-		if resp.Skipped == nil {
-			resp.Skipped = []SkippedItem{}
-		}
-		writeJSON(w, http.StatusCreated, resp)
-		go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
+		s.handleTextCommand(w, session, req.Text, hhIDs)
 		return
 	}
 
-	// Image-based requests: use the existing item parser
-	parsed, err := s.cachedParseItems(s.config.AnthropicAPIKey, req.Text, images)
-	if err != nil {
-		log.Printf("[parse] error for user %d: %v", session.UserID, err)
-		dbError(w, err, "We couldn't understand that right now. Please try again.")
-		return
-	}
-
-	added, skippedItems := addParsedItems(s.db, session.UserID, parsed, "app")
-
-	// Resolve brand alternatives for image-based parsing too
-	var imgBrandMode string
-	s.db.QueryRow("SELECT COALESCE(penny_brand_mode,'ask') FROM users WHERE id = ?", session.UserID).Scan(&imgBrandMode)
-	imgABVariant, _ := getVariant(s.db, "onboarding_v2", session.UserID)
-	imgDisambiguations := resolveBrandAlternatives(s.db, session.UserID, imgBrandMode, added, parsed, imgABVariant == "brand_defaults")
-
-	resp := ParseResponse{
-		Items:   added,
-		Skipped: skippedItems,
-		Added:   len(added),
-	}
-	if len(imgDisambiguations) > 0 {
-		resp.BrandDisambiguations = imgDisambiguations
-	}
-
-	// Check for matching swap deals on newly added items
-	if swap := s.checkDealsForItems(session.UserID, added); swap != nil {
-		resp.PendingSwap = swap
-	}
-
-	// Check household duplicate items
-	if dupes := s.checkHouseholdDuplicates(session.UserID, added); len(dupes) > 0 {
-		resp.DuplicateWarnings = dupes
-	}
-
-	if resp.Items == nil {
-		resp.Items = []ListItem{}
-	}
-	if resp.Skipped == nil {
-		resp.Skipped = []SkippedItem{}
-	}
-
-	// Record learning signals for added items (async — never block the response)
-	if len(added) > 0 {
-		go func(uid int, items []ListItem) {
-			for _, item := range items {
-				s.recordSignal(uid, "item_added", item.Department, item.Brand, map[string]interface{}{
-					"name": item.Name, "source": item.Source,
-				})
-			}
-		}(session.UserID, added)
-	}
-
-	writeJSON(w, http.StatusCreated, resp)
-	go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
+	// Branch 4: Image-based item parsing
+	s.handleImageParse(w, session, req.Text, images)
 }
 
 // handleListGet handles GET /api/list
@@ -1030,11 +266,11 @@ func (s *Server) handleListAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Name is required"})
+		writeBadRequest(w, "Name is required")
 		return
 	}
 	if len(req.Name) > 200 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Item name is too long"})
+		writeBadRequest(w, "Item name is too long")
 		return
 	}
 	if req.Department == "" {
@@ -1075,7 +311,7 @@ func (s *Server) handleListToggle(w http.ResponseWriter, r *http.Request, id int
 
 	item, err := getItemByID(s.db, id, session.UserID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		writeNotFound(w, "Item not found")
 		return
 	}
 
@@ -1134,7 +370,7 @@ func (s *Server) handleListUrgent(w http.ResponseWriter, r *http.Request, id int
 
 	item, err := getItemByID(s.db, id, session.UserID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		writeNotFound(w, "Item not found")
 		return
 	}
 
@@ -1158,7 +394,7 @@ func (s *Server) handleListClaim(w http.ResponseWriter, r *http.Request, id int)
 	// Check item exists in household
 	item, err := getItemByID(s.db, id, session.UserID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		writeNotFound(w, "Item not found")
 		return
 	}
 
@@ -1182,7 +418,7 @@ func (s *Server) handleListClaim(w http.ResponseWriter, r *http.Request, id int)
 
 	updated, err := getItemByID(s.db, id, session.UserID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		writeNotFound(w, "Item not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
@@ -1199,7 +435,7 @@ func (s *Server) handleItemHistory(w http.ResponseWriter, r *http.Request, id in
 	// Verify item belongs to household
 	_, err := getItemByID(s.db, id, session.UserID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		writeNotFound(w, "Item not found")
 		return
 	}
 
@@ -1264,7 +500,7 @@ func (s *Server) handleListEdit(w http.ResponseWriter, r *http.Request, id int) 
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
 		if name == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Name cannot be empty"})
+			writeBadRequest(w, "Name cannot be empty")
 			return
 		}
 		setClauses = append(setClauses, "name = ?")
@@ -1308,7 +544,7 @@ func (s *Server) handleListEdit(w http.ResponseWriter, r *http.Request, id int) 
 
 	item, err := getItemByID(s.db, id, session.UserID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		writeNotFound(w, "Item not found")
 		return
 	}
 
@@ -1335,7 +571,7 @@ func (s *Server) handleListDelete(w http.ResponseWriter, r *http.Request, id int
 		return
 	}
 	if rows, _ := result.RowsAffected(); rows == 0 {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		writeNotFound(w, "Item not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
@@ -1569,7 +805,7 @@ func (s *Server) handleListRestore(w http.ResponseWriter, r *http.Request) {
 
 	// Cap restore size to prevent abuse
 	if len(items) > 500 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Too many items to restore."})
+		writeBadRequest(w, "Too many items to restore.")
 		return
 	}
 
@@ -1724,7 +960,7 @@ func (s *Server) handleBrandResolve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.ItemID == 0 || req.Brand == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "item_id and brand are required"})
+		writeBadRequest(w, "item_id and brand are required")
 		return
 	}
 
@@ -1737,7 +973,7 @@ func (s *Server) handleBrandResolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rows, _ := result.RowsAffected(); rows == 0 {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Item not found"})
+		writeNotFound(w, "Item not found")
 		return
 	}
 
@@ -1824,7 +1060,7 @@ func (s *Server) handleSharedView(w http.ResponseWriter, r *http.Request) {
 	// Extract code from URL path
 	code := strings.TrimPrefix(r.URL.Path, "/api/shared/")
 	if code == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Missing share code"})
+		writeBadRequest(w, "Missing share code")
 		return
 	}
 
@@ -1839,7 +1075,7 @@ func (s *Server) handleSharedView(w http.ResponseWriter, r *http.Request) {
 		code,
 	).Scan(&userID, &householdID, &inviteCode, &expiresAt, &viewCount)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Share link not found"})
+		writeNotFound(w, "Share link not found")
 		return
 	}
 

@@ -420,7 +420,7 @@ func (s *Server) handleBrandDealPerformance(w http.ResponseWriter, r *http.Reque
 	idStr := strings.TrimPrefix(r.URL.Path, "/brand/deal-performance/")
 	dealID, err := strconv.Atoi(idStr)
 	if err != nil || dealID <= 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid deal ID"})
+		writeBadRequest(w, "Invalid deal ID")
 		return
 	}
 
@@ -428,7 +428,7 @@ func (s *Server) handleBrandDealPerformance(w http.ResponseWriter, r *http.Reque
 	var ownerID int
 	err = s.db.QueryRow("SELECT COALESCE(brand_user_id, 0) FROM brand_deals WHERE id = ?", dealID).Scan(&ownerID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Deal not found"})
+		writeNotFound(w, "Deal not found")
 		return
 	}
 	if ownerID != bs.BrandUserID {

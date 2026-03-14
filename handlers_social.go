@@ -71,7 +71,7 @@ func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 		var phoneOK bool
 		e164, phoneOK = normalizePhone(req.Phone)
 		if !phoneOK {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid phone number"})
+			writeBadRequest(w, "Invalid phone number")
 			return
 		}
 	}
@@ -196,7 +196,7 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Code == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Code is required"})
+		writeBadRequest(w, "Code is required")
 		return
 	}
 
@@ -211,7 +211,7 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		req.Code,
 	).Scan(&inviteID, &householdID, &createdBy, &expiresAt, &usedBy)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "That invite code doesn't look right. Please check and try again."})
+		writeNotFound(w, "That invite code doesn't look right. Please check and try again.")
 		return
 	}
 
@@ -226,7 +226,7 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if createdBy == session.UserID {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "You can't join your own household."})
+		writeBadRequest(w, "You can't join your own household.")
 		return
 	}
 

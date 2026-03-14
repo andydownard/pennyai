@@ -146,7 +146,7 @@ func (s *Server) handleStoreSubroute(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, http.StatusNotFound, map[string]string{"error": "Not found"})
+	writeNotFound(w, "Not found")
 }
 
 // handleStorePrices handles GET /api/stores/{id}/prices — returns price history for a store.
@@ -161,12 +161,12 @@ func (s *Server) handleStorePrices(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/stores/")
 	parts := strings.Split(path, "/")
 	if len(parts) < 2 || parts[1] != "prices" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid path"})
+		writeBadRequest(w, "Invalid path")
 		return
 	}
 	storeID, err := strconv.Atoi(parts[0])
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid store ID"})
+		writeBadRequest(w, "Invalid store ID")
 		return
 	}
 
@@ -260,12 +260,12 @@ func (s *Server) handleStorePriceAverages(w http.ResponseWriter, r *http.Request
 	path := strings.TrimPrefix(r.URL.Path, "/api/stores/")
 	parts := strings.Split(path, "/")
 	if len(parts) < 2 || parts[1] != "price-averages" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid path"})
+		writeBadRequest(w, "Invalid path")
 		return
 	}
 	storeID, err := strconv.Atoi(parts[0])
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid store ID"})
+		writeBadRequest(w, "Invalid store ID")
 		return
 	}
 
@@ -338,7 +338,7 @@ func (s *Server) handlePriceComparison(w http.ResponseWriter, r *http.Request) {
 
 	product := r.URL.Query().Get("product")
 	if product == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "product parameter required"})
+		writeBadRequest(w, "product parameter required")
 		return
 	}
 	brand := r.URL.Query().Get("brand")

@@ -97,11 +97,11 @@ func (s *Server) handleFeedback(w http.ResponseWriter, r *http.Request) {
 
 	req.Body = strings.TrimSpace(req.Body)
 	if req.Body == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Tell us what's on your mind — the body can't be empty."})
+		writeBadRequest(w, "Tell us what's on your mind — the body can't be empty.")
 		return
 	}
 	if len(req.Body) > 10000 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Please keep feedback under 10,000 characters."})
+		writeBadRequest(w, "Please keep feedback under 10,000 characters.")
 		return
 	}
 
@@ -426,7 +426,7 @@ func (s *Server) handleAdminFeedbackByID(w http.ResponseWriter, r *http.Request)
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/admin/feedback/")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid feedback ID"})
+		writeBadRequest(w, "Invalid feedback ID")
 		return
 	}
 
@@ -438,7 +438,7 @@ func (s *Server) handleAdminFeedbackByID(w http.ResponseWriter, r *http.Request)
 	var exists int
 	s.db.QueryRow("SELECT COUNT(*) FROM feedback_requests WHERE id = ?", id).Scan(&exists)
 	if exists == 0 {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Feedback not found"})
+		writeNotFound(w, "Feedback not found")
 		return
 	}
 
@@ -446,7 +446,7 @@ func (s *Server) handleAdminFeedbackByID(w http.ResponseWriter, r *http.Request)
 	args := make([]interface{}, 0)
 	if req.Status != nil {
 		if !validFeedbackStatuses[*req.Status] {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Status must be new, reviewed, roadmapped, or done"})
+			writeBadRequest(w, "Status must be new, reviewed, roadmapped, or done")
 			return
 		}
 		sets = append(sets, "status = ?")
@@ -458,7 +458,7 @@ func (s *Server) handleAdminFeedbackByID(w http.ResponseWriter, r *http.Request)
 	}
 
 	if len(sets) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "No fields to update"})
+		writeBadRequest(w, "No fields to update")
 		return
 	}
 

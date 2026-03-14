@@ -1,298 +1,14 @@
 package main
 
 import (
-	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"math"
 	"net/http"
-	"net/mail"
-	"net/url"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
-// brandLoginIPLimiter rate-limits brand login attempts per IP.
-var brandLoginIPLimiter sync.Map
-
-// =============================================================================
-// BRAND AUTH HELPERS
-// =============================================================================
-
-// BrandSession represents an authenticated brand portal session.
-type BrandSession struct {
-	BrandUserID int
-	CreatedAt   time.Time
-}
-
-func (s *Server) createBrandSession(brandUserID int) (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	token := hex.EncodeToString(b)
-	_, err := s.db.Exec(
-		"INSERT INTO brand_sessions (token, brand_user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-		token, brandUserID, time.Now().UTC(), time.Now().UTC().Add(sessionDuration),
-	)
-	return token, err
-}
-
-func (s *Server) getBrandSession(token string) (BrandSession, bool) {
-	var bs BrandSession
-	err := s.db.QueryRow(
-		"SELECT brand_user_id, created_at FROM brand_sessions WHERE token = ? AND expires_at > ?",
-		token, time.Now().UTC(),
-	).Scan(&bs.BrandUserID, &bs.CreatedAt)
-	if err != nil {
-		return BrandSession{}, false
-	}
-	return bs, true
-}
-
-func setBrandSessionCookie(w http.ResponseWriter, cfg Config, token string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     "brand_session",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   cfg.SecureCookies,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   60 * 60 * 24 * 30,
-	})
-}
-
-func (s *Server) requireBrandSession(w http.ResponseWriter, r *http.Request) (BrandSession, bool) {
-	cookie, err := r.Cookie("brand_session")
-	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not logged in"})
-		return BrandSession{}, false
-	}
-	bs, ok := s.getBrandSession(cookie.Value)
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Session expired"})
-		return BrandSession{}, false
-	}
-	return bs, true
-}
-
-// =============================================================================
-// BRAND REGISTRATION
-// =============================================================================
-
-func (s *Server) handleBrandRegister(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodPost) {
-		return
-	}
-
-	var req struct {
-		Email       string `json:"email"`
-		Password    string `json:"password"`
-		CompanyName string `json:"company_name"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-
-	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
-	if _, err := mail.ParseAddress(req.Email); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid email address"})
-		return
-	}
-	if len(req.Password) < 8 || len(req.Password) > 72 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Password must be 8-72 characters"})
-		return
-	}
-	req.CompanyName = strings.TrimSpace(req.CompanyName)
-	if req.CompanyName == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Company name is required"})
-		return
-	}
-
-	// Check if email already registered
-	var exists int
-	s.db.QueryRow("SELECT COUNT(*) FROM brand_users WHERE email = ?", req.Email).Scan(&exists)
-	if exists > 0 {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "An account with this email already exists"})
-		return
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		dbError(w, err, "Failed to create account")
-		return
-	}
-
-	// Generate verify token
-	vb := make([]byte, 16)
-	rand.Read(vb)
-	verifyToken := hex.EncodeToString(vb)
-
-	// Check if this is a "Founding Brand" (first 10)
-	var brandCount int
-	s.db.QueryRow("SELECT COUNT(*) FROM brand_users").Scan(&brandCount)
-	badge := ""
-	if brandCount < 10 {
-		badge = "founding"
-	}
-
-	result, err := s.db.Exec(
-		`INSERT INTO brand_users (email, password_hash, company_name, verified, verify_token, badge)
-		 VALUES (?, ?, ?, 1, ?, ?)`,
-		req.Email, string(hash), req.CompanyName, verifyToken, badge,
-	)
-	if err != nil {
-		dbError(w, err, "Failed to create account")
-		return
-	}
-
-	brandUserID, _ := result.LastInsertId()
-
-	// Initialize balance
-	s.db.Exec("INSERT INTO brand_balance (brand_user_id, balance_cents) VALUES (?, 0)", brandUserID)
-
-	// Create session
-	token, err := s.createBrandSession(int(brandUserID))
-	if err != nil {
-		dbError(w, err, "Failed to create session")
-		return
-	}
-
-	setBrandSessionCookie(w, s.config, token)
-	log.Printf("[brand-auth] brand user %d registered (%s, %s)", brandUserID, req.Email, req.CompanyName)
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"success":       true,
-		"brand_user_id": brandUserID,
-		"badge":         badge,
-	})
-}
-
-// =============================================================================
-// BRAND LOGIN
-// =============================================================================
-
-func (s *Server) handleBrandLogin(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodPost) {
-		return
-	}
-
-	clientIP := getClientIP(r)
-	if checkRateLimit(&brandLoginIPLimiter, clientIP, 10*time.Minute, 10) {
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Too many login attempts"})
-		return
-	}
-
-	var req struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-
-	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
-
-	var brandUserID int
-	var passwordHash string
-	err := s.db.QueryRow(
-		"SELECT id, password_hash FROM brand_users WHERE email = ?",
-		req.Email,
-	).Scan(&brandUserID, &passwordHash)
-
-	if err != nil {
-		bcrypt.CompareHashAndPassword([]byte("$2a$10$dummyhashfortimingattttttttttttttttttttttttttttttttttttt"), []byte(req.Password))
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid email or password"})
-		return
-	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid email or password"})
-		return
-	}
-
-	token, err := s.createBrandSession(brandUserID)
-	if err != nil {
-		dbError(w, err, "Failed to create session")
-		return
-	}
-
-	setBrandSessionCookie(w, s.config, token)
-	log.Printf("[brand-auth] brand user %d logged in (%s)", brandUserID, req.Email)
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"success":       true,
-		"brand_user_id": brandUserID,
-	})
-}
-
-// =============================================================================
-// BRAND ME / LOGOUT
-// =============================================================================
-
-func (s *Server) handleBrandMe(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodGet) {
-		return
-	}
-	bs, ok := s.requireBrandSession(w, r)
-	if !ok {
-		return
-	}
-
-	var email, companyName, badge string
-	var verified int
-	var createdAt string
-	err := s.db.QueryRow(
-		"SELECT email, company_name, verified, badge, created_at FROM brand_users WHERE id = ?",
-		bs.BrandUserID,
-	).Scan(&email, &companyName, &verified, &badge, &createdAt)
-	if err != nil {
-		dbError(w, err, "Failed to load profile")
-		return
-	}
-
-	var balanceCents int
-	s.db.QueryRow("SELECT balance_cents FROM brand_balance WHERE brand_user_id = ?", bs.BrandUserID).Scan(&balanceCents)
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"brand_user_id":       bs.BrandUserID,
-		"email":               email,
-		"company_name":        companyName,
-		"verified":            verified == 1,
-		"badge":               badge,
-		"balance_cents":       balanceCents,
-		"created_at":          createdAt,
-		"can_submit_feedback": true, // all brand users can submit feedback
-	})
-}
-
-func (s *Server) handleBrandLogout(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodPost) {
-		return
-	}
-	cookie, err := r.Cookie("brand_session")
-	if err == nil {
-		s.db.Exec("DELETE FROM brand_sessions WHERE token = ?", cookie.Value)
-	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     "brand_session",
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		MaxAge:   -1,
-	})
-	writeJSON(w, http.StatusOK, map[string]string{"success": "true"})
-}
 
 // =============================================================================
 // BRAND DEALS (CRUD for brand portal users)
@@ -318,7 +34,7 @@ func (s *Server) handleBrandDeals(w http.ResponseWriter, r *http.Request) {
 		}
 		dealID, err := strconv.Atoi(path)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid deal ID"})
+			writeBadRequest(w, "Invalid deal ID")
 			return
 		}
 		switch r.Method {
@@ -448,7 +164,7 @@ func (s *Server) createBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 	}
 
 	if req.CompetitorProduct == "" || req.OfferBrand == "" || req.OfferProduct == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "competitor_product, offer_brand, and offer_product are required"})
+		writeBadRequest(w, "competitor_product, offer_brand, and offer_product are required")
 		return
 	}
 
@@ -521,7 +237,7 @@ func (s *Server) updateBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 	var ownerID sql.NullInt64
 	err := s.db.QueryRow("SELECT brand_user_id FROM brand_deals WHERE id = ?", dealID).Scan(&ownerID)
 	if err != nil || !ownerID.Valid || int(ownerID.Int64) != bs.BrandUserID {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Deal not found"})
+		writeNotFound(w, "Deal not found")
 		return
 	}
 
@@ -560,7 +276,7 @@ func (s *Server) updateBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 	}
 
 	if len(sets) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "No fields to update"})
+		writeBadRequest(w, "No fields to update")
 		return
 	}
 
@@ -578,7 +294,7 @@ func (s *Server) deleteBrandDeal(w http.ResponseWriter, bs BrandSession, dealID 
 	var ownerID sql.NullInt64
 	err := s.db.QueryRow("SELECT brand_user_id FROM brand_deals WHERE id = ?", dealID).Scan(&ownerID)
 	if err != nil || !ownerID.Valid || int(ownerID.Int64) != bs.BrandUserID {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Deal not found"})
+		writeNotFound(w, "Deal not found")
 		return
 	}
 
@@ -732,7 +448,7 @@ func (s *Server) handleCategoryIntel(w http.ResponseWriter, r *http.Request) {
 
 	category := strings.TrimPrefix(r.URL.Path, "/brand/category-intel/")
 	if category == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Category required"})
+		writeBadRequest(w, "Category required")
 		return
 	}
 
@@ -791,129 +507,6 @@ func (s *Server) handleCategoryIntel(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// =============================================================================
-// BRAND TRANSACTIONS
-// =============================================================================
-
-func (s *Server) handleBrandTransactions(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodGet) {
-		return
-	}
-	bs, ok := s.requireBrandSession(w, r)
-	if !ok {
-		return
-	}
-
-	rows, err := s.db.Query(`
-		SELECT id, type, amount_cents, description, COALESCE(stripe_id, ''), created_at
-		FROM brand_transactions WHERE brand_user_id = ?
-		ORDER BY created_at DESC LIMIT 100`, bs.BrandUserID)
-	if err != nil {
-		dbError(w, err, "Failed to load transactions")
-		return
-	}
-	defer rows.Close()
-
-	type txn struct {
-		ID          int    `json:"id"`
-		Type        string `json:"type"`
-		AmountCents int    `json:"amount_cents"`
-		Description string `json:"description"`
-		StripeID    string `json:"stripe_id,omitempty"`
-		CreatedAt   string `json:"created_at"`
-	}
-	txns := []txn{}
-	for rows.Next() {
-		var t txn
-		rows.Scan(&t.ID, &t.Type, &t.AmountCents, &t.Description, &t.StripeID, &t.CreatedAt)
-		txns = append(txns, t)
-	}
-
-	writeJSON(w, http.StatusOK, txns)
-}
-
-// =============================================================================
-// CSV EXPORT (M9)
-// =============================================================================
-
-func (s *Server) handleBrandExport(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodGet) {
-		return
-	}
-	bs, ok := s.requireBrandSession(w, r)
-	if !ok {
-		return
-	}
-
-	exportType := r.URL.Query().Get("type")
-	if exportType == "" {
-		exportType = "swaps"
-	}
-
-	w.Header().Set("Content-Type", "text/csv")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s_export_%s.csv", exportType, time.Now().Format("2006-01-02")))
-
-	switch exportType {
-	case "swaps":
-		w.Write([]byte("date,deal_id,competitor_product,offer_product,action,user_id\n"))
-		rows, err := s.db.Query(`
-			SELECT COALESCE(se.created_at,''), se.deal_id, COALESCE(bd.competitor_product,''),
-				   COALESCE(bd.offer_product,''), se.action, se.user_id
-			FROM swap_events se
-			JOIN brand_deals bd ON se.deal_id = bd.id
-			WHERE bd.brand_user_id = ?
-			ORDER BY se.created_at DESC`, bs.BrandUserID)
-		if err != nil {
-			return
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var date, comp, offer, action string
-			var dealID, userID int
-			rows.Scan(&date, &dealID, &comp, &offer, &action, &userID)
-			fmt.Fprintf(w, "%s,%d,%q,%q,%s,%d\n", date, dealID, comp, offer, action, userID)
-		}
-
-	case "transactions":
-		w.Write([]byte("date,type,amount_cents,description,stripe_id\n"))
-		rows, err := s.db.Query(`
-			SELECT COALESCE(created_at,''), type, amount_cents, COALESCE(description,''), COALESCE(stripe_id,'')
-			FROM brand_transactions WHERE brand_user_id = ?
-			ORDER BY created_at DESC`, bs.BrandUserID)
-		if err != nil {
-			return
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var date, txType, desc, stripeID string
-			var amount int
-			rows.Scan(&date, &txType, &amount, &desc, &stripeID)
-			fmt.Fprintf(w, "%s,%s,%d,%q,%s\n", date, txType, amount, desc, stripeID)
-		}
-
-	case "deals":
-		w.Write([]byte("id,competitor_product,offer_brand,offer_product,discount_cents,budget_cents,spent_cents,status,deal_type,created_at\n"))
-		rows, err := s.db.Query(`
-			SELECT id, COALESCE(competitor_product,''), COALESCE(offer_brand,''), COALESCE(offer_product,''),
-				   discount_cents, total_budget_cents, budget_spent_cents, status,
-				   COALESCE(deal_type,'sku_swap'), COALESCE(created_at,'')
-			FROM brand_deals WHERE brand_user_id = ? AND status != 'deleted'
-			ORDER BY created_at DESC`, bs.BrandUserID)
-		if err != nil {
-			return
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var comp, brand, offer, status, dealType, created string
-			var id, discount, budget, spent int
-			rows.Scan(&id, &comp, &brand, &offer, &discount, &budget, &spent, &status, &dealType, &created)
-			fmt.Fprintf(w, "%d,%q,%q,%q,%d,%d,%d,%s,%s,%s\n", id, comp, brand, offer, discount, budget, spent, status, dealType, created)
-		}
-
-	default:
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid export type. Use: swaps, transactions, deals"})
-	}
-}
 
 // =============================================================================
 // BUG REPORTS (consumer app endpoint)
@@ -937,11 +530,11 @@ func (s *Server) handleBugReport(w http.ResponseWriter, r *http.Request) {
 
 	req.Description = strings.TrimSpace(req.Description)
 	if req.Description == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Description is required"})
+		writeBadRequest(w, "Description is required")
 		return
 	}
 	if len(req.Description) > 5000 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Description too long (max 5000 characters)"})
+		writeBadRequest(w, "Description too long (max 5000 characters)")
 		return
 	}
 
@@ -955,94 +548,6 @@ func (s *Server) handleBugReport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"message": "Thank you! Your report has been submitted."})
 }
 
-// =============================================================================
-// STRIPE DEPOSIT (M5)
-// =============================================================================
-
-func (s *Server) handleBrandDeposit(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodPost) {
-		return
-	}
-	bs, ok := s.requireBrandSession(w, r)
-	if !ok {
-		return
-	}
-
-	var req struct {
-		AmountCents int `json:"amount_cents"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-
-	if req.AmountCents < 5000 { // $50 minimum
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Minimum deposit is $50.00"})
-		return
-	}
-
-	// If Stripe is configured, create a Checkout Session (redirect flow).
-	// Otherwise, fall back to direct credit (dev/test mode).
-	if s.config.StripeSecretKey != "" {
-		baseURL := s.config.WebhookBaseURL
-		if baseURL == "" {
-			baseURL = "https://brands.thrift.ly"
-		}
-
-		form := url.Values{}
-		form.Set("mode", "payment")
-		form.Set("line_items[0][price_data][currency]", "usd")
-		form.Set("line_items[0][price_data][product_data][name]", "Thriftly Brand Account Deposit")
-		form.Set("line_items[0][price_data][unit_amount]", strconv.Itoa(req.AmountCents))
-		form.Set("line_items[0][quantity]", "1")
-		form.Set("payment_intent_data[metadata][brand_user_id]", strconv.Itoa(bs.BrandUserID))
-		form.Set("success_url", baseURL+"?deposit=success")
-		form.Set("cancel_url", baseURL+"?deposit=cancel")
-
-		httpReq, _ := http.NewRequest("POST", "https://api.stripe.com/v1/checkout/sessions", strings.NewReader(form.Encode()))
-		httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		httpReq.SetBasicAuth(s.config.StripeSecretKey, "")
-
-		resp, err := http.DefaultClient.Do(httpReq)
-		if err != nil {
-			log.Printf("[stripe] checkout session request failed: %v", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Payment service unavailable"})
-			return
-		}
-		defer resp.Body.Close()
-
-		var session struct {
-			ID  string `json:"id"`
-			URL string `json:"url"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&session); err != nil || session.URL == "" {
-			log.Printf("[stripe] failed to parse checkout session response (status %d): %v", resp.StatusCode, err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Payment service error"})
-			return
-		}
-
-		log.Printf("[brand-portal] created Stripe checkout session %s for brand user %d (%d cents)", session.ID, bs.BrandUserID, req.AmountCents)
-		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"checkout_url": session.URL,
-		})
-		return
-	}
-
-	// Dev/test fallback: credit directly
-	_, err := s.db.Exec(`
-		UPDATE brand_balance SET balance_cents = balance_cents + ?, last_deposit_at = CURRENT_TIMESTAMP
-		WHERE brand_user_id = ?`, req.AmountCents, bs.BrandUserID)
-	if err != nil {
-		dbError(w, err, "Failed to process deposit")
-		return
-	}
-	s.db.Exec(`INSERT INTO brand_transactions (brand_user_id, type, amount_cents, description, stripe_id)
-		VALUES (?, 'deposit', ?, 'Balance deposit (test)', '')`, bs.BrandUserID, req.AmountCents)
-	log.Printf("[brand-portal] brand user %d deposited %d cents (test mode)", bs.BrandUserID, req.AmountCents)
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"message":      "Deposit processed",
-		"amount_cents": req.AmountCents,
-	})
-}
 
 // =============================================================================
 // OPTIMIZE THIS DEAL — AI-powered recommendations
@@ -1063,7 +568,7 @@ func (s *Server) handleOptimizeDeal(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/brand/optimize/")
 	dealID, err := strconv.Atoi(idStr)
 	if err != nil || dealID <= 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid deal ID"})
+		writeBadRequest(w, "Invalid deal ID")
 		return
 	}
 
@@ -1080,7 +585,7 @@ func (s *Server) handleOptimizeDeal(w http.ResponseWriter, r *http.Request) {
 		&budgetCents, &spentCents, &offerPriceCents, &competitorPriceCents,
 		&whyBullets, &allergenNotes, &dealType)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Deal not found"})
+		writeNotFound(w, "Deal not found")
 		return
 	}
 
@@ -1279,140 +784,6 @@ func (s *Server) handleOptimizeDeal(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// =============================================================================
-// STRIPE WEBHOOK (M5)
-// =============================================================================
-
-func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodPost) {
-		return
-	}
-
-	// Read raw body
-	r.Body = http.MaxBytesReader(w, r.Body, 1*1024*1024)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Failed to read body"})
-		return
-	}
-
-	// Verify Stripe signature if webhook secret is configured
-	if s.config.StripeWebhookSecret != "" {
-		sig := r.Header.Get("Stripe-Signature")
-		if !verifyStripeSignature(body, sig, s.config.StripeWebhookSecret) {
-			log.Printf("[stripe] webhook signature verification failed")
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid signature"})
-			return
-		}
-	} else {
-		log.Printf("[stripe] WARNING: webhook received without signature verification (STRIPE_WEBHOOK_SECRET not set)")
-	}
-
-	// Parse the event
-	var event struct {
-		Type string          `json:"type"`
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(body, &event); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid payload"})
-		return
-	}
-
-	switch event.Type {
-	case "payment_intent.succeeded":
-		// Parse payment intent and credit brand balance
-		var pi struct {
-			Object struct {
-				ID       string `json:"id"`
-				Amount   int    `json:"amount"`
-				Metadata struct {
-					BrandUserID string `json:"brand_user_id"`
-				} `json:"metadata"`
-			} `json:"object"`
-		}
-		if err := json.Unmarshal(event.Data, &pi); err != nil {
-			log.Printf("[stripe] failed to parse payment_intent: %v", err)
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid payload"})
-			return
-		}
-
-		brandUserID, _ := strconv.Atoi(pi.Object.Metadata.BrandUserID)
-		if brandUserID == 0 {
-			log.Printf("[stripe] payment_intent missing brand_user_id metadata")
-			w.WriteHeader(http.StatusOK) // Acknowledge to prevent retries
-			return
-		}
-
-		// Idempotency: check if we've already processed this payment
-		var existing int
-		s.db.QueryRow("SELECT COUNT(*) FROM brand_transactions WHERE stripe_id = ?", pi.Object.ID).Scan(&existing)
-		if existing > 0 {
-			log.Printf("[stripe] duplicate payment_intent %s, skipping", pi.Object.ID)
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		// Credit balance
-		s.db.Exec(`UPDATE brand_balance SET balance_cents = balance_cents + ?, last_deposit_at = CURRENT_TIMESTAMP
-			WHERE brand_user_id = ?`, pi.Object.Amount, brandUserID)
-		s.db.Exec(`INSERT INTO brand_transactions (brand_user_id, type, amount_cents, description, stripe_id)
-			VALUES (?, 'deposit', ?, 'Stripe deposit', ?)`, brandUserID, pi.Object.Amount, pi.Object.ID)
-
-		log.Printf("[stripe] credited %d cents to brand user %d (pi: %s)", pi.Object.Amount, brandUserID, pi.Object.ID)
-	}
-
-	w.WriteHeader(http.StatusOK)
-}
-
-// verifyStripeSignature verifies a Stripe webhook signature (v1 scheme).
-// Format: "t=timestamp,v1=signature[,v1=signature...]"
-func verifyStripeSignature(payload []byte, sigHeader, secret string) bool {
-	if sigHeader == "" {
-		return false
-	}
-
-	var timestamp string
-	var signatures []string
-	for _, part := range strings.Split(sigHeader, ",") {
-		kv := strings.SplitN(part, "=", 2)
-		if len(kv) != 2 {
-			continue
-		}
-		switch kv[0] {
-		case "t":
-			timestamp = kv[1]
-		case "v1":
-			signatures = append(signatures, kv[1])
-		}
-	}
-
-	if timestamp == "" || len(signatures) == 0 {
-		return false
-	}
-
-	// Replay protection: reject if timestamp is older than 5 minutes
-	ts, err := strconv.ParseInt(timestamp, 10, 64)
-	if err != nil {
-		return false
-	}
-	if math.Abs(float64(time.Now().Unix()-ts)) > 300 {
-		return false
-	}
-
-	// Compute expected signature
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(timestamp))
-	mac.Write([]byte("."))
-	mac.Write(payload)
-	expected := hex.EncodeToString(mac.Sum(nil))
-
-	for _, sig := range signatures {
-		if hmac.Equal([]byte(sig), []byte(expected)) {
-			return true
-		}
-	}
-	return false
-}
 
 // handlePricingTiers returns category pricing tiers so brands know the minimum
 // discount required per category. GET /brand/pricing-tiers — brand session required.
@@ -1700,7 +1071,7 @@ func (s *Server) handleCategoryReport(w http.ResponseWriter, r *http.Request) {
 
 	parentCategory := strings.TrimPrefix(r.URL.Path, "/brand/category-report/")
 	if parentCategory == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Category required"})
+		writeBadRequest(w, "Category required")
 		return
 	}
 
@@ -1921,7 +1292,7 @@ func (s *Server) handleBrandSubscription(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		if req.Tier != "free" && req.Tier != "premium" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Tier must be 'free' or 'premium'"})
+			writeBadRequest(w, "Tier must be 'free' or 'premium'")
 			return
 		}
 		_, err := s.db.Exec(`
@@ -1987,11 +1358,11 @@ func (s *Server) handleBrandFeedbackSubmit(w http.ResponseWriter, r *http.Reques
 
 	req.Body = strings.TrimSpace(req.Body)
 	if req.Body == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Feedback body cannot be empty."})
+		writeBadRequest(w, "Feedback body cannot be empty.")
 		return
 	}
 	if len(req.Body) > 10000 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Please keep feedback under 10,000 characters."})
+		writeBadRequest(w, "Please keep feedback under 10,000 characters.")
 		return
 	}
 

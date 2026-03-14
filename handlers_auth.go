@@ -27,7 +27,7 @@ func (s *Server) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Credential == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Missing credential"})
+		writeBadRequest(w, "Missing credential")
 		return
 	}
 
@@ -194,11 +194,11 @@ func (s *Server) handleEmailRegister(w http.ResponseWriter, r *http.Request) {
 
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 	if _, err := mail.ParseAddress(req.Email); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid email address"})
+		writeBadRequest(w, "Invalid email address")
 		return
 	}
 	if len(req.Password) < 8 || len(req.Password) > 72 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Password must be 8-72 characters"})
+		writeBadRequest(w, "Password must be 8-72 characters")
 		return
 	}
 
@@ -206,7 +206,7 @@ func (s *Server) handleEmailRegister(w http.ResponseWriter, r *http.Request) {
 	var exists int
 	s.db.QueryRow("SELECT COUNT(*) FROM auth_methods WHERE provider = 'email' AND provider_id = ?", req.Email).Scan(&exists)
 	if exists > 0 {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "An account with this email already exists. Try signing in."})
+		writeConflict(w, "An account with this email already exists. Try signing in.")
 		return
 	}
 
@@ -405,7 +405,7 @@ func (s *Server) handleMagicLink(w http.ResponseWriter, r *http.Request) {
 
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 	if req.Email == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Please enter your email"})
+		writeBadRequest(w, "Please enter your email")
 		return
 	}
 
@@ -577,11 +577,11 @@ func (s *Server) handleEmailReset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Token == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Missing reset token"})
+		writeBadRequest(w, "Missing reset token")
 		return
 	}
 	if len(req.Password) < 8 || len(req.Password) > 72 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Password must be 8-72 characters"})
+		writeBadRequest(w, "Password must be 8-72 characters")
 		return
 	}
 
@@ -594,11 +594,11 @@ func (s *Server) handleEmailReset(w http.ResponseWriter, r *http.Request) {
 		req.Token,
 	).Scan(&userID, &used, &expiresAt)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid or expired reset link"})
+		writeBadRequest(w, "Invalid or expired reset link")
 		return
 	}
 	if used != 0 || time.Now().UTC().After(expiresAt) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid or expired reset link"})
+		writeBadRequest(w, "Invalid or expired reset link")
 		return
 	}
 
@@ -880,7 +880,7 @@ func (s *Server) handleAuthLink(w http.ResponseWriter, r *http.Request) {
 	case "phone":
 		s.linkPhone(w, r, session.UserID, req.Phone, req.Code)
 	default:
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid provider. Must be 'email' or 'phone'."})
+		writeBadRequest(w, "Invalid provider. Must be 'email' or 'phone'.")
 	}
 }
 
@@ -888,11 +888,11 @@ func (s *Server) handleAuthLink(w http.ResponseWriter, r *http.Request) {
 func (s *Server) linkEmail(w http.ResponseWriter, userID int, email string) {
 	email = strings.TrimSpace(strings.ToLower(email))
 	if email == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Email is required"})
+		writeBadRequest(w, "Email is required")
 		return
 	}
 	if _, err := mail.ParseAddress(email); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid email address"})
+		writeBadRequest(w, "Invalid email address")
 		return
 	}
 
@@ -903,7 +903,7 @@ func (s *Server) linkEmail(w http.ResponseWriter, userID int, email string) {
 		email,
 	).Scan(&existingUserID)
 	if err == nil && existingUserID != userID {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "This email is already linked to another account"})
+		writeConflict(w, "This email is already linked to another account")
 		return
 	}
 
@@ -934,12 +934,12 @@ func (s *Server) linkEmail(w http.ResponseWriter, userID int, email string) {
 func (s *Server) linkPhone(w http.ResponseWriter, r *http.Request, userID int, phone, code string) {
 	e164, ok := normalizePhone(phone)
 	if !ok {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid phone number"})
+		writeBadRequest(w, "Invalid phone number")
 		return
 	}
 
 	if code == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Verification code is required"})
+		writeBadRequest(w, "Verification code is required")
 		return
 	}
 
@@ -971,7 +971,7 @@ func (s *Server) linkPhone(w http.ResponseWriter, r *http.Request, userID int, p
 		digits,
 	).Scan(&existingUserID)
 	if err == nil && existingUserID != userID {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "This phone number is already linked to another account"})
+		writeConflict(w, "This phone number is already linked to another account")
 		return
 	}
 

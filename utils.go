@@ -54,6 +54,18 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	}
 }
 
+func writeBadRequest(w http.ResponseWriter, msg string) {
+	writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+}
+
+func writeConflict(w http.ResponseWriter, msg string) {
+	writeJSON(w, http.StatusConflict, map[string]string{"error": msg})
+}
+
+func writeNotFound(w http.ResponseWriter, msg string) {
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": msg})
+}
+
 // requireMethod checks that the request uses the expected HTTP method.
 // Returns true if the method matches; otherwise writes 405 and returns false.
 func requireMethod(w http.ResponseWriter, r *http.Request, method string) bool {
@@ -83,7 +95,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v interface{}) bool {
 		if err.Error() == "http: request body too large" {
 			msg = "Request too large"
 		}
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+		writeBadRequest(w, msg)
 		return false
 	}
 	return true
@@ -210,7 +222,7 @@ func (s *Server) requireSavedListAccess(w http.ResponseWriter, userID, listID in
 	var ownerID int
 	err := s.db.QueryRow("SELECT user_id FROM saved_lists WHERE id = ?", listID).Scan(&ownerID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Saved list not found"})
+		writeNotFound(w, "Saved list not found")
 		return false
 	}
 	householdIDs, _ := getHouseholdUserIDs(s.db, userID)
@@ -219,7 +231,7 @@ func (s *Server) requireSavedListAccess(w http.ResponseWriter, userID, listID in
 			return true
 		}
 	}
-	writeJSON(w, http.StatusNotFound, map[string]string{"error": "Saved list not found"})
+	writeNotFound(w, "Saved list not found")
 	return false
 }
 

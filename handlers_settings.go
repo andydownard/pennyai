@@ -97,16 +97,16 @@ func (s *Server) handleTrips(w http.ResponseWriter, r *http.Request) {
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 1*1024*1024)
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request"})
+			writeBadRequest(w, "Invalid request")
 			return
 		}
 		if req.TripDate == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "trip_date is required"})
+			writeBadRequest(w, "trip_date is required")
 			return
 		}
 		// Validate date format YYYY-MM-DD
 		if _, err := time.Parse("2006-01-02", req.TripDate); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid date format"})
+			writeBadRequest(w, "Invalid date format")
 			return
 		}
 
@@ -218,7 +218,7 @@ func (s *Server) handlePlacesDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	placeID := r.URL.Query().Get("place_id")
 	if placeID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "place_id required"})
+		writeBadRequest(w, "place_id required")
 		return
 	}
 
@@ -367,7 +367,7 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	if req.PennyBrandMode != nil {
 		mode := strings.TrimSpace(*req.PennyBrandMode)
 		if mode != "auto" && mode != "ask" && mode != "deals" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid penny_brand_mode"})
+			writeBadRequest(w, "Invalid penny_brand_mode")
 			return
 		}
 	}
@@ -378,13 +378,13 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		email = strings.TrimSpace(strings.ToLower(*req.Email))
 		if email != "" {
 			if _, err := mail.ParseAddress(email); err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid email format"})
+				writeBadRequest(w, "Invalid email format")
 				return
 			}
 			var existingID int
 			err := s.db.QueryRow("SELECT id FROM users WHERE email = ? AND id != ?", email, session.UserID).Scan(&existingID)
 			if err == nil {
-				writeJSON(w, http.StatusConflict, map[string]string{"error": "Email already in use"})
+				writeConflict(w, "Email already in use")
 				return
 			}
 		}
@@ -415,7 +415,7 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 				phone = "+1" + phone
 			}
 			if len(phone) != 12 { // +1XXXXXXXXXX
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid phone number"})
+				writeBadRequest(w, "Invalid phone number")
 				return
 			}
 		}
@@ -514,13 +514,13 @@ func (s *Server) handleAvatarGet(w http.ResponseWriter, r *http.Request) {
 	// Extract user ID from path: /api/avatar/123
 	parts := strings.Split(strings.TrimSuffix(r.URL.Path, "/"), "/")
 	if len(parts) < 4 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "User ID required"})
+		writeBadRequest(w, "User ID required")
 		return
 	}
 	idStr := parts[len(parts)-1]
 	userID, err := strconv.Atoi(idStr)
 	if err != nil || userID <= 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid user ID"})
+		writeBadRequest(w, "Invalid user ID")
 		return
 	}
 
@@ -528,7 +528,7 @@ func (s *Server) handleAvatarGet(w http.ResponseWriter, r *http.Request) {
 	var contentType string
 	err = s.db.QueryRow("SELECT photo_data, content_type FROM profile_photos WHERE user_id = ?", userID).Scan(&photoData, &contentType)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "No profile photo"})
+		writeNotFound(w, "No profile photo")
 		return
 	}
 
@@ -552,7 +552,7 @@ func (s *Server) handleAvatarUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Photo == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Photo is required"})
+		writeBadRequest(w, "Photo is required")
 		return
 	}
 
@@ -562,18 +562,18 @@ func (s *Server) handleAvatarUpload(w http.ResponseWriter, r *http.Request) {
 		// Try URL-safe base64
 		photoData, err = base64.URLEncoding.DecodeString(req.Photo)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid base64 encoding"})
+			writeBadRequest(w, "Invalid base64 encoding")
 			return
 		}
 	}
 
 	if len(photoData) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Photo is required"})
+		writeBadRequest(w, "Photo is required")
 		return
 	}
 
 	if len(photoData) > maxAvatarBytes {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Photo too large (max 2MB)"})
+		writeBadRequest(w, "Photo too large (max 2MB)")
 		return
 	}
 
@@ -584,7 +584,7 @@ func (s *Server) handleAvatarUpload(w http.ResponseWriter, r *http.Request) {
 	} else if len(photoData) >= 4 && photoData[0] == 0x89 && photoData[1] == 0x50 && photoData[2] == 0x4E && photoData[3] == 0x47 {
 		contentType = "image/png"
 	} else {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Only JPEG and PNG images are allowed"})
+		writeBadRequest(w, "Only JPEG and PNG images are allowed")
 		return
 	}
 
@@ -717,7 +717,7 @@ func (s *Server) handleReferralRedeem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rows, _ := result.RowsAffected(); rows == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "You need at least 100 points to redeem."})
+		writeBadRequest(w, "You need at least 100 points to redeem.")
 		return
 	}
 	if _, err := tx.Exec("INSERT INTO redemptions (user_id, points, amount_cents) VALUES (?, ?, ?)", session.UserID, referralRedeemThreshold, referralRedeemCents); err != nil {
@@ -750,7 +750,7 @@ func (s *Server) handleReferralClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Code == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Referral code is required."})
+		writeBadRequest(w, "Referral code is required.")
 		return
 	}
 
@@ -758,13 +758,13 @@ func (s *Server) handleReferralClaim(w http.ResponseWriter, r *http.Request) {
 	var referrerID int
 	err := s.db.QueryRow("SELECT id FROM users WHERE referral_code = ?", req.Code).Scan(&referrerID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Invalid referral code."})
+		writeNotFound(w, "Invalid referral code.")
 		return
 	}
 
 	// Don't let users refer themselves
 	if referrerID == session.UserID {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "You can't use your own referral code."})
+		writeBadRequest(w, "You can't use your own referral code.")
 		return
 	}
 
@@ -946,7 +946,7 @@ func (s *Server) handleNPS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Score < 0 || req.Score > 10 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Score must be 0-10"})
+		writeBadRequest(w, "Score must be 0-10")
 		return
 	}
 	if len(req.Comment) > 500 {

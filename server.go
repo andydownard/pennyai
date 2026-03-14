@@ -353,7 +353,7 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Return 404 JSON for unknown /api/ paths (don't fall through to SPA)
 		if strings.HasPrefix(r.URL.Path, "/api/") {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Not found"})
+			writeNotFound(w, "Not found")
 			return
 		}
 
@@ -362,7 +362,7 @@ Get these from https://console.twilio.com (see README for full setup).
 		if strings.HasPrefix(host, "brand.") || strings.HasPrefix(host, "brands.") || strings.HasPrefix(host, "brands-") || strings.HasPrefix(host, "brand-") {
 			// Skip /brand/ API routes (handled by registered handlers)
 			if strings.HasPrefix(r.URL.Path, "/brand/") {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "Not found"})
+				writeNotFound(w, "Not found")
 				return
 			}
 			cleanPath := path.Clean(r.URL.Path)

@@ -355,18 +355,18 @@ func (s *Server) handleAdminDeals(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		var deal BrandDeal
 		if err := json.NewDecoder(r.Body).Decode(&deal); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+			writeBadRequest(w, "Invalid request body")
 			return
 		}
 		deal.CompetitorProduct = strings.TrimSpace(deal.CompetitorProduct)
 		deal.OfferBrand = strings.TrimSpace(deal.OfferBrand)
 		deal.OfferProduct = strings.TrimSpace(deal.OfferProduct)
 		if deal.CompetitorProduct == "" || deal.OfferBrand == "" || deal.OfferProduct == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "competitor_product, offer_brand, and offer_product are required"})
+			writeBadRequest(w, "competitor_product, offer_brand, and offer_product are required")
 			return
 		}
 		if deal.DiscountCents < 0 || deal.TotalBudgetCents < 0 || deal.OfferPriceCents < 0 || deal.CompetitorPriceCents < 0 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Price and budget values must not be negative"})
+			writeBadRequest(w, "Price and budget values must not be negative")
 			return
 		}
 		if deal.Status == "" {
@@ -407,11 +407,11 @@ func (s *Server) handleAdminDeals(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPut:
 		var deal BrandDeal
 		if err := json.NewDecoder(r.Body).Decode(&deal); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+			writeBadRequest(w, "Invalid request body")
 			return
 		}
 		if deal.ID == 0 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
+			writeBadRequest(w, "id is required")
 			return
 		}
 		_, err := s.db.Exec(`
@@ -443,7 +443,7 @@ func (s *Server) handleAdminDeals(w http.ResponseWriter, r *http.Request) {
 			ID int `json:"id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID == 0 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
+			writeBadRequest(w, "id is required")
 			return
 		}
 		// Soft-delete: set status='deleted' instead of hard DELETE to preserve
@@ -456,7 +456,7 @@ func (s *Server) handleAdminDeals(w http.ResponseWriter, r *http.Request) {
 		}
 		rows, _ := result.RowsAffected()
 		if rows == 0 {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Deal not found"})
+			writeNotFound(w, "Deal not found")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
@@ -520,7 +520,7 @@ func (s *Server) handleAdminPayouts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if req.UserID == 0 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user_id is required"})
+			writeBadRequest(w, "user_id is required")
 			return
 		}
 

@@ -37,7 +37,7 @@ func (s *Server) handleSavedLists(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(tail, "/")
 	id, err := strconv.Atoi(parts[0])
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid ID"})
+		writeBadRequest(w, "Invalid ID")
 		return
 	}
 
@@ -61,7 +61,7 @@ func (s *Server) handleSavedLists(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusNotFound, map[string]string{"error": "Not found"})
+	writeNotFound(w, "Not found")
 }
 
 // handleSavedListsGet handles GET /api/saved-lists
@@ -131,7 +131,7 @@ func (s *Server) handleSavedListsCreate(w http.ResponseWriter, r *http.Request) 
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Name is required"})
+		writeBadRequest(w, "Name is required")
 		return
 	}
 
@@ -162,7 +162,7 @@ func (s *Server) handleSavedListsCreate(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if len(itemsToSave) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "No items to save"})
+		writeBadRequest(w, "No items to save")
 		return
 	}
 
@@ -222,7 +222,7 @@ func (s *Server) handleSavedListUpdate(w http.ResponseWriter, r *http.Request, i
 	}
 
 	if len(itemsToSave) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "No items to save"})
+		writeBadRequest(w, "No items to save")
 		return
 	}
 
@@ -272,7 +272,7 @@ func (s *Server) handleSavedListDelete(w http.ResponseWriter, r *http.Request, i
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Saved list not found"})
+		writeNotFound(w, "Saved list not found")
 		return
 	}
 

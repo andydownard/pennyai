@@ -259,7 +259,7 @@ func (s *Server) handleSMSWebhook(w http.ResponseWriter, r *http.Request) {
 
 	if err := r.ParseForm(); err != nil {
 		log.Printf("[sms] error parsing form: %v", err)
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Bad request"})
+		writeBadRequest(w, "Bad request")
 		return
 	}
 

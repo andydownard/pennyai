@@ -276,7 +276,7 @@ func handleGetVariant(s *Server) http.HandlerFunc {
 
 		testName := r.URL.Query().Get("test")
 		if testName == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "test parameter required"})
+			writeBadRequest(w, "test parameter required")
 			return
 		}
 
@@ -307,11 +307,11 @@ func handleTrackABEvent(s *Server) http.HandlerFunc {
 			Value float64 `json:"value"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+			writeBadRequest(w, "invalid JSON")
 			return
 		}
 		if req.Test == "" || req.Event == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "test and event required"})
+			writeBadRequest(w, "test and event required")
 			return
 		}
 		if req.Value == 0 {
@@ -343,11 +343,11 @@ func handleCreateABTest(s *Server) http.HandlerFunc {
 			TrafficPct      int      `json:"traffic_pct"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+			writeBadRequest(w, "invalid JSON")
 			return
 		}
 		if req.Name == "" || req.KeyMetric == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name and key_metric required"})
+			writeBadRequest(w, "name and key_metric required")
 			return
 		}
 		if len(req.Variants) < 2 {
@@ -387,7 +387,7 @@ func handleABTestResults(s *Server) http.HandlerFunc {
 		}
 		testName := r.PathValue("name")
 		if testName == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "test name required"})
+			writeBadRequest(w, "test name required")
 			return
 		}
 
@@ -413,7 +413,7 @@ func handleResolveABTest(s *Server) http.HandlerFunc {
 			Winner string `json:"winner"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Winner == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "winner required"})
+			writeBadRequest(w, "winner required")
 			return
 		}
 
