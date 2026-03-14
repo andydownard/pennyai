@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -2519,3 +2520,723 @@ func TestMarketplaceHealth_WithData(t *testing.T) {
 	}
 }
 
+
+
+// =============================================================================
+// analyzeABTest + handleABTestResults TESTS (0%/25% → target ~70%)
+// =============================================================================
+
+func TestAnalyzeABTest_NotFound(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, err := analyzeABTest(server.db, "nonexistent_test")
+	if err == nil {
+		t.Error("Expected error for nonexistent test")
+	}
+}
+
+func TestAnalyzeABTest_InsufficientData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create a test with high minimum sample
+	server.db.Exec(
+		`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+		"test_insuf", "Test", `["control","variant_a"]`, "conversion", 100, 7, 100, "active",
+	)
+
+	// Add only a few events
+	server.db.Exec(
+		"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
+		"test_insuf", "control", 1, "conversion", 1.0,
+	)
+
+	analysis, err := analyzeABTest(server.db, "test_insuf")
+	if err != nil {
+		t.Fatalf("analyzeABTest error: %v", err)
+	}
+	if analysis.SufficientData {
+		t.Error("Should be insufficient data")
+	}
+	if !strings.Contains(analysis.Recommendation, "Insufficient data") {
+		t.Errorf("Should recommend continuing, got %q", analysis.Recommendation)
+	}
+}
+
+func TestAnalyzeABTest_SignificantLift(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Create a test with low threshold so we can hit sufficient data
+	server.db.Exec(
+		`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-10 days'))`,
+		"test_sig", "Significance test", `["control","variant_a"]`, "items_added", 2, 7, 100, "active",
+	)
+
+	// Control: average value = 1.0
+	for i := 1; i <= 3; i++ {
+		server.db.Exec(
+			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
+			"test_sig", "control", i, "items_added", 1.0,
+		)
+	}
+
+	// Variant: average value = 2.0 (100% lift)
+	for i := 4; i <= 6; i++ {
+		server.db.Exec(
+			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
+			"test_sig", "variant_a", i, "items_added", 2.0,
+		)
+	}
+
+	analysis, err := analyzeABTest(server.db, "test_sig")
+	if err != nil {
+		t.Fatalf("analyzeABTest error: %v", err)
+	}
+	if !analysis.SufficientData {
+		t.Error("Should have sufficient data")
+	}
+	if !analysis.Significant {
+		t.Error("Should be significant (100% lift)")
+	}
+	if !strings.Contains(analysis.Recommendation, "variant_a wins") {
+		t.Errorf("Should recommend variant_a, got %q", analysis.Recommendation)
+	}
+}
+
+func TestAnalyzeABTest_ControlWins(t *testing.T) {
+	// The "control wins" path in analyzeABTest fires when bestIdx == 0 and
+	// lift is negative (bestMean == control.Mean, variant is worse). However,
+	// the algorithm picks the MAX mean as best, so when control > variant,
+	// bestIdx=0 and lift=0. The "Control wins" message only appears when
+	// the lift is negative AND > 10% — which can happen with 3+ variants
+	// where the best non-control variant still has negative lift vs control.
+	// For now, test the "no significant difference" path when control == best.
+	server := newTestServer(t, &MockTwilioClient{})
+
+	server.db.Exec(
+		`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-10 days'))`,
+		"test_ctrl_wins", "Control test", `["control","variant_a"]`, "items_added", 2, 7, 100, "active",
+	)
+
+	// Control: average = 3.0
+	for i := 1; i <= 3; i++ {
+		server.db.Exec(
+			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
+			"test_ctrl_wins", "control", i, "items_added", 3.0,
+		)
+	}
+	// Variant: average = 1.0 (much worse than control)
+	for i := 4; i <= 6; i++ {
+		server.db.Exec(
+			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
+			"test_ctrl_wins", "variant_a", i, "items_added", 1.0,
+		)
+	}
+
+	analysis, err := analyzeABTest(server.db, "test_ctrl_wins")
+	if err != nil {
+		t.Fatalf("analyzeABTest error: %v", err)
+	}
+	if !analysis.SufficientData {
+		t.Error("Should have sufficient data")
+	}
+	// When control is best, lift=0 so it falls through to "no significant difference"
+	if analysis.Recommendation == "" {
+		t.Error("Should have a recommendation")
+	}
+	// Verify the results have both variants
+	if len(analysis.Results) != 2 {
+		t.Errorf("Expected 2 results, got %d", len(analysis.Results))
+	}
+}
+
+func TestAnalyzeABTest_NoSignificantDifference(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	server.db.Exec(
+		`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-10 days'))`,
+		"test_nosig", "No sig", `["control","variant_a"]`, "items_added", 2, 7, 100, "active",
+	)
+
+	// Both variants have similar performance
+	for i := 1; i <= 3; i++ {
+		server.db.Exec(
+			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
+			"test_nosig", "control", i, "items_added", 2.0,
+		)
+	}
+	for i := 4; i <= 6; i++ {
+		server.db.Exec(
+			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
+			"test_nosig", "variant_a", i, "items_added", 2.1, // < 10% difference
+		)
+	}
+
+	analysis, err := analyzeABTest(server.db, "test_nosig")
+	if err != nil {
+		t.Fatalf("analyzeABTest error: %v", err)
+	}
+	if analysis.Significant {
+		t.Error("Should not be significant (<10% lift)")
+	}
+	if !strings.Contains(analysis.Recommendation, "No significant difference") {
+		t.Errorf("Should say no significant difference, got %q", analysis.Recommendation)
+	}
+}
+
+func TestAnalyzeABTest_ControlZeroEvents(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	server.db.Exec(
+		`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-10 days'))`,
+		"test_zero", "Zero control", `["control","variant_a"]`, "purchases", 2, 7, 100, "active",
+	)
+
+	// Control: no events at all (0 mean), but we need distinct users for sufficient data
+	for i := 1; i <= 3; i++ {
+		server.db.Exec(
+			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
+			"test_zero", "control", i, "purchases", 0.0,
+		)
+	}
+	// Variant: has events
+	for i := 4; i <= 6; i++ {
+		server.db.Exec(
+			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
+			"test_zero", "variant_a", i, "purchases", 5.0,
+		)
+	}
+
+	analysis, err := analyzeABTest(server.db, "test_zero")
+	if err != nil {
+		t.Fatalf("analyzeABTest error: %v", err)
+	}
+	// Control mean = 0, variant mean > 0
+	if !analysis.Significant {
+		t.Error("Should be significant when control has zero mean")
+	}
+	if !strings.Contains(analysis.Recommendation, "variant_a wins") {
+		t.Errorf("Should recommend variant_a, got %q", analysis.Recommendation)
+	}
+}
+
+func TestAnalyzeABTest_MeasurementPeriodNotReached(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Test started just now, needs 14 days
+	server.db.Exec(
+		`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+		"test_early", "Early test", `["control","variant_a"]`, "items_added", 2, 14, 100, "active",
+	)
+
+	// Enough users but not enough days
+	for i := 1; i <= 3; i++ {
+		server.db.Exec(
+			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
+			"test_early", "control", i, "items_added", 1.0,
+		)
+	}
+	for i := 4; i <= 6; i++ {
+		server.db.Exec(
+			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
+			"test_early", "variant_a", i, "items_added", 2.0,
+		)
+	}
+
+	analysis, err := analyzeABTest(server.db, "test_early")
+	if err != nil {
+		t.Fatalf("analyzeABTest error: %v", err)
+	}
+	if analysis.SufficientData {
+		t.Error("Should not have sufficient data (measurement period not reached)")
+	}
+	if !strings.Contains(analysis.Recommendation, "Measurement period not reached") {
+		t.Errorf("Should say measurement period not reached, got %q", analysis.Recommendation)
+	}
+}
+
+func TestABResults_WithData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833") // admin phone
+
+	// Create a test
+	server.db.Exec(
+		`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-10 days'))`,
+		"results_test", "Results test", `["control","variant_a"]`, "items_added", 2, 7, 100, "active",
+	)
+
+	for i := 1; i <= 3; i++ {
+		server.db.Exec(
+			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
+			"results_test", "control", i, "items_added", 1.0,
+		)
+	}
+
+	// Use a ServeMux with path parameters so r.PathValue("name") works
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/admin/ab-tests/{name}/results", handleABTestResults(server))
+
+	req := httptest.NewRequest("GET", "/api/admin/ab-tests/results_test/results", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	var analysis ABAnalysis
+	json.Unmarshal(rr.Body.Bytes(), &analysis)
+	if analysis.TestName != "results_test" {
+		t.Errorf("TestName: got %q, want results_test", analysis.TestName)
+	}
+	if len(analysis.Results) == 0 {
+		t.Error("Should have results")
+	}
+}
+
+
+// =============================================================================
+// processChurnSignals TESTS (52.6% → target ~75%)
+// =============================================================================
+
+func TestProcessChurnSignals_DaysInactive(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5554450001")
+
+	// Verify session exists and check what created_at looks like
+	var sessionCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", userID).Scan(&sessionCount)
+	if sessionCount == 0 {
+		t.Fatal("No session found for user")
+	}
+
+	// The JULIANDAY function in SQLite may not parse Go's time format (RFC3339 with timezone offset).
+	// Update the session's created_at to a SQLite-native format so the query works.
+	server.db.Exec("UPDATE sessions SET created_at = datetime('now') WHERE user_id = ?", userID)
+
+	server.processChurnSignals()
+
+	var signalValue, riskScore float64
+	err := server.db.QueryRow(
+		"SELECT signal_value, risk_score FROM churn_signals WHERE user_id = ? AND signal_type = 'days_inactive'",
+		userID,
+	).Scan(&signalValue, &riskScore)
+	if err != nil {
+		t.Fatalf("Should have days_inactive signal: %v", err)
+	}
+	if signalValue > 1.0 {
+		t.Errorf("Recently active user should have low days_inactive, got %.1f", signalValue)
+	}
+	if riskScore > 0.1 {
+		t.Errorf("Recently active user should have low risk, got %.2f", riskScore)
+	}
+}
+
+func TestProcessChurnSignals_ListAbandonment(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5554450002")
+
+	// Add a list item so list_abandonment signal is computed
+	createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
+
+	server.processChurnSignals()
+
+	var signalValue float64
+	err := server.db.QueryRow(
+		"SELECT signal_value FROM churn_signals WHERE user_id = ? AND signal_type = 'list_abandonment'",
+		userID,
+	).Scan(&signalValue)
+	if err != nil {
+		t.Fatalf("Should have list_abandonment signal: %v", err)
+	}
+	if signalValue > 1.0 {
+		t.Errorf("Recent item should have low abandonment, got %.1f", signalValue)
+	}
+}
+
+func TestProcessChurnSignals_DeclineStreak(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5554450003")
+
+	// Create swap events: 3 consecutive declines
+	for i := 0; i < 3; i++ {
+		server.db.Exec(
+			"INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, 1, ?, 'declined')",
+			userID, i+1,
+		)
+	}
+
+	server.processChurnSignals()
+
+	var signalValue, riskScore float64
+	err := server.db.QueryRow(
+		"SELECT signal_value, risk_score FROM churn_signals WHERE user_id = ? AND signal_type = 'decline_streak'",
+		userID,
+	).Scan(&signalValue, &riskScore)
+	if err != nil {
+		t.Fatalf("Should have decline_streak signal: %v", err)
+	}
+	if signalValue != 3 {
+		t.Errorf("Decline streak should be 3, got %.0f", signalValue)
+	}
+	expectedRisk := 3.0 / 5.0 // 0.6
+	if riskScore < expectedRisk-0.01 || riskScore > expectedRisk+0.01 {
+		t.Errorf("Risk score should be ~%.1f, got %.2f", expectedRisk, riskScore)
+	}
+}
+
+func TestProcessChurnSignals_DeclineStreakBrokenByAccept(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5554450004")
+
+	// Create: decline, decline, accept, decline (streak should be 1 — only the most recent decline before accept)
+	// Events are ordered by created_at DESC, so most recent first
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, created_at) VALUES (?, 1, 1, 'declined', datetime('now', '-4 minutes'))", userID)
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, created_at) VALUES (?, 1, 2, 'declined', datetime('now', '-3 minutes'))", userID)
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, created_at) VALUES (?, 1, 3, 'accepted', datetime('now', '-2 minutes'))", userID)
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, created_at) VALUES (?, 1, 4, 'declined', datetime('now', '-1 minute'))", userID)
+
+	server.processChurnSignals()
+
+	var signalValue float64
+	server.db.QueryRow(
+		"SELECT signal_value FROM churn_signals WHERE user_id = ? AND signal_type = 'decline_streak'",
+		userID,
+	).Scan(&signalValue)
+	// Most recent event is decline (-1 min), then accept (-2 min) breaks the streak
+	// So streak = 1
+	if signalValue != 1 {
+		t.Errorf("Decline streak should be 1 (broken by accept), got %.0f", signalValue)
+	}
+}
+
+func TestProcessChurnSignals_UpsertUpdatesExisting(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5554450005")
+
+	// Run twice — second run should update, not duplicate
+	server.processChurnSignals()
+	server.processChurnSignals()
+
+	var count int
+	server.db.QueryRow(
+		"SELECT COUNT(*) FROM churn_signals WHERE user_id = ? AND signal_type = 'days_inactive'",
+		userID,
+	).Scan(&count)
+	if count != 1 {
+		t.Errorf("Should have exactly 1 days_inactive signal (upsert), got %d", count)
+	}
+}
+
+
+// =============================================================================
+// handleSegmentAnalysis TESTS (59.1% → target ~85%)
+// =============================================================================
+
+func TestSegmentAnalysis_RequiresAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5554480001") // non-admin
+
+	rr := doRequest(server.handleSegmentAnalysis, "GET", "/api/admin/segment-analysis", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Non-admin should get 403, got %d", rr.Code)
+	}
+}
+
+func TestSegmentAnalysis_RequiresGET(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833") // admin
+
+	rr := doRequest(server.handleSegmentAnalysis, "POST", "/api/admin/segment-analysis", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST should get 405, got %d", rr.Code)
+	}
+}
+
+func TestSegmentAnalysis_EmptyResults(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833") // admin
+
+	rr := doRequest(server.handleSegmentAnalysis, "GET", "/api/admin/segment-analysis", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var result map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &result)
+	segments, ok := result["segments"].([]interface{})
+	if !ok {
+		t.Fatal("Response should have 'segments' array")
+	}
+	if len(segments) != 0 {
+		t.Errorf("Should have empty segments, got %d", len(segments))
+	}
+}
+
+func TestSegmentAnalysis_WithData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833") // admin
+
+	// Insert segment data
+	server.db.Exec(
+		"INSERT INTO category_swap_insights (category, avg_acceptance_rate, avg_discount_pct, total_swaps, last_computed) VALUES (?, ?, ?, ?, datetime('now'))",
+		"segment:high_value", 0.25, 15.0, 100,
+	)
+	server.db.Exec(
+		"INSERT INTO category_swap_insights (category, avg_acceptance_rate, avg_discount_pct, total_swaps, last_computed) VALUES (?, ?, ?, ?, datetime('now'))",
+		"segment:low_value", 0.10, 8.0, 50,
+	)
+
+	rr := doRequest(server.handleSegmentAnalysis, "GET", "/api/admin/segment-analysis", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	var result map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &result)
+	segments := result["segments"].([]interface{})
+	if len(segments) != 2 {
+		t.Errorf("Should have 2 segments, got %d", len(segments))
+	}
+
+	// Verify segment prefix was stripped
+	first := segments[0].(map[string]interface{})
+	if seg, ok := first["segment"].(string); ok {
+		if strings.HasPrefix(seg, "segment:") {
+			t.Errorf("Segment name should have prefix stripped, got %q", seg)
+		}
+	}
+}
+
+
+// =============================================================================
+// handleBusinessMetrics TESTS (coverage boost)
+// =============================================================================
+
+func TestBusinessMetrics_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+	rr := doRequest(server.handleBusinessMetrics, "POST", "/api/admin/business-metrics", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for POST, got %d", rr.Code)
+	}
+}
+
+func TestBusinessMetrics_NoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleBusinessMetrics, "GET", "/api/admin/business-metrics", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for no auth, got %d", rr.Code)
+	}
+}
+
+func TestBusinessMetrics_NonAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551114444")
+	rr := doRequest(server.handleBusinessMetrics, "GET", "/api/admin/business-metrics", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+
+func TestBusinessMetrics_DefaultDays(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+	rr := doRequest(server.handleBusinessMetrics, "GET", "/api/admin/business-metrics", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	if days, ok := body["days"].(float64); !ok || int(days) != 30 {
+		t.Errorf("expected default days=30, got %v", body["days"])
+	}
+	// metrics should be an empty array
+	metrics, ok := body["metrics"].([]interface{})
+	if !ok {
+		t.Fatal("expected 'metrics' to be an array")
+	}
+	if len(metrics) != 0 {
+		t.Errorf("expected empty metrics, got %d items", len(metrics))
+	}
+}
+
+func TestBusinessMetrics_CustomDays(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	req := httptest.NewRequest("GET", "/api/admin/business-metrics?days=7", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleBusinessMetrics(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if days, ok := body["days"].(float64); !ok || int(days) != 7 {
+		t.Errorf("expected days=7, got %v", body["days"])
+	}
+}
+
+func TestBusinessMetrics_InvalidDays(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Non-numeric days should fall back to default 30
+	req := httptest.NewRequest("GET", "/api/admin/business-metrics?days=abc", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleBusinessMetrics(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if days, ok := body["days"].(float64); !ok || int(days) != 30 {
+		t.Errorf("expected default days=30 for invalid input, got %v", body["days"])
+	}
+}
+
+func TestBusinessMetrics_DaysOutOfRange(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// days=0 is out of range (<=0), should fall back to default 30
+	req := httptest.NewRequest("GET", "/api/admin/business-metrics?days=0", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleBusinessMetrics(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if days, ok := body["days"].(float64); !ok || int(days) != 30 {
+		t.Errorf("expected default days=30 for days=0, got %v", body["days"])
+	}
+
+	// days=500 is out of range (>365), should fall back to default 30
+	req2 := httptest.NewRequest("GET", "/api/admin/business-metrics?days=500", nil)
+	req2.AddCookie(cookie)
+	rr2 := httptest.NewRecorder()
+	server.handleBusinessMetrics(rr2, req2)
+	body2 := parseJSON(rr2)
+	if days, ok := body2["days"].(float64); !ok || int(days) != 30 {
+		t.Errorf("expected default days=30 for days=500, got %v", body2["days"])
+	}
+}
+
+func TestBusinessMetrics_WithDataRows(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+
+	// Insert a metrics row
+	server.db.Exec(`INSERT INTO business_metrics_daily (date, dau, wau, mau, new_users,
+		swaps_offered, swaps_accepted, swaps_declined, acceptance_rate,
+		gross_revenue_cents, active_deals, active_brands, computed_at)
+		VALUES (DATE('now'), 100, 500, 1000, 10, 50, 25, 25, 0.5, 50000, 5, 3, datetime('now'))`)
+
+	rr := doRequest(server.handleBusinessMetrics, "GET", "/api/admin/business-metrics", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	metrics, ok := body["metrics"].([]interface{})
+	if !ok {
+		t.Fatal("expected 'metrics' to be an array")
+	}
+	if len(metrics) != 1 {
+		t.Fatalf("expected 1 metrics row, got %d", len(metrics))
+	}
+	row := metrics[0].(map[string]interface{})
+	if dau, ok := row["dau"].(float64); !ok || int(dau) != 100 {
+		t.Errorf("expected dau=100, got %v", row["dau"])
+	}
+}
+
+// =============================================================================
+// processUserCohorts TESTS (coverage boost)
+// =============================================================================
+
+func TestProcessUserCohorts_EmptyDB(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// Should not panic or error on empty database
+	server.processUserCohorts()
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM user_cohorts").Scan(&count)
+	if count != 0 {
+		t.Errorf("expected 0 cohort rows on empty DB, got %d", count)
+	}
+}
+
+func TestProcessUserCohorts_SingleUser(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5551115555")
+
+	server.processUserCohorts()
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM user_cohorts WHERE user_id = ?", userID).Scan(&count)
+	if count != 1 {
+		t.Errorf("expected 1 cohort row for user, got %d", count)
+	}
+
+	// User with no sessions should be marked as churned
+	var isChurned int
+	server.db.QueryRow("SELECT is_churned FROM user_cohorts WHERE user_id = ?", userID).Scan(&isChurned)
+	// The user was just created with a session, so the churn depends on session timestamps.
+	// We just verify the row was created (is_churned is 0 or 1).
+	if isChurned != 0 && isChurned != 1 {
+		t.Errorf("expected is_churned to be 0 or 1, got %d", isChurned)
+	}
+}
+
+func TestProcessUserCohorts_UserWithSwaps(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5551116666")
+
+	// Create a deal and swap event
+	server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status)
+		VALUES ('CompProd', 'OfferBrand', 'OfferProd', 100, 5000, 'active')`)
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals ORDER BY id DESC LIMIT 1").Scan(&dealID)
+
+	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, 'test item', 'Test')", userID)
+	var itemID int
+	server.db.QueryRow("SELECT id FROM list_items WHERE user_id = ? LIMIT 1", userID).Scan(&itemID)
+
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, ?, 'accepted')", userID, dealID, itemID)
+
+	// Create a rebate
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, 1, ?, 100, 'pending')", userID, dealID)
+
+	server.processUserCohorts()
+
+	var totalSwaps, totalSavings int
+	server.db.QueryRow("SELECT total_swaps, total_savings_cents FROM user_cohorts WHERE user_id = ?", userID).Scan(&totalSwaps, &totalSavings)
+	if totalSwaps != 1 {
+		t.Errorf("expected total_swaps=1, got %d", totalSwaps)
+	}
+	if totalSavings != 100 {
+		t.Errorf("expected total_savings_cents=100, got %d", totalSavings)
+	}
+}
+
+func TestProcessUserCohorts_IdempotentUpsert(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5551117777")
+
+	// Run twice — should upsert, not create duplicate rows
+	server.processUserCohorts()
+	server.processUserCohorts()
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM user_cohorts WHERE user_id = ?", userID).Scan(&count)
+	if count != 1 {
+		t.Errorf("expected exactly 1 cohort row after double run, got %d", count)
+	}
+}

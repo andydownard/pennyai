@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -2229,3 +2230,843 @@ func TestBrandFeedback_RateLimit(t *testing.T) {
 // =============================================================================
 // Places Endpoint Tests
 // =============================================================================
+
+
+// =============================================================================
+// resolveBrandAlternatives TESTS (18.8% → target ~80%)
+// =============================================================================
+
+func TestResolveBrandAlternatives_NoAlternatives(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5551110001")
+
+	items := []ListItem{{ID: 1, Name: "Milk"}}
+	parsed := []ParsedItem{{Name: "Milk", Brand: "Horizon", BrandAlternatives: nil}}
+
+	result := resolveBrandAlternatives(server.db, userID, "ask", items, parsed)
+	if len(result) != 0 {
+		t.Errorf("Expected 0 disambiguations for no alternatives, got %d", len(result))
+	}
+}
+
+func TestResolveBrandAlternatives_ItemNotFound(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5551110002")
+
+	// items list doesn't include the parsed item
+	items := []ListItem{{ID: 1, Name: "Bread"}}
+	parsed := []ParsedItem{{Name: "Milk", Brand: "Horizon", BrandAlternatives: []string{"Horizon", "Organic Valley"}}}
+
+	result := resolveBrandAlternatives(server.db, userID, "ask", items, parsed)
+	if len(result) != 0 {
+		t.Errorf("Expected 0 disambiguations for unmatched item, got %d", len(result))
+	}
+}
+
+func TestResolveBrandAlternatives_NoPref_AskMode(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5551110003")
+
+	itemID := createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
+	items := []ListItem{{ID: int(itemID), Name: "Milk"}}
+	parsed := []ParsedItem{{Name: "Milk", Brand: "Horizon", BrandAlternatives: []string{"Horizon", "Organic Valley", "Fairlife"}}}
+
+	result := resolveBrandAlternatives(server.db, userID, "ask", items, parsed)
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 disambiguation, got %d", len(result))
+	}
+	if result[0].AutoAssigned {
+		t.Error("Should not be auto-assigned without global defaults")
+	}
+	if result[0].CurrentBrand != "Horizon" {
+		t.Errorf("CurrentBrand: got %q, want Horizon", result[0].CurrentBrand)
+	}
+	if len(result[0].Alternatives) != 3 {
+		t.Errorf("Alternatives count: got %d, want 3", len(result[0].Alternatives))
+	}
+}
+
+func TestResolveBrandAlternatives_StrongPreference(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5551110004")
+
+	itemID := createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
+
+	// Insert a strong preference (streak >= 3)
+	server.db.Exec(
+		"INSERT INTO brand_preferences (user_id, product_category, brand, streak, pick_count, last_picked) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+		userID, "milk", "Organic Valley", 5, 10,
+	)
+
+	items := []ListItem{{ID: int(itemID), Name: "Milk"}}
+	parsed := []ParsedItem{{Name: "Milk", Brand: "Horizon", BrandAlternatives: []string{"Horizon", "Organic Valley", "Fairlife"}}}
+
+	result := resolveBrandAlternatives(server.db, userID, "ask", items, parsed)
+	if len(result) != 0 {
+		t.Errorf("Strong preference should auto-apply without disambiguation, got %d", len(result))
+	}
+
+	// Verify the item's brand was updated
+	var brand string
+	server.db.QueryRow("SELECT COALESCE(brand,'') FROM list_items WHERE id = ?", itemID).Scan(&brand)
+	if brand != "Organic Valley" {
+		t.Errorf("Item brand should be Organic Valley, got %q", brand)
+	}
+}
+
+func TestResolveBrandAlternatives_AutoMode_WeakPreference(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5551110005")
+
+	itemID := createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
+
+	// Insert a weak preference (streak < 3) in auto mode
+	server.db.Exec(
+		"INSERT INTO brand_preferences (user_id, product_category, brand, streak, pick_count, last_picked) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+		userID, "milk", "Fairlife", 1, 2,
+	)
+
+	items := []ListItem{{ID: int(itemID), Name: "Milk"}}
+	parsed := []ParsedItem{{Name: "Milk", Brand: "Horizon", BrandAlternatives: []string{"Horizon", "Organic Valley", "Fairlife"}}}
+
+	result := resolveBrandAlternatives(server.db, userID, "auto", items, parsed)
+	if len(result) != 0 {
+		t.Errorf("Auto mode with any preference should auto-apply, got %d disambiguations", len(result))
+	}
+
+	var brand string
+	server.db.QueryRow("SELECT COALESCE(brand,'') FROM list_items WHERE id = ?", itemID).Scan(&brand)
+	if brand != "Fairlife" {
+		t.Errorf("Item brand should be Fairlife, got %q", brand)
+	}
+}
+
+func TestResolveBrandAlternatives_StalePreference(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5551110006")
+
+	itemID := createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
+
+	// Insert a stale preference (>90 days old, low streak)
+	server.db.Exec(
+		"INSERT INTO brand_preferences (user_id, product_category, brand, streak, pick_count, last_picked) VALUES (?, ?, ?, ?, ?, datetime('now', '-100 days'))",
+		userID, "milk", "Fairlife", 2, 3,
+	)
+
+	items := []ListItem{{ID: int(itemID), Name: "Milk"}}
+	parsed := []ParsedItem{{Name: "Milk", Brand: "Horizon", BrandAlternatives: []string{"Horizon", "Organic Valley"}}}
+
+	result := resolveBrandAlternatives(server.db, userID, "ask", items, parsed)
+	// Stale pref with streak < 5 should be treated as no preference → disambiguation
+	if len(result) != 1 {
+		t.Fatalf("Stale preference should require disambiguation, got %d", len(result))
+	}
+	if result[0].AutoAssigned {
+		t.Error("Should not be auto-assigned")
+	}
+}
+
+func TestResolveBrandAlternatives_GlobalDefaults(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5551110007")
+
+	itemID := createListItem(t, server.db, userID, "Ketchup", "Condiments")
+
+	// Seed global brand choices for "ketchup" from multiple users
+	for i := 0; i < 5; i++ {
+		otherUserID := 1000 + i
+		server.db.Exec("INSERT OR IGNORE INTO users (id, phone_number) VALUES (?, ?)", otherUserID, fmt.Sprintf("555000%04d", i))
+		server.db.Exec(
+			"INSERT INTO brand_choices (user_id, product_category, brand, source) VALUES (?, ?, ?, ?)",
+			otherUserID, "ketchup", "Heinz", "manual",
+		)
+	}
+
+	items := []ListItem{{ID: int(itemID), Name: "Ketchup"}}
+	parsed := []ParsedItem{{Name: "Ketchup", Brand: "", BrandAlternatives: []string{"Heinz", "Hunt's", "Sir Kensington's"}}}
+
+	result := resolveBrandAlternatives(server.db, userID, "auto", items, parsed, true)
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 disambiguation with global default, got %d", len(result))
+	}
+	if !result[0].AutoAssigned {
+		t.Error("Global default should set AutoAssigned = true")
+	}
+	if result[0].CurrentBrand != "Heinz" {
+		t.Errorf("Global default brand should be Heinz, got %q", result[0].CurrentBrand)
+	}
+}
+
+func TestResolveBrandAlternatives_PreferenceReordering(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5551110008")
+
+	itemID := createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
+
+	// Insert a weak preference (streak=1, not enough for auto-apply in ask mode but still has preference)
+	server.db.Exec(
+		"INSERT INTO brand_preferences (user_id, product_category, brand, streak, pick_count, last_picked) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+		userID, "milk", "Fairlife", 1, 1,
+	)
+
+	items := []ListItem{{ID: int(itemID), Name: "Milk"}}
+	parsed := []ParsedItem{{Name: "Milk", Brand: "Horizon", BrandAlternatives: []string{"Horizon", "Organic Valley", "Fairlife"}}}
+
+	// ask mode, streak=1 → needs disambiguation, but preferred brand should be first
+	result := resolveBrandAlternatives(server.db, userID, "ask", items, parsed)
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 disambiguation, got %d", len(result))
+	}
+	if result[0].Alternatives[0] != "Fairlife" {
+		t.Errorf("Preferred brand should be first in alternatives, got %q", result[0].Alternatives[0])
+	}
+}
+
+// =============================================================================
+// handleBrandUnsubscribe TESTS (40% → target ~90%)
+// =============================================================================
+
+func TestBrandUnsubscribe_AuthenticatedGET(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	brandCookie, _ := brandRegister(t, server, "unsub@test.com", "password123", "UnsubCo")
+
+	rr := doRequest(server.handleBrandUnsubscribe, "GET", "/brand/unsubscribe", nil, []*http.Cookie{brandCookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Unsubscribe") {
+		t.Error("Should show unsubscribe form")
+	}
+	if strings.Contains(body, "log in") {
+		t.Error("Authenticated user should not see login prompt")
+	}
+}
+
+func TestBrandUnsubscribe_AuthenticatedPOST(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	brandCookie, brandUserID := brandRegister(t, server, "unsub2@test.com", "password123", "UnsubCo2")
+
+	rr := doRequest(server.handleBrandUnsubscribe, "POST", "/brand/unsubscribe", nil, []*http.Cookie{brandCookie})
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Unsubscribed") {
+		t.Error("Should show unsubscribed confirmation")
+	}
+
+	// Verify the database was updated
+	var optOut int
+	server.db.QueryRow("SELECT digest_opt_out FROM brand_users WHERE id = ?", brandUserID).Scan(&optOut)
+	if optOut != 1 {
+		t.Errorf("digest_opt_out should be 1, got %d", optOut)
+	}
+}
+
+
+// =============================================================================
+// recordBrandChoice TESTS (55.6% → target ~90%)
+// =============================================================================
+
+func TestRecordBrandChoice_NewPreference(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5554440001")
+
+	recordBrandChoice(server.db, userID, "Milk", "Horizon", "manual")
+
+	// Verify brand_choices log entry
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM brand_choices WHERE user_id = ? AND product_category = 'milk'", userID).Scan(&count)
+	if count != 1 {
+		t.Errorf("brand_choices should have 1 entry, got %d", count)
+	}
+
+	// Verify brand_preferences was created
+	var brand string
+	var streak, pickCount int
+	server.db.QueryRow("SELECT brand, streak, pick_count FROM brand_preferences WHERE user_id = ? AND product_category = 'milk'", userID).Scan(&brand, &streak, &pickCount)
+	if brand != "Horizon" {
+		t.Errorf("brand: got %q, want Horizon", brand)
+	}
+	if streak != 1 {
+		t.Errorf("streak: got %d, want 1", streak)
+	}
+	if pickCount != 1 {
+		t.Errorf("pick_count: got %d, want 1", pickCount)
+	}
+}
+
+func TestRecordBrandChoice_SameBrandIncrementsStreak(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5554440002")
+
+	recordBrandChoice(server.db, userID, "Milk", "Horizon", "manual")
+	recordBrandChoice(server.db, userID, "Milk", "Horizon", "manual")
+	recordBrandChoice(server.db, userID, "Milk", "Horizon", "manual")
+
+	var streak, pickCount int
+	server.db.QueryRow("SELECT streak, pick_count FROM brand_preferences WHERE user_id = ? AND product_category = 'milk'", userID).Scan(&streak, &pickCount)
+	if streak != 3 {
+		t.Errorf("streak: got %d, want 3", streak)
+	}
+	if pickCount != 3 {
+		t.Errorf("pick_count: got %d, want 3", pickCount)
+	}
+}
+
+func TestRecordBrandChoice_DifferentBrandResetsStreak(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5554440003")
+
+	recordBrandChoice(server.db, userID, "Milk", "Horizon", "manual")
+	recordBrandChoice(server.db, userID, "Milk", "Horizon", "manual")
+	recordBrandChoice(server.db, userID, "Milk", "Organic Valley", "manual")
+
+	var brand string
+	var streak, pickCount int
+	server.db.QueryRow("SELECT brand, streak, pick_count FROM brand_preferences WHERE user_id = ? AND product_category = 'milk'", userID).Scan(&brand, &streak, &pickCount)
+	if brand != "Organic Valley" {
+		t.Errorf("brand should switch to Organic Valley, got %q", brand)
+	}
+	if streak != 1 {
+		t.Errorf("streak should reset to 1, got %d", streak)
+	}
+	if pickCount != 3 {
+		t.Errorf("pick_count should be 3, got %d", pickCount)
+	}
+}
+
+func TestRecordBrandChoice_CaseInsensitive(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5554440004")
+
+	recordBrandChoice(server.db, userID, "Milk", "Horizon", "manual")
+	recordBrandChoice(server.db, userID, "Milk", "horizon", "manual") // lowercase
+
+	var streak int
+	server.db.QueryRow("SELECT streak FROM brand_preferences WHERE user_id = ? AND product_category = 'milk'", userID).Scan(&streak)
+	if streak != 2 {
+		t.Errorf("Case-insensitive match should increment streak, got %d", streak)
+	}
+}
+
+func TestRecordBrandChoice_EmptyInputs(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5554440005")
+
+	recordBrandChoice(server.db, userID, "", "Horizon", "manual")
+	recordBrandChoice(server.db, userID, "Milk", "", "manual")
+	recordBrandChoice(server.db, userID, "  ", "  ", "manual")
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM brand_choices WHERE user_id = ?", userID).Scan(&count)
+	if count != 0 {
+		t.Errorf("Empty inputs should not create brand_choices, got %d", count)
+	}
+}
+
+func TestRecordBrandChoice_NormalizesCategory(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5554440006")
+
+	recordBrandChoice(server.db, userID, "  MILK  ", "Horizon", "manual")
+
+	var category string
+	server.db.QueryRow("SELECT product_category FROM brand_choices WHERE user_id = ?", userID).Scan(&category)
+	if category != "milk" {
+		t.Errorf("Category should be normalized to 'milk', got %q", category)
+	}
+}
+
+
+// TestTruncateRunes already exists in admin_test.go
+
+// =============================================================================
+// handleBrandLogin TESTS (66.7% → target ~90%)
+// =============================================================================
+
+func TestBrandLogin_NonexistentEmail(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleBrandLogin, "POST", "/brand/login", map[string]string{
+		"email":    "nobody@example.com",
+		"password": "somepassword",
+	}, nil)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for nonexistent email, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["error"] != "Invalid email or password" {
+		t.Errorf("unexpected error message: %v", body["error"])
+	}
+}
+
+func TestBrandLogin_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleBrandLogin, "GET", "/brand/login", nil, nil)
+
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for GET, got %d", rr.Code)
+	}
+}
+
+func TestBrandLogin_EmptyBody(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Send a POST with empty JSON object — email will be empty, should hit the DB query
+	// which returns no rows → 401
+	rr := doRequest(server.handleBrandLogin, "POST", "/brand/login", map[string]string{
+		"email":    "",
+		"password": "",
+	}, nil)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for empty credentials, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// updateBrandDeal TESTS (55.9% → target ~85%)
+// =============================================================================
+
+func TestUpdateBrandDeal_NonexistentDeal(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "update-nonexist@test.com", "password123", "TestCo")
+
+	rr := doRequest(server.handleBrandDeals, "PUT", "/brand/deals/99999", map[string]interface{}{
+		"status": "paused",
+	}, []*http.Cookie{cookie})
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for nonexistent deal, got %d", rr.Code)
+	}
+}
+
+func TestUpdateBrandDeal_WrongOwner(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Owner creates the deal
+	ownerCookie, _ := brandRegister(t, server, "deal-owner@test.com", "password123", "OwnerCo")
+	dealID := createTestDeal(t, server, ownerCookie)
+
+	// Different user tries to update it
+	otherCookie, _ := brandRegister(t, server, "deal-other@test.com", "password123", "OtherCo")
+	rr := doRequest(server.handleBrandDeals, "PUT", fmt.Sprintf("/brand/deals/%d", dealID), map[string]interface{}{
+		"status": "paused",
+	}, []*http.Cookie{otherCookie})
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for wrong owner, got %d", rr.Code)
+	}
+}
+
+func TestUpdateBrandDeal_EmptyFields(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "update-empty@test.com", "password123", "TestCo")
+	dealID := createTestDeal(t, server, cookie)
+
+	// Send an empty JSON body — no updatable fields
+	rr := doRequest(server.handleBrandDeals, "PUT", fmt.Sprintf("/brand/deals/%d", dealID), map[string]interface{}{}, []*http.Cookie{cookie})
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty fields, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["error"] != "No fields to update" {
+		t.Errorf("unexpected error: %v", body["error"])
+	}
+}
+
+func TestUpdateBrandDeal_SuccessfulUpdate(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "update-success@test.com", "password123", "TestCo")
+	dealID := createTestDeal(t, server, cookie)
+
+	newStatus := "paused"
+	newDiscount := 200
+	newBudget := 50000
+	newWhy := "Better taste, better price"
+	newAllergen := "Contains soy"
+
+	rr := doRequest(server.handleBrandDeals, "PUT", fmt.Sprintf("/brand/deals/%d", dealID), map[string]interface{}{
+		"status":           newStatus,
+		"discount_cents":   newDiscount,
+		"daily_budget_cents": newBudget,
+		"why_bullets":      newWhy,
+		"allergen_notes":   newAllergen,
+	}, []*http.Cookie{cookie})
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for successful update, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	if body["message"] != "Deal updated" {
+		t.Errorf("unexpected message: %v", body["message"])
+	}
+
+	// Verify the fields actually changed in DB
+	var status, why, allergen string
+	var discount, budget int
+	err := server.db.QueryRow(
+		"SELECT status, discount_cents, total_budget_cents, COALESCE(why_bullets,''), COALESCE(allergen_notes,'') FROM brand_deals WHERE id = ?", dealID,
+	).Scan(&status, &discount, &budget, &why, &allergen)
+	if err != nil {
+		t.Fatalf("failed to query updated deal: %v", err)
+	}
+	if status != newStatus {
+		t.Errorf("status: got %q, want %q", status, newStatus)
+	}
+	if discount != newDiscount {
+		t.Errorf("discount_cents: got %d, want %d", discount, newDiscount)
+	}
+	if budget != newBudget {
+		t.Errorf("total_budget_cents: got %d, want %d", budget, newBudget)
+	}
+	if why != newWhy {
+		t.Errorf("why_bullets: got %q, want %q", why, newWhy)
+	}
+	if allergen != newAllergen {
+		t.Errorf("allergen_notes: got %q, want %q", allergen, newAllergen)
+	}
+}
+
+// =============================================================================
+// deleteBrandDeal TESTS (71.4% → target ~95%)
+// =============================================================================
+
+func TestDeleteBrandDeal_NonexistentDeal(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "delete-nonexist@test.com", "password123", "TestCo")
+
+	rr := doRequest(server.handleBrandDeals, "DELETE", "/brand/deals/99999", nil, []*http.Cookie{cookie})
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for nonexistent deal, got %d", rr.Code)
+	}
+}
+
+func TestDeleteBrandDeal_WrongOwner(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Owner creates the deal
+	ownerCookie, _ := brandRegister(t, server, "del-owner@test.com", "password123", "OwnerCo")
+	dealID := createTestDeal(t, server, ownerCookie)
+
+	// Different user tries to delete it
+	otherCookie, _ := brandRegister(t, server, "del-other@test.com", "password123", "OtherCo")
+	rr := doRequest(server.handleBrandDeals, "DELETE", fmt.Sprintf("/brand/deals/%d", dealID), nil, []*http.Cookie{otherCookie})
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for wrong owner, got %d", rr.Code)
+	}
+}
+
+
+// --- BrandRegister ---
+
+func TestBrandRegister_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleBrandRegister, "GET", "/brand/register", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestBrandRegister_MissingFields(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
+		"email": "test@brand.com",
+	}, nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestBrandRegister_ShortPassword(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
+		"email":        "test@brand.com",
+		"password":     "short",
+		"company_name": "TestCo",
+	}, nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestBrandRegister_DuplicateEmail(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// First registration
+	brandRegister(t, server, "dup@brand.com", "password1234", "FirstCo")
+	// Second with same email
+	rr := doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
+		"email":        "dup@brand.com",
+		"password":     "password1234",
+		"company_name": "SecondCo",
+	}, nil)
+	if rr.Code != http.StatusConflict {
+		t.Errorf("expected 409, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// --- LogoProxy ---
+
+func TestLogoProxy_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleLogoProxy, "POST", "/api/logo", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestLogoProxy_MissingURL(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	req := httptest.NewRequest("GET", "/api/logo", nil)
+	rr := httptest.NewRecorder()
+	server.handleLogoProxy(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestLogoProxy_InvalidURL(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	req := httptest.NewRequest("GET", "/api/logo?url="+url.QueryEscape("not-a-url"), nil)
+	rr := httptest.NewRecorder()
+	server.handleLogoProxy(rr, req)
+	// Should return 400 or fetch error
+	if rr.Code == http.StatusOK {
+		t.Error("expected non-200 for invalid URL")
+	}
+}
+
+// --- handleBrandDeals routing ---
+
+func TestBrandDeals_InvalidDealID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "deals@brand.com", "password1234", "DealsCo")
+
+	req := httptest.NewRequest("PUT", "/brand/deals/notanumber", bytes.NewBuffer([]byte("{}")))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleBrandDeals(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for non-numeric deal ID, got %d", rr.Code)
+	}
+}
+
+func TestBrandDeals_UnsupportedMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "method@brand.com", "password1234", "MethodCo")
+
+	req := httptest.NewRequest("PATCH", "/brand/deals", bytes.NewBuffer(nil))
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleBrandDeals(rr, req)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for PATCH, got %d", rr.Code)
+	}
+}
+
+func TestBrandDeals_GetEmptyList(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "empty@brand.com", "password1234", "EmptyCo")
+
+	rr := doRequest(server.handleBrandDeals, "GET", "/brand/deals", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	var deals []interface{}
+	json.Unmarshal(rr.Body.Bytes(), &deals)
+	if len(deals) != 0 {
+		t.Errorf("expected empty deals list, got %d", len(deals))
+	}
+}
+
+// =============================================================================
+// Batch 8: PricingTiers, CategoryReport, BrandDigest, BrandDeals routing
+// =============================================================================
+
+func TestPricingTiers_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handlePricingTiers, "POST", "/brand/pricing-tiers", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestPricingTiers_NoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handlePricingTiers, "GET", "/brand/pricing-tiers", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestPricingTiers_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "tiers@brand.com", "password1234", "TiersCo")
+
+	rr := doRequest(server.handlePricingTiers, "GET", "/brand/pricing-tiers", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	// Should return array (may be empty or seeded)
+	var tiers []interface{}
+	json.Unmarshal(rr.Body.Bytes(), &tiers)
+	// Just verify it's a valid JSON array
+	if tiers == nil {
+		t.Error("expected non-nil tiers array")
+	}
+}
+
+func TestCategoryReport_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleCategoryReport, "POST", "/brand/category-report/Dairy", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestCategoryReport_NoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleCategoryReport, "GET", "/brand/category-report/Dairy", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestCategoryReport_MissingCategory(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "cat@brand.com", "password1234", "CatCo")
+
+	req := httptest.NewRequest("GET", "/brand/category-report/", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleCategoryReport(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestCategoryReport_FreeTierBasic(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "free@brand.com", "password1234", "FreeCo")
+
+	req := httptest.NewRequest("GET", "/brand/category-report/Dairy", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleCategoryReport(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	if body["tier"] != "free" {
+		t.Errorf("expected tier=free, got %v", body["tier"])
+	}
+	if body["upgrade_prompt"] == nil {
+		t.Error("expected upgrade_prompt for free tier")
+	}
+}
+
+func TestCategoryReport_PremiumTierFull(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, brandUserID := brandRegister(t, server, "premium@brand.com", "password1234", "PremiumCo")
+
+	// Give premium subscription
+	server.db.Exec("INSERT INTO brand_subscriptions (brand_user_id, tier) VALUES (?, 'premium')", brandUserID)
+
+	req := httptest.NewRequest("GET", "/brand/category-report/Beverages", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleCategoryReport(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	if body["tier"] != "premium" {
+		t.Errorf("expected tier=premium, got %v", body["tier"])
+	}
+	// Premium should have acceptance rate fields
+	if _, ok := body["avg_acceptance_rate"]; !ok {
+		t.Error("expected avg_acceptance_rate in premium report")
+	}
+}
+
+// --- handleBrandDeals full CRUD ---
+
+func TestBrandDeals_CreateAndGet(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "crud@brand.com", "password1234", "CrudCo")
+
+	// Create a deal
+	dealID := createTestDeal(t, server, cookie)
+	if dealID == 0 {
+		t.Fatal("expected non-zero deal ID")
+	}
+
+	// Get deals
+	rr := doRequest(server.handleBrandDeals, "GET", "/brand/deals", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	var deals []interface{}
+	json.Unmarshal(rr.Body.Bytes(), &deals)
+	if len(deals) != 1 {
+		t.Errorf("expected 1 deal, got %d", len(deals))
+	}
+}
+
+func TestBrandDeals_DeleteAndVerify(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "del@brand.com", "password1234", "DelCo")
+
+	dealID := createTestDeal(t, server, cookie)
+
+	// Delete via PUT with status=deleted
+	req := httptest.NewRequest("DELETE", fmt.Sprintf("/brand/deals/%d", dealID), nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleBrandDeals(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("DELETE: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Get deals - should be empty (deleted deals excluded)
+	rr = doRequest(server.handleBrandDeals, "GET", "/brand/deals", nil, []*http.Cookie{cookie})
+	var deals []interface{}
+	json.Unmarshal(rr.Body.Bytes(), &deals)
+	if len(deals) != 0 {
+		t.Errorf("expected 0 deals after delete, got %d", len(deals))
+	}
+}
+
+func TestBrandDeals_UpdateAndVerify(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "upd@brand.com", "password1234", "UpdCo")
+
+	dealID := createTestDeal(t, server, cookie)
+
+	// Update status to paused
+	status := "paused"
+	body, _ := json.Marshal(map[string]interface{}{"status": status})
+	req := httptest.NewRequest("PUT", fmt.Sprintf("/brand/deals/%d", dealID), bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleBrandDeals(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PUT: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify status changed
+	var dbStatus string
+	server.db.QueryRow("SELECT status FROM brand_deals WHERE id = ?", dealID).Scan(&dbStatus)
+	if dbStatus != "paused" {
+		t.Errorf("expected status=paused, got %s", dbStatus)
+	}
+}

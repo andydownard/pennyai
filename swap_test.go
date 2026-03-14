@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 
@@ -2839,3 +2843,290 @@ func TestVerifySwapPurchases_MatchesByBrandName(t *testing.T) {
 // =============================================================================
 // Receipt: Swap Claims Endpoint with Data
 // =============================================================================
+
+
+// =============================================================================
+// handleEarningsUpload TESTS (coverage boost)
+// =============================================================================
+
+func TestEarningsUpload_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _, _, rebateID := setupEarningsTestData(t, server)
+
+	path := fmt.Sprintf("/api/earnings/%d/upload", rebateID)
+	rr := doRequest(server.handleEarnings, "GET", path, nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for GET, got %d", rr.Code)
+	}
+}
+
+func TestEarningsUpload_NoAuthSession(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleEarnings, "POST", "/api/earnings/1/upload", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for no auth, got %d", rr.Code)
+	}
+}
+
+func TestEarningsUpload_InvalidRebateID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559998888")
+
+	// Non-numeric ID
+	req := httptest.NewRequest("POST", "/api/earnings/abc/upload", strings.NewReader("not multipart"))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=xxx")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid rebate ID, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if msg, ok := body["error"].(string); !ok || msg != "Invalid rebate ID" {
+		t.Errorf("expected 'Invalid rebate ID' error, got %v", body["error"])
+	}
+}
+
+func TestEarningsUpload_RebateNotFound(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5559998877")
+
+	req := httptest.NewRequest("POST", "/api/earnings/99999/upload", strings.NewReader("not multipart"))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=xxx")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for nonexistent rebate, got %d", rr.Code)
+	}
+}
+
+func TestEarningsUpload_NotYourRebate(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// Setup rebate owned by one user
+	_, _, _, rebateID := setupEarningsTestData(t, server)
+	// Login as a different user
+	cookie2, _ := loginUser(t, server, "5559998866")
+
+	path := fmt.Sprintf("/api/earnings/%d/upload", rebateID)
+	req := httptest.NewRequest("POST", path, strings.NewReader("not multipart"))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=xxx")
+	req.AddCookie(cookie2)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for wrong owner, got %d", rr.Code)
+	}
+}
+
+func TestEarningsUpload_InvalidMultipart(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _, _, rebateID := setupEarningsTestData(t, server)
+
+	path := fmt.Sprintf("/api/earnings/%d/upload", rebateID)
+	req := httptest.NewRequest("POST", path, strings.NewReader("this is not valid multipart data"))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=xxx")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid multipart, got %d", rr.Code)
+	}
+}
+
+func TestEarningsUpload_MissingFileField(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _, _, rebateID := setupEarningsTestData(t, server)
+
+	// Build a valid multipart form but with wrong field name
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	// Add a field that is NOT "file"
+	fw, err := w.CreateFormField("notfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fw.Write([]byte("some data"))
+	w.Close()
+
+	path := fmt.Sprintf("/api/earnings/%d/upload", rebateID)
+	req := httptest.NewRequest("POST", path, &buf)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing file field, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if msg, ok := body["error"].(string); !ok || msg != "No file provided" {
+		t.Errorf("expected 'No file provided' error, got %v", body["error"])
+	}
+}
+
+func TestEarningsUpload_InvalidFileType(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _, _, rebateID := setupEarningsTestData(t, server)
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	fw, err := w.CreateFormFile("file", "test.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fw.Write([]byte("plain text content"))
+	w.Close()
+
+	path := fmt.Sprintf("/api/earnings/%d/upload", rebateID)
+	req := httptest.NewRequest("POST", path, &buf)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid file type, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if msg, ok := body["error"].(string); !ok || !strings.Contains(msg, "Invalid file type") {
+		t.Errorf("expected 'Invalid file type' error, got %v", body["error"])
+	}
+}
+
+func TestEarningsUpload_RateLimit(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID, _, rebateID := setupEarningsTestData(t, server)
+
+	// Pre-fill the rate limiter with 5 entries
+	val, _ := server.earningsUploadLimiter.LoadOrStore(userID, &rateBucket{})
+	rb := val.(*rateBucket)
+	rb.mu.Lock()
+	now := time.Now()
+	for i := 0; i < 5; i++ {
+		rb.times = append(rb.times, now.Add(-time.Duration(i)*time.Minute))
+	}
+	rb.mu.Unlock()
+
+	path := fmt.Sprintf("/api/earnings/%d/upload", rebateID)
+	req := httptest.NewRequest("POST", path, strings.NewReader("body"))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=xxx")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handleEarnings(rr, req)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("expected 429 for rate limit, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// handleSwapPredictions TESTS (coverage boost)
+// =============================================================================
+
+func TestSwapPredictions_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833") // admin phone
+	rr := doRequest(server.handleSwapPredictions, "POST", "/api/admin/swap-predictions", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for POST, got %d", rr.Code)
+	}
+}
+
+func TestSwapPredictions_NoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleSwapPredictions, "GET", "/api/admin/swap-predictions", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for no auth, got %d", rr.Code)
+	}
+}
+
+func TestSwapPredictions_NonAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551112222") // non-admin
+	rr := doRequest(server.handleSwapPredictions, "GET", "/api/admin/swap-predictions", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+
+func TestSwapPredictions_EmptyResults(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833") // admin
+	rr := doRequest(server.handleSwapPredictions, "GET", "/api/admin/swap-predictions", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	// Response should be a JSON array (possibly null for empty, but valid JSON)
+	var results []interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &results); err != nil {
+		t.Fatalf("expected valid JSON array, got parse error: %v", err)
+	}
+}
+
+func TestSwapPredictions_WithData(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "3104861833") // admin
+
+	// Insert a prediction row with confidence >= 0.3
+	server.db.Exec(`INSERT INTO user_swap_predictions (user_id, category_id, brand, acceptance_rate, total_offers, total_accepts, avg_time_to_action_ms, confidence, computed_at)
+		VALUES (?, 1, 'TestBrand', 0.75, 10, 7, 5000, 0.8, datetime('now'))`, userID)
+
+	rr := doRequest(server.handleSwapPredictions, "GET", "/api/admin/swap-predictions", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var results []map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &results); err != nil {
+		t.Fatalf("expected valid JSON array, got: %v", err)
+	}
+	if len(results) < 1 {
+		t.Fatal("expected at least 1 prediction result")
+	}
+	if results[0]["brand"] != "TestBrand" {
+		t.Errorf("expected brand 'TestBrand', got %v", results[0]["brand"])
+	}
+}
+
+// =============================================================================
+// handleSwapPropagations TESTS (coverage boost)
+// =============================================================================
+
+func TestSwapPropagations_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+	rr := doRequest(server.handleSwapPropagations, "POST", "/api/admin/swap-propagations", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for POST, got %d", rr.Code)
+	}
+}
+
+func TestSwapPropagations_NoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleSwapPropagations, "GET", "/api/admin/swap-propagations", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for no auth, got %d", rr.Code)
+	}
+}
+
+func TestSwapPropagations_NonAdmin(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551113333")
+	rr := doRequest(server.handleSwapPropagations, "GET", "/api/admin/swap-propagations", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+
+func TestSwapPropagations_EmptyResults(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "3104861833")
+	rr := doRequest(server.handleSwapPropagations, "GET", "/api/admin/swap-propagations", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var results []interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &results); err != nil {
+		t.Fatalf("expected valid JSON array, got parse error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected empty array, got %d items", len(results))
+	}
+}

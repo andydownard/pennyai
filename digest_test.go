@@ -371,3 +371,19 @@ func digestPatchSettings(t *testing.T, server *Server, cookie *http.Cookie, body
 		t.Fatalf("PATCH /api/settings returned %d: %s", rr.Code, rr.Body.String())
 	}
 }
+
+
+// --- BrandDigest ---
+
+func TestSendPendingBrandDigests_NoBrandUsers(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	// Should not panic with no brand users
+	server.sendPendingBrandDigests()
+}
+
+func TestSendPendingBrandDigests_UserWithNoDeals(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	brandRegister(t, server, "digest@brand.com", "password1234", "DigestCo")
+	// Should not panic or error — just no digests to send
+	server.sendPendingBrandDigests()
+}

@@ -2521,3 +2521,224 @@ func TestMagicLinkVerify_MethodNotAllowed(t *testing.T) {
 // =============================================================================
 // Brand Transactions
 // =============================================================================
+
+
+// =============================================================================
+// Session CleanExpired and DeleteUserSessions TESTS (50%/57% → target ~80%)
+// =============================================================================
+
+func TestCleanExpired_RemovesExpiredSessions(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5554470001")
+
+	// Insert an expired session directly with SQLite datetime format
+	server.db.Exec(
+		"INSERT INTO sessions (token, user_id, phone_number, auth_method, created_at, expires_at) VALUES ('expired_token', ?, '5554470001', 'phone', datetime('now', '-2 days'), datetime('now', '-1 day'))",
+		userID,
+	)
+
+	// Verify it was inserted
+	var before int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", userID).Scan(&before)
+	if before < 2 {
+		t.Fatalf("Should have at least 2 sessions (login + expired), got %d", before)
+	}
+
+	server.sessions.CleanExpired()
+
+	var after int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", userID).Scan(&after)
+	if after >= before {
+		t.Errorf("CleanExpired should remove expired session: before=%d, after=%d", before, after)
+	}
+}
+
+func TestCleanExpired_KeepsValidSessions(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5554470002")
+
+	// loginUser creates a valid session (30-day expiry)
+	var before int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", userID).Scan(&before)
+
+	server.sessions.CleanExpired()
+
+	var after int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", userID).Scan(&after)
+	if after != before {
+		t.Errorf("Valid sessions should be preserved: before=%d, after=%d", before, after)
+	}
+}
+
+func TestDeleteUserSessions_RemovesAll(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID := loginUser(t, server, "5554470003")
+
+	// Create additional sessions
+	server.sessions.CreateSession(userID, "5554470003", "phone")
+	server.sessions.CreateSession(userID, "5554470003", "phone")
+
+	var before int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", userID).Scan(&before)
+	if before < 2 {
+		t.Fatalf("Should have at least 2 sessions, got %d", before)
+	}
+
+	server.sessions.DeleteUserSessions(userID)
+
+	var after int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", userID).Scan(&after)
+	if after != 0 {
+		t.Errorf("All sessions should be deleted, got %d remaining", after)
+	}
+}
+
+func TestDeleteUserSessions_DoesNotAffectOtherUsers(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, userID1 := loginUser(t, server, "5554470004")
+	_, userID2 := loginUser(t, server, "5554470005")
+
+	server.sessions.DeleteUserSessions(userID1)
+
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", userID2).Scan(&count)
+	if count == 0 {
+		t.Error("Other user's sessions should not be affected")
+	}
+}
+
+
+// =============================================================================
+// Batch 7: Google Auth, PennyInsights, ReferralRedeem, BrandRegister, LogoProxy
+// =============================================================================
+
+func TestGoogleAuth_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleGoogleAuth, "GET", "/auth/google", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestGoogleAuth_MissingCredential(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google", map[string]string{}, nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestGoogleAuth_AudienceMismatch(t *testing.T) {
+	tokenServer := newMockGoogleTokenServer(t, map[string]string{
+		"sub": "sub1", "email": "test@example.com", "email_verified": "true",
+		"name": "Test", "aud": "wrong-client-id",
+	})
+	defer tokenServer.Close()
+
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.GoogleClientID = "correct-client-id"
+	server.googleTokenInfoURL = tokenServer.URL
+
+	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+		map[string]string{"credential": "test-token"}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["error"] != "Invalid token audience" {
+		t.Errorf("expected audience error, got %v", body["error"])
+	}
+}
+
+func TestGoogleAuth_EmailNotVerified(t *testing.T) {
+	testClientID := "test-client-id"
+	tokenServer := newMockGoogleTokenServer(t, map[string]string{
+		"sub": "sub2", "email": "test@example.com", "email_verified": "false",
+		"name": "Test", "aud": testClientID,
+	})
+	defer tokenServer.Close()
+
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.GoogleClientID = testClientID
+	server.googleTokenInfoURL = tokenServer.URL
+
+	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+		map[string]string{"credential": "test-token"}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	if body["error"] != "Email not verified" {
+		t.Errorf("expected email not verified error, got %v", body["error"])
+	}
+}
+
+func TestGoogleAuth_InvalidToken(t *testing.T) {
+	// Token server returns non-200
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error": "invalid_token"}`))
+	}))
+	defer tokenServer.Close()
+
+	server := newTestServer(t, &MockTwilioClient{})
+	server.googleTokenInfoURL = tokenServer.URL
+
+	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+		map[string]string{"credential": "bad-token"}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestGoogleAuth_SuccessfulLogin(t *testing.T) {
+	testClientID := "test-client-id-ok"
+	tokenServer := newMockGoogleTokenServer(t, map[string]string{
+		"sub": "google-sub-ok", "email": "ok@example.com", "email_verified": "true",
+		"name": "OK User", "aud": testClientID,
+	})
+	defer tokenServer.Close()
+
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.GoogleClientID = testClientID
+	server.googleTokenInfoURL = tokenServer.URL
+
+	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+		map[string]string{"credential": "valid-token"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	if body["success"] != true {
+		t.Errorf("expected success=true, got %v", body["success"])
+	}
+	if body["user_id"] == nil {
+		t.Error("expected user_id in response")
+	}
+}
+
+func TestGoogleAuth_MergedAccount(t *testing.T) {
+	testClientID := "test-client-merge"
+	tokenServer := newMockGoogleTokenServer(t, map[string]string{
+		"sub": "google-sub-merge", "email": "merged@example.com", "email_verified": "true",
+		"name": "Merge User", "aud": testClientID,
+	})
+	defer tokenServer.Close()
+
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.GoogleClientID = testClientID
+	server.googleTokenInfoURL = tokenServer.URL
+
+	// Pre-create user with same email (via email/password)
+	server.db.Exec("INSERT INTO users (phone_number, email) VALUES ('', 'merged@example.com')")
+
+	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+		map[string]string{"credential": "merge-token"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := parseJSON(rr)
+	if body["account_merged"] != true {
+		t.Errorf("expected account_merged=true, got %v", body["account_merged"])
+	}
+}

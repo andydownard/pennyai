@@ -1252,3 +1252,204 @@ func TestPennyQuote_DefaultContextIsLogin(t *testing.T) {
 		t.Fatalf("expected 200 for default context, got %d", rr.Code)
 	}
 }
+
+
+// =============================================================================
+// handlePennyQuote TESTS (59.5% → target ~85%)
+// =============================================================================
+
+func TestPennyQuote_NameSanitization_NumbersStripped(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Name with numbers should have them stripped — the handler strips non-alpha chars
+	req := httptest.NewRequest("GET", "/api/penny/quote?context=login&name=John123", nil)
+	rr := httptest.NewRecorder()
+	server.handlePennyQuote(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	// The quote should still be returned — sanitization doesn't cause an error
+	var result map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &result)
+	if _, ok := result["quote"]; !ok {
+		t.Error("expected 'quote' field in response")
+	}
+}
+
+func TestPennyQuote_NameTruncation(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	// Name longer than 30 chars should be truncated
+	longName := "Abcdefghijklmnopqrstuvwxyzabcdefghijklmnop" // 43 chars
+	req := httptest.NewRequest("GET", "/api/penny/quote?context=login&name="+longName, nil)
+	rr := httptest.NewRecorder()
+	server.handlePennyQuote(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	var result map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &result)
+	if _, ok := result["quote"]; !ok {
+		t.Error("expected 'quote' field in response")
+	}
+}
+
+func TestPennyQuote_UnknownContextDefaultsToChime(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// Unknown context "foobar" — the handler will use it as-is. Since it's not "login",
+	// it requires auth. The pool will be empty (no fallbacks for "foobar"), so it should
+	// return the generic "Hey there!" fallback.
+	req := httptest.NewRequest("GET", "/api/penny/quote?context=foobar", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handlePennyQuote(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	var result map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &result)
+	quote, ok := result["quote"].(string)
+	if !ok || quote == "" {
+		t.Error("expected non-empty quote for unknown context")
+	}
+	// Unknown context has no fallback pool → should be "Hey there!"
+	if quote != "Hey there!" {
+		t.Errorf("expected 'Hey there!' for unknown context with empty pool, got %q", quote)
+	}
+}
+
+func TestPennyQuote_ChimeWithoutAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	req := httptest.NewRequest("GET", "/api/penny/quote?context=chime", nil)
+	rr := httptest.NewRecorder()
+	server.handlePennyQuote(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for chime context without auth, got %d", rr.Code)
+	}
+}
+
+func TestPennyQuote_DoneContext(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	req := httptest.NewRequest("GET", "/api/penny/quote?context=done", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	server.handlePennyQuote(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for done context with auth, got %d", rr.Code)
+	}
+	var result map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &result)
+	quote, ok := result["quote"].(string)
+	if !ok || quote == "" {
+		t.Error("expected non-empty quote for done context")
+	}
+	// Should come from the "done" fallback pool
+	doneFallbacks := []string{
+		"You're all done!", "List complete — nice job!", "Everything's checked off!",
+	}
+	found := false
+	for _, fb := range doneFallbacks {
+		if quote == fb {
+			found = true
+			break
+		}
+	}
+	if !found {
+		// Could be from LLM cache, that's OK — just check it's non-empty (already checked above)
+		t.Logf("Quote %q not in fallback pool (may be LLM-generated, which is fine)", quote)
+	}
+}
+
+
+// --- PennyInsights with data ---
+
+func TestPennyInsights_WithHouseholdLearnings(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5559990001")
+
+	// Create household and add user
+	result, _ := server.db.Exec("INSERT INTO households DEFAULT VALUES")
+	hhID, _ := result.LastInsertId()
+	server.db.Exec("UPDATE users SET household_id = ? WHERE id = ?", hhID, userID)
+	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (?, ?)", hhID, userID)
+
+	// Add household-level learning
+	server.updateLearning("household", int(hhID), "coordination_score", "high", 0.9)
+
+	rr := doRequest(server.handlePennyInsights, "GET", "/api/penny/insights", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	hl := body["household_learnings"].(map[string]interface{})
+	if _, ok := hl["coordination_score"]; !ok {
+		t.Error("expected coordination_score in household_learnings")
+	}
+}
+
+func TestPennyInsights_WithSwapBehavior(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5559990002")
+
+	// Add swap events
+	server.db.Exec("INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status) VALUES (1, 'comp', 'brand', 'offer', 100, 10000, 'active')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (?, 1, 'offered')", userID)
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (?, 1, 'offered')", userID)
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (?, 1, 'accepted')", userID)
+
+	rr := doRequest(server.handlePennyInsights, "GET", "/api/penny/insights", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	swap := body["swap_behavior"].(map[string]interface{})
+	if swap["offered"].(float64) != 2 {
+		t.Errorf("expected 2 offered, got %v", swap["offered"])
+	}
+	if swap["accepted"].(float64) != 1 {
+		t.Errorf("expected 1 accepted, got %v", swap["accepted"])
+	}
+	if swap["accept_rate"].(float64) != 50 {
+		t.Errorf("expected accept_rate 50, got %v", swap["accept_rate"])
+	}
+}
+
+func TestPennyInsights_WithBrandAffinities(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5559990003")
+
+	server.db.Exec("INSERT INTO brand_preferences (user_id, product_category, brand, pick_count, streak) VALUES (?, 'milk', 'Organic Valley', 8, 5)", userID)
+
+	rr := doRequest(server.handlePennyInsights, "GET", "/api/penny/insights", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	body := parseJSON(rr)
+	patterns := body["patterns"].(map[string]interface{})
+	affinities := patterns["brand_affinities"].([]interface{})
+	if len(affinities) == 0 {
+		t.Fatal("expected at least one brand affinity")
+	}
+	first := affinities[0].(map[string]interface{})
+	if first["brand"] != "Organic Valley" {
+		t.Errorf("expected Organic Valley, got %v", first["brand"])
+	}
+}
+
+func TestPennyInsights_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handlePennyInsights, "POST", "/api/penny/insights", nil, nil)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}

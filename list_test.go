@@ -3086,3 +3086,54 @@ func TestSharedView_IncludesBrandAndDepartment(t *testing.T) {
 // =============================================================================
 // API CONFIG ENDPOINT TEST
 // =============================================================================
+
+
+// =============================================================================
+// handleStoreSubroute TESTS (55.6% → target ~85%)
+// =============================================================================
+
+func TestStoreSubroute_Prices(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5554460001")
+
+	// Create a store
+	server.db.Exec("INSERT INTO stores (id, name, chain) VALUES (1, 'Test Store', 'TestChain')")
+
+	rr := doRequest(server.handleStoreSubroute, "GET", "/api/stores/1/prices", nil, []*http.Cookie{cookie})
+	// Should route to handleStorePrices (which requires auth)
+	if rr.Code == http.StatusNotFound {
+		t.Error("Should route to prices handler, not 404")
+	}
+}
+
+func TestStoreSubroute_PriceAverages(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5554460002")
+
+	server.db.Exec("INSERT INTO stores (id, name, chain) VALUES (1, 'Test Store', 'TestChain')")
+
+	rr := doRequest(server.handleStoreSubroute, "GET", "/api/stores/1/price-averages", nil, []*http.Cookie{cookie})
+	if rr.Code == http.StatusNotFound {
+		t.Error("Should route to price-averages handler, not 404")
+	}
+}
+
+func TestStoreSubroute_UnknownPath(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5554460003")
+
+	rr := doRequest(server.handleStoreSubroute, "GET", "/api/stores/1/unknown", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Unknown subpath should return 404, got %d", rr.Code)
+	}
+}
+
+func TestStoreSubroute_NoSubpath(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5554460004")
+
+	rr := doRequest(server.handleStoreSubroute, "GET", "/api/stores/1", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("No subpath should return 404, got %d", rr.Code)
+	}
+}

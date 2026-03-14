@@ -3509,3 +3509,57 @@ func TestPlacesDetail_MissingPlaceID(t *testing.T) {
 // =============================================================================
 // A/B Testing Endpoint Tests
 // =============================================================================
+
+
+// =============================================================================
+// handleLeaveHousehold ADDITIONAL TESTS (56.5% → target ~75%)
+// =============================================================================
+
+func TestLeaveHousehold_WrongMethod(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5553330001")
+
+	rr := doRequest(server.handleLeaveHousehold, "GET", "/api/settings/leave-household", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET should return 405, got %d", rr.Code)
+	}
+}
+
+func TestLeaveHousehold_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleLeaveHousehold, "POST", "/api/settings/leave-household", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("No session should return 401, got %d", rr.Code)
+	}
+}
+
+func TestLeaveHousehold_VerifiesNewHousehold(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5553330002")
+
+	// Get current household ID
+	var origHouseholdID int
+	server.db.QueryRow("SELECT COALESCE(household_id, 0) FROM users WHERE id = ?", userID).Scan(&origHouseholdID)
+
+	rr := doRequest(server.handleLeaveHousehold, "POST", "/api/settings/leave-household", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	// Verify user has a new household
+	var newHouseholdID int
+	server.db.QueryRow("SELECT COALESCE(household_id, 0) FROM users WHERE id = ?", userID).Scan(&newHouseholdID)
+	if newHouseholdID == 0 {
+		t.Error("User should have a new household after leaving")
+	}
+	if newHouseholdID == origHouseholdID && origHouseholdID != 0 {
+		t.Error("User should have a DIFFERENT household after leaving")
+	}
+
+	// Verify user is owner of the new household
+	var role string
+	server.db.QueryRow("SELECT role FROM household_members WHERE user_id = ? AND household_id = ?", userID, newHouseholdID).Scan(&role)
+	if role != "owner" {
+		t.Errorf("User should be owner of new household, got role %q", role)
+	}
+}
