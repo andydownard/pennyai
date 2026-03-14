@@ -2091,21 +2091,36 @@ function AppInner() {
     // Name input mode: user typed their name in response to "what should I call you?"
     if (nameInputMode.current && chatText.trim() && pendingImages.length === 0) {
       nameInputMode.current = false
-      const name = chatText.trim()
+      const input = chatText.trim()
       setChatText('')
-      // Save name to backend
-      const parts = name.split(' ')
-      const firstName = parts[0] || ''
-      const lastName = parts.slice(1).join(' ')
-      setSettingsFirstName(firstName)
-      setSettingsLastName(lastName)
-      fetch('/api/settings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      }).catch(() => {})
-      typePennyHome(`Nice to meet you, ${firstName}! Keep adding — I'll sort everything by aisle.`)
-      return
+      // Detect if user typed grocery items instead of their name
+      const groceryWords = new Set(['milk','eggs','bread','butter','cheese','chicken','beef','pork','rice','pasta',
+        'flour','sugar','salt','pepper','oil','water','juice','coffee','tea','cereal','yogurt','cream',
+        'banana','bananas','apple','apples','orange','oranges','tomato','tomatoes','onion','onions',
+        'potato','potatoes','lettuce','spinach','broccoli','carrot','carrots','avocado','avocados',
+        'large','small','medium','organic','frozen','fresh','whole','skim','low','fat','free','diet',
+        'pack','box','bag','can','bottle','gallon','dozen','lb','oz','lbs'])
+      const words = input.toLowerCase().split(/\s+/)
+      const looksLikeGroceries = words.length > 2 || words.every(w => groceryWords.has(w)) || /^\d/.test(input)
+      if (looksLikeGroceries) {
+        // User typed groceries, not their name — route to normal parsing
+        setChatText(input)
+        // Fall through to normal send flow below (nameInputMode already false)
+      } else {
+        // Save name to backend
+        const parts = input.split(' ')
+        const firstName = parts[0] || ''
+        const lastName = parts.slice(1).join(' ')
+        setSettingsFirstName(firstName)
+        setSettingsLastName(lastName)
+        fetch('/api/settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: input }),
+        }).catch(() => {})
+        typePennyHome(`Nice to meet you, ${firstName}! Keep adding — I'll sort everything by aisle.`)
+        return
+      }
     }
 
     // Disambiguation-aware routing: handle brand picks via chat input
@@ -2416,8 +2431,8 @@ function AppInner() {
             localStorage.setItem('ob_name', '1')
             syncOnboardingFlags()
             setTimeout(() => {
-              typePennyHome("What do you need from the store? I'll get your list started.", [
-                { label: 'Skip', onClick: () => typePennyHome("No worries! Just type or paste what you need.") },
+              typePennyHome("By the way, what should I call you?", [
+                { label: 'Skip', onClick: () => { nameInputMode.current = false; typePennyHome("No worries! Just keep adding items.") } },
               ])
               nameInputMode.current = true
             }, 2500)
