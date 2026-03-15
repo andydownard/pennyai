@@ -142,7 +142,7 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 
 	// Branch 3: Text-only — command parser with natural language operations
 	if len(images) == 0 && req.Text != "" {
-		s.handleTextCommand(w, session, req.Text, hhIDs)
+		s.handleTextCommand(w, r, session, req.Text, hhIDs)
 		return
 	}
 
@@ -864,6 +864,28 @@ func (s *Server) broadcastListUpdate(householdID int64, userID int) {
 				// Channel full — skip this client (it will catch up on next event)
 			}
 		} else if householdID == 0 && client.userID == userID {
+			select {
+			case client.ch <- msg:
+			default:
+			}
+		}
+		return true
+	})
+}
+
+// broadcastCommandResult sends a command-result SSE event to a specific user.
+// Used for async command processing — the result of a slow Claude parse is pushed
+// to the client after the HTTP response has already been sent.
+func (s *Server) broadcastCommandResult(userID int, result interface{}) {
+	data, err := json.Marshal(result)
+	if err != nil {
+		log.Printf("[sse] failed to marshal command result: %v", err)
+		return
+	}
+	msg := []byte("event: command-result\ndata: " + string(data) + "\n\n")
+	s.sseClients.Range(func(key, _ any) bool {
+		client := key.(*sseClient)
+		if client.userID == userID {
 			select {
 			case client.ch <- msg:
 			default:

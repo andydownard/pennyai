@@ -579,6 +579,7 @@ function AppInner() {
     nameInputMode,
     typePennyHome,
     handleSendChat,
+    processParseResult,
   } = useChatState({
     // List state
     items, setItems, sortItems,
@@ -1320,6 +1321,16 @@ function AppInner() {
       sseDebounceRef.current = setTimeout(() => {
         reloadList().catch(() => {})
       }, 500)
+    })
+
+    // Async command results — pushed by the server after slow-path parsing completes
+    es.addEventListener('command-result', (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data)
+        processParseResult(data)
+      } catch (err) {
+        console.error('[sse] failed to parse command-result:', err)
+      }
     })
 
     es.onerror = () => {

@@ -386,7 +386,7 @@ func isSimpleAddInput(text string) bool {
 }
 
 // handleTextCommand processes natural language text commands via Claude parsing.
-func (s *Server) handleTextCommand(w http.ResponseWriter, session Session, text string, hhIDs []int) {
+func (s *Server) handleTextCommand(w http.ResponseWriter, r *http.Request, session Session, text string, hhIDs []int) {
 	start := time.Now()
 
 	// --- FAST PATH: simple grocery items bypass the full command parser ---
@@ -446,7 +446,37 @@ func (s *Server) handleTextCommand(w http.ResponseWriter, session Session, text 
 	}
 
 	// --- FULL PATH: commands, searches, updates, etc. ---
+	// If the client requests async processing (has SSE connection), return 202
+	// immediately and process in the background. Otherwise process synchronously.
+	wantAsync := r.Header.Get("X-Async") == "1"
+	if wantAsync {
+		writeJSON(w, http.StatusAccepted, ParseResponse{
+			Action:  "processing",
+			Message: "Working on it...",
+			Items:   []ListItem{},
+			Skipped: []SkippedItem{},
+		})
+		go s.executeSlowPathCommand(session, text, hhIDs, start)
+		return
+	}
 
+	// Synchronous path (tests, SMS/email webhooks, clients without SSE)
+	resp := s.buildSlowPathResponse(session, text, hhIDs, start)
+	writeJSON(w, http.StatusCreated, resp)
+	go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
+}
+
+// executeSlowPathCommand runs the full Claude command parser in the background
+// and pushes the result to the client via SSE.
+func (s *Server) executeSlowPathCommand(session Session, text string, hhIDs []int, start time.Time) {
+	resp := s.buildSlowPathResponse(session, text, hhIDs, start)
+	s.broadcastCommandResult(session.UserID, resp)
+	s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
+}
+
+// buildSlowPathResponse runs the full Claude command parser and returns the response.
+// Used by both sync (HTTP 201) and async (SSE push) paths.
+func (s *Server) buildSlowPathResponse(session Session, text string, hhIDs []int, start time.Time) ParseResponse {
 	// Get current list items so the LLM can reference them
 	whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID, hhIDs)
 	rows, err := s.db.Query(
@@ -455,13 +485,13 @@ func (s *Server) handleTextCommand(w http.ResponseWriter, session Session, text 
 	)
 	var currentItems []ListItem
 	if err == nil {
-		defer rows.Close()
 		for rows.Next() {
 			item, err := scanListItem(rows)
 			if err == nil {
 				currentItems = append(currentItems, item)
 			}
 		}
+		rows.Close()
 	}
 
 	// Get user name for personalized messages
@@ -720,9 +750,14 @@ func (s *Server) handleTextCommand(w http.ResponseWriter, session Session, text 
 	if resp.Skipped == nil {
 		resp.Skipped = []SkippedItem{}
 	}
+	if resp.Items == nil {
+		resp.Items = []ListItem{}
+	}
+	if resp.Skipped == nil {
+		resp.Skipped = []SkippedItem{}
+	}
 	log.Printf("[parse] full-path for user %d: %q → action=%s in %v", session.UserID, text, resp.Action, time.Since(start))
-	writeJSON(w, http.StatusCreated, resp)
-	go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
+	return resp
 }
 
 // handleImageParse processes image-based item parsing requests.
