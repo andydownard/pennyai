@@ -73,6 +73,12 @@ func (s *Server) handleNPS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Rate limit: max 3 NPS submissions per user per hour
+	if checkRateLimitBucket(&s.npsSubmitLimiter, session.UserID, time.Hour, 3) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Too many submissions — try again later."})
+		return
+	}
+
 	var req struct {
 		Score   int    `json:"score"`
 		Comment string `json:"comment"`

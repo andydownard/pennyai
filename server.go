@@ -489,6 +489,7 @@ Get these from https://console.twilio.com (see README for full setup).
 			pruneTimeLimiter(&server.passwordResetIPLimiter, 15*time.Minute)
 			pruneBucketLimiter(&server.parseLimiter, time.Hour)
 			pruneBucketLimiter(&server.earningsUploadLimiter, time.Hour)
+			pruneBucketLimiter(&server.npsSubmitLimiter, time.Hour)
 		}
 	}()
 

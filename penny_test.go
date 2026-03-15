@@ -538,6 +538,27 @@ func TestNPSDismiss_Idempotent(t *testing.T) {
 	}
 }
 
+func TestNPS_RateLimited(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Pre-fill the rate limiter with 3 entries (max allowed)
+	val, _ := server.npsSubmitLimiter.LoadOrStore(userID, &rateBucket{})
+	rb := val.(*rateBucket)
+	rb.mu.Lock()
+	now := time.Now()
+	for i := 0; i < 3; i++ {
+		rb.times = append(rb.times, now.Add(-time.Duration(i)*time.Minute))
+	}
+	rb.mu.Unlock()
+
+	body := map[string]interface{}{"score": 8, "comment": "great"}
+	rr := doRequest(server.handleNPS, "POST", "/api/nps", body, []*http.Cookie{cookie})
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("Expected 429 rate limited, got %d", rr.Code)
+	}
+}
+
 // =============================================================================
 // AVATAR TESTS
 // =============================================================================

@@ -202,6 +202,8 @@ type Server struct {
 	passwordResetIPLimiter sync.Map
 	// Per-user earnings upload rate limiter: userID -> *rateBucket (5 uploads/hour)
 	earningsUploadLimiter sync.Map
+	// Per-user NPS submit rate limiter: userID -> *rateBucket (3 submissions/hour)
+	npsSubmitLimiter sync.Map
 
 	// googleTokenInfoURL overrides the Google tokeninfo endpoint (for testing).
 	// When empty, defaults to "https://oauth2.googleapis.com/tokeninfo".
