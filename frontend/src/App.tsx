@@ -1490,10 +1490,10 @@ function AppInner() {
   satDate.setDate(satDate.getDate() + (6 - satDate.getDay() || 7))
   const satStr = fmtDate(satDate)
 
-  // Show Penny chime-in when a household member has a trip planned
+  // Show Penny chime-in when a household member has a trip planned (only for users who have added items)
   const tripChimeShown = useRef(false)
   useEffect(() => {
-    if (tripChimeShown.current) return
+    if (tripChimeShown.current || !hasEverAddedItems) return
     const othersTrips = activeTrips.filter(t => !t.is_mine)
     if (othersTrips.length > 0) {
       tripChimeShown.current = true
@@ -3088,8 +3088,8 @@ function AppInner() {
       </div>
 
 
-      {/* Trip planner suggestion — once per session, 5+ unchecked items, no active trip */}
-      {!tripSuggestionDismissed && activeTrips.length === 0 && items.filter(i => !i.checked).length >= 5 && (
+      {/* Trip planner suggestion — once per session, 5+ unchecked items, no active trip, not for brand-new users */}
+      {hasEverAddedItems && !tripSuggestionDismissed && activeTrips.length === 0 && items.filter(i => !i.checked).length >= 5 && (
         <div style={{
           flexShrink: 0, padding: '8px 16px', backgroundColor: 'var(--surface)',
           borderTop: '1px solid var(--border)',
