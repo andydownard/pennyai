@@ -120,3 +120,7 @@ _Submitted: 2026-03-15 13:29 UTC_
 ## [NORMAL] 2026-03-15 13:29 UTC
 [Brand Portal] have the same share button on this as the consumer side.  let folks share it to their team, and share it to anyone
 _Submitted: 2026-03-15 13:29 UTC_
+
+## [NORMAL] 2026-03-15 13:30 UTC
+[Brand Portal] when i create a deal, let me copylink to send it in klayvio to my current customer base.  those share links are embedded with my cell# so I get affiliate credit for users signed through it
+_Submitted: 2026-03-15 13:30 UTC_
