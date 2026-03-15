@@ -11,10 +11,10 @@ interface HelpScreenProps {
 
 const faqs = [
   { q: 'How do I share my list with someone?', a: 'Go to Share & Earn from the menu. Tap "Invite to Household" to generate an invite link. Anyone who opens it can join your shared list.' },
-  { q: 'How do Penny\'s swaps work?', a: 'When you add an item, Penny may suggest a swap from a brand partner. If you accept, the brand covers part of the cost. You can always decline — no pressure!' },
+  { q: 'How do Penny\'s deals work?', a: 'When you add an item, Penny may suggest a deal from a brand partner. If you accept, the brand covers part of the cost. You can always decline — no pressure!' },
   { q: 'How do I add items via text message?', a: 'Text your grocery items to Penny\'s number (you can find it in the Penny settings screen). She\'ll parse your message and add them to your list automatically.' },
   { q: 'How do I save a list for later?', a: 'Just ask Penny! Say something like "save this as my weekly groceries" in the Penny chat. You can load saved lists later by asking Penny "what lists do I have?"' },
-  { q: 'How do I delete my account?', a: 'Email us at support@thrift.ly and we\'ll take care of it within 48 hours. We\'ll delete all your data permanently.' },
+  { q: 'How do I delete my account?', a: 'Email support@thrift.ly and I\'ll take care of it within 48 hours. All your data will be permanently deleted.' },
 ]
 
 export function HelpScreen({
@@ -117,7 +117,7 @@ export function HelpScreen({
               Report a Bug
             </h2>
             <p style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', marginBottom: '16px' }}>
-              Found something that doesn't look right? Let us know and we'll fix it.
+              Found something that doesn't look right? Let me know and I'll fix it.
             </p>
             {bugSubmitted ? (
               <div style={{
@@ -125,7 +125,7 @@ export function HelpScreen({
                 backgroundColor: 'color-mix(in srgb, var(--brand) 6%, transparent)', textAlign: 'center',
               }}>
                 <p style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 500, color: 'var(--brand)' }}>
-                  Thanks for your report! We'll look into it.
+                  Thanks for your report! I'll look into it.
                 </p>
                 <button
                   onClick={() => setBugSubmitted(false)}

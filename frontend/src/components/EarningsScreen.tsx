@@ -177,10 +177,10 @@ export function EarningsScreen({ onViewReceipts, onGoToList }: EarningsScreenPro
         }}>
           <PennyAvatar size={48} />
           <div style={{ ...text.heading, fontSize: FONT_MD, textAlign: 'center' }}>
-            Swap and get paid. No one else does this.
+            Try a deal and get paid. No one else does this.
           </div>
           <div style={{ ...text.secondary, textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
-            Brands pay to reach you. When you swap, we share that revenue with you — real money, every time.
+            Brands pay to reach you. When you try a deal, I share that revenue with you — real money, every time.
           </div>
           {onGoToList && (
             <button
@@ -195,7 +195,7 @@ export function EarningsScreen({ onViewReceipts, onGoToList }: EarningsScreenPro
             </button>
           )}
           <div style={{ ...text.caption, textAlign: 'center' }}>
-            Swap suggestions appear when you add items to your list
+            Deal suggestions appear when you add items to your list
           </div>
         </div>
       ) : (
@@ -214,7 +214,7 @@ export function EarningsScreen({ onViewReceipts, onGoToList }: EarningsScreenPro
                   </div>
                   {tx.competitor_product && (
                     <div style={{ ...text.caption, marginTop: '2px' }}>
-                      Swapped from {tx.competitor_product}
+                      Switched from {tx.competitor_product}
                     </div>
                   )}
                   <div style={{ fontFamily: FONT, fontSize: '0.6875rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
@@ -272,7 +272,7 @@ export function EarningsScreen({ onViewReceipts, onGoToList }: EarningsScreenPro
           ...text.caption, textAlign: 'center',
           padding: '16px 0 8px', lineHeight: '1.5',
         }}>
-          Brands pay to reach you — we share the revenue. No other grocery app does this. Payouts sent monthly via Venmo.
+          Brands pay to reach you — I share the savings with you. No other grocery app does this. Payouts sent monthly via Venmo.
         </div>
       )}
 

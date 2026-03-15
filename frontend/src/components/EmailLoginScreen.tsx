@@ -75,7 +75,7 @@ export function EmailLoginScreen({
         </div>
 
         {error && <p role="alert" style={{ ...authStyles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
-        {magicLinkSent && <p style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--brand)', fontWeight: 500, width: '100%', textAlign: 'left' as const, marginBottom: '12px' }}>We sent a sign-in link to your email — check your inbox!</p>}
+        {magicLinkSent && <p style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--brand)', fontWeight: 500, width: '100%', textAlign: 'left' as const, marginBottom: '12px' }}>I sent a sign-in link to your email — check your inbox!</p>}
 
         <button
           onClick={onLogin}
