@@ -101,7 +101,7 @@ const chatBarStyle: React.CSSProperties = {
   paddingBottom: '6px',
   backgroundColor: 'var(--surface)',
   borderTop: '1.5px solid var(--border)',
-  boxShadow: '0 -2px 12px rgba(0,0,0,0.06)',
+  boxShadow: '0 -1px 4px rgba(0,0,0,0.03)',
 }
 
 const chatPillStyle: React.CSSProperties = {
@@ -186,7 +186,7 @@ export function PennyBar({
   return (
     <>
       {/* Penny text + brand disambiguation */}
-      <div style={{ flexShrink: 0, backgroundColor: bgColor, borderTop: '1px solid var(--border)', overflow: 'hidden' }}>
+      <div role="region" aria-label="Penny assistant" style={{ flexShrink: 0, backgroundColor: bgColor, borderTop: '1px solid var(--border)', overflow: 'hidden', boxShadow: '0 -4px 16px rgba(0,0,0,0.08)', position: 'relative' as const, zIndex: 2 }}>
         {!hidePennyText && (
         <div style={{ padding: keyboardOpen ? '4px 12px' : '8px 14px', transition: 'padding 200ms ease' }}>
           <div style={layout.rowGap}>

@@ -6,7 +6,6 @@ interface HelpScreenProps {
   showToast: (msg: string, type?: 'success' | 'error') => void
   onSessionExpired: () => void
   renderHeader: () => React.ReactNode
-  renderBottomTabs: () => React.ReactNode
   transitionStyle: React.CSSProperties
 }
 
@@ -20,7 +19,7 @@ const faqs = [
 
 export function HelpScreen({
   showToast, onSessionExpired,
-  renderHeader, renderBottomTabs, transitionStyle,
+  renderHeader, transitionStyle,
 }: HelpScreenProps) {
   const [openFaq, setOpenFaq] = useState<number | null>(null)
   const [bugDescription, setBugDescription] = useState('')
@@ -177,7 +176,6 @@ export function HelpScreen({
 
         </div>
       </div>
-      {renderBottomTabs()}
     </div>
     </ScreenTransition>
   )

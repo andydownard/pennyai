@@ -25,7 +25,6 @@ interface ShareScreenProps {
   closeConfirmModal: () => void
   renderHeader: () => React.ReactNode
   renderToast: () => React.ReactNode
-  renderBottomTabs: () => React.ReactNode
   transitionStyle: React.CSSProperties
 }
 
@@ -39,7 +38,7 @@ export function ShareScreen({
   referralCode, referralFriends, settingsMembers, inviteLoading,
   confirmModal, onInvite, onLeaveHousehold, onShareList, onShareReferral, onCopyReferral,
   onShowToast, runConfirmAction, closeConfirmModal,
-  renderHeader, renderToast, renderBottomTabs, transitionStyle,
+  renderHeader, renderToast, transitionStyle,
 }: ShareScreenProps) {
   const qrCanvasRef = useRef<HTMLDivElement>(null)
 
@@ -286,7 +285,6 @@ export function ShareScreen({
         </div>
       </div>
       {renderToast()}
-      {renderBottomTabs()}
     </div>
     </ScreenTransition>
   )

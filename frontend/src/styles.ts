@@ -56,7 +56,7 @@ export const THEME_CSS = `
     --neutral-bg: #E5E7EB;
     --skeleton: #E8E6E1;
     --skeleton-shimmer: #F2F1ED;
-    --penny-bg: #F5F3EF;
+    --penny-bg: #EFECE5;
     --checkbox-border: #6B7280;
     color-scheme: light;
   }

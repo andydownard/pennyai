@@ -1,0 +1,149 @@
+import { PennyAvatar } from './PennyAvatar'
+import { FONT, FONT_BASE, FONT_SM, FONT_2XS } from '../styles'
+
+export type NavScreen = 'home' | 'penny' | 'settings-share' | 'profile' | 'admin'
+
+interface NavMenuProps {
+  open: boolean
+  active: NavScreen
+  isAdmin?: boolean
+  onNavigate: (screen: NavScreen) => void
+  onClose: () => void
+}
+
+const menuItems: { key: NavScreen; label: string; icon: (color: string) => JSX.Element }[] = [
+  {
+    key: 'home', label: 'Shopping List',
+    icon: (c) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>,
+  },
+  {
+    key: 'penny', label: 'Penny',
+    icon: () => <PennyAvatar size={20} />,
+  },
+  {
+    key: 'settings-share', label: 'Share & Earn',
+    icon: (c) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>,
+  },
+  {
+    key: 'profile', label: 'Profile',
+    icon: (c) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
+  },
+]
+
+const adminItem: typeof menuItems[0] = {
+  key: 'admin', label: 'Dashboard',
+  icon: (c) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/></svg>,
+}
+
+export function NavMenu({ open, active, isAdmin, onNavigate, onClose }: NavMenuProps) {
+  if (!open) return null
+
+  const items = isAdmin ? [...menuItems, adminItem] : menuItems
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9500,
+        backgroundColor: 'rgba(0,0,0,0.3)',
+        transition: 'opacity 150ms ease',
+      }}
+      onClick={onClose}
+    >
+      <nav
+        style={{
+          position: 'absolute', top: 0, left: 0, bottom: 0,
+          width: '260px', maxWidth: '75vw',
+          backgroundColor: 'var(--surface)',
+          boxShadow: '4px 0 20px rgba(0,0,0,0.15)',
+          padding: 'env(safe-area-inset-top, 16px) 0 env(safe-area-inset-bottom, 16px)',
+          display: 'flex', flexDirection: 'column',
+          animation: 'slideInMenu 200ms ease',
+        }}
+        onClick={e => e.stopPropagation()}
+        aria-label="Main navigation"
+      >
+        {/* Brand header */}
+        <div style={{
+          padding: '20px 20px 16px',
+          borderBottom: '1px solid var(--border)',
+        }}>
+          <span style={{
+            fontFamily: FONT, fontSize: '1.25rem', fontWeight: 700,
+            color: 'var(--brand)', letterSpacing: '-0.5px',
+          }}>thriftly</span>
+          <p style={{
+            fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)',
+            margin: '4px 0 0',
+          }}>Penny AI grocery list</p>
+        </div>
+
+        {/* Nav items */}
+        <div style={{ flex: 1, padding: '8px 0', overflowY: 'auto' }}>
+          {items.map(item => {
+            const isActive = active === item.key
+            return (
+              <button
+                key={item.key}
+                onClick={() => { onNavigate(item.key); onClose() }}
+                aria-current={isActive ? 'page' : undefined}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '14px',
+                  width: '100%', padding: '14px 20px',
+                  fontFamily: FONT, fontSize: FONT_BASE, fontWeight: isActive ? 600 : 400,
+                  color: isActive ? 'var(--brand)' : 'var(--text)',
+                  backgroundColor: isActive ? 'var(--bg)' : 'transparent',
+                  border: 'none', cursor: 'pointer',
+                  textAlign: 'left',
+                  borderLeft: isActive ? '3px solid var(--brand)' : '3px solid transparent',
+                }}
+              >
+                {item.icon(isActive ? 'var(--brand)' : 'var(--text-secondary)')}
+                {item.label}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Close hint */}
+        <div style={{
+          padding: '12px 20px',
+          borderTop: '1px solid var(--border)',
+        }}>
+          <span style={{
+            fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)',
+          }}>Tap outside to close</span>
+        </div>
+      </nav>
+
+      {/* Slide-in animation */}
+      <style>{`
+        @keyframes slideInMenu {
+          from { transform: translateX(-100%); }
+          to { transform: translateX(0); }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+/** Hamburger icon button for the header */
+export function HamburgerButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label="Open navigation menu"
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minWidth: '44px', minHeight: '44px',
+        padding: 0, background: 'none', border: 'none', cursor: 'pointer',
+        marginLeft: '-8px', marginRight: '4px',
+      }}
+    >
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--text)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="3" y1="6" x2="21" y2="6"/>
+        <line x1="3" y1="12" x2="21" y2="12"/>
+        <line x1="3" y1="18" x2="21" y2="18"/>
+      </svg>
+    </button>
+  )
+}

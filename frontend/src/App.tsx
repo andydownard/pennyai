@@ -6,6 +6,7 @@
 // =============================================================================
 
 import React, { useState, useRef, useEffect, useCallback, Suspense, lazy } from 'react'
+import { QRCodeCanvas } from 'qrcode.react'
 import { fetchAPI, fetchAction, setSessionExpiredHandler } from './api'
 import { useToast } from './hooks/useToast'
 import { useConfirmModal } from './hooks/useConfirmModal'
@@ -31,7 +32,7 @@ import { ItemEditSheet } from './components/ItemEditSheet'
 import { ReviewSheet } from './components/ReviewSheet'
 import { WrappedCard } from './components/WrappedCard'
 import { MilestoneCard } from './components/MilestoneCard'
-import { BottomTabBar, type TabScreen } from './components/BottomTabBar'
+import { NavMenu, HamburgerButton, type NavScreen } from './components/NavMenu'
 import { ScreenTransition, useScreenTransition } from './components/ScreenTransition'
 import { PhoneScreen } from './components/PhoneScreen'
 import { CodeScreen } from './components/CodeScreen'
@@ -273,6 +274,7 @@ const haptic = {
 function AppInner() {
   // --- State ---
   const [screen, setScreenRaw] = useState<Screen>('phone')
+  const [navMenuOpen, setNavMenuOpen] = useState(false)
   const scrollPositions = useRef<Record<string, number>>({})
   const listAreaRef = useRef<HTMLDivElement>(null)
   const navigatingBack = useRef(false)
@@ -2142,20 +2144,23 @@ function AppInner() {
     </>
   )
 
-  const getActiveTab = (s: Screen): TabScreen => {
+  const getActiveNav = (s: Screen): NavScreen => {
     switch (s) {
       case 'home': case 'earnings': case 'receipts': return 'home'
       case 'penny': return 'penny'
       case 'settings-share': return 'settings-share'
+      case 'admin': return 'admin'
       default: return 'profile'
     }
   }
 
-  const renderBottomTabs = () => (
-    <BottomTabBar
-      active={getActiveTab(screen)}
-      onNavigate={setScreen}
-      swapCount={Object.keys(swapsByItemId).length}
+  const renderNavMenu = () => (
+    <NavMenu
+      open={navMenuOpen}
+      active={getActiveNav(screen)}
+      isAdmin={isAdmin}
+      onNavigate={(s) => setScreen(s as Screen)}
+      onClose={() => setNavMenuOpen(false)}
     />
   )
 
@@ -2213,8 +2218,8 @@ function AppInner() {
     const isSubScreen = SUB_SCREENS.includes(active)
     return (
       <div style={{ flexShrink: 0, backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ ...layout.row, padding: '16px 20px' }}>
-          {isSubScreen && (
+        <div style={{ ...layout.row, padding: '12px 20px' }}>
+          {isSubScreen ? (
             <button
               onClick={() => setScreen(active === 'earnings' || active === 'receipts' ? 'home' : active === 'admin' ? 'profile' : 'profile')}
               aria-label="Back"
@@ -2224,6 +2229,8 @@ function AppInner() {
                 <polyline points="15 18 9 12 15 6"/>
               </svg>
             </button>
+          ) : (
+            <HamburgerButton onClick={() => setNavMenuOpen(true)} />
           )}
           <span style={{
             fontFamily: FONT,
@@ -2255,7 +2262,7 @@ function AppInner() {
 
   if (screen === 'penny') {
     return withFeedbackFAB(
-      <PennySettingsScreen
+      <><PennySettingsScreen
         pennyPhone={settingsPennyPhone}
         pennySlider={pennySlider}
         pennyAutotune={pennyAutotune}
@@ -2271,9 +2278,11 @@ function AppInner() {
         track={track}
         renderHeader={() => renderPageHeader('Penny', 'penny')}
         renderToast={renderPennyToast}
-        renderBottomTabs={renderBottomTabs}
+
         transitionStyle={transitionStyle}
       />
+      {renderNavMenu()}
+      </>
     )
   }
 
@@ -2283,7 +2292,7 @@ function AppInner() {
 
   if (screen === 'profile') {
     return withFeedbackFAB(
-      <ProfileScreen
+      <><ProfileScreen
         firstName={settingsFirstName}
         lastName={settingsLastName}
         email={settingsEmail}
@@ -2308,9 +2317,11 @@ function AppInner() {
         darkMode={darkMode}
         onToggleDarkMode={toggleDarkMode}
         renderHeader={() => renderPageHeader('Profile', 'profile')}
-        renderBottomTabs={renderBottomTabs}
+
         transitionStyle={transitionStyle}
       />
+      {renderNavMenu()}
+      </>
     )
   }
 
@@ -2320,13 +2331,15 @@ function AppInner() {
 
   if (screen === 'help') {
     return withFeedbackFAB(
-      <HelpScreen
+      <><HelpScreen
         showToast={showToast}
         onSessionExpired={handleSessionExpired}
         renderHeader={() => renderPageHeader('Help', 'help')}
-        renderBottomTabs={renderBottomTabs}
+
         transitionStyle={transitionStyle}
       />
+      {renderNavMenu()}
+      </>
     )
   }
 
@@ -2395,7 +2408,7 @@ function AppInner() {
         closeConfirmModal={closeConfirmModal}
         renderHeader={() => renderPageHeader('Share & Earn', 'settings-share')}
         renderToast={renderPennyToast}
-        renderBottomTabs={renderBottomTabs}
+
         transitionStyle={transitionStyle}
       />
       {showInviteSheet && (
@@ -2432,8 +2445,23 @@ function AppInner() {
             {/* Divider */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '20px 0' }}>
               <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--border)' }} />
-              <span style={{ fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '13px', color: 'var(--text-secondary)' }}>or</span>
+              <span style={{ fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '13px', color: 'var(--text-secondary)' }}>or scan to join</span>
               <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--border)' }} />
+            </div>
+
+            {/* QR code for sharing */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '8px 0 16px' }}>
+              <QRCodeCanvas
+                value={`https://app.thrift.ly/r/${referralCode}?via=qr`}
+                size={160}
+                level="M"
+                marginSize={2}
+                fgColor="#35644F"
+                bgColor="transparent"
+              />
+              <p style={{ fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '8px', textAlign: 'center' }}>
+                Scan with phone camera to join your list
+              </p>
             </div>
 
             {/* Share link fallback */}
@@ -2451,6 +2479,7 @@ function AppInner() {
           </div>
         </div>
       )}
+      {renderNavMenu()}
       </>
     )
   }
@@ -2462,14 +2491,16 @@ function AppInner() {
 
   if (screen === 'admin') {
     return withFeedbackFAB(
-      <AdminScreen
+      <><AdminScreen
 
         showToast={showToast}
         renderHeader={() => renderPageHeader('Dashboard', 'admin')}
         renderToast={renderPennyToast}
-        renderBottomTabs={renderBottomTabs}
+
         transitionStyle={transitionStyle}
       />
+      {renderNavMenu()}
+      </>
     )
   }
 
@@ -2506,7 +2537,7 @@ function AppInner() {
             onGoToList={() => setScreen('home')}
           />
         </div>
-        {renderBottomTabs()}
+        {renderNavMenu()}
       </div>
       {showWrapped && <WrappedCard onClose={() => setShowWrapped(false)} />}
       {milestoneData && <MilestoneCard milestone={milestoneData} onClose={() => setMilestoneData(null)} />}
@@ -2532,7 +2563,7 @@ function AppInner() {
             }}
           />
         </div>
-        {renderBottomTabs()}
+        {renderNavMenu()}
       </div>
       </ScreenTransition>
     )
@@ -2565,11 +2596,8 @@ function AppInner() {
       <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
       {/* Fixed header — compact */}
       <div style={{ flexShrink: 0, backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ ...layout.row, padding: '16px 20px', position: 'relative' }}>
-          <span
-            style={{ ...listStyles.headerWordmark, cursor: 'pointer', fontSize: FONT_LG, fontWeight: 700 }}
-            onClick={() => setScreen('home')}
-          >thriftly</span>
+        <div style={{ ...layout.row, padding: '12px 20px' }}>
+          <HamburgerButton onClick={() => setNavMenuOpen(true)} />
           {editingListName ? (
             <input
               autoFocus
@@ -2590,19 +2618,15 @@ function AppInner() {
               maxLength={40}
               placeholder="Shopping List"
               style={{
-                position: 'absolute', left: '50%', transform: 'translateX(-50%)',
                 fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--text)',
                 background: 'transparent', border: 'none', borderBottom: '1.5px solid var(--brand)',
-                outline: 'none', textAlign: 'center', width: '160px', padding: '2px 0',
+                outline: 'none', width: '160px', padding: '2px 0',
               }}
             />
           ) : (
             <span
               onClick={() => { setListNameDraft(listName); setEditingListName(true) }}
               style={{
-                position: 'absolute',
-                left: '50%',
-                transform: 'translateX(-50%)',
                 fontFamily: FONT,
                 fontSize: FONT_BASE,
                 fontWeight: 600,
@@ -3144,7 +3168,7 @@ function AppInner() {
         chatInputRef={chatInputRef}
       />
 
-      {renderBottomTabs()}
+      {renderNavMenu()}
 
       {/* Trip planner bottom sheet */}
       {showTripSheet && (

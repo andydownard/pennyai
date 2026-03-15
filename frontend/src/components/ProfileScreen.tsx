@@ -38,8 +38,6 @@ interface ProfileScreenProps {
   onToggleDarkMode: () => void
   // Header render prop
   renderHeader: () => React.ReactNode
-  // Bottom tabs render prop
-  renderBottomTabs: () => React.ReactNode
   // Transition
   transitionStyle: React.CSSProperties
 }
@@ -52,7 +50,7 @@ export function ProfileScreen({
   onNavigate, onLogout, showToast, onSessionExpired,
   placesReady,
   darkMode, onToggleDarkMode,
-  renderHeader, renderBottomTabs, transitionStyle,
+  renderHeader, transitionStyle,
 }: ProfileScreenProps) {
   // Avatar state (profile-only)
   const [avatarVersion, setAvatarVersion] = useState(0)
@@ -458,7 +456,6 @@ export function ProfileScreen({
         </div>
       </div>
 
-      {renderBottomTabs()}
     </div>
     </ScreenTransition>
   )

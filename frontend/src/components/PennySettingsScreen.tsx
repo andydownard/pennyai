@@ -21,7 +21,6 @@ interface PennySettingsScreenProps {
   track: (event: string, props?: Record<string, unknown>) => void
   renderHeader: () => React.ReactNode
   renderToast: () => React.ReactNode
-  renderBottomTabs: () => React.ReactNode
   transitionStyle: React.CSSProperties
 }
 
@@ -29,7 +28,7 @@ export function PennySettingsScreen({
   pennyPhone, pennySlider, pennyAutotune, pennyDeals, storeOrderEnabled, dailyDigestEnabled,
   onSliderChange, onAutotuneToggle, onDealsToggle, onStoreOrderToggle, onDailyDigestToggle,
   track,
-  renderHeader, renderToast, renderBottomTabs, transitionStyle,
+  renderHeader, renderToast, transitionStyle,
 }: PennySettingsScreenProps) {
   const sliderSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [showInsights, setShowInsights] = useState(false)
@@ -215,7 +214,6 @@ export function PennySettingsScreen({
         </div>
       </div>
       {renderToast()}
-      {renderBottomTabs()}
     </div>
     </ScreenTransition>
   )

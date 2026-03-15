@@ -24,7 +24,6 @@ interface AdminScreenProps {
   showToast: (msg: string, type?: 'success' | 'error') => void
   renderHeader: () => React.ReactNode
   renderToast: () => React.ReactNode
-  renderBottomTabs: () => React.ReactNode
   transitionStyle: React.CSSProperties
 }
 
@@ -38,7 +37,7 @@ const TABS: { key: AdminTab; label: string }[] = [
 ]
 
 export function AdminScreen({
-  showToast, renderHeader, renderToast, renderBottomTabs, transitionStyle,
+  showToast, renderHeader, renderToast, transitionStyle,
 }: AdminScreenProps) {
   const [adminDays, setAdminDays] = useState(30)
   const [adminData, setAdminData] = useState<AdminData | null>(null)
@@ -243,7 +242,6 @@ export function AdminScreen({
         )}
       </div>
       {renderToast()}
-      {renderBottomTabs()}
       {deepDiveDealId !== null && (
         <BrandDealDeepDive dealId={deepDiveDealId} onClose={() => setDeepDiveDealId(null)} />
       )}
