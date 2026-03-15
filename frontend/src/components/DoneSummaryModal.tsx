@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { fetchAPI } from '../api'
 import { FONT, FONT_XS, FONT_BASE, FONT_XL, layout, buttons, text } from '../styles'
 import type { ListItem } from './ItemRow'
@@ -27,6 +28,17 @@ export function DoneSummaryModal({
   handleCancelTrip, handleClearList, onClose, onFinish, onSnapReceipt,
   hasSwapsToClaim,
 }: DoneSummaryModalProps) {
+  // Focus-restore: capture trigger element on mount, restore on unmount
+  const triggerRef = useRef<Element | null>(null)
+  useEffect(() => {
+    triggerRef.current = document.activeElement
+    return () => {
+      if (triggerRef.current && triggerRef.current instanceof HTMLElement) {
+        triggerRef.current.focus()
+      }
+    }
+  }, [])
+
   const tripDuration = (() => {
     if (!data.tripStartedAt) return null
     const startTime = new Date(data.tripStartedAt)

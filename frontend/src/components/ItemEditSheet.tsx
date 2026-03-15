@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { BrandLogo } from './BrandLogo'
 import { FloatingLabelField } from './FloatingLabelField'
 import { SectionHeader } from './ActionSheet'
@@ -51,6 +52,17 @@ export function ItemEditSheet({
   setSelectedItem, openConfirmModal, listStyles,
   ToggleSwitch, QuantityControl,
 }: ItemEditSheetProps) {
+  // Focus-restore: capture trigger element on mount, restore on unmount
+  const triggerRef = useRef<Element | null>(null)
+  useEffect(() => {
+    triggerRef.current = document.activeElement
+    return () => {
+      if (triggerRef.current && triggerRef.current instanceof HTMLElement) {
+        triggerRef.current.focus()
+      }
+    }
+  }, [])
+
   return (
     <div style={listStyles.overlay} onClick={() => onClose()} role="presentation">
       <div role="dialog" aria-modal="true" aria-label="Edit item" style={{

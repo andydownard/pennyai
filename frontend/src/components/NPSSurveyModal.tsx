@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { PennyAvatar } from './PennyAvatar'
 import { FONT, FONT_2XS, FONT_XS, FONT_BASE } from '../styles'
 
@@ -13,6 +13,17 @@ export function NPSSurveyModal({ onClose, onSubmit }: NPSSurveyModalProps) {
   const [comment, setComment] = useState('')
   const [typedText, setTypedText] = useState('')
   const [typingDone, setTypingDone] = useState(false)
+
+  // Focus-restore: capture trigger element on mount, restore on unmount
+  const triggerRef = useRef<Element | null>(null)
+  useEffect(() => {
+    triggerRef.current = document.activeElement
+    return () => {
+      if (triggerRef.current && triggerRef.current instanceof HTMLElement) {
+        triggerRef.current.focus()
+      }
+    }
+  }, [])
 
   // Typewriter effect for NPS questions
   useEffect(() => {
