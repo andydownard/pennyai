@@ -11,6 +11,7 @@ import { useRef, useEffect, useState, type ReactNode, type CSSProperties } from 
 type Screen = 'phone' | 'code' | 'home' | 'penny' | 'profile' | 'settings-share'
   | 'admin' | 'email-login' | 'email-register' | 'forgot-password'
   | 'reset-password' | 'shared-list' | 'help' | 'earnings' | 'receipts'
+  | 'saved-lists'
 
 // Screens that are "children" of a parent tab screen
 const SUB_SCREEN_PARENTS: Partial<Record<Screen, Screen>> = {
