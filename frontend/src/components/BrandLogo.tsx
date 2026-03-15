@@ -30,7 +30,7 @@ export function BrandLogo({ brand, size = 52, opacity = 1, itemName, department,
       ) : (
         <div style={{
           width: size, height: size, borderRadius: radius,
-          backgroundColor: 'var(--skeleton)', border: '1px solid var(--border)', opacity,
+          backgroundColor: 'transparent', border: '1px solid color-mix(in srgb, var(--border) 50%, transparent)', opacity,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: emojiSize, lineHeight: 1,
         }}>
