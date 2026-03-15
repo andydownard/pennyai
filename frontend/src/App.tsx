@@ -495,6 +495,7 @@ function AppInner() {
     newItemIds, setNewItemIds,
     newItemTimerRef,
     deptRefs,
+    pendingToggleCount,
     sortItems,
     reloadList, openDetail, openDetailFromReview, closeEditSheet,
     handleEditSave, handleEditDelete,
@@ -1247,10 +1248,15 @@ function AppInner() {
   }, [activeStore, storeOrderEnabled])
 
   // Online/offline state tracking is handled by useAuthState hook.
-  // Auto-refresh list when coming back online:
+  // Auto-refresh list when coming back online (delayed slightly to let toggle replay finish first):
   useEffect(() => {
     const goOnline = () => {
-      if (screen === 'home') reloadList().catch(() => {})
+      if (screen === 'home') {
+        // Delay reload to give the offline toggle queue time to replay first.
+        // The replay effect fires on the React state transition (isOffline -> online),
+        // which runs after this event handler. A 2s delay is enough for typical queues.
+        setTimeout(() => reloadList().catch(() => {}), 2000)
+      }
     }
     window.addEventListener('online', goOnline)
     return () => window.removeEventListener('online', goOnline)
@@ -2828,7 +2834,9 @@ function AppInner() {
           textAlign: 'center', fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--warning, #92400E)',
           fontWeight: 500,
         }}>
-          You're offline — changes will sync when you're back
+          {pendingToggleCount > 0
+            ? `You're offline — ${pendingToggleCount} change${pendingToggleCount > 1 ? 's' : ''} will sync when you're back`
+            : "You're offline — changes will sync when you're back"}
         </div>
       )}
 

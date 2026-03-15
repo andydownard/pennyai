@@ -1,9 +1,14 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { fetchAPI, fetchAction } from '../api'
 import type { ListItem } from '../components/ItemRow'
 import type { SwapOffer } from '../components/SwapCard'
 import type { ItemModification } from '../types'
 import type { SkippedItem } from './useSwapState'
+
+// --- Offline toggle queue types ---
+interface QueuedToggle {
+  itemId: number
+}
 
 // Haptic feedback (matches App.tsx)
 const haptic = {
@@ -41,6 +46,29 @@ export function useListState(options: UseListStateOptions) {
   // Keep stable refs for callbacks to avoid stale closures
   const optRef = useRef(options)
   optRef.current = options
+
+  // --- Online/offline tracking (self-contained, no dependency on useAuthState) ---
+  const [isOffline, setIsOffline] = useState(!navigator.onLine)
+
+  useEffect(() => {
+    const goOnline = () => setIsOffline(false)
+    const goOffline = () => setIsOffline(true)
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', goOffline)
+    return () => {
+      window.removeEventListener('online', goOnline)
+      window.removeEventListener('offline', goOffline)
+    }
+  }, [])
+
+  // Ref mirror of isOffline for use in async handlers (avoids stale closures)
+  const isOfflineRef = useRef(isOffline)
+  isOfflineRef.current = isOffline
+
+  // --- Offline toggle queue (ephemeral — ref, not localStorage) ---
+  const toggleQueueRef = useRef<QueuedToggle[]>([])
+  const [pendingToggleCount, setPendingToggleCount] = useState(0)
+  const replayingRef = useRef(false)
 
   // --- Core list state ---
   const [items, setItems] = useState<ListItem[]>([])
@@ -200,8 +228,28 @@ export function useListState(options: UseListStateOptions) {
   // --- Toggle item checked ---
   const handleToggle = async (id: number) => {
     haptic.tap()
+    // Optimistically update UI immediately regardless of online/offline
     const oldChecked = items.find(i => i.id === id)?.checked
     setItems(prev => prev.map(item => item.id === id ? { ...item, checked: !item.checked } : item))
+
+    if (isOfflineRef.current) {
+      // Queue the toggle for replay when back online.
+      // Toggle is idempotent on the server (flips current state), so we collapse:
+      // if the same itemId is already in the queue, remove it (two toggles cancel out).
+      const existing = toggleQueueRef.current.findIndex(q => q.itemId === id)
+      if (existing >= 0) {
+        toggleQueueRef.current.splice(existing, 1)
+      } else {
+        toggleQueueRef.current.push({ itemId: id })
+      }
+      setPendingToggleCount(toggleQueueRef.current.length)
+      // Show Penny message only on the first queued item (avoid toast storms)
+      if (toggleQueueRef.current.length === 1) {
+        optRef.current.typePennyHome("Changes will sync when you're back online.")
+      }
+      return
+    }
+
     try {
       const data = await fetchAPI(`/api/list/${id}/toggle`, { method: 'PATCH' })
       if (data) {
@@ -216,6 +264,58 @@ export function useListState(options: UseListStateOptions) {
       optRef.current.showToast("Hmm, that change didn't stick. Try again?", 'error')
     }
   }
+
+  // --- Replay queued toggles when coming back online ---
+  const replayToggleQueue = useCallback(async () => {
+    if (replayingRef.current) return
+    const queue = [...toggleQueueRef.current]
+    if (queue.length === 0) return
+
+    replayingRef.current = true
+    let failures = 0
+
+    // Fire sequentially to avoid race conditions
+    for (const { itemId } of queue) {
+      try {
+        const data = await fetchAPI(`/api/list/${itemId}/toggle`, { method: 'PATCH' })
+        if (data) {
+          const updated = data as ListItem
+          setItems(prev => prev.map(item => item.id === updated.id ? updated : item))
+          // Remove from queue on success
+          toggleQueueRef.current = toggleQueueRef.current.filter(q => q.itemId !== itemId)
+          setPendingToggleCount(toggleQueueRef.current.length)
+        } else {
+          failures++
+        }
+      } catch {
+        failures++
+      }
+    }
+
+    replayingRef.current = false
+
+    if (failures > 0 && toggleQueueRef.current.length > 0) {
+      optRef.current.showToast(
+        `${failures} change${failures > 1 ? 's' : ''} couldn't sync — they'll retry next time`,
+        'error'
+      )
+    } else if (failures === 0) {
+      optRef.current.typePennyHome('All caught up!')
+      // Check if all items done after sync
+      setItems(prev => { checkAllDone(prev); return prev })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Watch for online transition and replay
+  const wasOfflineRef = useRef(isOffline)
+  useEffect(() => {
+    const wasOffline = wasOfflineRef.current
+    wasOfflineRef.current = isOffline
+    // Transition from offline -> online: replay queued toggles
+    if (wasOffline && !isOffline && toggleQueueRef.current.length > 0) {
+      replayToggleQueue()
+    }
+  }, [isOffline, replayToggleQueue])
 
   // --- Toggle urgent ---
   const handleUrgentToggle = async (id: number) => {
@@ -325,6 +425,8 @@ export function useListState(options: UseListStateOptions) {
     newItemTimerRef,
     returnToReview, setReturnToReview,
     deptRefs,
+    // Offline toggle queue
+    pendingToggleCount,
     // Utilities
     sortItems,
     updateItem,
