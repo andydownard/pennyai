@@ -100,3 +100,7 @@ _Submitted: 2026-03-15 13:23 UTC_
 ## [NORMAL] 2026-03-15 13:24 UTC
 [Brand Portal] let brands login with cell and texted code too, then confirm email from the brand.
 _Submitted: 2026-03-15 13:24 UTC_
+
+## [NORMAL] 2026-03-15 13:25 UTC
+[Brand Portal] show all the items that are in shopping lists from consumers so far just like the consumer side, and have a "make offer" button next to each one that takes them to the create new deal page
+_Submitted: 2026-03-15 13:25 UTC_
