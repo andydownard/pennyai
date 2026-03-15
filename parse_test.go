@@ -902,3 +902,46 @@ func TestIsSimpleAddInput(t *testing.T) {
 		}
 	}
 }
+
+func TestLooksLikeSearchQuery(t *testing.T) {
+	// Should trigger web search
+	searchInputs := []string{
+		"recipe for chicken tacos",
+		"how to make pasta",
+		"how do I cook salmon",
+		"what is tahini",
+		"what's a good substitute for butter",
+		"how many calories in an avocado",
+		"nutrition facts for greek yogurt",
+		"substitute for heavy cream",
+		"alternative to soy sauce",
+		"tell me about sourdough starters",
+		"ingredients for pad thai",
+	}
+	for _, input := range searchInputs {
+		if !looksLikeSearchQuery(input) {
+			t.Errorf("expected %q to trigger web search", input)
+		}
+	}
+
+	// Should NOT trigger web search (normal commands)
+	nonSearchInputs := []string{
+		"milk",
+		"eggs and butter",
+		"remove the bread",
+		"check the milk",
+		"change eggs to a dozen",
+		"save as weekly list",
+		"load my costco list",
+		"share with my wife",
+		"2 bananas",
+		"oat milk, yogurt, granola",
+		"done shopping",
+		"",
+	}
+	for _, input := range nonSearchInputs {
+		if looksLikeSearchQuery(input) {
+			t.Errorf("expected %q to NOT trigger web search", input)
+		}
+	}
+}
