@@ -104,3 +104,7 @@ _Submitted: 2026-03-15 13:24 UTC_
 ## [NORMAL] 2026-03-15 13:25 UTC
 [Brand Portal] show all the items that are in shopping lists from consumers so far just like the consumer side, and have a "make offer" button next to each one that takes them to the create new deal page
 _Submitted: 2026-03-15 13:25 UTC_
+
+## [NORMAL] 2026-03-15 13:26 UTC
+[Brand Portal] preload this with the kroger mcp lookup of the brands that cpg company offers
+_Submitted: 2026-03-15 13:26 UTC_
