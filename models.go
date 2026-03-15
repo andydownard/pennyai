@@ -35,6 +35,7 @@ type Config struct {
 	GitHubRepo          string   // "owner/repo" format
 	StripeSecretKey     string   // Stripe secret key (sk_live_... or sk_test_...)
 	StripeWebhookSecret string   // Stripe webhook signing secret (whsec_...)
+	WattAPIKey          string   // Watt Data API key (watt_...) for CPG brand manager lookup
 }
 
 // FeedbackRequest represents a founder feedback item destined for the roadmap.

@@ -115,6 +115,7 @@ func loadConfig() Config {
 		GitHubRepo:          os.Getenv("GH_REPO"),
 		StripeSecretKey:     os.Getenv("STRIPE_SECRET_KEY"),
 		StripeWebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
+		WattAPIKey:          os.Getenv("WATT_API_KEY"),
 	}
 }
 
@@ -312,6 +313,11 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/feedback", server.handleFeedbackRoutes)
 	http.HandleFunc("/api/admin/feedback", server.handleAdminFeedback)
 	http.HandleFunc("/api/admin/feedback/", server.handleAdminFeedbackByID)
+
+	// --- Watt Data (CPG brand manager outreach) ---
+	http.HandleFunc("/api/admin/watt/trait-search", server.handleWattTraitSearch)
+	http.HandleFunc("/api/admin/watt/brand-search", server.handleWattBrandSearch)
+	http.HandleFunc("/api/admin/watt/resolve", server.handleWattEntityResolve)
 
 	// --- A/B Testing ---
 	http.HandleFunc("GET /api/ab/variant", handleGetVariant(server))
