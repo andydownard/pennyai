@@ -42,6 +42,7 @@ import { OnboardingOverlay } from './components/OnboardingOverlay'
 import { JoinPrompt } from './components/JoinPrompt'
 import { PostSwapShareCard } from './components/PostSwapShareCard'
 import { ToggleSwitch } from './components/ToggleSwitch'
+import { WebcamCapture } from './components/WebcamCapture'
 
 // Lazy-loaded screens (code-split for faster initial load)
 const EarningsScreen = lazy(() => import('./components/EarningsScreen').then(m => ({ default: m.EarningsScreen })))
@@ -341,6 +342,8 @@ function AppInner() {
   const cameraModeRef = useRef(false)
   const cameraPhotoTakenRef = useRef(false) // set true when photo selected, prevents cancel detection
   const [cameraConfirmation, setCameraConfirmation] = useState<string | null>(null)
+  const [showWebcam, setShowWebcam] = useState(false)
+  const isMobile = /Mobi|Android/i.test(navigator.userAgent)
 
   // Menu state is now internal to NavigationMenu component
 
@@ -1663,13 +1666,13 @@ function AppInner() {
       localStorage.setItem('penny_invite_prompt', String(Date.now()))
       localStorage.setItem('penny_invite_prompt_count', String(promptCount + 1))
       const messages = [
-        "Shopping's better together — invite someone to share this list!",
-        "Households that share lists save 2x more. Invite someone!",
-        "One more nudge — sharing your list takes about 10 seconds.",
-        "Last time I'll ask — want to share your list with someone?",
+        "Want your family on this list too? It only takes a sec.",
+        "Families that share lists never wonder 'did you get milk?' again.",
+        "Quick thought — want to invite someone to shop with you?",
+        "Last thought on this — sharing your list takes about 10 seconds.",
       ]
       typePennyHome(messages[Math.min(promptCount, messages.length - 1)], [{
-        label: 'Invite',
+        label: 'Sure, invite them',
         onClick: () => { setScreen('settings-share'); track('penny_invite_tapped', { prompt_count: promptCount }) },
       }])
     }, 12000)
@@ -2492,7 +2495,7 @@ function AppInner() {
         <div style={{ position: 'fixed', inset: 0, zIndex: 9000, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={() => setShowInviteSheet(false)}>
           <div style={{ width: '100%', maxWidth: '480px', backgroundColor: 'var(--surface)', borderRadius: '20px 20px 0 0', padding: '20px 20px 40px' }} onClick={e => e.stopPropagation()}>
             <div style={{ width: '36px', height: '4px', borderRadius: '2px', backgroundColor: 'var(--border)', margin: '0 auto 16px' }} />
-            <h3 style={{ fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '18px', fontWeight: 700, color: 'var(--text)', margin: '0 0 16px' }}>Invite to your list</h3>
+            <h3 style={{ fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '18px', fontWeight: 700, color: 'var(--text)', margin: '0 0 16px' }}>Add your family to this list</h3>
 
             {/* SMS invite */}
             <label style={{ fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '14px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Their phone number</label>
@@ -3240,6 +3243,17 @@ function AppInner() {
         aria-label="Capture receipt"
       />
 
+      {/* Desktop webcam capture modal */}
+      {showWebcam && (
+        <WebcamCapture
+          onCapture={(dataUrl) => {
+            setShowWebcam(false)
+            setPendingImages(prev => [...prev, dataUrl])
+          }}
+          onClose={() => setShowWebcam(false)}
+        />
+      )}
+
       {/* Post-swap share prompt — floating card after swap accept */}
       {postSwapShare && (
         <PostSwapShareCard
@@ -3272,6 +3286,12 @@ function AppInner() {
         onPaste={handlePaste}
         onAddPhoto={() => fileInputRef.current?.click()}
         onOpenCamera={() => {
+          if (!isMobile) {
+            // Desktop: open webcam modal
+            setShowWebcam(true)
+            return
+          }
+          // Mobile: use native camera input
           cameraModeRef.current = true
           cameraPhotoTakenRef.current = false
           cameraInputRef.current?.click()
