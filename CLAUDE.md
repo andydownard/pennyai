@@ -108,8 +108,9 @@ Thriftly is an AI-powered grocery shopping list app with a personality-driven as
 ### Saved Lists
 - Create, rename, delete saved lists
 - Load saved list items into active list (via upsertListItem for dupe prevention)
-- **Saved lists are NOT displayed in the Profile UI** — they are only accessible via Penny chat
-- Penny handles: "load my weekly groceries", "what saved lists do I have", etc.
+- **Saved lists are accessible via NavMenu ("My Lists") AND via Penny chat** — both entry points must remain
+- NavMenu entry shows list of saved lists with tap-to-load, long-press to rename/delete
+- Penny also handles: "load my weekly groceries", "what saved lists do I have", etc.
 - When user asks for a specific list, Penny auto-loads it; when they ask generally, Penny shows buttons for each list
 
 ### Household Sharing
@@ -431,11 +432,12 @@ When updating any brand messaging, edit `penny-brand-source.json` first and sync
 
 ### Navigation Menu Order
 1. Shopping List
-2. Share & Earn
-3. Penny
-4. ── divider ──
-5. Profile (contains sign out)
-6. Dashboard (admin only — only visible to admins, always last)
+2. My Lists (saved lists)
+3. Share & Earn
+4. Penny
+5. ── divider ──
+6. Profile (contains sign out)
+7. Dashboard (admin only — only visible to admins, always last)
 
 ## Shared Ground Rules, Engineering Standards
 
