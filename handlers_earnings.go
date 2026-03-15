@@ -42,7 +42,8 @@ func (s *Server) handleEarnings(w http.ResponseWriter, r *http.Request) {
 	query := `
 		SELECT sr.id, bd.offer_brand, bd.offer_product, bd.competitor_product,
 		       COALESCE(li.name, ''), sr.amount_cents, sr.status, sr.created_at,
-		       sr.attachment_path
+		       sr.attachment_path, sr.verified_amount_cents, sr.verified_at,
+		       bd.deal_type
 		FROM swap_rebates sr
 		JOIN brand_deals bd ON bd.id = sr.deal_id
 		LEFT JOIN swap_events se ON se.id = sr.swap_event_id
@@ -72,14 +73,18 @@ func (s *Server) handleEarnings(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var t EarningTransaction
 		if err := rows.Scan(&t.ID, &t.OfferBrand, &t.OfferProduct, &t.CompetitorProduct,
-			&t.OriginalItemName, &t.AmountCents, &t.Status, &t.CreatedAt, &t.AttachmentPath); err != nil {
+			&t.OriginalItemName, &t.AmountCents, &t.Status, &t.CreatedAt, &t.AttachmentPath,
+			&t.VerifiedAmountCents, &t.VerifiedAt, &t.DealType); err != nil {
 			log.Printf("[earnings] scan error: %v", err)
 			continue
 		}
 		transactions = append(transactions, t)
 		totalCents += t.AmountCents
 		switch t.Status {
-		case "pending":
+		case "pending", "pending_purchase":
+			pendingCents += t.AmountCents
+		case "verified":
+			// Verified but in 30-day hold — count toward pending
 			pendingCents += t.AmountCents
 		case "issued", "paid":
 			paidCents += t.AmountCents

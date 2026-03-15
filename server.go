@@ -286,7 +286,14 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/admin/dashboard", server.handleAdminDashboard)
 	http.HandleFunc("/api/admin/analytics", server.handleAdminAnalytics)
 	http.HandleFunc("/api/admin/deals", server.handleAdminDeals)
-	http.HandleFunc("/api/admin/deals/", server.handleAdminDeals)
+	http.HandleFunc("/api/admin/deals/", func(w http.ResponseWriter, r *http.Request) {
+		// Route /api/admin/deals/{id}/review to the review handler
+		if strings.HasSuffix(r.URL.Path, "/review") {
+			server.handleAdminDealReview(w, r)
+			return
+		}
+		server.handleAdminDeals(w, r)
+	})
 	http.HandleFunc("/api/admin/payouts", server.handleAdminPayouts)
 	http.HandleFunc("/api/admin/business-metrics", server.handleBusinessMetrics)
 	http.HandleFunc("/api/admin/churn-risk", server.handleChurnRisk)
@@ -359,6 +366,10 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/api/logo", server.handleLogoProxy)
 	http.HandleFunc("/api/trips", server.handleTrips)
 	http.HandleFunc("/api/bug-report", server.handleBugReport)
+
+	// --- Fully Free Trial Campaigns ---
+	http.HandleFunc("/api/receipt/verify", server.handleFullyFreeReceiptVerify)
+	http.HandleFunc("/api/rebates/pending", server.handleFullyFreeRebates)
 
 	// --- Receipt Reading (M7) ---
 	http.HandleFunc("/api/receipts", server.handleReceipts)

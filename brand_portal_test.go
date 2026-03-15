@@ -189,8 +189,11 @@ func TestBrandPortal_CreateDeal(t *testing.T) {
 	if deals[0]["offer_brand"] != "TestOats" {
 		t.Errorf("offer_brand: got %v, want 'TestOats'", deals[0]["offer_brand"])
 	}
-	if deals[0]["status"] != "active" {
-		t.Errorf("status: got %v, want 'active'", deals[0]["status"])
+	if deals[0]["status"] != "pending_review" {
+		t.Errorf("status: got %v, want 'pending_review'", deals[0]["status"])
+	}
+	if deals[0]["review_status"] != "pending" {
+		t.Errorf("review_status: got %v, want 'pending'", deals[0]["review_status"])
 	}
 
 	// Create deal with missing required fields should fail

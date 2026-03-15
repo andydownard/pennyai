@@ -47,6 +47,8 @@ interface Deal {
   declined: number
   accept_rate: number
   created_at: string
+  review_status?: string
+  review_note?: string
 }
 
 interface DashboardData {
@@ -149,7 +151,7 @@ export function App() {
   const [editSaving, setEditSaving] = useState(false)
 
   // Deals filter
-  const [dealFilter, setDealFilter] = useState<'all' | 'active' | 'paused'>('all')
+  const [dealFilter, setDealFilter] = useState<'all' | 'active' | 'pending_review' | 'paused'>('all')
 
   // Mobile nav
   const [navOpen, setNavOpen] = useState(false)
@@ -213,7 +215,13 @@ export function App() {
           setScreen('dashboard')
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        // Auth failed — show login (with deposit context so user can resume after login)
+        if (depositStatus) {
+          window.history.replaceState({}, '', window.location.pathname)
+        }
+        setScreen('landing')
+      })
       .finally(() => setLoading(false))
   }, [])
 
@@ -634,13 +642,13 @@ export function App() {
             </div>
             {deals.length > 0 && (
               <div style={{ display: 'flex', gap: '6px', marginTop: '12px' }}>
-                {(['all', 'active', 'paused'] as const).map(f => (
+                {(['all', 'active', 'pending_review', 'paused'] as const).map(f => (
                   <button key={f} onClick={() => setDealFilter(f)} style={{
                     padding: '4px 12px', borderRadius: '6px', fontFamily: FONT, fontSize: '13px', fontWeight: 600,
                     cursor: 'pointer', border: `1px solid ${dealFilter === f ? BRAND : BORDER}`,
                     backgroundColor: dealFilter === f ? BRAND_LIGHT : 'transparent', color: dealFilter === f ? BRAND : TEXT_SEC,
                     textTransform: 'capitalize',
-                  }}>{f} {f === 'all' ? `(${deals.length})` : `(${deals.filter(d => d.status === f).length})`}</button>
+                  }}>{f === 'pending_review' ? 'In Review' : f} {f === 'all' ? `(${deals.length})` : `(${deals.filter(d => d.status === f).length})`}</button>
                 ))}
               </div>
             )}
@@ -672,7 +680,7 @@ export function App() {
                   </div>
                   </div>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <span style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, padding: '4px 8px', borderRadius: '4px', backgroundColor: deal.status === 'active' ? BRAND_LIGHT : '#FFF3E0', color: deal.status === 'active' ? BRAND : '#E65100' }}>{deal.status}</span>
+                    <span style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, padding: '4px 8px', borderRadius: '4px', backgroundColor: deal.status === 'active' ? BRAND_LIGHT : deal.status === 'pending_review' ? '#E3F2FD' : deal.status === 'rejected' ? '#FFEBEE' : '#FFF3E0', color: deal.status === 'active' ? BRAND : deal.status === 'pending_review' ? '#1565C0' : deal.status === 'rejected' ? '#C62828' : '#E65100' }}>{deal.status === 'pending_review' ? 'In Review' : deal.status}</span>
                     {deal.deal_type !== 'sku_swap' && (
                       <span style={{ fontFamily: FONT, fontSize: '11px', fontWeight: 600, padding: '2px 6px', borderRadius: '4px', backgroundColor: '#E3F2FD', color: '#1565C0' }}>{deal.deal_type}</span>
                     )}
@@ -684,6 +692,16 @@ export function App() {
                   <span>Declined: {deal.declined}</span>
                   <span style={{ color: deal.accept_rate >= 8 ? BRAND : TEXT_SEC, fontWeight: deal.accept_rate >= 8 ? 600 : 400 }}>Rate: {deal.accept_rate}%</span>
                 </div>
+                {deal.status === 'pending_review' && (
+                  <div style={{ fontFamily: FONT, fontSize: '12px', color: '#1565C0', marginTop: '8px', padding: '6px 10px', backgroundColor: '#E3F2FD', borderRadius: '6px' }}>
+                    Submitted for review — your deal will go live once approved by our team.
+                  </div>
+                )}
+                {deal.status === 'rejected' && deal.review_note && (
+                  <div style={{ fontFamily: FONT, fontSize: '12px', color: '#C62828', marginTop: '8px', padding: '6px 10px', backgroundColor: '#FFEBEE', borderRadius: '6px' }}>
+                    Review note: {deal.review_note}
+                  </div>
+                )}
                 <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }} onClick={e => e.stopPropagation()}>
                   {deal.status === 'active' && (
                     <button onClick={async () => { await api(`/brand/deals/${deal.id}`, { method: 'PUT', body: JSON.stringify({ status: 'paused' }) }); loadDashboard() }} style={smallBtn}>Pause</button>
@@ -712,7 +730,7 @@ export function App() {
                 <button onClick={() => setScreen('deals')} style={{ ...linkBtn, fontSize: '14px' }}>&larr; Back</button>
                 <BrandLogo brand={deal.offer_brand} size={40} />
                 <h1 style={{ ...h1Style, flex: 1 }}>{deal.offer_brand} {deal.offer_product}</h1>
-                <span style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, padding: '4px 8px', borderRadius: '4px', backgroundColor: deal.status === 'active' ? BRAND_LIGHT : '#FFF3E0', color: deal.status === 'active' ? BRAND : '#E65100' }}>{deal.status}</span>
+                <span style={{ fontFamily: FONT, fontSize: '12px', fontWeight: 600, padding: '4px 8px', borderRadius: '4px', backgroundColor: deal.status === 'active' ? BRAND_LIGHT : deal.status === 'pending_review' ? '#E3F2FD' : deal.status === 'rejected' ? '#FFEBEE' : '#FFF3E0', color: deal.status === 'active' ? BRAND : deal.status === 'pending_review' ? '#1565C0' : deal.status === 'rejected' ? '#C62828' : '#E65100' }}>{deal.status === 'pending_review' ? 'In Review' : deal.status}</span>
               </div>
 
               {/* Summary metrics */}
@@ -861,6 +879,20 @@ export function App() {
                       <div><span style={{ color: TEXT_SEC }}>Created:</span> <span style={{ color: TEXT }}>{new Date(deal.created_at).toLocaleDateString()}</span></div>
                     </div>
                   </div>
+
+                  {/* Review status banner */}
+                  {deal.status === 'pending_review' && (
+                    <div style={{ ...cardStyle, marginTop: '16px', padding: '16px', backgroundColor: '#E3F2FD', border: '1px solid #90CAF9' }}>
+                      <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: '#1565C0' }}>Pending Review</div>
+                      <div style={{ fontFamily: FONT, fontSize: '13px', color: '#1565C0', marginTop: '4px' }}>Your deal has been submitted and is being reviewed by our team. It will go live once approved.</div>
+                    </div>
+                  )}
+                  {deal.status === 'rejected' && (
+                    <div style={{ ...cardStyle, marginTop: '16px', padding: '16px', backgroundColor: '#FFEBEE', border: '1px solid #EF9A9A' }}>
+                      <div style={{ fontFamily: FONT, fontSize: '14px', fontWeight: 600, color: '#C62828' }}>Deal Rejected</div>
+                      {deal.review_note && <div style={{ fontFamily: FONT, fontSize: '13px', color: '#C62828', marginTop: '4px' }}>{deal.review_note}</div>}
+                    </div>
+                  )}
 
                   {/* Actions */}
                   <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>

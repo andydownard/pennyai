@@ -56,7 +56,8 @@ func (s *Server) getBrandDeals(w http.ResponseWriter, r *http.Request, bs BrandS
 			   competitor_price_cents, competitor_size, competitor_unit_price,
 			   unit_label, why_bullets, allergen_notes,
 			   deal_type, quantity_offered, trial_product_name, trial_size, campaign_tag,
-			   created_at
+			   created_at,
+			   COALESCE(review_status,''), COALESCE(review_note,'')
 		FROM brand_deals WHERE brand_user_id = ? AND status != 'deleted'
 		ORDER BY created_at DESC`, bs.BrandUserID)
 	if err != nil {
@@ -83,6 +84,7 @@ func (s *Server) getBrandDeals(w http.ResponseWriter, r *http.Request, bs BrandS
 			&d.UnitLabel, &d.WhyBullets, &d.AllergenNotes,
 			&d.DealType, &d.QuantityOffered, &d.TrialProductName, &d.TrialSize, &d.CampaignTag,
 			&d.CreatedAt,
+			&d.ReviewStatus, &d.ReviewNote,
 		); err != nil {
 			dbError(w, err, "Failed to scan deal")
 			return
@@ -158,6 +160,12 @@ func (s *Server) createBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 		ProductDescription   string `json:"product_description"`
 		KeyBenefits          string `json:"key_benefits"`
 		BrandStory           string `json:"brand_story"`
+		// Fully Free Trial fields
+		MaxRebateCents         int    `json:"max_rebate_cents"`
+		PlatformFeeCents       int    `json:"platform_fee_cents"`
+		RequireVerifiedIdentity *int  `json:"require_verified_identity"`
+		ReceiptGraceDays       int    `json:"receipt_grace_days"`
+		UPC                    string `json:"upc"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -166,6 +174,29 @@ func (s *Server) createBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 	if req.CompetitorProduct == "" || req.OfferBrand == "" || req.OfferProduct == "" {
 		writeBadRequest(w, "competitor_product, offer_brand, and offer_product are required")
 		return
+	}
+
+	// Fully free validation
+	if req.DealType == "fully_free" {
+		if req.MaxRebateCents <= 0 {
+			writeBadRequest(w, "max_rebate_cents is required for fully_free deals")
+			return
+		}
+		if req.UPC == "" {
+			writeBadRequest(w, "upc is required for fully_free deals")
+			return
+		}
+		// Default platform fee to $1 (100 cents)
+		if req.PlatformFeeCents <= 0 {
+			req.PlatformFeeCents = 100
+		}
+		if req.ReceiptGraceDays <= 0 {
+			req.ReceiptGraceDays = 7
+		}
+		// For fully_free, discount_cents = max_rebate_cents (used for display)
+		if req.DiscountCents == 0 {
+			req.DiscountCents = req.MaxRebateCents
+		}
 	}
 
 	// Check balance — brand must have enough to cover at least one swap
@@ -200,6 +231,12 @@ func (s *Server) createBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 		return
 	}
 
+	// Resolve require_verified_identity: default to 1 if not specified
+	requireVerified := 1
+	if req.RequireVerifiedIdentity != nil {
+		requireVerified = *req.RequireVerifiedIdentity
+	}
+
 	result, err := s.db.Exec(`
 		INSERT INTO brand_deals (
 			competitor_product, offer_brand, offer_product, discount_cents,
@@ -208,8 +245,11 @@ func (s *Server) createBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 			offer_size, competitor_size, offer_unit_price, competitor_unit_price,
 			unit_label, why_bullets, allergen_notes,
 			deal_type, quantity_offered, trial_product_name, trial_size, campaign_tag,
-			category_id, product_description, key_benefits, brand_story
-		) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			category_id, product_description, key_benefits, brand_story,
+			max_rebate_cents, platform_fee_cents, require_verified_identity,
+			receipt_grace_days, upc,
+			review_status, submitted_at
+		) VALUES (?, ?, ?, ?, ?, 'pending_review', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)`,
 		req.CompetitorProduct, req.OfferBrand, req.OfferProduct, req.DiscountCents,
 		req.TotalBudgetCents, bs.BrandUserID,
 		req.OfferPriceCents, req.CompetitorPriceCents,
@@ -217,6 +257,8 @@ func (s *Server) createBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 		req.UnitLabel, req.WhyBullets, req.AllergenNotes,
 		req.DealType, req.QuantityOffered, req.TrialProductName, req.TrialSize, req.CampaignTag,
 		categoryID, req.ProductDescription, req.KeyBenefits, req.BrandStory,
+		req.MaxRebateCents, req.PlatformFeeCents, requireVerified,
+		req.ReceiptGraceDays, req.UPC,
 	)
 	if err != nil {
 		dbError(w, err, "Failed to create deal")
@@ -224,11 +266,12 @@ func (s *Server) createBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 	}
 
 	dealID, _ := result.LastInsertId()
-	log.Printf("[brand-portal] brand user %d created deal %d", bs.BrandUserID, dealID)
+	log.Printf("[brand-portal] brand user %d created deal %d (pending review)", bs.BrandUserID, dealID)
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"id":      dealID,
-		"message": "Deal created",
+		"status":  "pending_review",
+		"message": "Deal created and submitted for review. It will go live once approved.",
 	})
 }
 
@@ -255,6 +298,16 @@ func (s *Server) updateBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 	sets := []string{}
 	args := []interface{}{}
 	if req.Status != nil {
+		// Brands cannot self-approve: only admin review can set status to 'active'
+		if *req.Status == "active" {
+			// Check current review_status — only allow resume if already approved
+			var reviewStatus string
+			s.db.QueryRow("SELECT COALESCE(review_status,'') FROM brand_deals WHERE id = ?", dealID).Scan(&reviewStatus)
+			if reviewStatus != "approved" {
+				writeJSON(w, http.StatusForbidden, map[string]string{"error": "Deal must be approved by admin before it can go live"})
+				return
+			}
+		}
 		sets = append(sets, "status = ?")
 		args = append(args, *req.Status)
 	}

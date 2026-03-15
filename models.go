@@ -240,6 +240,18 @@ type BrandDeal struct {
 	TrialProductName string `json:"trial_product_name"`
 	TrialSize        string `json:"trial_size"`
 	CampaignTag      string `json:"campaign_tag"`
+	// Fully Free Trial fields
+	MaxRebateCents         int    `json:"max_rebate_cents"`
+	PlatformFeeCents       int    `json:"platform_fee_cents"`
+	RequireVerifiedIdentity int   `json:"require_verified_identity"`
+	ReceiptGraceDays       int    `json:"receipt_grace_days"`
+	UPC                    string `json:"upc"`
+	// Campaign review (compliance)
+	ReviewStatus string `json:"review_status,omitempty"`
+	ReviewNote   string `json:"review_note,omitempty"`
+	ReviewedBy   string `json:"reviewed_by,omitempty"`
+	ReviewedAt   string `json:"reviewed_at,omitempty"`
+	SubmittedAt  string `json:"submitted_at,omitempty"`
 }
 
 // PendingSwap represents a swap offer matched to a list item.
@@ -273,6 +285,9 @@ type PendingSwap struct {
 	ProductDescription string   `json:"product_description,omitempty"`
 	KeyBenefits        []string `json:"key_benefits,omitempty"`
 	BrandStory         string   `json:"brand_story,omitempty"`
+	// Fully Free Trial fields
+	MaxRebateCents int    `json:"max_rebate_cents,omitempty"`
+	UPC            string `json:"upc,omitempty"`
 }
 
 // ProfilePhoto represents a user's avatar image stored as a BLOB.
@@ -285,15 +300,18 @@ type ProfilePhoto struct {
 
 // EarningTransaction represents a single swap rebate for the earnings screen.
 type EarningTransaction struct {
-	ID                int    `json:"id"`
-	OfferBrand        string `json:"offer_brand"`
-	OfferProduct      string `json:"offer_product"`
-	CompetitorProduct string `json:"competitor_product"`
-	OriginalItemName  string `json:"original_item_name"`
-	AmountCents       int    `json:"amount_cents"`
-	Status            string `json:"status"`
-	CreatedAt         string `json:"created_at"`
-	AttachmentPath    string `json:"attachment_path"`
+	ID                  int    `json:"id"`
+	OfferBrand          string `json:"offer_brand"`
+	OfferProduct        string `json:"offer_product"`
+	CompetitorProduct   string `json:"competitor_product"`
+	OriginalItemName    string `json:"original_item_name"`
+	AmountCents         int    `json:"amount_cents"`
+	Status              string `json:"status"`
+	CreatedAt           string `json:"created_at"`
+	AttachmentPath      string `json:"attachment_path"`
+	VerifiedAmountCents int    `json:"verified_amount_cents,omitempty"`
+	VerifiedAt          string `json:"verified_at,omitempty"`
+	DealType            string `json:"deal_type,omitempty"`
 }
 
 // EarningsResponse is the JSON response for GET /api/earnings.

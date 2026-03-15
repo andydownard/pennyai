@@ -1451,6 +1451,37 @@ func initDB(path string) (*sql.DB, error) {
 	db.Exec("ALTER TABLE users ADD COLUMN daily_digest_opted_in_at TEXT")
 	db.Exec("ALTER TABLE users ADD COLUMN daily_digest_last_sent TEXT")
 
+	// --- Campaign Review (compliance) ---
+	for _, col := range []string{
+		"ALTER TABLE brand_deals ADD COLUMN review_status TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE brand_deals ADD COLUMN review_note TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE brand_deals ADD COLUMN reviewed_by TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE brand_deals ADD COLUMN reviewed_at TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE brand_deals ADD COLUMN submitted_at TEXT NOT NULL DEFAULT ''",
+	} {
+		db.Exec(col)
+	}
+
+	// --- Fully Free Trial Campaigns ---
+	// brand_deals: new columns for fully_free deal type
+	for _, col := range []string{
+		"ALTER TABLE brand_deals ADD COLUMN max_rebate_cents INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE brand_deals ADD COLUMN platform_fee_cents INTEGER NOT NULL DEFAULT 100",
+		"ALTER TABLE brand_deals ADD COLUMN require_verified_identity INTEGER NOT NULL DEFAULT 1",
+		"ALTER TABLE brand_deals ADD COLUMN receipt_grace_days INTEGER NOT NULL DEFAULT 7",
+		"ALTER TABLE brand_deals ADD COLUMN upc TEXT NOT NULL DEFAULT ''",
+	} {
+		db.Exec(col)
+	}
+	// swap_rebates: receipt verification fields for fully_free
+	for _, col := range []string{
+		"ALTER TABLE swap_rebates ADD COLUMN verified_amount_cents INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE swap_rebates ADD COLUMN verified_at TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE swap_rebates ADD COLUMN receipt_image_url TEXT NOT NULL DEFAULT ''",
+	} {
+		db.Exec(col)
+	}
+
 	// Backfill emojis for existing items that have no AI-parsed emoji
 	backfillItemEmojis(db)
 

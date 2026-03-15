@@ -5,6 +5,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"time"
 )
 
 
@@ -77,7 +78,9 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 		       COALESCE(category_id, 0),
 		       COALESCE(product_description, ''),
 		       COALESCE(key_benefits, '[]'),
-		       COALESCE(brand_story, '')
+		       COALESCE(brand_story, ''),
+		       max_rebate_cents, platform_fee_cents, require_verified_identity,
+		       receipt_grace_days, upc
 		FROM brand_deals
 		WHERE status = 'active'
 		  AND (starts_at <= datetime('now') OR starts_at IS NULL)
@@ -90,30 +93,35 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 	defer rows.Close()
 
 	type activeDeal struct {
-		ID                  int
-		CompetitorProduct   string
-		OfferBrand          string
-		OfferProduct        string
-		DiscountCents       int
-		BudgetRemaining     int
-		OfferPriceCents     int
-		CompetitorPriceCents int
-		OfferSize           string
-		CompetitorSize      string
-		OfferUnitPrice      string
-		CompetitorUnitPrice string
-		WhyBulletsJSON      string
-		AllergenNotes       string
-		DealType            string
-		QuantityOffered     int
-		TrialProductName    string
-		TrialSize           string
-		CampaignTag         string
-		EndsAt              string
-		CategoryID          int
-		ProductDescription  string
-		KeyBenefitsJSON     string
-		BrandStory          string
+		ID                      int
+		CompetitorProduct       string
+		OfferBrand              string
+		OfferProduct            string
+		DiscountCents           int
+		BudgetRemaining         int
+		OfferPriceCents         int
+		CompetitorPriceCents    int
+		OfferSize               string
+		CompetitorSize          string
+		OfferUnitPrice          string
+		CompetitorUnitPrice     string
+		WhyBulletsJSON          string
+		AllergenNotes           string
+		DealType                string
+		QuantityOffered         int
+		TrialProductName        string
+		TrialSize               string
+		CampaignTag             string
+		EndsAt                  string
+		CategoryID              int
+		ProductDescription      string
+		KeyBenefitsJSON         string
+		BrandStory              string
+		MaxRebateCents          int
+		PlatformFeeCents        int
+		RequireVerifiedIdentity int
+		ReceiptGraceDays        int
+		UPC                     string
 	}
 	var deals []activeDeal
 	for rows.Next() {
@@ -127,7 +135,9 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 			&d.WhyBulletsJSON, &d.AllergenNotes,
 			&d.DealType, &d.QuantityOffered, &d.TrialProductName, &d.TrialSize, &d.CampaignTag,
 			&d.EndsAt, &d.CategoryID,
-			&d.ProductDescription, &d.KeyBenefitsJSON, &d.BrandStory); err != nil {
+			&d.ProductDescription, &d.KeyBenefitsJSON, &d.BrandStory,
+			&d.MaxRebateCents, &d.PlatformFeeCents, &d.RequireVerifiedIdentity,
+			&d.ReceiptGraceDays, &d.UPC); err != nil {
 			continue
 		}
 		d.BudgetRemaining = budgetTotal - budgetSpent
@@ -171,8 +181,40 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 				}
 			}
 
+			// Fully free fraud gates
+			if deal.DealType == "fully_free" {
+				// 72h cooling period: accounts < 72h old cannot accept fully_free deals
+				var createdAt string
+				s.db.QueryRow("SELECT created_at FROM users WHERE id = ?", userID).Scan(&createdAt)
+				if t, err := time.Parse("2006-01-02 15:04:05", createdAt); err == nil {
+					if time.Since(t) < 72*time.Hour {
+						continue
+					}
+				}
+				// Verified identity required
+				if deal.RequireVerifiedIdentity == 1 {
+					var phoneNumber string
+					s.db.QueryRow("SELECT COALESCE(phone_number,'') FROM users WHERE id = ?", userID).Scan(&phoneNumber)
+					if phoneNumber == "" {
+						continue
+					}
+				}
+				// Household-level dedup: max 1 fully_free redemption per deal per household
+				hhID := getUserHouseholdID(s.db, userID)
+				if hhID > 0 {
+					var hhAccepts int
+					s.db.QueryRow(`SELECT COUNT(*) FROM swap_events se
+						JOIN users u ON u.id = se.user_id
+						WHERE se.deal_id = ? AND se.action = 'accepted' AND u.household_id = ?`,
+						deal.ID, hhID).Scan(&hhAccepts)
+					if hhAccepts > 0 {
+						continue
+					}
+				}
+			}
+
 			// Manual slider 34-66: only show if discount > $1
-			if autotune == 0 && slider >= 34 && deal.DiscountCents <= 100 {
+			if autotune == 0 && slider >= 34 && deal.DiscountCents <= 100 && deal.DealType != "fully_free" {
 				continue
 			}
 
@@ -324,6 +366,8 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 				ProductDescription: deal.ProductDescription,
 				BrandStory:         deal.BrandStory,
 				KeyBenefits:        parseKeyBenefits(deal.KeyBenefitsJSON),
+				MaxRebateCents:     deal.MaxRebateCents,
+				UPC:                deal.UPC,
 			}
 		}
 	}

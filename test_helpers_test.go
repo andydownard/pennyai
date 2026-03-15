@@ -303,6 +303,7 @@ func brandRegister(t *testing.T, server *Server, email, password, companyName st
 }
 
 // createTestDeal is a helper that creates a brand deal and returns the deal ID.
+// Deals are created as pending_review and auto-approved so existing tests work.
 func createTestDeal(t *testing.T, server *Server, cookie *http.Cookie) int {
 	t.Helper()
 	rr := doRequest(server.handleBrandDeals, "POST", "/brand/deals", map[string]interface{}{
@@ -318,7 +319,36 @@ func createTestDeal(t *testing.T, server *Server, cookie *http.Cookie) int {
 		t.Fatalf("createTestDeal: expected 201, got %d: %s", rr.Code, rr.Body.String())
 	}
 	body := parseJSON(rr)
-	return int(body["id"].(float64))
+	dealID := int(body["id"].(float64))
+	// Auto-approve the deal so tests that expect active deals work
+	server.db.Exec("UPDATE brand_deals SET status = 'active', review_status = 'approved' WHERE id = ?", dealID)
+	return dealID
+}
+
+// loginAdmin logs in the admin user (phone matches config.AdminPhone = "3104861833").
+func loginAdmin(t *testing.T, server *Server) *http.Cookie {
+	t.Helper()
+	cookie, _ := loginUser(t, server, server.config.AdminPhone)
+	return cookie
+}
+
+// doRequestMux sends a request through a custom http.ServeMux (for sub-route testing).
+func doRequestMux(mux *http.ServeMux, method, path string, body interface{}, cookies []*http.Cookie) *httptest.ResponseRecorder {
+	var reqBody *bytes.Buffer
+	if body != nil {
+		b, _ := json.Marshal(body)
+		reqBody = bytes.NewBuffer(b)
+	} else {
+		reqBody = bytes.NewBuffer(nil)
+	}
+	req := httptest.NewRequest(method, path, reqBody)
+	req.Header.Set("Content-Type", "application/json")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	return rr
 }
 
 // setupEarningsTestData creates a user with brand_deals, swap_events, and swap_rebates

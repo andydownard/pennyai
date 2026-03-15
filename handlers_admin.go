@@ -322,8 +322,11 @@ func (s *Server) handleAdminDeals(w http.ResponseWriter, r *http.Request) {
 			       offer_size, competitor_size,
 			       offer_unit_price, competitor_unit_price,
 			       unit_label, why_bullets, allergen_notes,
-			       deal_type, quantity_offered, trial_product_name, trial_size, campaign_tag
-			FROM brand_deals WHERE status != 'deleted' ORDER BY created_at DESC
+			       deal_type, quantity_offered, trial_product_name, trial_size, campaign_tag,
+			       COALESCE(review_status,''), COALESCE(review_note,''),
+			       COALESCE(reviewed_by,''), COALESCE(reviewed_at,''), COALESCE(submitted_at,'')
+			FROM brand_deals WHERE status != 'deleted'
+			ORDER BY CASE WHEN status = 'pending_review' THEN 0 ELSE 1 END, created_at DESC
 		`)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load deals"})
@@ -341,7 +344,8 @@ func (s *Server) handleAdminDeals(w http.ResponseWriter, r *http.Request) {
 				&d.OfferSize, &d.CompetitorSize,
 				&d.OfferUnitPrice, &d.CompetitorUnitPrice,
 				&d.UnitLabel, &d.WhyBullets, &d.AllergenNotes,
-				&d.DealType, &d.QuantityOffered, &d.TrialProductName, &d.TrialSize, &d.CampaignTag); err != nil {
+				&d.DealType, &d.QuantityOffered, &d.TrialProductName, &d.TrialSize, &d.CampaignTag,
+				&d.ReviewStatus, &d.ReviewNote, &d.ReviewedBy, &d.ReviewedAt, &d.SubmittedAt); err != nil {
 				log.Printf("[admin-deals] scan error: %v", err)
 				continue
 			}
@@ -463,6 +467,78 @@ func (s *Server) handleAdminDeals(w http.ResponseWriter, r *http.Request) {
 
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
+	}
+}
+
+// handleAdminDealReview handles POST /api/admin/deals/{id}/review
+// Allows admins to approve or reject brand campaigns before they go live.
+func (s *Server) handleAdminDealReview(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	admin, ok := s.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+
+	// Extract deal ID from path: /api/admin/deals/{id}/review
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/deals/")
+	path = strings.TrimSuffix(path, "/review")
+	dealID, err := strconv.Atoi(path)
+	if err != nil || dealID == 0 {
+		writeBadRequest(w, "Invalid deal ID")
+		return
+	}
+
+	var req struct {
+		Action string `json:"action"` // "approve" or "reject"
+		Note   string `json:"note"`   // optional review note
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	if req.Action != "approve" && req.Action != "reject" {
+		writeBadRequest(w, "action must be 'approve' or 'reject'")
+		return
+	}
+
+	// Verify the deal exists and is pending review
+	var currentStatus, currentReviewStatus string
+	err = s.db.QueryRow("SELECT status, COALESCE(review_status,'') FROM brand_deals WHERE id = ?", dealID).Scan(&currentStatus, &currentReviewStatus)
+	if err != nil {
+		writeNotFound(w, "Deal not found")
+		return
+	}
+	if currentStatus != "pending_review" {
+		writeBadRequest(w, fmt.Sprintf("Deal is not pending review (current status: %s)", currentStatus))
+		return
+	}
+
+	// Get admin identifier for audit trail
+	adminIdentifier := admin.PhoneNumber
+	if adminIdentifier == "" {
+		adminIdentifier = fmt.Sprintf("user_%d", admin.UserID)
+	}
+
+	if req.Action == "approve" {
+		_, err = s.db.Exec(`UPDATE brand_deals SET status = 'active', review_status = 'approved', review_note = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			req.Note, adminIdentifier, dealID)
+		if err != nil {
+			dbError(w, err, "Failed to approve deal")
+			return
+		}
+		log.Printf("[admin] deal %d approved by %s", dealID, adminIdentifier)
+		writeJSON(w, http.StatusOK, map[string]string{"message": "Deal approved and now live", "status": "active"})
+	} else {
+		_, err = s.db.Exec(`UPDATE brand_deals SET status = 'rejected', review_status = 'rejected', review_note = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			req.Note, adminIdentifier, dealID)
+		if err != nil {
+			dbError(w, err, "Failed to reject deal")
+			return
+		}
+		log.Printf("[admin] deal %d rejected by %s: %s", dealID, adminIdentifier, req.Note)
+		writeJSON(w, http.StatusOK, map[string]string{"message": "Deal rejected", "status": "rejected"})
 	}
 }
 

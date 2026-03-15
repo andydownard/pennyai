@@ -46,14 +46,14 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 
 		// Verify deal is active and read deal data — inside tx for atomicity
 		var offerBrand, offerProduct, status, dealType, trialProductName, trialSize string
-		var discountCents, budgetTotal, budgetSpent, quantityOffered int
+		var discountCents, budgetTotal, budgetSpent, quantityOffered, maxRebateCents int
 		err = tx.QueryRow(
 			`SELECT offer_brand, offer_product, discount_cents, total_budget_cents, budget_spent_cents, status,
-			        deal_type, quantity_offered, trial_product_name, trial_size
+			        deal_type, quantity_offered, trial_product_name, trial_size, max_rebate_cents
 			 FROM brand_deals WHERE id = ?`,
 			req.SwapDealID,
 		).Scan(&offerBrand, &offerProduct, &discountCents, &budgetTotal, &budgetSpent, &status,
-			&dealType, &quantityOffered, &trialProductName, &trialSize)
+			&dealType, &quantityOffered, &trialProductName, &trialSize, &maxRebateCents)
 		if err != nil || status != "active" {
 			writeBadRequest(w, "Deal no longer available")
 			return
@@ -63,26 +63,30 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 			return
 		}
 
-		// Atomic budget increment — conditional UPDATE prevents overspend under concurrency
-		if budgetTotal > 0 {
-			result, err := tx.Exec(
-				"UPDATE brand_deals SET budget_spent_cents = budget_spent_cents + ? WHERE id = ? AND (total_budget_cents = 0 OR budget_spent_cents + ? <= total_budget_cents)",
-				discountCents, req.SwapDealID, discountCents,
-			)
-			if err != nil {
-				log.Printf("[swaps] failed to update deal %d budget: %v", req.SwapDealID, err)
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
-				return
-			}
-			rows, _ := result.RowsAffected()
-			if rows == 0 {
-				writeBadRequest(w, "Deal budget exhausted")
-				return
-			}
-		} else {
-			if _, err := tx.Exec("UPDATE brand_deals SET budget_spent_cents = budget_spent_cents + ? WHERE id = ?",
-				discountCents, req.SwapDealID); err != nil {
-				log.Printf("[swaps] failed to update deal %d budget: %v", req.SwapDealID, err)
+		// For fully_free deals: NO budget deduction on accept — debit happens on receipt verification
+		isFullyFree := dealType == "fully_free"
+		if !isFullyFree {
+			// Atomic budget increment — conditional UPDATE prevents overspend under concurrency
+			if budgetTotal > 0 {
+				result, err := tx.Exec(
+					"UPDATE brand_deals SET budget_spent_cents = budget_spent_cents + ? WHERE id = ? AND (total_budget_cents = 0 OR budget_spent_cents + ? <= total_budget_cents)",
+					discountCents, req.SwapDealID, discountCents,
+				)
+				if err != nil {
+					log.Printf("[swaps] failed to update deal %d budget: %v", req.SwapDealID, err)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+					return
+				}
+				rows, _ := result.RowsAffected()
+				if rows == 0 {
+					writeBadRequest(w, "Deal budget exhausted")
+					return
+				}
+			} else {
+				if _, err := tx.Exec("UPDATE brand_deals SET budget_spent_cents = budget_spent_cents + ? WHERE id = ?",
+					discountCents, req.SwapDealID); err != nil {
+					log.Printf("[swaps] failed to update deal %d budget: %v", req.SwapDealID, err)
+				}
 			}
 		}
 
@@ -111,6 +115,16 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 					log.Printf("[swaps] trial accept insert error: %v", trialErr)
 				}
 				_ = trialResult
+			case "fully_free":
+				// For fully_free: add the free product to the list (like trial)
+				freeResult, freeErr := tx.Exec(
+					"INSERT INTO list_items (user_id, name, brand, quantity, department, source, swap_savings_cents) VALUES (?, ?, ?, 1, 'Other', 'swap', ?)",
+					session.UserID, offerProduct, offerBrand, maxRebateCents,
+				)
+				if freeErr != nil {
+					log.Printf("[swaps] fully_free accept insert error: %v", freeErr)
+				}
+				_ = freeResult
 			default:
 				updateArgs := append([]interface{}{offerProduct, offerBrand, req.SwapItemID}, whereArgs...)
 				_, err = tx.Exec(
@@ -123,7 +137,7 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 			}
 
 			// Record savings on the swapped list item
-			if dealType != "trial" {
+			if dealType != "trial" && dealType != "fully_free" {
 				savingsArgs := append([]interface{}{discountCents, req.SwapItemID}, whereArgs...)
 				if _, err := tx.Exec(
 					"UPDATE list_items SET swap_savings_cents = ? WHERE id = ? AND "+whereClause,
@@ -148,28 +162,43 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 		}
 		swapEventID, _ := result.LastInsertId()
 
-		// Insert rebate ledger entry
+		// Insert rebate ledger entry — fully_free uses 'pending_purchase' status (budget debit deferred to verification)
+		rebateStatus := "pending"
+		rebateAmount := discountCents
+		if isFullyFree {
+			rebateStatus = "pending_purchase"
+			rebateAmount = maxRebateCents // will be adjusted on receipt verification
+		}
 		if _, err := tx.Exec(
-			"INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, ?, ?, ?, 'pending')",
-			session.UserID, swapEventID, req.SwapDealID, discountCents,
+			"INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, ?, ?, ?, ?)",
+			session.UserID, swapEventID, req.SwapDealID, rebateAmount, rebateStatus,
 		); err != nil {
 			log.Printf("[swaps] failed to insert rebate: %v", err)
 		}
 
-		// Update user counters and rebate balance
-		if _, err := tx.Exec("UPDATE users SET deal_accept_count = deal_accept_count + 1, swap_credits_cents = swap_credits_cents + ? WHERE id = ?",
-			discountCents, session.UserID); err != nil {
-			log.Printf("[swaps] failed to update user credits for user %d: %v", session.UserID, err)
+		// Update user counters — for fully_free, don't credit until verified
+		if isFullyFree {
+			if _, err := tx.Exec("UPDATE users SET deal_accept_count = deal_accept_count + 1 WHERE id = ?",
+				session.UserID); err != nil {
+				log.Printf("[swaps] failed to update user accept count for user %d: %v", session.UserID, err)
+			}
+		} else {
+			if _, err := tx.Exec("UPDATE users SET deal_accept_count = deal_accept_count + 1, swap_credits_cents = swap_credits_cents + ? WHERE id = ?",
+				discountCents, session.UserID); err != nil {
+				log.Printf("[swaps] failed to update user credits for user %d: %v", session.UserID, err)
+			}
 		}
 
-		// Auto-pause deal if budget now exhausted
-		var newBudgetSpent int
-		tx.QueryRow("SELECT budget_spent_cents FROM brand_deals WHERE id = ?", req.SwapDealID).Scan(&newBudgetSpent)
-		if budgetTotal > 0 && newBudgetSpent >= budgetTotal {
-			if _, err := tx.Exec("UPDATE brand_deals SET status = 'paused' WHERE id = ?", req.SwapDealID); err != nil {
-				log.Printf("[swaps] failed to auto-pause deal %d: %v", req.SwapDealID, err)
+		// Auto-pause deal if budget now exhausted (not applicable for fully_free since budget debit is deferred)
+		if !isFullyFree {
+			var newBudgetSpent int
+			tx.QueryRow("SELECT budget_spent_cents FROM brand_deals WHERE id = ?", req.SwapDealID).Scan(&newBudgetSpent)
+			if budgetTotal > 0 && newBudgetSpent >= budgetTotal {
+				if _, err := tx.Exec("UPDATE brand_deals SET status = 'paused' WHERE id = ?", req.SwapDealID); err != nil {
+					log.Printf("[swaps] failed to auto-pause deal %d: %v", req.SwapDealID, err)
+				}
+				log.Printf("[swaps] deal %d auto-paused: budget exhausted", req.SwapDealID)
 			}
-			log.Printf("[swaps] deal %d auto-paused: budget exhausted", req.SwapDealID)
 		}
 
 		if err := tx.Commit(); err != nil {
@@ -194,6 +223,8 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 			resp.Message = fmt.Sprintf("BOGO! Get %d for the price of 1. You save $%.2f. ($%.2f total saved!)", quantityOffered, float64(discountCents)/100, float64(newBalance)/100)
 		case "trial":
 			resp.Message = fmt.Sprintf("Free trial added! %s (%s). You save $%.2f. ($%.2f total saved!)", trialProductName, trialSize, float64(discountCents)/100, float64(newBalance)/100)
+		case "fully_free":
+			resp.Message = fmt.Sprintf("It's FREE! Add %s %s to your cart — scan your receipt after purchase to get $%.2f back.", offerBrand, offerProduct, float64(maxRebateCents)/100)
 		default:
 			resp.Message = fmt.Sprintf("Swapped! You save $%.2f. ($%.2f total saved!)", float64(discountCents)/100, float64(newBalance)/100)
 		}
