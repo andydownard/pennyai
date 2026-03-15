@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { PennyAvatar } from './PennyAvatar'
 import { fetchAPI } from '../api'
-import { FONT, FONT_2XS, FONT_XS, FONT_SM, FONT_BASE, FONT_MD } from '../styles'
+import { FONT, FONT_2XS, FONT_XS, FONT_SM, FONT_BASE, FONT_MD, layout, text } from '../styles'
 import { type ReceiptSummary, type ReceiptLineItem } from '../types'
 
 interface ReceiptScreenProps {
@@ -291,14 +291,14 @@ export function ReceiptScreen({ onSnapReceipt, hasAcceptedSwaps = true }: Receip
     if (!hasAcceptedSwaps) {
       return (
         <div style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          ...layout.columnCenter,
           padding: '40px 20px', gap: '16px',
         }}>
           <PennyAvatar size={48} />
-          <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600, color: 'var(--text)', textAlign: 'center' }}>
+          <div style={{ ...text.heading, fontSize: FONT_MD, textAlign: 'center' }}>
             No receipts to snap yet
           </div>
-          <div style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
+          <div style={{ ...text.secondary, textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
             Accept a swap on your shopping list first, then snap your receipt here to verify and earn your rebate.
           </div>
         </div>
@@ -307,23 +307,22 @@ export function ReceiptScreen({ onSnapReceipt, hasAcceptedSwaps = true }: Receip
 
     return (
       <div style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        ...layout.columnCenter,
         padding: '40px 20px', gap: '16px',
       }}>
         <PennyAvatar size={48} />
-        <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600, color: 'var(--text)', textAlign: 'center' }}>
+        <div style={{ ...text.heading, fontSize: FONT_MD, textAlign: 'center' }}>
           No receipts yet
         </div>
-        <div style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
+        <div style={{ ...text.secondary, textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
           Snap a photo of your grocery receipt and I'll match the items to your list and verify your swaps.
         </div>
         <button
           onClick={onSnapReceipt}
           style={{
-            marginTop: '8px', padding: '12px 24px', borderRadius: '10px',
-            border: 'none', backgroundColor: 'var(--brand)', color: '#fff',
-            fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: '8px',
+            backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '10px',
+            padding: '12px 24px', fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, cursor: 'pointer',
+            marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px',
           }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

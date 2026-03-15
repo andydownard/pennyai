@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ActionSheet } from './ActionSheet'
-import { FONT, FONT_2XS, FONT_XS, FONT_SM, FONT_BASE, FONT_LG } from '../styles'
+import { FONT, FONT_2XS, FONT_XS, FONT_SM, FONT_BASE, FONT_MD, FONT_LG, layout, text } from '../styles'
+import { PennyAvatar } from './PennyAvatar'
 
 export type ShoppingTrip = {
   id: number
@@ -66,6 +67,20 @@ export function TripPlannerSheet({
 
   return (
     <ActionSheet isOpen={true} onClose={onClose} title="Plan a shopping trip" maxHeight="60dvh">
+      {activeTrips.length === 0 && (
+        <div style={{
+          ...layout.columnCenter,
+          padding: '4px 0 16px', gap: '10px',
+        }}>
+          <PennyAvatar size={48} />
+          <div style={{ ...text.heading, fontSize: FONT_MD, textAlign: 'center' }}>
+            No trips planned yet
+          </div>
+          <div style={{ ...text.secondary, textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
+            Plan a trip so your household knows when you're heading to the store.
+          </div>
+        </div>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         <p style={{ fontFamily: FONT, fontSize: FONT_2XS, fontWeight: 600, color: 'var(--text)', margin: 0 }}>When?</p>
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'nowrap', alignItems: 'center' }}>

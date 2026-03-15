@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { FONT, FONT_BASE, FONT_SM, FONT_XS, FONT_2XS, FONT_LG, pageStyles } from '../styles'
+import { FONT, FONT_BASE, FONT_MD, FONT_XS, FONT_2XS, pageStyles, layout, text } from '../styles'
 import { PennyAvatar } from './PennyAvatar'
 import { ConfirmModal } from './ConfirmModal'
 import { ScreenTransition } from './ScreenTransition'
@@ -178,31 +178,26 @@ export function SavedListsScreen({
         ) : lists.length === 0 ? (
           // Empty state
           <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '60px 32px',
-            textAlign: 'center',
-            gap: '16px',
+            ...layout.columnCenter,
+            padding: '40px 20px', gap: '16px',
           }}>
-            <PennyAvatar size={80} />
-            <p style={{
-              fontFamily: FONT,
-              fontSize: FONT_LG,
-              fontWeight: 600,
-              color: 'var(--text)',
-              margin: '8px 0 0',
-            }}>No saved lists yet</p>
-            <p style={{
-              fontFamily: FONT,
-              fontSize: FONT_SM,
-              color: 'var(--text-secondary)',
-              margin: 0,
-              lineHeight: 1.5,
-            }}>
+            <PennyAvatar size={48} />
+            <div style={{ ...text.heading, fontSize: FONT_MD, textAlign: 'center' }}>
+              No saved lists yet
+            </div>
+            <div style={{ ...text.secondary, textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
               Tell Penny to save your current list — just say "save my list as Weekly Groceries"
-            </p>
+            </div>
+            <button
+              onClick={onNavigateHome}
+              style={{
+                backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '10px',
+                padding: '12px 24px', fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, cursor: 'pointer',
+                marginTop: '4px',
+              }}
+            >
+              Go to my list
+            </button>
           </div>
         ) : (
           // List of saved lists
