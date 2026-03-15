@@ -172,6 +172,7 @@ func (s *Server) handleBrandDeposit(w http.ResponseWriter, r *http.Request) {
 		// Hardcode to the known working domain — Origin header is unreliable
 		// (may be empty behind proxies, or may contain a non-resolving subdomain).
 		baseURL := "https://brand.thrift.ly"
+		log.Printf("[stripe] deposit: using baseURL=%s (origin was %q)", baseURL, r.Header.Get("Origin"))
 
 		form := url.Values{}
 		form.Set("mode", "payment")

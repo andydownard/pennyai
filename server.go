@@ -236,7 +236,7 @@ Get these from https://console.twilio.com (see README for full setup).
 			fmt.Fprintf(w, `{"status":"degraded","frontend_ok":%v,"db_ok":%v}`, frontendOK, dbOK)
 			return
 		}
-		w.Write([]byte(`{"status":"ok","frontend_ok":true,"db_ok":true}`))
+		w.Write([]byte(`{"status":"ok","frontend_ok":true,"db_ok":true,"version":"2026-03-15a"}`))
 	})
 	http.HandleFunc("/auth/send-code", server.handleSendCode)
 	http.HandleFunc("/auth/verify-code", server.handleVerifyCode)
