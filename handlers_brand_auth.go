@@ -2,10 +2,13 @@ package main
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"log"
 	"net/http"
 	"net/mail"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -240,13 +243,13 @@ func (s *Server) handleBrandMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var email, companyName, badge string
+	var email, companyName, badge, logoData string
 	var verified int
 	var createdAt string
 	err := s.db.QueryRow(
-		"SELECT email, company_name, verified, badge, created_at FROM brand_users WHERE id = ?",
+		"SELECT email, company_name, verified, badge, created_at, COALESCE(logo_data,'') FROM brand_users WHERE id = ?",
 		bs.BrandUserID,
-	).Scan(&email, &companyName, &verified, &badge, &createdAt)
+	).Scan(&email, &companyName, &verified, &badge, &createdAt, &logoData)
 	if err != nil {
 		dbError(w, err, "Failed to load profile")
 		return
@@ -263,6 +266,7 @@ func (s *Server) handleBrandMe(w http.ResponseWriter, r *http.Request) {
 		"badge":               badge,
 		"balance_cents":       balanceCents,
 		"created_at":          createdAt,
+		"has_logo":            logoData != "",
 		"can_submit_feedback": true, // all brand users can submit feedback
 	})
 }
@@ -283,4 +287,103 @@ func (s *Server) handleBrandLogout(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 	})
 	writeJSON(w, http.StatusOK, map[string]string{"success": "true"})
+}
+
+// handleBrandLogoUpload handles POST /brand/logo — upload a brand logo (base64 image).
+func (s *Server) handleBrandLogoUpload(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	bs, ok := s.requireBrandSession(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Image string `json:"image"` // data:image/png;base64,... or raw base64
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Image == "" {
+		writeBadRequest(w, "Missing image data")
+		return
+	}
+
+	// Parse data URI or raw base64
+	mime := "image/png"
+	data := req.Image
+	if strings.HasPrefix(data, "data:") {
+		// data:image/png;base64,iVBOR...
+		parts := strings.SplitN(data, ",", 2)
+		if len(parts) != 2 {
+			writeBadRequest(w, "Invalid image data")
+			return
+		}
+		header := parts[0] // data:image/png;base64
+		data = parts[1]
+		if idx := strings.Index(header, ":"); idx >= 0 {
+			mimeEnd := strings.Index(header[idx+1:], ";")
+			if mimeEnd > 0 {
+				mime = header[idx+1 : idx+1+mimeEnd]
+			}
+		}
+	}
+
+	// Validate it's actually base64 and not too large (max 500KB decoded)
+	decoded, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		writeBadRequest(w, "Invalid base64 image data")
+		return
+	}
+	if len(decoded) > 500*1024 {
+		writeBadRequest(w, "Image too large (max 500KB)")
+		return
+	}
+
+	// Only allow image types
+	if !strings.HasPrefix(mime, "image/") {
+		writeBadRequest(w, "Only image files are allowed")
+		return
+	}
+
+	_, err = s.db.Exec("UPDATE brand_users SET logo_data = ?, logo_mime = ? WHERE id = ?", data, mime, bs.BrandUserID)
+	if err != nil {
+		dbError(w, err, "Failed to save logo")
+		return
+	}
+
+	log.Printf("[brand] logo uploaded for brand_user %d (%d bytes, %s)", bs.BrandUserID, len(decoded), mime)
+	writeJSON(w, http.StatusOK, map[string]string{"success": "true"})
+}
+
+// handleBrandLogoServe handles GET /brand/logo/ — serve a brand's logo image.
+// Public endpoint (no auth required) so logos can be displayed in consumer-facing contexts.
+func (s *Server) handleBrandLogoServe(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+
+	// Extract brand_user_id from path: /brand/logo/123
+	idStr := strings.TrimPrefix(r.URL.Path, "/brand/logo/")
+	brandUserID, err := strconv.Atoi(idStr)
+	if err != nil || brandUserID <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	var logoData, logoMime string
+	err = s.db.QueryRow("SELECT COALESCE(logo_data,''), COALESCE(logo_mime,'') FROM brand_users WHERE id = ?", brandUserID).Scan(&logoData, &logoMime)
+	if err != nil || logoData == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(logoData)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", logoMime)
+	w.Header().Set("Cache-Control", "public, max-age=86400") // cache 24h
+	w.Header().Set("Content-Length", strconv.Itoa(len(decoded)))
+	w.Write(decoded)
 }

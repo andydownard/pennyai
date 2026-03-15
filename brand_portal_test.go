@@ -3070,3 +3070,77 @@ func TestBrandDeals_UpdateAndVerify(t *testing.T) {
 		t.Errorf("expected status=paused, got %s", dbStatus)
 	}
 }
+
+func TestBrandPortal_LogoUploadAndServe(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, brandUserID := brandRegister(t, server, "logo@brand.com", "password1234", "LogoCo")
+
+	// Upload a logo (1x1 red PNG as base64 data URI)
+	pngBase64 := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
+	dataURI := "data:image/png;base64," + pngBase64
+	rr := doRequest(server.handleBrandLogoUpload, "POST", "/brand/logo", map[string]string{
+		"image": dataURI,
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Logo upload: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify has_logo in /brand/me
+	rr = doRequest(server.handleBrandMe, "GET", "/brand/me", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Brand me: expected 200, got %d", rr.Code)
+	}
+	meBody := parseJSON(rr)
+	if meBody["has_logo"] != true {
+		t.Errorf("expected has_logo=true, got %v", meBody["has_logo"])
+	}
+
+	// Serve the logo
+	mux := http.NewServeMux()
+	mux.HandleFunc("/brand/logo/", server.handleBrandLogoServe)
+	req := httptest.NewRequest("GET", fmt.Sprintf("/brand/logo/%d", brandUserID), nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Logo serve: expected 200, got %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("expected Content-Type image/png, got %s", ct)
+	}
+	if w.Body.Len() == 0 {
+		t.Error("expected non-empty logo body")
+	}
+
+	// Serve non-existent logo
+	req = httptest.NewRequest("GET", "/brand/logo/99999", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Non-existent logo: expected 404, got %d", w.Code)
+	}
+}
+
+func TestBrandPortal_LogoUpload_NoAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleBrandLogoUpload, "POST", "/brand/logo", map[string]string{
+		"image": "data:image/png;base64,abc",
+	}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Logo upload without auth: expected 401, got %d", rr.Code)
+	}
+}
+
+func TestBrandPortal_LogoUpload_TooLarge(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := brandRegister(t, server, "big@brand.com", "password1234", "BigCo")
+
+	// Create a large base64 string (>500KB decoded)
+	bigData := strings.Repeat("A", 700*1024) // ~525KB when decoded
+	rr := doRequest(server.handleBrandLogoUpload, "POST", "/brand/logo", map[string]string{
+		"image": "data:image/png;base64," + bigData,
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Large logo: expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}

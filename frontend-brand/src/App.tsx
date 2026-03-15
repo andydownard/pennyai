@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 // =============================================================================
 // DESIGN TOKENS
@@ -26,6 +26,7 @@ interface BrandUser {
   badge: string
   balance_cents: number
   created_at: string
+  has_logo?: boolean
   can_submit_feedback?: boolean
 }
 
@@ -152,6 +153,41 @@ export function App() {
 
   // Mobile nav
   const [navOpen, setNavOpen] = useState(false)
+
+  // Logo upload
+  const logoInputRef = useRef<HTMLInputElement>(null)
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 500 * 1024) {
+      setError('Logo must be under 500KB')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const dataUrl = reader.result as string
+      try {
+        const res = await fetch('/brand/logo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ image: dataUrl }),
+        })
+        if (res.ok) {
+          // Refresh user to get has_logo=true
+          const me = await api<BrandUser>('/brand/me')
+          setUser(me)
+        } else {
+          const data = await res.json().catch(() => null)
+          setError(data?.error || 'Failed to upload logo')
+        }
+      } catch {
+        setError('Failed to upload logo')
+      }
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
 
   // Form state
   const [email, setEmail] = useState('')
@@ -915,7 +951,23 @@ export function App() {
             <h1 style={h1Style}>Account</h1>
             <div style={{ ...cardStyle, marginTop: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px' }}>
-                <BrandLogo brand={user.company_name} size={56} />
+                <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => logoInputRef.current?.click()}>
+                  <BrandLogo brand={user.company_name} brandUserId={user.has_logo ? user.brand_user_id : undefined} size={56} />
+                  <div style={{
+                    position: 'absolute', bottom: -2, right: -2,
+                    width: 20, height: 20, borderRadius: '50%',
+                    backgroundColor: BRAND, color: WHITE,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '12px', fontWeight: 700, border: `2px solid ${WHITE}`,
+                  }}>✎</div>
+                  <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                    style={{ display: 'none' }}
+                    onChange={handleLogoUpload}
+                  />
+                </div>
                 <div>
                   <div style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 600, color: TEXT }}>{user.company_name}</div>
                   <div style={{ fontFamily: FONT, fontSize: '14px', color: TEXT_SEC }}>{user.email}</div>
@@ -983,23 +1035,25 @@ function MetricCard({ label, value, highlight }: { label: string; value: string;
   )
 }
 
-function BrandLogo({ brand, size = 32 }: { brand: string; size?: number }) {
+function BrandLogo({ brand, brandUserId, size = 32 }: { brand: string; brandUserId?: number; size?: number }) {
   const [failed, setFailed] = useState(false)
-  if (!brand || failed) {
-    return (
-      <div style={{
-        width: size, height: size, borderRadius: '6px', backgroundColor: BRAND_LIGHT,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontFamily: FONT, fontSize: Math.round(size * 0.4), fontWeight: 700, color: BRAND,
-        flexShrink: 0,
-      }}>
-        {brand ? brand.charAt(0).toUpperCase() : '?'}
-      </div>
-    )
-  }
+  const fallback = (
+    <div style={{
+      width: size, height: size, borderRadius: '6px', backgroundColor: BRAND_LIGHT,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: FONT, fontSize: Math.round(size * 0.4), fontWeight: 700, color: BRAND,
+      flexShrink: 0,
+    }}>
+      {brand ? brand.charAt(0).toUpperCase() : '?'}
+    </div>
+  )
+  if (!brand || (failed && !brandUserId)) return fallback
+  // Prefer brand portal logo if available, fall back to consumer logo endpoint
+  const src = brandUserId ? `/brand/logo/${brandUserId}` : `/api/logo?brand=${encodeURIComponent(brand)}&v=4`
+  if (failed) return fallback
   return (
     <img
-      src={`/api/logo?brand=${encodeURIComponent(brand)}&v=4`}
+      src={src}
       alt={brand}
       width={size}
       height={size}

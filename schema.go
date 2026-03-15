@@ -839,6 +839,10 @@ func initDB(path string) (*sql.DB, error) {
 	// Link brand_deals to brand_users (optional — legacy deals have no brand_user_id)
 	db.Exec("ALTER TABLE brand_deals ADD COLUMN brand_user_id INTEGER DEFAULT NULL")
 
+	// Brand logo (base64-encoded image data, stored inline for simplicity)
+	db.Exec("ALTER TABLE brand_users ADD COLUMN logo_data TEXT DEFAULT NULL")
+	db.Exec("ALTER TABLE brand_users ADD COLUMN logo_mime TEXT DEFAULT NULL")
+
 	// Brand balance for Stripe pre-funded deposits
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS brand_balance (
