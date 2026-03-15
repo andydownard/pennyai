@@ -56,6 +56,7 @@ const ResetPasswordScreen = lazy(() => import('./components/ResetPasswordScreen'
 const ShareScreen = lazy(() => import('./components/ShareScreen').then(m => ({ default: m.ShareScreen })))
 const AdminScreen = lazy(() => import('./components/AdminScreen').then(m => ({ default: m.AdminScreen })))
 const SharedListScreen = lazy(() => import('./components/SharedListScreen').then(m => ({ default: m.SharedListScreen })))
+const SavedListsScreen = lazy(() => import('./components/SavedListsScreen').then(m => ({ default: m.SavedListsScreen })))
 const EmbedView = lazy(() => import('./components/EmbedView').then(m => ({ default: m.EmbedView })))
 // ItemModification type — extracted to useListState hook
 import {
@@ -72,7 +73,7 @@ import {
 // =============================================================================
 
 // The screens the app can show
-type Screen = 'phone' | 'code' | 'home' | 'penny' | 'profile' | 'settings-share' | 'admin' | 'email-login' | 'email-register' | 'forgot-password' | 'reset-password' | 'shared-list' | 'help' | 'earnings' | 'receipts'
+type Screen = 'phone' | 'code' | 'home' | 'penny' | 'profile' | 'settings-share' | 'admin' | 'email-login' | 'email-register' | 'forgot-password' | 'reset-password' | 'shared-list' | 'help' | 'earnings' | 'receipts' | 'saved-lists'
 
 // Declare gtag for TypeScript
 declare function gtag(...args: unknown[]): void
@@ -97,6 +98,7 @@ const SCREEN_PATHS: Record<Screen, string> = {
   help: '/help',
   earnings: '/earnings',
   receipts: '/receipts',
+  'saved-lists': '/saved-lists',
 }
 
 const SCREEN_TITLES: Record<Screen, string> = {
@@ -115,6 +117,7 @@ const SCREEN_TITLES: Record<Screen, string> = {
   help: 'Help — Thriftly',
   earnings: 'Earnings — Thriftly',
   receipts: 'Receipts — Thriftly',
+  'saved-lists': 'My Lists — Thriftly',
 }
 
 const PATH_TO_SCREEN: Record<string, Screen> = {
@@ -135,6 +138,7 @@ const PATH_TO_SCREEN: Record<string, Screen> = {
   '/help': 'help',
   '/earnings': 'earnings',
   '/receipts': 'receipts',
+  '/saved-lists': 'saved-lists',
 }
 
 const AUTH_SCREENS: Screen[] = ['phone', 'code', 'email-login', 'email-register', 'forgot-password', 'reset-password']
@@ -381,6 +385,10 @@ function AppInner() {
 
   // --- Auth/session state ---
   const [loginCount, setLoginCount] = useState(0)
+  // Track whether this is a first-time user (never added items before)
+  const [hasEverAddedItems, setHasEverAddedItems] = useState(() => {
+    try { return localStorage.getItem('has_added_items') === '1' } catch { return false }
+  })
   // Onboarding refs + syncOnboardingFlags — extracted to useChatState hook
 
   const [pendingReceiptMode, setPendingReceiptMode] = useState(false)
@@ -891,6 +899,7 @@ function AppInner() {
         }
       } catch {
         localStorage.removeItem('thriftly_join_code')
+        showToast('Something went wrong. Try again.', 'error')
       }
     }
     // Claim referral code if present
@@ -1492,8 +1501,14 @@ function AppInner() {
 
   // loadSettings, loadReferralData, and their effects are now in useSettingsState hook
 
+  const lastErrorToastRef = useRef(0)
   const showToast = (message: string, type: 'success' | 'error' = 'success', action?: { label: string; onClick: () => void }) => {
-    if (type === 'error') haptic.error()
+    if (type === 'error') {
+      const now = Date.now()
+      if (now - lastErrorToastRef.current < 3000) return
+      lastErrorToastRef.current = now
+      haptic.error()
+    }
     _showToast(message, type, action)
   }
 
@@ -1552,9 +1567,13 @@ function AppInner() {
   }, [screen, pennyStatus, toast?.message, pennyChimeIn, showDoneToast, items.length])
 
   // Reset empty greeting when items are cleared so it greets again next time
+  // Also mark that the user has added items at least once (for first-time user detection)
   useEffect(() => {
-    if (items.length > 0) hasGreetedEmpty.current = false
-  }, [items.length])
+    if (items.length > 0) {
+      hasGreetedEmpty.current = false
+      if (!hasEverAddedItems) setHasEverAddedItems(true)
+    }
+  }, [items.length, hasEverAddedItems])
 
   // Repurchase nudge — when list is empty and user returns, suggest items due for restock
   const nudgeShownRef = useRef(false)
@@ -1577,6 +1596,7 @@ function AppInner() {
                 body: JSON.stringify({ text: n.item_name }),
               }).then(r => r.ok ? r.json() : null).then(d => {
                 if (d?.items?.length > 0) {
+                  try { localStorage.setItem('has_added_items', '1') } catch { /* localStorage unavailable */ }
                   setItems(prev => sortItems([...prev, ...d.items]))
                   showToast(`Added ${n.item_name}`)
                 }
@@ -1726,6 +1746,7 @@ function AppInner() {
             const pennyMsg: string = data.message || ''
 
             if (addedItems.length > 0) {
+              try { localStorage.setItem('has_added_items', '1') } catch { /* localStorage unavailable */ }
               setItems(prev => sortItems([...prev, ...addedItems]))
               // Auto-expand departments for new items
               const newDepts = new Set(addedItems.map((i: ListItem) => i.department))
@@ -1769,6 +1790,7 @@ function AppInner() {
         } catch {
           setCameraConfirmation(null)
           cameraModeRef.current = false
+          showToast('Something went wrong. Try again.', 'error')
         }
       }
       img.src = dataUrl
@@ -2151,6 +2173,7 @@ function AppInner() {
   const getActiveNav = (s: Screen): NavScreen => {
     switch (s) {
       case 'home': case 'earnings': case 'receipts': return 'home'
+      case 'saved-lists': return 'saved-lists'
       case 'penny': return 'penny'
       case 'settings-share': return 'settings-share'
       case 'admin': return 'admin'
@@ -2212,6 +2235,7 @@ function AppInner() {
     'Settings': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l1.09 3.26L16.36 6l-2.6 2.14L14.53 12 12 9.77 9.47 12l.77-3.86L7.64 6l3.27-.74z"/><path d="M5 18l.7 2.1L8 20.8l-1.6 1.32.47 2.38L5 23.27 3.13 24.5l.47-2.38L2 20.8l2.3-.7z"/><path d="M19 15l.53 1.58 1.72.53-1.23.99.35 1.79L19 19.06l-1.37.83.35-1.79-1.23-.99 1.72-.53z"/></svg>,
     'Dashboard': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/></svg>,
     'Saved Lists': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>,
+    'My Lists': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>,
     'Profile': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
     'Swaps': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>,
   }
@@ -2341,6 +2365,24 @@ function AppInner() {
         renderHeader={() => renderPageHeader('Help', 'help')}
 
         transitionStyle={transitionStyle}
+      />
+      {renderNavMenu()}
+      </>
+    )
+  }
+
+  // =========================================================================
+  // SAVED LISTS SCREEN
+  // =========================================================================
+
+  if (screen === 'saved-lists') {
+    return withFeedbackFAB(
+      <><SavedListsScreen
+        renderHeader={() => renderPageHeader('My Lists', 'saved-lists')}
+        renderToast={renderPennyToast}
+        transitionStyle={transitionStyle}
+        onShowToast={showToast}
+        onNavigateHome={() => setScreen('home')}
       />
       {renderNavMenu()}
       </>
@@ -2911,17 +2953,32 @@ function AppInner() {
           </div>
         ) : items.length === 0 && !chatLoading ? (
           <div style={listStyles.emptyState}>
-            <PennyAvatar size={56} />
-            <p style={{ ...listStyles.emptyText, marginTop: '12px' }}>What do you need from the store?</p>
-            <p style={listStyles.emptySubtext}>Type, paste a list, or snap a photo</p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '16px', justifyContent: 'center', maxWidth: '320px' }}>
-              {['milk eggs bread', 'bananas chicken rice', 'coffee creamer butter'].map(example => (
-                <button key={example} onClick={() => { setChatText(example); chatInputRef.current?.focus() }} style={{
-                  fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)', backgroundColor: 'var(--bg)',
-                  border: '1px solid var(--border)', borderRadius: '16px', padding: '6px 14px', cursor: 'pointer',
-                }}>{example}</button>
-              ))}
-            </div>
+            {!hasEverAddedItems && loginCount <= 1 ? (
+              <>
+                <PennyAvatar size={64} />
+                <p style={{ ...listStyles.emptyText, marginTop: '14px', fontSize: FONT_XL, fontWeight: 600 }}>Hey! I'm Penny</p>
+                <p style={listStyles.emptySubtext}>Type what you need — I'll organize it by aisle</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '16px', justifyContent: 'center', maxWidth: '320px' }}>
+                  {['milk eggs bread', 'bananas chicken rice', 'coffee creamer butter'].map(example => (
+                    <button key={example} onClick={() => { setChatText(example); chatInputRef.current?.focus() }} style={{
+                      fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)', backgroundColor: 'var(--bg)',
+                      border: '1px solid var(--border)', borderRadius: '16px', padding: '6px 14px', cursor: 'pointer',
+                    }}>{example}</button>
+                  ))}
+                </div>
+                {settingsUserPhone && settingsPennyPhone && (
+                  <p style={{ ...listStyles.emptySubtext, marginTop: '18px', fontSize: FONT_XS, opacity: 0.7 }}>
+                    or text me at {settingsPennyPhone}
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <PennyAvatar size={56} />
+                <p style={{ ...listStyles.emptyText, marginTop: '12px' }}>What can I add to your list?</p>
+                <p style={listStyles.emptySubtext}>Type, paste a list, or snap a photo</p>
+              </>
+            )}
           </div>
         ) : (
           <div style={{ opacity: deptListOpacity, transition: 'opacity 0.15s ease-out' }}>
@@ -3152,6 +3209,7 @@ function AppInner() {
         chatLoading={chatLoading}
         onSend={handleSendChat}
         autoSubmitEnabled={!nameInputMode.current}
+        placeholder={!hasEverAddedItems && loginCount <= 1 ? "Type items like 'milk, eggs, bread'..." : "Add items or ask Penny anything..."}
         onPaste={handlePaste}
         onAddPhoto={() => fileInputRef.current?.click()}
         onOpenCamera={() => {

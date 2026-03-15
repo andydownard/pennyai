@@ -375,6 +375,7 @@ export function useChatState(options: UseChatStateOptions) {
           optRef.current.setLastAdded(addedItems)
           optRef.current.setLastSkipped(skippedItems)
           if (addedItems.length > 0) {
+            try { localStorage.setItem('has_added_items', '1') } catch { /* localStorage unavailable */ }
             track('items_added', { count: addedItems.length })
             trackEvent('onboarding_v2', 'items_added_day1', addedItems.length)
             const now = Date.now()

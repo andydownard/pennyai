@@ -146,7 +146,7 @@ export function useSettingsState(options: UseSettingsStateOptions) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: [settingsFirstNameRef.current.trim(), settingsLastNameRef.current.trim()].filter(Boolean).join(' '), email: settingsEmailRef.current.trim(), phone: settingsPhoneRef.current.trim() || undefined, address: settingsAddressRef.current.trim() }),
       })
-    } catch { /* silent */ }
+    } catch { showToastRef.current('Something went wrong. Try again.', 'error') }
     settingsSaving.current = false
     if (settingsQueued.current) { settingsQueued.current = false; doSettingsSave() }
   }
@@ -229,7 +229,7 @@ export function useSettingsState(options: UseSettingsStateOptions) {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ penny_autotune: next }),
-    })
+    }).catch(() => { setPennyAutotune(!next); showToastRef.current('Something went wrong. Try again.', 'error') })
   }
 
   const toggleDeals = () => {
@@ -239,7 +239,7 @@ export function useSettingsState(options: UseSettingsStateOptions) {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ penny_deals: next }),
-    })
+    }).catch(() => { setPennyDeals(!next); showToastRef.current('Something went wrong. Try again.', 'error') })
   }
 
   const toggleStoreOrder = () => {
@@ -249,7 +249,7 @@ export function useSettingsState(options: UseSettingsStateOptions) {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ store_order_enabled: next }),
-    })
+    }).catch(() => { setStoreOrderEnabled(!next); showToastRef.current('Something went wrong. Try again.', 'error') })
   }
 
   const toggleDailyDigest = () => {
@@ -259,7 +259,7 @@ export function useSettingsState(options: UseSettingsStateOptions) {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ daily_digest_enabled: next }),
-    })
+    }).catch(() => { setDailyDigestEnabled(!next); showToastRef.current('Something went wrong. Try again.', 'error') })
   }
 
   // =========================================================================

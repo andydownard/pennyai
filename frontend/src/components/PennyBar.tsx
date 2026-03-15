@@ -96,6 +96,8 @@ interface PennyBarProps {
   onOpenCamera: () => void
   // Auto-submit: enabled when not in special input modes (disambiguation, name input, etc.)
   autoSubmitEnabled?: boolean
+  // Optional custom placeholder for the chat input
+  placeholder?: string
   // Refs (forwarded)
   chatInputRef: React.RefObject<HTMLTextAreaElement | null>
 }
@@ -140,6 +142,7 @@ export function PennyBar({
   pendingImages, onRemoveImage,
   chatText, onChatTextChange, chatLoading, onSend, onPaste, onAddPhoto, onOpenCamera,
   autoSubmitEnabled = true,
+  placeholder: customPlaceholder,
   chatInputRef,
 }: PennyBarProps) {
   const [showAltsForAuto, setShowAltsForAuto] = useState(false)
@@ -325,7 +328,7 @@ export function PennyBar({
               rows={1}
               enterKeyHint="send"
               aria-label={hasDisambig ? "Type a brand name" : "Add items or tell Penny anything"}
-              placeholder={hasDisambig ? "Or type a brand name\u2026" : "Add, edit, or ask Penny\u2026"}
+              placeholder={hasDisambig ? "Or type a brand name\u2026" : (customPlaceholder || "Add, edit, or ask Penny\u2026")}
               value={chatText}
               onChange={e => {
                 onChatTextChange(e.target.value)
