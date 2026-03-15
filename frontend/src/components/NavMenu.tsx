@@ -66,15 +66,31 @@ export function NavMenu({ open, active, isAdmin, onNavigate, onClose }: NavMenuP
         <div style={{
           padding: '20px 20px 16px',
           borderBottom: '1px solid var(--border)',
+          display: 'flex', alignItems: 'center', gap: '12px',
         }}>
-          <span style={{
-            fontFamily: FONT, fontSize: '1.25rem', fontWeight: 700,
-            color: 'var(--brand)', letterSpacing: '-0.5px',
-          }}>thriftly</span>
-          <p style={{
-            fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)',
-            margin: '4px 0 0',
-          }}>Penny AI grocery list</p>
+          <svg width="36" height="36" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Thriftly logo" style={{ flexShrink: 0 }}>
+            <rect x="12" y="10" width="42" height="52" rx="6" stroke="var(--brand)" strokeWidth="2.5" fill="var(--surface)" />
+            <rect x="25" y="4" width="16" height="10" rx="4" fill="var(--brand)" />
+            <rect x="29" y="7" width="8" height="4" rx="2" fill="var(--surface)" />
+            <path d="M20 27 L23 30 L28 24" stroke="var(--brand)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            <line x1="33" y1="27" x2="46" y2="27" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" opacity="0.7" />
+            <path d="M20 37 L23 40 L28 34" stroke="var(--brand)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            <line x1="33" y1="37" x2="42" y2="37" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" opacity="0.7" />
+            <circle cx="24" cy="47" r="2" fill="var(--brand)" opacity="0.3" />
+            <line x1="33" y1="47" x2="39" y2="47" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" opacity="0.3" />
+            <path d="M54 14 L56 19 L61 21 L56 23 L54 28 L52 23 L47 21 L52 19 Z" fill="var(--brand)" />
+            <path d="M60 6 L61 9 L64 10 L61 11 L60 14 L59 11 L56 10 L59 9 Z" fill="var(--brand)" opacity="0.5" />
+          </svg>
+          <div>
+            <span style={{
+              fontFamily: FONT, fontSize: '1.25rem', fontWeight: 700,
+              color: 'var(--brand)', letterSpacing: '-0.5px',
+            }}>thriftly</span>
+            <p style={{
+              fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)',
+              margin: '2px 0 0', lineHeight: 1.3,
+            }}>Text Penny. She handles the rest.</p>
+          </div>
         </div>
 
         {/* Nav items */}
