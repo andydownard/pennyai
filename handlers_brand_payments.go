@@ -168,12 +168,10 @@ func (s *Server) handleBrandDeposit(w http.ResponseWriter, r *http.Request) {
 	// If Stripe is configured, create a Checkout Session (redirect flow).
 	// Otherwise, fall back to direct credit (dev/test mode).
 	if s.config.StripeSecretKey != "" {
-		// Stripe must redirect back to the BRAND PORTAL, not the consumer app.
-		// Derive from Origin header (browser sets this), fall back to brand subdomain.
-		baseURL := r.Header.Get("Origin")
-		if baseURL == "" {
-			baseURL = "https://brand.thrift.ly"
-		}
+		// Stripe must redirect back to the BRAND PORTAL.
+		// Hardcode to the known working domain — Origin header is unreliable
+		// (may be empty behind proxies, or may contain a non-resolving subdomain).
+		baseURL := "https://brand.thrift.ly"
 
 		form := url.Values{}
 		form.Set("mode", "payment")
