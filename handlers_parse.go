@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // handleSwapAction processes swap accept/decline requests.
@@ -346,8 +347,106 @@ func (s *Server) handleReceiptScan(w http.ResponseWriter, session Session, image
 	go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
 }
 
+// isSimpleAddInput returns true if the text looks like plain grocery items to add
+// (not a command like remove/check/save/search/recipe). This enables a fast path
+// that skips the full command parser and its web search tool, cutting latency from
+// 10-30s to 1-3s for simple adds.
+func isSimpleAddInput(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	if lower == "" {
+		return false
+	}
+
+	// Command keywords that require the full parser
+	commandPrefixes := []string{
+		"remove", "delete", "drop", "take off", "take out",
+		"check", "uncheck", "mark", "got the", "we got",
+		"save", "load", "open", "pull up", "what lists", "what saved",
+		"clear", "undo", "restore", "bring back",
+		"update", "change", "switch", "use ", "make the",
+		"share", "invite",
+		"done", "finished", "checkout", "at checkout",
+		"recipe", "how to make", "how do i", "how do you",
+		"what is", "what's", "is it", "should i", "tell me about",
+		"help", "never mind", "cancel",
+		"actually", "wait", "no ",
+	}
+	for _, prefix := range commandPrefixes {
+		if strings.HasPrefix(lower, prefix) || strings.Contains(lower, prefix) {
+			return false
+		}
+	}
+
+	// Meal phrases need the full parser for recipe search
+	if isMealPhrase(text) {
+		return false
+	}
+
+	return true
+}
+
 // handleTextCommand processes natural language text commands via Claude parsing.
 func (s *Server) handleTextCommand(w http.ResponseWriter, session Session, text string, hhIDs []int) {
+	start := time.Now()
+
+	// --- FAST PATH: simple grocery items bypass the full command parser ---
+	// This uses cachedParseItems (simpler prompt, no web search, cached results)
+	// instead of parseCommandWithClaude (massive prompt, web search enabled).
+	if isSimpleAddInput(text) {
+		parsed, err := s.cachedParseItems(s.config.AnthropicAPIKey, text, nil)
+		if err == nil && len(parsed) > 0 {
+			added, skippedItems := addParsedItems(s.db, session.UserID, parsed, "app")
+			resp := ParseResponse{
+				Action:  "add",
+				Items:   added,
+				Skipped: skippedItems,
+				Added:   len(added),
+			}
+			// Generate a friendly message
+			if len(added) == 1 {
+				resp.Message = fmt.Sprintf("Added %s!", added[0].Name)
+			} else if len(added) > 1 {
+				names := make([]string, len(added))
+				for i, a := range added {
+					names[i] = a.Name
+				}
+				if len(names) <= 3 {
+					resp.Message = fmt.Sprintf("Added %s!", strings.Join(names, ", "))
+				} else {
+					resp.Message = fmt.Sprintf("Added %d items!", len(added))
+				}
+			}
+
+			s.enrichAddedItems(session.UserID, added, parsed, &resp)
+
+			// Record learning signals async
+			if len(added) > 0 {
+				go func(uid int, items []ListItem) {
+					for _, item := range items {
+						s.recordSignal(uid, "item_added", item.Department, item.Brand, map[string]interface{}{
+							"name": item.Name, "source": item.Source,
+						})
+					}
+				}(session.UserID, added)
+			}
+
+			if resp.Items == nil {
+				resp.Items = []ListItem{}
+			}
+			if resp.Skipped == nil {
+				resp.Skipped = []SkippedItem{}
+			}
+			log.Printf("[parse] fast-path add for user %d: %q → %d items in %v", session.UserID, text, len(added), time.Since(start))
+			writeJSON(w, http.StatusCreated, resp)
+			go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
+			return
+		}
+		// Fast path failed — fall through to full parser
+		log.Printf("[parse] fast-path failed for %q, falling back to full parser: %v", text, err)
+	}
+
+	// --- FULL PATH: commands, searches, updates, etc. ---
+
 	// Get current list items so the LLM can reference them
 	whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID, hhIDs)
 	rows, err := s.db.Query(
@@ -621,6 +720,7 @@ func (s *Server) handleTextCommand(w http.ResponseWriter, session Session, text 
 	if resp.Skipped == nil {
 		resp.Skipped = []SkippedItem{}
 	}
+	log.Printf("[parse] full-path for user %d: %q → action=%s in %v", session.UserID, text, resp.Action, time.Since(start))
 	writeJSON(w, http.StatusCreated, resp)
 	go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)
 }

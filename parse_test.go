@@ -842,3 +842,63 @@ func TestCachedParseItems_ErrorNotCached(t *testing.T) {
 		t.Errorf("expected [{Name:Yogurt}], got %+v", result)
 	}
 }
+
+// =============================================================================
+// isSimpleAddInput FAST PATH DETECTION TESTS
+// =============================================================================
+
+func TestIsSimpleAddInput(t *testing.T) {
+	// Should be detected as simple adds (fast path)
+	simpleAdds := []string{
+		"sunscreen",
+		"milk",
+		"eggs and butter",
+		"chicken breast",
+		"2 bananas",
+		"oat milk, eggs, bread",
+		"La Croix tangerine",
+		"Organic Valley whole milk",
+		"peanut butter & jelly",
+		"dr pepper",
+		"half and half",
+		"mac n cheese",
+	}
+	for _, input := range simpleAdds {
+		if !isSimpleAddInput(input) {
+			t.Errorf("expected %q to be detected as simple add (fast path)", input)
+		}
+	}
+
+	// Should NOT be detected as simple adds (need full parser)
+	complexInputs := []string{
+		"remove the milk",
+		"delete eggs",
+		"check the bread",
+		"uncheck butter",
+		"save as weekly groceries",
+		"load my costco list",
+		"clear checked items",
+		"undo",
+		"restore my list",
+		"share this with my wife",
+		"invite my husband",
+		"recipe for tacos",
+		"how to make pasta",
+		"what's a good cheese",
+		"change eggs to a dozen",
+		"use Fage for yogurt",
+		"done shopping",
+		"at checkout",
+		"dinner for 4",
+		"what should I make",
+		"help",
+		"actually never mind",
+		"drop the ice cream",
+		"",
+	}
+	for _, input := range complexInputs {
+		if isSimpleAddInput(input) {
+			t.Errorf("expected %q to NOT be detected as simple add (needs full parser)", input)
+		}
+	}
+}
