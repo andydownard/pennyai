@@ -172,7 +172,7 @@ func (s *Server) handleBrandDeposit(w http.ResponseWriter, r *http.Request) {
 		// Derive from Origin header (browser sets this), fall back to brand subdomain.
 		baseURL := r.Header.Get("Origin")
 		if baseURL == "" {
-			baseURL = "https://brands.thrift.ly"
+			baseURL = "https://brand.thrift.ly"
 		}
 
 		form := url.Values{}

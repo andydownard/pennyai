@@ -991,7 +991,7 @@ func TestBrandDigest_HTMLGeneration(t *testing.T) {
 		PendingClaims:      5,
 		BalanceCents:       100000,
 		ActiveDeals:        3,
-		DashboardURL:       "https://brands.thrift.ly",
+		DashboardURL:       "https://brand.thrift.ly",
 	}
 
 	html := buildBrandDigestHTML(data)
@@ -1014,7 +1014,7 @@ func TestBrandDigest_HTMLGeneration(t *testing.T) {
 	if !strings.Contains(html, "$1000.00") {
 		t.Error("HTML should contain balance")
 	}
-	if !strings.Contains(html, "brands.thrift.ly") {
+	if !strings.Contains(html, "brand.thrift.ly") {
 		t.Error("HTML should contain dashboard URL")
 	}
 }

@@ -136,8 +136,8 @@ func (s *Server) sendBrandDigest(brandUserID int, email, companyName string) err
 	s.db.QueryRow(`SELECT COUNT(*) FROM brand_deals WHERE brand_user_id = ? AND status = 'active'`,
 		brandUserID).Scan(&activeDeals)
 
-	dashURL := s.config.WebhookBaseURL
-	if dashURL == "" {
+	dashURL := "https://brand.thrift.ly"
+	if s.config.WebhookBaseURL == "" {
 		dashURL = "http://localhost:" + s.config.Port
 	}
 
