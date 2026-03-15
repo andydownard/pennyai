@@ -112,3 +112,7 @@ _Submitted: 2026-03-15 13:26 UTC_
 ## [NORMAL] 2026-03-15 13:28 UTC
 [Brand Portal] have three radio buttons for the deal type to select.  free sample.  buy one get one free.  $ discount
 _Submitted: 2026-03-15 13:28 UTC_
+
+## [NORMAL] 2026-03-15 13:29 UTC
+[Brand Portal] list all items for all brands here, just like the shopping list view, and i can click on any one and see the details we have on it, including for the receipts which items are frequently bought together
+_Submitted: 2026-03-15 13:29 UTC_
