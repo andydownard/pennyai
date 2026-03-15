@@ -122,6 +122,12 @@ Strategic direction from founder + CEO panel focused on three gates: First-5-Min
    - **Status:** Done
    - **Owner:** Product + Frontend
 
+9. **Saved List Sharing via Link** — Share saved lists via a public link using the fork/copy model (not live-linked). Extend `shared_links` table with nullable `saved_list_id`. Unauthenticated recipients can view the list using existing shared-list infrastructure. Authenticated recipients get two actions: "Add to My List" (merge items into active list with summary: "Added 8 items, 4 already on list") and "Save as My List" (create a personal copy). Brand fidelity must be preserved in shared copies — dietary needs depend on accurate brand info.
+   - Passes Gate 1 (sharing is zero-friction — just a link), Gate 2 (household coordination — "here's what we always buy at Costco"), Gate 3 (shared list data reveals cross-household brand preferences).
+   - Files: `db.go`, `handlers_settings.go`, `SharedListScreen.tsx`, `SavedListsScreen.tsx`
+   - **Owner:** Product + Backend + Frontend
+   - **Timeline:** 1 week
+
 ### P2 — Hold Until P0/P1 Validated (Do Not Start)
 
 5. **Feature Pause: Trip Planner** — Deprioritize until data flywheel and household coordination narratives are proven. Trip planner is convenience-driven, not coordination-driven. Move to "Nice-to-Have" unless repositioned around household trip coordination.
@@ -139,6 +145,29 @@ Strategic direction from founder + CEO panel focused on three gates: First-5-Min
    - Gates: Passes G3 (check-off sequence data compounds per store)
    - **Status:** Done
    - **Owner:** Product + AI + UX Designer
+
+10. **Saved List Discovery Nudges** — Three contextual nudges to help users discover and use saved lists: (a) Post-trip save prompt ("Save this list for next time?") triggered at end of shopping trip; (b) Repeat-item detection — after 3+ weeks of 60%+ item overlap, Penny suggests "Save as 'Weekly Basics'?"; (c) New household member onboarding — "Your household has 3 saved lists" shown to newly joined members. All nudges must persist dismiss state per notification safety rules (localStorage + server-side flag, no re-prompt after dismiss).
+    - Passes Gate 2 (household members discover shared knowledge), Gate 3 (save/dismiss signals feed Penny's understanding of user habits).
+    - Files: `App.tsx`, `useChatState.ts`, `penny.go`
+    - **Owner:** Product + AI + Frontend
+    - **Timeline:** 1-2 weeks
+
+### P3 — Lower Priority
+
+11. **Auto-Generated "Your Regulars" List** — System-maintained saved list based on purchase frequency analysis. When Penny detects 3+ shopping sessions with 60%+ item overlap, she auto-creates and maintains a "Your Regulars" list. Pure Gate 3 (data flywheel) feature — purchase frequency data compounds over time. Penny auto-maintains the list (adds items that become regular, removes items that drop off), but the user can edit freely. Penny proactively offers: "Your Regulars list has 12 items — want to load it?"
+    - Passes Gate 3 (purchase frequency data compounds, Penny gets smarter about what's "regular" over time).
+    - Files: `penny.go`, `db.go`, `handlers_parse.go`
+    - **Owner:** Product + AI
+    - **Timeline:** 1-2 weeks
+
+### Saved Lists — UX Research Findings (March 2026)
+
+> Research insights from saved lists UX analysis. These inform implementation of items 9, 10, and 11 above.
+
+- **Household-scoped saved lists: audit needed.** The read path may already work via `householdItemsWhereClause` (household members see each other's lists), but creation and update paths need verification — confirm that saved lists created by one household member are visible/loadable by others.
+- **Fork/copy is the unanimous inter-household sharing model.** Nobody wants live-linked lists across households. When sharing a saved list externally, the recipient gets a copy they own. Changes to the original do not propagate.
+- **Merge should be default load behavior (78% of users), not replace.** When loading a saved list into the active list, merge items (add missing, skip duplicates) and show a summary ("Added 8 items, 4 already on list"). Do not silently replace the active list.
+- **Don't impose list categories — keep freeform names.** Users name lists however they want ("Costco run", "Taco Tuesday", "Mom's birthday dinner"). Auto-detect store from list name where possible (e.g., "Costco run" → associate with Costco) but never force categorization.
 
 ---
 
@@ -645,6 +674,9 @@ Playwright E2E tests covering critical user flows: login, add items, check items
 | — | ~~R4. SSE Real-Time Updates~~ | — | — | — | **Replaced by Pusher/Ably** (Buy-vs-Build: BUY NOW). No longer a build item. | Replaced |
 | 18 | **R6. Codebase Refactor** | L | — | P2 | Split monolithic files (App.tsx, handlers), extract middleware, shared styles, API layer. Do incrementally between sprints. | **Mostly Done** (API layer ✅, error handling ✅, hooks ✅ (5 extracted), test helpers ✅, shared styles ✅, middleware ✅, test org ✅, file splitting ✅; remaining: request types) |
 | 19 | **R7. UX Overhaul** | L | — | P1 | Design system, dark mode, bottom tabs, screen transitions, optimistic updates, offline support. Dedicated sprint after revenue stabilizes. | **Mostly Done** (dark mode ✅, bottom tabs ✅, transitions ✅, a11y ✅, font scaling ✅, code splitting ✅; remaining: Penny avatar expressions) |
+| 20 | **Saved List Sharing via Link** | M | — | P1 | Extend shared_links with saved_list_id, fork/copy model, view without auth, merge/save actions for authenticated users. Passes all 3 gates. | Planned |
+| 21 | **Saved List Discovery Nudges** | M | — | P2 | Post-trip save prompt, repeat-item detection, new member onboarding. Must persist dismiss state per notification safety rules. | Planned |
+| 22 | **Auto-Generated "Your Regulars" List** | M | — | P3 | System-maintained saved list from purchase frequency (3+ sessions, 60%+ overlap). Pure Gate 3 data flywheel feature. | Planned |
 
 ### What changed (March 2026 groom)
 - **M3 moved to #1** — deals must exist before swap code ships. M1 depends on M3, not the other way around.
