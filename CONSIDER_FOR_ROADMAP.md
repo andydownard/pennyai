@@ -116,3 +116,7 @@ _Submitted: 2026-03-15 13:28 UTC_
 ## [NORMAL] 2026-03-15 13:29 UTC
 [Brand Portal] list all items for all brands here, just like the shopping list view, and i can click on any one and see the details we have on it, including for the receipts which items are frequently bought together
 _Submitted: 2026-03-15 13:29 UTC_
+
+## [NORMAL] 2026-03-15 13:29 UTC
+[Brand Portal] have the same share button on this as the consumer side.  let folks share it to their team, and share it to anyone
+_Submitted: 2026-03-15 13:29 UTC_
