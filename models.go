@@ -97,11 +97,14 @@ type ListItem struct {
 	Emoji            string `json:"emoji"`
 }
 
-// SkippedItem represents a parsed item that was not added because it already
-// exists on the user's list. The frontend can offer to increase quantity.
+// SkippedItem represents a parsed item that was not added. Reason indicates why:
+// - "duplicate": already exists on the user's list (ExistingID set)
+// - "ambiguous": input was too vague for Penny to parse into a specific item
 type SkippedItem struct {
 	Parsed     ParsedItem `json:"parsed"`
 	ExistingID int        `json:"existing_id"`
+	Reason     string     `json:"reason,omitempty"`
+	RawInput   string     `json:"raw_input,omitempty"`
 }
 
 // SavedListSummary is a lightweight saved list for display in chat.

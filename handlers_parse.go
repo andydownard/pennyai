@@ -579,6 +579,32 @@ func (s *Server) handleTextCommand(w http.ResponseWriter, session Session, text 
 		resp.Items = added
 		resp.Skipped = skippedItems
 		resp.Added = len(added)
+
+		// Merge Claude-level skipped (ambiguous/unparseable) items into the response
+		if len(cmd.Skipped) > 0 {
+			for _, s := range cmd.Skipped {
+				resp.Skipped = append(resp.Skipped, SkippedItem{
+					Parsed:   ParsedItem{Name: s.Text},
+					Reason:   s.Reason,
+					RawInput: s.Text,
+				})
+			}
+		}
+
+		// Build partial success message when there are both added items AND skipped items
+		if len(added) > 0 && len(cmd.Skipped) > 0 {
+			skippedTexts := make([]string, 0, len(cmd.Skipped))
+			for _, s := range cmd.Skipped {
+				skippedTexts = append(skippedTexts, "'"+s.Text+"'")
+			}
+			partialMsg := fmt.Sprintf("Added %d item%s", len(added), pluralS(len(added)))
+			partialMsg += fmt.Sprintf(". I wasn't sure about: %s — try being more specific!", strings.Join(skippedTexts, ", "))
+			// Only override if Claude didn't already provide a message mentioning the skipped items
+			if resp.Message == "" || !strings.Contains(strings.ToLower(resp.Message), "sure about") {
+				resp.Message = partialMsg
+			}
+		}
+
 		s.enrichAddedItems(session.UserID, added, cmd.Items, &resp)
 		// Flag fallback items for async enrichment retry
 		if needsEnrichment {

@@ -62,6 +62,14 @@ func writeConflict(w http.ResponseWriter, msg string) {
 	writeJSON(w, http.StatusConflict, map[string]string{"error": msg})
 }
 
+// pluralS returns "s" when count != 1, for simple English pluralization.
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
 func writeNotFound(w http.ResponseWriter, msg string) {
 	writeJSON(w, http.StatusNotFound, map[string]string{"error": msg})
 }

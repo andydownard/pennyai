@@ -99,14 +99,21 @@ type ParsedItem struct {
 	Emoji             string   `json:"emoji"`
 }
 
+// SkippedInput represents an item from the user's input that couldn't be parsed into a grocery item.
+type SkippedInput struct {
+	Text   string `json:"text"`   // the original phrase that couldn't be parsed
+	Reason string `json:"reason"` // why it was skipped (e.g. "ambiguous", "not_a_grocery_item", "needs_clarification")
+}
+
 // ParsedCommand is the top-level response from Claude for natural language list operations.
 type ParsedCommand struct {
-	Action        string       `json:"action"`          // add, remove, update, check, uncheck, save, clear, load_saved_list, search
-	Items         []ParsedItem `json:"items"`           // items to act on
-	SaveName      string       `json:"save_name"`       // for "save" action
-	SavedListName string       `json:"saved_list_name"` // for "load_saved_list" action
-	StoreName     string       `json:"store_name"`      // store association for save/load (e.g. "Costco", "Whole Foods")
-	Message       string       `json:"message"`         // Penny's response message
+	Action        string         `json:"action"`                   // add, remove, update, check, uncheck, save, clear, load_saved_list, search
+	Items         []ParsedItem   `json:"items"`                    // items to act on
+	Skipped       []SkippedInput `json:"skipped,omitempty"`        // items that couldn't be parsed
+	SaveName      string         `json:"save_name"`                // for "save" action
+	SavedListName string         `json:"saved_list_name"`          // for "load_saved_list" action
+	StoreName     string         `json:"store_name"`               // store association for save/load (e.g. "Costco", "Whole Foods")
+	Message       string         `json:"message"`                  // Penny's response message
 }
 
 // callClaude is the shared helper for all Anthropic API calls.
@@ -418,15 +425,32 @@ For remove/check/uncheck, you only need the "name" field (match against current 
 
 CRITICAL: For remove/update/check/uncheck, use the EXACT name from the current list so matching works. If user says "drop the lacroix" and the list has "Tangerine Sparkling Water" (LaCroix), use "Tangerine Sparkling Water".
 
+AMBIGUOUS INPUT HANDLING:
+When the user's input contains phrases that are too vague to be specific grocery items (e.g. "stuff for the party", "something sweet", "the other thing", "you know what I mean"), do NOT guess wildly or silently drop them. Instead:
+1. Put any clearly identifiable items in "items" as normal
+2. Put ambiguous/unparseable phrases in "skipped" array with a reason
+3. In "message", acknowledge what you added AND ask for clarification on the ambiguous parts
+
+Example: "chips, salsa, and stuff for the party" →
+{
+  "action": "add",
+  "items": [{"name": "Tortilla Chips", ...}, {"name": "Salsa", ...}],
+  "skipped": [{"text": "stuff for the party", "reason": "needs_clarification"}],
+  "message": "Added chips and salsa! What kind of party stuff did you have in mind — drinks, dips, napkins?"
+}
+
 Respond with a JSON object:
 {
   "action": "add"|"remove"|"update"|"check"|"uncheck"|"save"|"clear"|"update_preference"|"restore"|"share"|"load_saved_list"|"delete_saved_list",
   "items": [...],
+  "skipped": [{"text": "original phrase", "reason": "ambiguous|not_a_grocery_item|needs_clarification"}],
   "save_name": "list name (only for save action)",
   "saved_list_name": "list name to load (only for load_saved_list, optional)",
   "store_name": "store name (only for save/load_saved_list, optional — e.g. 'Costco', 'Whole Foods')",
   "message": "A short, friendly Penny response about what you did (1 sentence). Focus on the food/logistics, not the app."
 }
+
+The "skipped" array should ONLY be used when part of the input genuinely cannot be parsed. Do NOT put items in skipped just because they're common or generic — only when the phrase is truly ambiguous or not a recognizable grocery item. If the entire input is clear, omit the "skipped" field or return an empty array.
 
 MEAL & RECIPE HANDLING:
 - If the user mentions a meal concept ("dinner for 4", "lunch ideas", "what should I make"), respond with action "search" and a helpful message suggesting specific ingredients they might need. Include common ingredients as items with action "add". Example: "dinner for 4" → suggest chicken, rice, vegetables, etc. as individual items.

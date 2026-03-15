@@ -22,6 +22,8 @@ export type DisambigItem = {
 export type SkippedItem = {
   parsed: { name: string; brand: string; quantity: number; size: string; department: string; emoji: string }
   existing_id: number
+  reason?: string     // "duplicate" (already on list) or "ambiguous" / "needs_clarification" / "not_a_grocery_item"
+  raw_input?: string  // original text that couldn't be parsed
 }
 
 interface UseSwapStateOptions {

@@ -234,10 +234,19 @@ export function useChatState(options: UseChatStateOptions) {
     try {
       const payload = JSON.stringify({ text: chatPayloadText, images: chatPayloadImages })
 
-      // Start 8-second timeout — if parse takes too long, show a helpful nudge
+      // Start 8-second timeout — if parse takes too long, show a helpful nudge with retry
       if (parseTimeoutRef.current) clearTimeout(parseTimeoutRef.current)
       parseTimeoutRef.current = setTimeout(() => {
-        typePennyHome("Hmm, that's taking longer than usual. Try listing specific items like 'milk, eggs, bread'.")
+        typePennyHome("Hmm, that's taking longer than usual. Try listing specific items like 'milk, eggs, bread'.", [
+          {
+            label: 'Try again',
+            onClick: () => {
+              setChatText(chatPayloadText)
+              optRef.current.setPendingImages(chatPayloadImages)
+              setTimeout(() => handleSendChat(), 100)
+            },
+          },
+        ])
       }, 8000)
 
       const res = await fetch('/api/list/parse', {
@@ -463,15 +472,37 @@ export function useChatState(options: UseChatStateOptions) {
           }
         }
 
+        // Separate ambiguous skipped items (unparseable) from duplicate skipped items (already on list)
+        const ambiguousSkipped = skippedItems.filter((s: { reason?: string; existing_id?: number }) =>
+          s.reason && s.reason !== 'duplicate' && s.reason !== ''
+        )
+        const duplicateSkipped = skippedItems.filter((s: { reason?: string; existing_id?: number }) =>
+          !s.reason || s.reason === 'duplicate' || (s.reason === '' && s.existing_id)
+        )
+
         // Show Penny's message or fallback summary
         if (action === 'share') {
           // Already handled via typePennyHome above
         } else if (pennyMsg) {
-          typePennyHome(pennyMsg)
+          // If there are ambiguous skipped items and Penny's message doesn't already mention them, append a note
+          if (ambiguousSkipped.length > 0 && !pennyMsg.toLowerCase().includes("sure about") && !pennyMsg.toLowerCase().includes("wasn't sure")) {
+            const skippedNames = ambiguousSkipped.map((s: { raw_input?: string; parsed?: { name?: string } }) =>
+              `'${s.raw_input || s.parsed?.name || 'unknown'}'`
+            ).join(', ')
+            typePennyHome(`${pennyMsg} I wasn't sure about: ${skippedNames} — try being more specific!`)
+          } else {
+            typePennyHome(pennyMsg)
+          }
         } else {
           const parts: string[] = []
           if (data.added > 0) parts.push(`Added ${data.added} item${data.added === 1 ? '' : 's'}`)
-          if (skippedItems.length > 0) parts.push(`${skippedItems.length} already on your list`)
+          if (duplicateSkipped.length > 0) parts.push(`${duplicateSkipped.length} already on your list`)
+          if (ambiguousSkipped.length > 0) {
+            const skippedNames = ambiguousSkipped.map((s: { raw_input?: string; parsed?: { name?: string } }) =>
+              `'${s.raw_input || s.parsed?.name || 'unknown'}'`
+            ).join(', ')
+            parts.push(`Wasn't sure about ${skippedNames}`)
+          }
           if (removedItems.length > 0) parts.push(`Removed ${removedItems.length} item${removedItems.length === 1 ? '' : 's'}`)
           if (updatedItems.length > 0) parts.push(`Updated ${updatedItems.length} item${updatedItems.length === 1 ? '' : 's'}`)
           if (checkedItems.length > 0) parts.push(`${action === 'check' ? 'Checked' : 'Unchecked'} ${checkedItems.length} item${checkedItems.length === 1 ? '' : 's'}`)
@@ -500,9 +531,9 @@ export function useChatState(options: UseChatStateOptions) {
             localStorage.setItem('ob_share', '1')
             syncOnboardingFlags()
             setTimeout(() => {
-              typePennyHome("Shopping for the family? You can invite them to share this list.", [
-                { label: 'Invite someone', onClick: () => optRef.current.handleOpenInviteSheet() },
-                { label: 'Just me', onClick: () => typePennyHome("Got it — solo mission!") },
+              typePennyHome("Want your family on this list too?", [
+                { label: 'Yes, invite them', onClick: () => optRef.current.handleOpenInviteSheet() },
+                { label: 'Just me for now', onClick: () => typePennyHome("Got it — solo mission!") },
               ])
             }, 3000)
           }
@@ -553,18 +584,45 @@ export function useChatState(options: UseChatStateOptions) {
           }
         }
       } else if (res.status === 429) {
-        optRef.current.showToast('Hold on — give it a minute and try again', 'error')
+        typePennyHome('Hold on — give it a minute and try again.', [
+          {
+            label: 'Try again',
+            onClick: () => {
+              setChatText(chatPayloadText)
+              optRef.current.setPendingImages(chatPayloadImages)
+              setTimeout(() => handleSendChat(), 100)
+            },
+          },
+        ])
       } else {
         const errData = await res.json().catch(() => null)
         const errMsg = errData?.error || `Error ${res.status}`
         console.error('[penny] parse failed:', res.status, errMsg)
-        optRef.current.showToast(errMsg, 'error')
+        typePennyHome(`Something went wrong — ${errMsg}`, [
+          {
+            label: 'Try again',
+            onClick: () => {
+              setChatText(chatPayloadText)
+              optRef.current.setPendingImages(chatPayloadImages)
+              setTimeout(() => handleSendChat(), 100)
+            },
+          },
+        ])
       }
     } catch (err) {
       // Cancel timeout on error
       if (parseTimeoutRef.current) { clearTimeout(parseTimeoutRef.current); parseTimeoutRef.current = null }
       console.error('[penny] parse error:', err)
-      optRef.current.showToast('Couldn\'t connect — check your connection and try again', 'error')
+      typePennyHome("Couldn't connect — check your connection and try again.", [
+        {
+          label: 'Try again',
+          onClick: () => {
+            setChatText(chatPayloadText)
+            optRef.current.setPendingImages(chatPayloadImages)
+            setTimeout(() => handleSendChat(), 100)
+          },
+        },
+      ])
     }
     finally { setChatLoading(false) }
   }

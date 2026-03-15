@@ -6,6 +6,8 @@ import { FONT, FONT_2XS, FONT_BASE, FONT_MD, layout, buttons, text } from '../st
 type SkippedItem = {
   parsed: { name: string; brand: string; quantity: number; size: string; department: string; emoji: string }
   existing_id: number
+  reason?: string
+  raw_input?: string
 }
 
 interface ReviewSheetProps {
