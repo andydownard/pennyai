@@ -250,7 +250,7 @@ export function ShareScreen({
                 opacity: inviteLoading ? 0.5 : 1,
               }}
             >
-              {inviteLoading ? 'Creating link…' : 'Invite someone to your shared grocery list'}
+              {inviteLoading ? 'Creating link…' : 'Invite your family to this list'}
             </button>
             <p style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)', marginTop: '8px', lineHeight: 1.5 }}>
               Everyone on your list shops together in real time
