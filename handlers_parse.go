@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"log"
 	"net/http"
 	"strings"
@@ -252,6 +257,15 @@ func (s *Server) handleReceiptScan(w http.ResponseWriter, session Session, image
 		return
 	}
 
+	// Pre-check: image dimension heuristics for AI-generated images
+	for _, img := range images {
+		if flags := checkImageDimensions(img); len(flags) > 0 {
+			log.Printf("[receipt-fraud] Image dimension flags for user %d: %v", session.UserID, flags)
+			// Don't reject outright — just log. Claude's visual analysis is more reliable.
+			// But if the image is a perfect square (strong AI signal), add extra scrutiny.
+		}
+	}
+
 	// Load current unchecked list items
 	hhIDs, _ := getHouseholdUserIDs(s.db, session.UserID)
 	whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID, hhIDs)
@@ -277,6 +291,16 @@ func (s *Server) handleReceiptScan(w http.ResponseWriter, session Session, image
 	}
 	matchedNames, err := receiptParser(s.config.AnthropicAPIKey, images, currentItems)
 	if err != nil {
+		if err.Error() == "receipt_forgery_detected" {
+			log.Printf("[receipt-fraud] BLOCKED receipt from user %d — AI forgery detected", session.UserID)
+			writeJSON(w, http.StatusOK, ParseResponse{
+				Items:   []ListItem{},
+				Skipped: []SkippedItem{},
+				Action:  "receipt_rejected",
+				Message: "Hmm, I couldn't verify this receipt. Please try scanning a clear photo of a physical receipt.",
+			})
+			return
+		}
 		log.Printf("[receipt] parse error for user %d: %v", session.UserID, err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Couldn't read the receipt. Try again?"})
 		return
@@ -826,4 +850,73 @@ func (s *Server) retryEnrichItems(userID int) {
 			s.db.Exec("UPDATE list_items SET needs_enrichment = 0 WHERE id = ?", item.id)
 		}
 	}
+}
+
+// checkImageDimensions analyzes base64 image data for AI-generation signals.
+// Returns a list of suspicious flags (empty = no issues detected).
+func checkImageDimensions(imgData string) []string {
+	// Strip data URI prefix if present
+	b64Data := imgData
+	if strings.HasPrefix(imgData, "data:") {
+		if idx := strings.Index(imgData, ";base64,"); idx > 0 {
+			b64Data = imgData[idx+8:]
+		}
+	}
+
+	raw, err := base64.StdEncoding.DecodeString(b64Data)
+	if err != nil {
+		// Try RawStdEncoding (no padding)
+		raw, err = base64.RawStdEncoding.DecodeString(b64Data)
+		if err != nil {
+			return nil // Can't decode — skip heuristics
+		}
+	}
+
+	var flags []string
+
+	// Decode image config (dimensions only — no full decode needed)
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
+	if err != nil {
+		return nil
+	}
+
+	w, h := cfg.Width, cfg.Height
+
+	// AI generators commonly output perfect squares (512, 768, 1024, 2048)
+	aiSquares := map[int]bool{512: true, 768: true, 1024: true, 2048: true}
+	if w == h && aiSquares[w] {
+		flags = append(flags, fmt.Sprintf("perfect square %dx%d (common AI output size)", w, h))
+	}
+
+	// Real phone receipt photos are typically tall (portrait) with high resolution
+	// AI images rarely exceed 2048 in any dimension
+	// A real phone photo is typically 3000-4032px on the long side
+	if w <= 1024 && h <= 1024 {
+		flags = append(flags, fmt.Sprintf("small dimensions %dx%d (real phone photos are typically 3000+ px)", w, h))
+	}
+
+	// Suspiciously exact power-of-2 or common AI dimensions
+	aiDims := map[[2]int]bool{
+		{512, 512}:   true,
+		{512, 768}:   true,
+		{768, 512}:   true,
+		{768, 1024}:  true,
+		{1024, 768}:  true,
+		{1024, 1024}: true,
+		{1024, 1536}: true,
+		{1536, 1024}: true,
+		{2048, 2048}: true,
+	}
+	if aiDims[[2]int{w, h}] {
+		flags = append(flags, fmt.Sprintf("exact AI-typical dimensions %dx%d", w, h))
+	}
+
+	// File size check: AI-generated PNGs tend to be very large per pixel,
+	// while JPEG receipts from phones are compressed
+	bytesPerPixel := float64(len(raw)) / float64(w*h)
+	if bytesPerPixel > 3.0 && w <= 1024 {
+		flags = append(flags, fmt.Sprintf("high bytes-per-pixel ratio %.2f (possible uncompressed AI output)", bytesPerPixel))
+	}
+
+	return flags
 }

@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"hash/crc32"
 	"net/http"
 	"sync"
 	"testing"
@@ -714,6 +718,197 @@ func TestSwapClaims_MethodNotAllowed(t *testing.T) {
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST to /claims should return 405, got %d", rr.Code)
 	}
+}
+
+// =============================================================================
+// Receipt Forgery Detection
+// =============================================================================
+
+func TestReceipt_ForgeryDetected_ReturnsRejection(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (1, 1, 'Milk', 'Dairy & Eggs')")
+
+	// Mock receipt parser to return forgery error
+	server.parseReceipt = func(apiKey string, images []string, currentItems []ListItem) ([]string, error) {
+		return nil, fmt.Errorf("receipt_forgery_detected")
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{
+			"text":       "",
+			"is_receipt": true,
+			"images":     []string{"base64fakedata"},
+		}, cookies)
+
+	// Should return 200 (not 500) with a friendly rejection message
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ParseResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.Action != "receipt_rejected" {
+		t.Errorf("expected action receipt_rejected, got %s", resp.Action)
+	}
+	if resp.Message == "" {
+		t.Error("expected rejection message, got empty")
+	}
+	if len(resp.Checked) != 0 {
+		t.Error("expected no checked items on forgery rejection")
+	}
+}
+
+func TestCheckImageDimensions_PerfectSquare(t *testing.T) {
+	// Create a minimal 1024x1024 PNG (exact AI-typical dimensions)
+	img := createTestPNG(1024, 1024)
+	flags := checkImageDimensions(img)
+
+	foundSquare := false
+	foundAIDims := false
+	for _, f := range flags {
+		if containsStr(f, "perfect square") {
+			foundSquare = true
+		}
+		if containsStr(f, "AI-typical dimensions") {
+			foundAIDims = true
+		}
+	}
+	if !foundSquare {
+		t.Error("expected 'perfect square' flag for 1024x1024 image")
+	}
+	if !foundAIDims {
+		t.Error("expected 'AI-typical dimensions' flag for 1024x1024 image")
+	}
+}
+
+func TestCheckImageDimensions_SmallImage(t *testing.T) {
+	// 512x768 is a common AI output size
+	img := createTestPNG(512, 768)
+	flags := checkImageDimensions(img)
+
+	foundSmall := false
+	foundAIDims := false
+	for _, f := range flags {
+		if containsStr(f, "small dimensions") {
+			foundSmall = true
+		}
+		if containsStr(f, "AI-typical dimensions") {
+			foundAIDims = true
+		}
+	}
+	if !foundSmall {
+		t.Error("expected 'small dimensions' flag for 512x768 image")
+	}
+	if !foundAIDims {
+		t.Error("expected 'AI-typical dimensions' flag for 512x768 image")
+	}
+}
+
+func TestCheckImageDimensions_LargePhonePhoto_NoFlags(t *testing.T) {
+	// 3024x4032 is a typical iPhone photo — should produce no flags
+	img := createTestPNG(3024, 4032)
+	flags := checkImageDimensions(img)
+
+	if len(flags) > 0 {
+		t.Errorf("expected no flags for phone-sized photo, got: %v", flags)
+	}
+}
+
+func TestCheckImageDimensions_InvalidBase64(t *testing.T) {
+	flags := checkImageDimensions("not-valid-base64!@#$")
+	if len(flags) != 0 {
+		t.Errorf("expected no flags for invalid base64, got: %v", flags)
+	}
+}
+
+func TestCheckImageDimensions_DataURIPrefix(t *testing.T) {
+	// Should correctly strip data: prefix and still analyze
+	img := "data:image/png;base64," + createTestPNGRaw(1024, 1024)
+	flags := checkImageDimensions(img)
+
+	if len(flags) == 0 {
+		t.Error("expected flags for 1024x1024 with data URI prefix")
+	}
+}
+
+// containsStr is a simple substring check for test assertions.
+func containsStr(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && stringContains(s, substr))
+}
+
+func stringContains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+// createTestPNG generates a minimal valid PNG with given dimensions, returned as data URI base64.
+func createTestPNG(w, h int) string {
+	return "data:image/png;base64," + createTestPNGRaw(w, h)
+}
+
+// createTestPNGRaw generates a minimal valid PNG with given dimensions as raw base64.
+func createTestPNGRaw(w, h int) string {
+	return base64.StdEncoding.EncodeToString(createMinimalPNG(w, h))
+}
+
+// createMinimalPNG builds a minimal valid PNG file with the given dimensions.
+// It creates a 1x1 pixel image but with the IHDR set to the requested dimensions,
+// which is enough for image.DecodeConfig to read the dimensions.
+func createMinimalPNG(w, h int) []byte {
+	var buf bytes.Buffer
+
+	// PNG signature
+	buf.Write([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A})
+
+	// IHDR chunk (13 bytes of data)
+	ihdr := &bytes.Buffer{}
+	binary.Write(ihdr, binary.BigEndian, uint32(w))  // width
+	binary.Write(ihdr, binary.BigEndian, uint32(h))  // height
+	ihdr.WriteByte(8)                                 // bit depth
+	ihdr.WriteByte(2)                                 // color type (RGB)
+	ihdr.WriteByte(0)                                 // compression
+	ihdr.WriteByte(0)                                 // filter
+	ihdr.WriteByte(0)                                 // interlace
+	writePNGChunk(&buf, "IHDR", ihdr.Bytes())
+
+	// IDAT chunk (minimal: single row of zeros, zlib compressed)
+	// For DecodeConfig we just need valid IHDR, but let's add a minimal IDAT+IEND
+	// zlib header (78 01) + deflate empty block (01 00 00 ff ff) + adler32 (00 01 00 01)
+	idat := []byte{0x78, 0x01, 0x01, 0x01, 0x00, 0xFE, 0xFF, 0x00, 0x00, 0x01, 0x00, 0x01}
+	writePNGChunk(&buf, "IDAT", idat)
+
+	// IEND chunk
+	writePNGChunk(&buf, "IEND", nil)
+
+	return buf.Bytes()
+}
+
+func writePNGChunk(buf *bytes.Buffer, chunkType string, data []byte) {
+	// Length
+	binary.Write(buf, binary.BigEndian, uint32(len(data)))
+	// Type
+	buf.WriteString(chunkType)
+	// Data
+	if len(data) > 0 {
+		buf.Write(data)
+	}
+	// CRC (of type + data)
+	crc := crc32.NewIEEE()
+	crc.Write([]byte(chunkType))
+	if len(data) > 0 {
+		crc.Write(data)
+	}
+	binary.Write(buf, binary.BigEndian, crc.Sum32())
 }
 
 // =============================================================================

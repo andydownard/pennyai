@@ -482,6 +482,7 @@ Return ONLY the JSON object, no markdown, no code fences.`, listContext.String()
 
 // parseReceiptWithClaude extracts item names from a receipt photo and cross-references
 // them against the user's current shopping list. Returns matched item names.
+// Also performs AI forgery detection — returns empty results if the image is likely fake.
 func parseReceiptWithClaude(apiKey string, images []string, currentItems []ListItem) ([]string, error) {
 	// Build list context for cross-referencing
 	var listNames []string
@@ -493,17 +494,48 @@ func parseReceiptWithClaude(apiKey string, images []string, currentItems []ListI
 		listNames = append(listNames, entry)
 	}
 
-	systemPrompt := fmt.Sprintf(`You are a receipt parser. Extract item names from the receipt photo and cross-reference them against this shopping list:
+	systemPrompt := fmt.Sprintf(`You are a receipt parser with fraud detection capabilities. You have TWO jobs:
+
+**JOB 1: AUTHENTICITY CHECK**
+Before extracting items, assess whether this is a genuine receipt photo or an AI-generated/forged image. Check for:
+
+1. **Text quality**: Real receipt text has OCR-like imperfections — slightly uneven spacing, thermal printer artifacts, faded sections. AI-generated text is suspiciously clean and uniform.
+2. **Math verification**: If visible, do line item prices actually add up to the subtotal/total? AI fakes often have math errors.
+3. **Store plausibility**: Does the store name, address, phone number, and format match a real retailer? AI fakes often use plausible-sounding but non-existent stores.
+4. **Layout consistency**: Real receipts have consistent formatting from one specific POS system. AI fakes mix formatting styles.
+5. **Visual artifacts**: Look for AI hallmarks — text that warps unnaturally, repeating patterns, inconsistent shadows, blurred regions that should be sharp, or overly perfect paper texture.
+6. **Metadata clues**: If the image appears to be a screenshot of generated text rather than a photo of paper, flag it.
+7. **C2PA / AI watermarks**: If you detect any embedded AI provenance markers or watermarks (e.g. from DALL-E, Midjourney, Stable Diffusion, or other generators), flag immediately.
+
+**JOB 2: ITEM EXTRACTION** (only if authentic)
+Cross-reference receipt items against this shopping list:
 
 %s
 
-For each receipt item that matches a shopping list item (fuzzy match OK — "ORG WHOLE MLK" matches "Whole Milk"), include it in the output.
+For each receipt item that matches a shopping list item (fuzzy match OK — "ORG WHOLE MLK" matches "Whole Milk"), include it.
 
-Return ONLY a JSON array of matched item names exactly as they appear on the shopping list (not the receipt).
-Example: ["Whole Milk", "Eggs", "Sourdough Bread"]
+**RESPONSE FORMAT** — Return ONLY valid JSON, no markdown, no code fences:
+{
+  "authentic": true,
+  "confidence": 0.95,
+  "flags": [],
+  "matched_items": ["Whole Milk", "Eggs"]
+}
 
-If no items match, return an empty array: []
-Return ONLY the JSON array, no markdown, no code fences, no explanation.`, strings.Join(listNames, "\n"))
+If the receipt appears forged or AI-generated:
+{
+  "authentic": false,
+  "confidence": 0.3,
+  "flags": ["suspiciously clean text", "math doesn't add up", "store address not plausible"],
+  "matched_items": []
+}
+
+- "authentic": boolean — true if you believe this is a real receipt photo
+- "confidence": float 0-1 — how confident you are in authenticity (1 = definitely real)
+- "flags": array of strings — any red flags found (empty array if none)
+- "matched_items": array of matched item names exactly as they appear on the shopping list (empty if not authentic)
+
+Return ONLY the JSON object, no explanation.`, strings.Join(listNames, "\n"))
 
 	var contentBlocks []map[string]interface{}
 	for _, img := range images {
@@ -535,6 +567,33 @@ Return ONLY the JSON array, no markdown, no code fences, no explanation.`, strin
 	}
 	text = stripCodeFence(text)
 
+	// Try the new authenticity-aware response format first
+	var authResp struct {
+		Authentic    bool     `json:"authentic"`
+		Confidence   float64  `json:"confidence"`
+		Flags        []string `json:"flags"`
+		MatchedItems []string `json:"matched_items"`
+	}
+	if err := json.Unmarshal([]byte(text), &authResp); err == nil && (authResp.MatchedItems != nil || len(authResp.Flags) > 0) {
+		// Successfully parsed authenticity response
+		if !authResp.Authentic {
+			log.Printf("[receipt-fraud] REJECTED: confidence=%.2f flags=%v", authResp.Confidence, authResp.Flags)
+			return nil, fmt.Errorf("receipt_forgery_detected")
+		}
+		if authResp.Confidence < 0.5 {
+			log.Printf("[receipt-fraud] LOW CONFIDENCE: %.2f flags=%v — rejecting", authResp.Confidence, authResp.Flags)
+			return nil, fmt.Errorf("receipt_forgery_detected")
+		}
+		if len(authResp.Flags) > 0 {
+			log.Printf("[receipt-fraud] PASSED with flags: confidence=%.2f flags=%v", authResp.Confidence, authResp.Flags)
+		}
+		if authResp.MatchedItems == nil {
+			return []string{}, nil
+		}
+		return authResp.MatchedItems, nil
+	}
+
+	// Fallback: try legacy plain array format
 	var matched []string
 	if err := json.Unmarshal([]byte(text), &matched); err != nil {
 		log.Printf("[receipt] failed to parse Claude response as JSON: %v (text: %s)", err, text)
