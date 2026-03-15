@@ -38,6 +38,7 @@ import { PhoneScreen } from './components/PhoneScreen'
 import { CodeScreen } from './components/CodeScreen'
 import { FeedbackWidget } from './components/FeedbackWidget'
 import { DoneSummaryModal } from './components/DoneSummaryModal'
+import { OnboardingOverlay } from './components/OnboardingOverlay'
 import { JoinPrompt } from './components/JoinPrompt'
 import { PostSwapShareCard } from './components/PostSwapShareCard'
 import { ToggleSwitch } from './components/ToggleSwitch'
@@ -393,6 +394,9 @@ function AppInner() {
   // --- NPS state ---
   const [showNPS, setShowNPS] = useState(false)
 
+  // --- Onboarding overlay state ---
+  const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem('onboarding_complete'))
+
   // SMS opt-in, email/Google auth state — extracted to useAuthState hook
 
   // New item highlight state — extracted to useListState hook
@@ -651,7 +655,7 @@ function AppInner() {
     "Need help planning a meal? Just ask!",
     "Tip: you can paste a recipe and I'll pull out the ingredients.",
     "You can also snap a photo of a recipe or your fridge!",
-    "Try telling me 'dinner for 4' and I'll suggest ingredients.",
+    "Try listing a few items — like 'chicken, rice, broccoli'.",
     "You can share this list with your household — tap Share!",
   ]
 
@@ -2911,7 +2915,7 @@ function AppInner() {
             <p style={{ ...listStyles.emptyText, marginTop: '12px' }}>What do you need from the store?</p>
             <p style={listStyles.emptySubtext}>Type, paste a list, or snap a photo</p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '16px', justifyContent: 'center', maxWidth: '320px' }}>
-              {['milk eggs bread', 'weekly groceries', 'dinner for 4 tonight'].map(example => (
+              {['milk eggs bread', 'bananas chicken rice', 'coffee creamer butter'].map(example => (
                 <button key={example} onClick={() => { setChatText(example); chatInputRef.current?.focus() }} style={{
                   fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)', backgroundColor: 'var(--bg)',
                   border: '1px solid var(--border)', borderRadius: '16px', padding: '6px 14px', cursor: 'pointer',
@@ -3312,6 +3316,11 @@ function AppInner() {
               }}
             >Save</button>
         </ActionSheet>
+      )}
+
+      {/* Onboarding walkthrough — new users with empty list */}
+      {showOnboarding && screen === 'home' && items.filter(i => !i.checked).length === 0 && (
+        <OnboardingOverlay onDismiss={() => { setShowOnboarding(false); localStorage.setItem('onboarding_complete', '1') }} />
       )}
 
       {/* Feedback FAB — approved phone numbers only, visible on every page */}

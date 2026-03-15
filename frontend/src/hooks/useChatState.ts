@@ -91,6 +91,7 @@ export function useChatState(options: UseChatStateOptions) {
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hasGreetedEmpty = useRef(false)
   const hasGreetedWithItems = useRef(false)
+  const parseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // --- Penny status ---
   const [pennyStatus, setPennyStatus] = useState<string | null>(null)
@@ -233,11 +234,20 @@ export function useChatState(options: UseChatStateOptions) {
     try {
       const payload = JSON.stringify({ text: chatPayloadText, images: chatPayloadImages })
 
+      // Start 8-second timeout — if parse takes too long, show a helpful nudge
+      if (parseTimeoutRef.current) clearTimeout(parseTimeoutRef.current)
+      parseTimeoutRef.current = setTimeout(() => {
+        typePennyHome("Hmm, that's taking longer than usual. Try listing specific items like 'milk, eggs, bread'.")
+      }, 8000)
+
       const res = await fetch('/api/list/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: payload,
       })
+
+      // Cancel timeout — response arrived
+      if (parseTimeoutRef.current) { clearTimeout(parseTimeoutRef.current); parseTimeoutRef.current = null }
 
       if (res.status === 401) { optRef.current.handleSessionExpired(); return }
       if (res.ok) {
@@ -550,6 +560,8 @@ export function useChatState(options: UseChatStateOptions) {
         optRef.current.showToast(errMsg, 'error')
       }
     } catch (err) {
+      // Cancel timeout on error
+      if (parseTimeoutRef.current) { clearTimeout(parseTimeoutRef.current); parseTimeoutRef.current = null }
       console.error('[penny] parse error:', err)
       optRef.current.showToast('Couldn\'t connect — check your connection and try again', 'error')
     }
