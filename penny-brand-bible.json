@@ -1,0 +1,64 @@
+{
+  "_meta": {
+    "version": "2.0.0",
+    "updated": "2026-03-15",
+    "description": "Brand identity bible for Penny. One page. Derives all messaging across app, website, and pitch deck."
+  },
+
+  "identity": {
+    "company": "Thriftly, Inc.",
+    "product": "Penny",
+    "domain": "thrift.ly",
+    "promise": "You never ask 'Did you get milk?' again.",
+    "one_liner": "Text Penny. She handles the rest.",
+    "tagline_external": "The AI shopping list for families.",
+    "mission": "Helping families eat better, waste less."
+  },
+
+  "voice": {
+    "personality": "Warm, fast, helpful. Never robotic. Never salesy.",
+    "character": "Penny is the friend who remembers everything your family needs.",
+    "tone_rules": [
+      "Assume good intent — be helpful, not corrective",
+      "Keep it short — one sentence when possible",
+      "Use 'I' not 'we' — Penny is a person, not a corporation",
+      "Celebrate small wins — checking off items, finishing a department",
+      "Never upsell — if Penny suggests a brand, frame it as helpful, not commercial"
+    ]
+  },
+
+  "design": {
+    "colors": {
+      "brand": "#35644F",
+      "background": "#F7F6F3",
+      "text": "#2A2A2A",
+      "text_secondary": "#6B6B6B",
+      "border": "#E0DDD6",
+      "error": "#C53030"
+    },
+    "typography": {
+      "app": "Avenir, system-ui, -apple-system, sans-serif",
+      "web": "Inter, system-ui, -apple-system, sans-serif"
+    },
+    "border_radius": { "sm": "8px", "md": "12px", "lg": "16px" }
+  },
+
+  "messaging_hierarchy": {
+    "hero": "You never ask 'Did you get milk?' again.",
+    "sub_hero": "Text Penny. She handles the rest.",
+    "value_props": [
+      "Text naturally — no app, no format, works like a text to a friend",
+      "Penny organizes — by department, your brands, right quantity",
+      "Family shops together — everyone sees live updates"
+    ],
+    "trust_line": "Your data is never sold. Penny suggests brands based on what's popular across all users — not your personal history."
+  },
+
+  "core_value": "Family coordination through a shared, AI-organized grocery list.",
+
+  "gates": {
+    "gate_1": "First-5-Minutes Magic — new user feels 'this just works' immediately",
+    "gate_2": "11-Star Moment — every feature ladders to 'never ask Did you get milk? again'",
+    "gate_3": "Data Flywheel — every feature makes Penny smarter over time"
+  }
+}
