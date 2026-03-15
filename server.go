@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -208,6 +209,13 @@ Get these from https://console.twilio.com (see README for full setup).
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+
+		// Check DB connectivity
+		dbOK := true
+		if err := server.db.Ping(); err != nil {
+			dbOK = false
+		}
+
 		// Verify frontend assets exist (prevents deploying broken frontend)
 		frontendOK := true
 		if data, err := os.ReadFile("static/index.html"); err == nil {
@@ -221,12 +229,13 @@ Get these from https://console.twilio.com (see README for full setup).
 		} else {
 			frontendOK = false
 		}
-		if !frontendOK {
+
+		if !frontendOK || !dbOK {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte(`{"status":"degraded","frontend_ok":false}`))
+			fmt.Fprintf(w, `{"status":"degraded","frontend_ok":%v,"db_ok":%v}`, frontendOK, dbOK)
 			return
 		}
-		w.Write([]byte(`{"status":"ok","frontend_ok":true}`))
+		w.Write([]byte(`{"status":"ok","frontend_ok":true,"db_ok":true}`))
 	})
 	http.HandleFunc("/auth/send-code", server.handleSendCode)
 	http.HandleFunc("/auth/verify-code", server.handleVerifyCode)
@@ -494,6 +503,23 @@ Get these from https://console.twilio.com (see README for full setup).
 
 	// F8 Phase 2: Daily digest SMS for opted-in users (checks hourly, 20h dedup window)
 	go server.runDailyDigestLoop()
+
+	// Keep-alive: self-ping every 4 minutes to prevent Railway from sleeping the container
+	go func() {
+		time.Sleep(30 * time.Second) // Wait for server to be ready
+		for {
+			time.Sleep(4 * time.Minute)
+			resp, err := http.Get("http://localhost:" + cfg.Port + "/health")
+			if err != nil {
+				log.Printf("[keepalive] self-ping failed: %v", err)
+			} else {
+				resp.Body.Close()
+				if resp.StatusCode != 200 {
+					log.Printf("[keepalive] self-ping returned %d", resp.StatusCode)
+				}
+			}
+		}
+	}()
 
 	log.Printf("thriftly is running on http://localhost:%s", cfg.Port)
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, handler))
