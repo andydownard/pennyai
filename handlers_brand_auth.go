@@ -121,7 +121,11 @@ func (s *Server) handleBrandRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	cost := bcrypt.DefaultCost
+	if s.config.BcryptCost > 0 {
+		cost = s.config.BcryptCost
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), cost)
 	if err != nil {
 		dbError(w, err, "Failed to create account")
 		return

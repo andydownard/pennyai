@@ -210,7 +210,11 @@ func (s *Server) handleEmailRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	bcryptCost := bcrypt.DefaultCost
+	if s.config.BcryptCost > 0 {
+		bcryptCost = s.config.BcryptCost
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcryptCost)
 	if err != nil {
 		dbError(w, err, "Failed to create account")
 		return
@@ -603,7 +607,11 @@ func (s *Server) handleEmailReset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Hash new password
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	bcryptCost2 := bcrypt.DefaultCost
+	if s.config.BcryptCost > 0 {
+		bcryptCost2 = s.config.BcryptCost
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcryptCost2)
 	if err != nil {
 		dbError(w, err, "Failed to reset password")
 		return

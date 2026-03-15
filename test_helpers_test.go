@@ -92,7 +92,7 @@ func newTestServer(t *testing.T, mock *MockTwilioClient) *Server {
 	t.Cleanup(func() { db.Close() })
 
 	server := &Server{
-		config:   Config{Port: "8080", AnthropicAPIKey: "test-key", TwilioPhoneNumber: "+10000000000", AdminPhone: "3104861833", FeedbackPhones: []string{"5551234567"}},
+		config:   Config{Port: "8080", AnthropicAPIKey: "test-key", TwilioPhoneNumber: "+10000000000", AdminPhone: "3104861833", FeedbackPhones: []string{"5551234567"}, BcryptCost: 4},
 		db:       db,
 		sessions: NewSessionStore(db),
 		twilio:   mock,
