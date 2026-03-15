@@ -15,7 +15,16 @@ const COMMAND_PREFIXES = [
   'rename', 'edit', 'change', 'update', 'set', 'create', 'list',
   'invite', 'share', 'join', 'leave', 'find', 'search', 'tell',
   'can', 'could', 'would', 'should', 'is', 'are', 'do', 'does',
+  'dinner', 'lunch', 'breakfast', 'supper', 'meal', 'recipe',
+  'cook', 'make', 'bake', 'prepare', 'plan', 'menu',
 ]
+
+// Words anywhere in the input that indicate a meal/recipe phrase — do NOT auto-submit
+const MEAL_WORDS = new Set([
+  'dinner', 'lunch', 'breakfast', 'supper', 'meal', 'recipe',
+  'cook', 'cooking', 'bake', 'baking', 'prepare', 'menu',
+  'tonight', 'serving', 'servings',
+])
 
 // Inject keyframes for auto-submit ring once at module load
 if (typeof document !== 'undefined' && !document.getElementById('penny-autosubmit-css')) {
@@ -47,6 +56,8 @@ function looksLikeSimpleItem(text: string): boolean {
   if (COMMAND_PREFIXES.includes(firstWord)) return false
   // No commas (likely multiple items — let user submit manually or keep typing)
   if (trimmed.includes(',')) return false
+  // Any word matching a meal/recipe keyword means this is likely a meal phrase, not a simple item
+  if (words.some(w => MEAL_WORDS.has(w.toLowerCase()))) return false
   return true
 }
 
