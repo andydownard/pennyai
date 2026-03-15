@@ -377,13 +377,22 @@ func (s *Server) handleTextCommand(w http.ResponseWriter, session Session, text 
 	cmd, err := s.parseCommand(s.config.AnthropicAPIKey, text, currentItems, firstName, learningCtx)
 	if err != nil {
 		log.Printf("[parse] command error for user %d: %v — falling back to raw add", session.UserID, err)
-		// Fallback: add the raw text as an item instead of showing an error
-		cmd = &ParsedCommand{
-			Action:  "add",
-			Items:   []ParsedItem{{Name: text, Department: "Other", Quantity: 1}},
-			Message: fmt.Sprintf("Added %s to your list!", text),
+		if isMealPhrase(text) {
+			// Don't add meal phrases as literal list items — give a helpful response instead
+			cmd = &ParsedCommand{
+				Action:  "search",
+				Items:   []ParsedItem{},
+				Message: "I'd love to help with that! Try telling me the specific ingredients you need — like 'chicken, rice, broccoli, soy sauce'. I'll add them to your list right away!",
+			}
+		} else {
+			// Fallback: add the raw text as an item instead of showing an error
+			cmd = &ParsedCommand{
+				Action:  "add",
+				Items:   []ParsedItem{{Name: text, Department: "Other", Quantity: 1}},
+				Message: fmt.Sprintf("Added %s to your list!", text),
+			}
+			needsEnrichment = true
 		}
-		needsEnrichment = true
 	}
 
 	resp := ParseResponse{
@@ -919,4 +928,18 @@ func checkImageDimensions(imgData string) []string {
 	}
 
 	return flags
+}
+
+// isMealPhrase returns true if the text looks like a meal/recipe concept rather than
+// a specific grocery item. Used to prevent adding phrases like "dinner for 4" as
+// literal list items.
+func isMealPhrase(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	mealWords := []string{"dinner", "lunch", "breakfast", "meal", "recipe", "cook", "make", "what should", "supper", "brunch"}
+	for _, word := range mealWords {
+		if strings.Contains(lower, word) {
+			return true
+		}
+	}
+	return false
 }

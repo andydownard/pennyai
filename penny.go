@@ -428,6 +428,11 @@ Respond with a JSON object:
   "message": "A short, friendly Penny response about what you did (1 sentence). Focus on the food/logistics, not the app."
 }
 
+MEAL & RECIPE HANDLING:
+- If the user mentions a meal concept ("dinner for 4", "lunch ideas", "what should I make"), respond with action "search" and a helpful message suggesting specific ingredients they might need. Include common ingredients as items with action "add". Example: "dinner for 4" → suggest chicken, rice, vegetables, etc. as individual items.
+- If the user asks about a recipe ("how to make lasagna", "recipe for tacos"), use web search to find a recipe, then extract the ingredient list as items with action "add", and include a brief recipe summary in "message".
+- NEVER add a meal phrase as a literal list item. "dinner for 4" is NOT a grocery item. Break it down into actual ingredients or ask the user what they're making.
+
 IMPORTANT: When the user simply names grocery items (even a single word like "flour", "rigatoni", "bananas", "butter"), the action is ALWAYS "add". Do NOT treat food/ingredient names as search queries.
 
 Examples:
