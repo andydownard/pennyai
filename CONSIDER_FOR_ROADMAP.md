@@ -108,3 +108,7 @@ _Submitted: 2026-03-15 13:25 UTC_
 ## [NORMAL] 2026-03-15 13:26 UTC
 [Brand Portal] preload this with the kroger mcp lookup of the brands that cpg company offers
 _Submitted: 2026-03-15 13:26 UTC_
+
+## [NORMAL] 2026-03-15 13:28 UTC
+[Brand Portal] have three radio buttons for the deal type to select.  free sample.  buy one get one free.  $ discount
+_Submitted: 2026-03-15 13:28 UTC_
