@@ -124,3 +124,10 @@ _Submitted: 2026-03-15 13:29 UTC_
 ## [NORMAL] 2026-03-15 13:30 UTC
 [Brand Portal] when i create a deal, let me copylink to send it in klayvio to my current customer base.  those share links are embedded with my cell# so I get affiliate credit for users signed through it
 _Submitted: 2026-03-15 13:30 UTC_
+
+## [NORMAL] 2026-03-16 11:51 UTC
+The amount in the upper right doesn’t match the number on the dash
+
+---
+_Device: Screen: earnings | Viewport: 394x374 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1 | Dark: light | Items: 15_
+_Submitted: 2026-03-16 11:51 UTC_
