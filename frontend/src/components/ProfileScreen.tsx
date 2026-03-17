@@ -293,7 +293,7 @@ export function ProfileScreen({
                 }}
                 onBlur={() => { setTimeout(() => setShowAddressSuggestions(false), 200); onAutoSave() }}
                 onFocus={() => { if (addressSuggestions.length > 0) setShowAddressSuggestions(true) }}
-                placeholder="Start typing your address\u2026" style={pageStyles.floatingInput} autoComplete="off"
+                placeholder="Start typing your address…" style={pageStyles.floatingInput} autoComplete="off"
               />
             </FloatingLabelField>
             {showAddressSuggestions && addressSuggestions.length > 0 && (

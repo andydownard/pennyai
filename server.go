@@ -133,6 +133,14 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
+// Flush implements http.Flusher by delegating to the underlying ResponseWriter.
+// Required for SSE streaming through the logging middleware.
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 func main() {
 	cfg := loadConfig()
 
