@@ -29,11 +29,12 @@ interface EarningsScreenProps {
   onBack: () => void
   onViewReceipts?: () => void
   onGoToList?: () => void
+  onEarningsLoaded?: (totalCents: number) => void
 }
 
 type DaysFilter = 0 | 7 | 30 | 90
 
-export function EarningsScreen({ onViewReceipts, onGoToList }: EarningsScreenProps) {
+export function EarningsScreen({ onViewReceipts, onGoToList, onEarningsLoaded }: EarningsScreenProps) {
   const [data, setData] = useState<EarningsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [daysFilter, setDaysFilter] = useState<DaysFilter>(0)
@@ -46,13 +47,18 @@ export function EarningsScreen({ onViewReceipts, onGoToList }: EarningsScreenPro
     const url = days > 0 ? `/api/earnings?days=${days}` : '/api/earnings'
     const result = await fetchAPI(url)
     if (result && !Array.isArray(result)) {
+      const totalCents = (result.total_cents as number) || 0
       setData({
         transactions: (result.transactions as EarningTransaction[]) || [],
-        total_cents: (result.total_cents as number) || 0,
+        total_cents: totalCents,
         pending_cents: (result.pending_cents as number) || 0,
         paid_cents: (result.paid_cents as number) || 0,
         display_amount: (result.display_amount as string) || '$0.00',
       })
+      // Sync header badge with earnings total (unfiltered only)
+      if (days === 0 && onEarningsLoaded) {
+        onEarningsLoaded(totalCents)
+      }
     }
     setLoading(false)
   }

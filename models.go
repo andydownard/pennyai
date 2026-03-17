@@ -257,11 +257,12 @@ type BrandDeal struct {
 
 // PendingSwap represents a swap offer matched to a list item.
 type PendingSwap struct {
-	DealID        int    `json:"deal_id"`
-	ItemID        int    `json:"item_id"`
-	OfferBrand    string `json:"offer_brand"`
-	OfferProduct  string `json:"offer_product"`
-	DiscountCents int    `json:"discount_cents"`
+	DealID             int    `json:"deal_id"`
+	ItemID             int    `json:"item_id"`
+	OfferBrand         string `json:"offer_brand"`
+	OfferProduct       string `json:"offer_product"`
+	CompetitorProduct  string `json:"competitor_product"`
+	DiscountCents      int    `json:"discount_cents"`
 	// Price comparison fields (zero values = graceful degradation)
 	OfferPriceCents    int    `json:"offer_price_cents"`
 	OriginalPriceCents int    `json:"original_price_cents"`

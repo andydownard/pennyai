@@ -2193,6 +2193,7 @@ func seedBrands(db *sql.DB) error {
 		{"Celsius", "celsius.com", ""},
 		{"Hint Water", "drinkhint.com", ""},
 		{"LaCroix", "lacroixwater.com", ""},
+		{"Waterloo", "waterloodrinks.com", ""},
 		{"Spindrift", "drinkspindrift.com", ""},
 		{"Health-Ade", "health-ade.com", ""},
 		{"GT's Kombucha", "gtslivingfoods.com", ""},

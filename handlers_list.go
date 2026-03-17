@@ -197,7 +197,7 @@ func (s *Server) handleListSwaps(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.db.Query(`
 		SELECT se.item_id, se.deal_id,
-		       bd.offer_brand, bd.offer_product, bd.discount_cents,
+		       bd.offer_brand, bd.offer_product, COALESCE(bd.competitor_product,''), bd.discount_cents,
 		       bd.offer_price_cents, bd.competitor_price_cents,
 		       bd.offer_size, bd.competitor_size,
 		       bd.offer_unit_price, bd.competitor_unit_price,
@@ -228,7 +228,7 @@ func (s *Server) handleListSwaps(w http.ResponseWriter, r *http.Request) {
 		var ps PendingSwap
 		var whyJSON, allergen string
 		if err := rows.Scan(&ps.ItemID, &ps.DealID,
-			&ps.OfferBrand, &ps.OfferProduct, &ps.DiscountCents,
+			&ps.OfferBrand, &ps.OfferProduct, &ps.CompetitorProduct, &ps.DiscountCents,
 			&ps.OfferPriceCents, &ps.OriginalPriceCents,
 			&ps.OfferSize, &ps.OriginalSize,
 			&ps.OfferUnitPrice, &ps.OriginalUnitPrice,
@@ -243,7 +243,14 @@ func (s *Server) handleListSwaps(w http.ResponseWriter, r *http.Request) {
 			json.Unmarshal([]byte(whyJSON), &ps.WhyBullets)
 		}
 		ps.AllergenWarning = allergen
-		if ps.OriginalPriceCents > 0 && ps.OfferPriceCents > 0 {
+		// Prefer per-oz savings when sizes differ (honest metric)
+		if ps.OfferUnitPrice != "" && ps.OriginalUnitPrice != "" && ps.OfferSize != ps.OriginalSize {
+			offerUP := parseUnitPriceCents(ps.OfferUnitPrice)
+			compUP := parseUnitPriceCents(ps.OriginalUnitPrice)
+			if compUP > 0 && offerUP > 0 {
+				ps.SavingsPercent = int(float64(compUP-offerUP) / float64(compUP) * 100)
+			}
+		} else if ps.OriginalPriceCents > 0 && ps.OfferPriceCents > 0 {
 			ps.SavingsPercent = int(float64(ps.OriginalPriceCents-ps.OfferPriceCents) / float64(ps.OriginalPriceCents) * 100)
 		}
 		swaps = append(swaps, ps)

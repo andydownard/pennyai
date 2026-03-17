@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -335,18 +336,26 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 				s.db.QueryRow("SELECT name FROM stores WHERE id = ?", userStoreID).Scan(&storeName)
 			}
 
-			// Calculate savings percent when both prices are available
+			// Calculate savings percent — prefer per-oz when sizes differ (honest metric)
 			savingsPercent := 0
-			if competitorPriceCents > 0 && offerPriceCents > 0 {
+			if offerUnitPrice != "" && competitorUnitPrice != "" && offerSize != competitorSize {
+				// Parse unit prices (e.g., "$0.10/oz") for per-oz comparison
+				offerUP := parseUnitPriceCents(offerUnitPrice)
+				compUP := parseUnitPriceCents(competitorUnitPrice)
+				if compUP > 0 && offerUP > 0 {
+					savingsPercent = int(float64(compUP-offerUP) / float64(compUP) * 100)
+				}
+			} else if competitorPriceCents > 0 && offerPriceCents > 0 {
 				savingsPercent = int(float64(competitorPriceCents-offerPriceCents) / float64(competitorPriceCents) * 100)
 			}
 
 			return &PendingSwap{
-				DealID:             deal.ID,
-				ItemID:             item.ID,
-				OfferBrand:         deal.OfferBrand,
-				OfferProduct:       deal.OfferProduct,
-				DiscountCents:      deal.DiscountCents,
+				DealID:            deal.ID,
+				ItemID:            item.ID,
+				OfferBrand:        deal.OfferBrand,
+				OfferProduct:      deal.OfferProduct,
+				CompetitorProduct: deal.CompetitorProduct,
+				DiscountCents:     deal.DiscountCents,
 				OfferPriceCents:    offerPriceCents,
 				OriginalPriceCents: competitorPriceCents,
 				OfferSize:          offerSize,
@@ -373,6 +382,20 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 	}
 
 	return nil
+}
+
+// parseUnitPriceCents extracts cents from a unit price string like "$0.10/oz" → 10.
+func parseUnitPriceCents(s string) int {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "$")
+	if idx := strings.Index(s, "/"); idx > 0 {
+		s = s[:idx]
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0
+	}
+	return int(f*100 + 0.5) // round to avoid float truncation (e.g., 0.29*100=28.99)
 }
 
 // parseKeyBenefits parses a JSON array of strings, returning nil on empty/invalid.

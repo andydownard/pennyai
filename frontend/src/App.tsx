@@ -2629,9 +2629,10 @@ function AppInner() {
           </div>
           <EarningsScreen
             onBack={() => setScreen('home')}
-    
+
             onViewReceipts={() => setScreen('receipts')}
             onGoToList={() => setScreen('home')}
+            onEarningsLoaded={(cents) => setEarningsTotalCents(cents)}
           />
         </div>
         {renderNavMenu()}

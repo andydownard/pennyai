@@ -723,8 +723,10 @@ func TestSwaps_PendingSwapIncludesPriceData(t *testing.T) {
 	if resp.PendingSwap.OfferUnitPrice != "$0.22/oz" {
 		t.Errorf("expected offer_unit_price '$0.22/oz', got %q", resp.PendingSwap.OfferUnitPrice)
 	}
-	if resp.PendingSwap.SavingsPercent != 26 {
-		t.Errorf("expected savings_percent 26, got %d", resp.PendingSwap.SavingsPercent)
+	// savings_percent uses per-oz comparison when sizes differ (16 oz vs 16.3 oz)
+	// $0.22/oz vs $0.29/oz → (29-22)/29 = 24%
+	if resp.PendingSwap.SavingsPercent != 24 {
+		t.Errorf("expected savings_percent 24 (per-oz), got %d", resp.PendingSwap.SavingsPercent)
 	}
 }
 

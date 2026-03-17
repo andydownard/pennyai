@@ -10,6 +10,7 @@ export interface SwapOffer {
   item_id: number
   offer_brand: string
   offer_product: string
+  competitor_product?: string
   discount_cents: number
   offer_price_cents: number
   original_price_cents: number
@@ -116,10 +117,11 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
         .filter(Boolean).join(' · ').replace(' · (', ' (')
     : null
 
-  // Build "You pay" line: "You pay $5.99 ($0.30/oz)"
+  // Build comparison line: "vs. Tide · 92 oz · $11.97 ($0.13/oz)"
+  const competitorLabel = swap.competitor_product || 'yours'
   const originalPriceLine = hasOriginalPrice
-    ? ['You pay', swap.original_size || null, formatPrice(swap.original_price_cents), hasOriginalUnitPrice && `(${swap.original_unit_price})`]
-        .filter(Boolean).join(' ')
+    ? [`vs. ${competitorLabel}`, swap.original_size || null, formatPrice(swap.original_price_cents), hasOriginalUnitPrice && `(${swap.original_unit_price})`]
+        .filter(Boolean).join(' · ').replace(' · (', ' (')
     : null
 
   return (
@@ -331,7 +333,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
             )}</span>
             {!isTrial && !isBogo && swap.savings_percent > 0 && (
               <span style={{ fontSize: FONT_2XS, fontWeight: 400, opacity: 0.9 }}>
-                {swap.savings_percent}% less than {swap.original_size || 'yours'}
+                Save {swap.savings_percent}% per oz
               </span>
             )}
             {(isTrial || isBogo) && (
