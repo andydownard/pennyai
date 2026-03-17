@@ -83,50 +83,67 @@ _Submitted: 2026-03-10 12:49 UTC_
 
 - ~~[NORMAL] 2026-03-10 16:07 UTC — No save button on profile page~~ — By design: profile fields auto-save on blur (500ms debounce). No explicit save button needed.
 
-## [NORMAL] 2026-03-15 13:20 UTC
-picture on waterloo grape is still wrong
+- ~~[NORMAL] 2026-03-15 13:20 UTC — Waterloo grape picture wrong~~ — Fixed: "Waterloo" was missing from the brands table in schema.go. Added with domain "waterloodrinks.com" so logo resolution fetches the correct sparkling water brand logo instead of falling back to "waterloo.com".
 
----
-_Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 | Dark: dark | Items: 22_
-_Submitted: 2026-03-15 13:20 UTC_
+- ~~[NORMAL] 2026-03-15 13:23 UTC — Add "Brands" button to consumer app~~ — Fixed: Added "For Brands" link in NavMenu (bottom, above close hint) that opens brand.thrift.ly in a new tab. Subtle external-link icon indicates it opens a new window.
 
-## [NORMAL] 2026-03-15 13:23 UTC
-add a button at the top for Brands that takes them to https://brand.thrift.ly/
-
----
-_Device: Screen: home | Viewport: 1710x907 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 | Dark: dark | Items: 22_
-_Submitted: 2026-03-15 13:23 UTC_
-
-## [NORMAL] 2026-03-15 13:24 UTC
+### [NORMAL] 2026-03-15 13:24 UTC — F11: Brand Portal phone/SMS login
 [Brand Portal] let brands login with cell and texted code too, then confirm email from the brand.
+
+**Product team decision:** Deferred. Requires extending brand auth system with phone verification flow (Twilio integration for brand portal), plus email confirmation step. Currently email/password is sufficient for B2B users. Phone login makes more sense when brand portal has mobile-optimized workflows. Revisit when brand portal usage grows beyond 20 active brands.
+
+---
 _Submitted: 2026-03-15 13:24 UTC_
 
-## [NORMAL] 2026-03-15 13:25 UTC
-[Brand Portal] show all the items that are in shopping lists from consumers so far just like the consumer side, and have a "make offer" button next to each one that takes them to the create new deal page
+### [NORMAL] 2026-03-15 13:25 UTC — F12: Consumer demand signals for brands
+[Brand Portal] show all the items that are in shopping lists from consumers so far just like the consumer side, and have a "make offer" button next to each one that takes them to the create new deal page.
+
+**Product team decision:** Accepted as **F12: Brand Market Intelligence Dashboard** (P2, Size L) for ROADMAP.md. Passes Gate 3 — demand signals from real shopper lists are the core data flywheel for B2B. Shows brands what products shoppers actually buy, aggregated anonymously. "Make Offer" button pre-fills the create deal form. Needs privacy review (aggregate only, no PII). Add to Phase 2 brand portal work.
+
+---
 _Submitted: 2026-03-15 13:25 UTC_
 
-## [NORMAL] 2026-03-15 13:26 UTC
-[Brand Portal] preload this with the kroger mcp lookup of the brands that cpg company offers
+### [NORMAL] 2026-03-15 13:26 UTC — F13: Kroger MCP preload for brand products
+[Brand Portal] preload this with the kroger mcp lookup of the brands that cpg company offers.
+
+**Product team decision:** Deferred. Depends on Kroger API Integration (already tracked in Future section of ROADMAP.md). Would auto-populate a brand's product catalog from Kroger's database when they sign up. Revisit when Kroger API partnership ships.
+
+---
 _Submitted: 2026-03-15 13:26 UTC_
 
-## [NORMAL] 2026-03-15 13:28 UTC
-[Brand Portal] have three radio buttons for the deal type to select.  free sample.  buy one get one free.  $ discount
+### [NORMAL] 2026-03-15 13:28 UTC — F14: Deal type radio buttons
+[Brand Portal] have three radio buttons for the deal type to select. free sample. buy one get one free. $ discount.
+
+**Product team decision:** Already exists. The brand portal create deal form already has a deal type selector with 4 options: SKU Swap ($ discount), BOGO (buy one get one), Trial (free sample), and Seasonal. Maps exactly to the request: "$ discount" = SKU Swap, "buy one get one free" = BOGO, "free sample" = Trial. No changes needed.
+
+---
 _Submitted: 2026-03-15 13:28 UTC_
 
-## [NORMAL] 2026-03-15 13:29 UTC
-[Brand Portal] list all items for all brands here, just like the shopping list view, and i can click on any one and see the details we have on it, including for the receipts which items are frequently bought together
+### [NORMAL] 2026-03-15 13:29 UTC — F15: Brand product analytics view
+[Brand Portal] list all items for all brands here, just like the shopping list view, and i can click on any one and see the details we have on it, including for the receipts which items are frequently bought together.
+
+**Product team decision:** Deferred to Enterprise Brand Portal (already tracked in Future section of ROADMAP.md). Requires receipt data aggregation, market basket analysis, and SKU-level analytics. This is a premium analytics feature for P&G-tier brands. Revisit when receipt scanning (fully_free campaign type) generates enough data for meaningful "frequently bought together" insights.
+
+---
 _Submitted: 2026-03-15 13:29 UTC_
 
-## [NORMAL] 2026-03-15 13:29 UTC
-[Brand Portal] have the same share button on this as the consumer side.  let folks share it to their team, and share it to anyone
+### [NORMAL] 2026-03-15 13:29 UTC — F16: Brand portal team sharing
+[Brand Portal] have the same share button on this as the consumer side. let folks share it to their team, and share it to anyone.
+
+**Product team decision:** Deferred to Enterprise Brand Portal (already tracked in Future section of ROADMAP.md as "Multi-user team accounts, SSO, invoicing"). Team sharing requires role-based access (admin, analyst, viewer), invite management, and shared deal ownership. Target: after 50+ paying brands.
+
+---
 _Submitted: 2026-03-15 13:29 UTC_
 
-## [NORMAL] 2026-03-15 13:30 UTC
-[Brand Portal] when i create a deal, let me copylink to send it in klayvio to my current customer base.  those share links are embedded with my cell# so I get affiliate credit for users signed through it
+### [NORMAL] 2026-03-15 13:30 UTC — F17: Deal share links with affiliate tracking (Klaviyo)
+[Brand Portal] when i create a deal, let me copylink to send it in klayvio to my current customer base. those share links are embedded with my cell# so I get affiliate credit for users signed through it.
+
+**Product team decision:** Accepted as **F17: Affiliate Deal Share Links** (P3, Size M) for ROADMAP.md. Concept: each deal gets a shareable link with embedded referrer tracking (brand_user_id or phone). When a consumer signs up through that link, the referrer gets affiliate credit. Integrates with existing referral system. Passes Gate 3 (viral distribution data). Needs design for attribution model and payout terms. Add to Phase 3.
+
+---
 _Submitted: 2026-03-15 13:30 UTC_
 
-## [NORMAL] 2026-03-16 11:51 UTC
-The amount in the upper right doesn’t match the number on the dash
+- ~~[NORMAL] 2026-03-16 11:51 UTC — Earnings amount mismatch between header badge and dashboard~~ — Fixed: header badge used `swap_credits_cents` (confirmed only) while earnings dashboard summed ALL rebates including `pending_purchase`. Added `onEarningsLoaded` callback to sync the header badge with the earnings dashboard total when earnings screen loads.
 
 ---
 _Device: Screen: earnings | Viewport: 394x374 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1 | Dark: light | Items: 15_
