@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://thrift.ly/sitemap.xml

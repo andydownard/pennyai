@@ -1,0 +1,7 @@
+[build]
+watchPatterns = ["src/**", "public/**", "index.html", "package.json", "vite.config.ts", "tsconfig*.json"]
+
+[deploy]
+startCommand = "npx serve dist -s -l $PORT"
+healthcheckPath = "/"
+restartPolicyType = "ON_FAILURE"
