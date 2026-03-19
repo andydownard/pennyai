@@ -148,3 +148,10 @@ _Submitted: 2026-03-15 13:30 UTC_
 ---
 _Device: Screen: earnings | Viewport: 394x374 | UA: Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1 | Dark: light | Items: 15_
 _Submitted: 2026-03-16 11:51 UTC_
+
+## [NORMAL] 2026-03-19 10:52 UTC
+have the url in the browser for my shopping list have my affiliate code embeeded so i can share it
+
+---
+_Device: Screen: home | Viewport: 1710x906 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 | Dark: dark | Items: 22_
+_Submitted: 2026-03-19 10:52 UTC_
