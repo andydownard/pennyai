@@ -116,6 +116,8 @@ func loadConfig() Config {
 		StripeSecretKey:     os.Getenv("STRIPE_SECRET_KEY"),
 		StripeWebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
 		WattAPIKey:          os.Getenv("WATT_API_KEY"),
+		TimpagerURL:         os.Getenv("TIMPAGER_URL"),
+		TimpagerAPIKey:      os.Getenv("TIMPAGER_API_KEY"),
 	}
 }
 

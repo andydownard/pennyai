@@ -37,6 +37,8 @@ type Config struct {
 	StripeWebhookSecret string   // Stripe webhook signing secret (whsec_...)
 	WattAPIKey          string   // Watt Data API key (watt_...) for CPG brand manager lookup
 	BcryptCost          int      // bcrypt cost factor (0 = DefaultCost, set to 4 in tests for speed)
+	TimpagerURL         string   // timpager platform URL (e.g., https://rallytasks.com)
+	TimpagerAPIKey      string   // API key for timpager revenue events
 }
 
 // FeedbackRequest represents a founder feedback item destined for the roadmap.
