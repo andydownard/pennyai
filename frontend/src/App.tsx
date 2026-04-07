@@ -68,6 +68,7 @@ import { DoneSummaryModal } from './components/DoneSummaryModal'
 import { OnboardingOverlay } from './components/OnboardingOverlay'
 import { JoinPrompt } from './components/JoinPrompt'
 import { PostSwapShareCard } from './components/PostSwapShareCard'
+import { SmsConsentModal } from './components/SmsConsentModal'
 import { ToggleSwitch } from './components/ToggleSwitch'
 import { WebcamCapture } from './components/WebcamCapture'
 
@@ -345,6 +346,12 @@ function AppInner() {
     if (typeof window === 'undefined') return false
     return localStorage.getItem('groflo_rebrand_banner_dismissed') !== '1'
   })
+
+  // SMS re-consent modal — shown to users who signed up before the rebrand
+  // and have a phone on file but no recorded consent. Driven by /auth/me's
+  // needs_sms_consent field. Twilio A2P 10DLC vetting requires a provable
+  // consent record per user.
+  const [needsSmsConsent, setNeedsSmsConsent] = useState(false)
 
   // Shared list deep link state
   const [sharedCode, setSharedCode] = useState<string | null>(null)
@@ -1007,12 +1014,13 @@ function AppInner() {
     fetch('/auth/me')
       .then(res => {
         if (res.ok) {
-          res.clone().json().then((data: { is_admin?: boolean; user_id?: number; login_count?: number; name?: string; auth_methods?: string[]; can_submit_feedback?: boolean }) => {
+          res.clone().json().then((data: { is_admin?: boolean; user_id?: number; login_count?: number; name?: string; auth_methods?: string[]; can_submit_feedback?: boolean; needs_sms_consent?: boolean }) => {
             if (data.is_admin) setIsAdmin(true)
             if (data.can_submit_feedback) setCanSubmitFeedback(true)
             if (data.user_id) { setCurrentUserId(data.user_id); identify(data.user_id) }
             if (data.login_count != null) setLoginCount(data.login_count)
             if (data.auth_methods) setAuthMethods(data.auth_methods)
+            if (data.needs_sms_consent) setNeedsSmsConsent(true)
             if (data.name) {
               const parts = data.name.split(' ')
               setSettingsFirstName(parts[0] || '')
@@ -2886,6 +2894,11 @@ function AppInner() {
             ? `You're offline — ${pendingToggleCount} change${pendingToggleCount > 1 ? 's' : ''} will sync when you're back`
             : "You're offline — changes will sync when you're back"}
         </div>
+      )}
+
+      {/* SMS re-consent modal — pre-rebrand users must affirm under Groflo */}
+      {needsSmsConsent && (
+        <SmsConsentModal onResolved={() => setNeedsSmsConsent(false)} />
       )}
 
       {/* One-time rebrand announcement (panel R7 — Nadia) */}

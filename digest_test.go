@@ -91,7 +91,7 @@ func TestProcessDailyDigest_OptedInSends(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	// Create user with phone AND opted in
-	_, err := server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled) VALUES (1, '+15551234567', 'Alice', 1)")
+	_, err := server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled, sms_consent_at) VALUES (1, '+15551234567', 'Alice', 1, CURRENT_TIMESTAMP)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestProcessDailyDigest_NoItems_NoSMS(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	// Opted-in user with phone but no list items
-	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled) VALUES (1, '+15551234567', 'Bob', 1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled, sms_consent_at) VALUES (1, '+15551234567', 'Bob', 1, CURRENT_TIMESTAMP)")
 
 	server.processDailyDigest()
 
@@ -134,7 +134,7 @@ func TestProcessDailyDigest_DeduplicatesWithin20Hours(t *testing.T) {
 
 	// Create opted-in user whose last digest was 10 hours ago
 	tenHoursAgo := time.Now().UTC().Add(-10 * time.Hour).Format("2006-01-02 15:04:05")
-	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled, daily_digest_last_sent) VALUES (1, '+15551234567', 'Carol', 1, ?)", tenHoursAgo)
+	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled, daily_digest_last_sent, sms_consent_at) VALUES (1, '+15551234567', 'Carol', 1, ?, CURRENT_TIMESTAMP)", tenHoursAgo)
 
 	// Add a list item
 	server.db.Exec("INSERT INTO list_items (user_id, name) VALUES (1, 'eggs')")
@@ -153,7 +153,7 @@ func TestProcessDailyDigest_SendsAfter20Hours(t *testing.T) {
 
 	// Create opted-in user whose last digest was 25 hours ago
 	twentyFiveHoursAgo := time.Now().UTC().Add(-25 * time.Hour).Format("2006-01-02 15:04:05")
-	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled, daily_digest_last_sent) VALUES (1, '+15551234567', 'Dave', 1, ?)", twentyFiveHoursAgo)
+	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled, daily_digest_last_sent, sms_consent_at) VALUES (1, '+15551234567', 'Dave', 1, ?, CURRENT_TIMESTAMP)", twentyFiveHoursAgo)
 
 	// Add a list item
 	server.db.Exec("INSERT INTO list_items (user_id, name) VALUES (1, 'bread')")
@@ -191,7 +191,7 @@ func TestProcessDailyDigest_UpdatesLastSent(t *testing.T) {
 	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled) VALUES (1, '+15551234567', 'Frank', 1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled, sms_consent_at) VALUES (1, '+15551234567', 'Frank', 1, CURRENT_TIMESTAMP)")
 	server.db.Exec("INSERT INTO list_items (user_id, name) VALUES (1, 'milk')")
 
 	server.processDailyDigest()
@@ -209,7 +209,7 @@ func TestProcessDailyDigest_NoTwilioPhone_Skips(t *testing.T) {
 	server := newTestServer(t, mock)
 	server.config.TwilioPhoneNumber = ""
 
-	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled) VALUES (1, '+15551234567', 'Grace', 1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled, sms_consent_at) VALUES (1, '+15551234567', 'Grace', 1, CURRENT_TIMESTAMP)")
 	server.db.Exec("INSERT INTO list_items (user_id, name) VALUES (1, 'milk')")
 
 	server.processDailyDigest()
@@ -224,7 +224,7 @@ func TestProcessDailyDigest_CheckedItemsExcluded(t *testing.T) {
 	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled) VALUES (1, '+15551234567', 'Hank', 1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled, sms_consent_at) VALUES (1, '+15551234567', 'Hank', 1, CURRENT_TIMESTAMP)")
 	// Only add checked items
 	server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (1, 'milk', 1)")
 
@@ -306,7 +306,7 @@ func TestProcessDailyDigest_RapidCallsDoNotDuplicate(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	// Create opted-in user with no prior digest (NULL last_sent)
-	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled) VALUES (1, '+15551234567', 'Rapid', 1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled, sms_consent_at) VALUES (1, '+15551234567', 'Rapid', 1, CURRENT_TIMESTAMP)")
 	server.db.Exec("INSERT INTO list_items (user_id, name) VALUES (1, 'milk')")
 
 	// Call processDailyDigest twice in rapid succession
@@ -329,7 +329,7 @@ func TestProcessDailyDigest_DedupFlagSetBeforeSMS(t *testing.T) {
 	mock := &MockTwilioClient{SMSErr: fmt.Errorf("twilio error")}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled) VALUES (1, '+15551234567', 'Guard', 1)")
+	server.db.Exec("INSERT INTO users (id, phone_number, name, daily_digest_enabled, sms_consent_at) VALUES (1, '+15551234567', 'Guard', 1, CURRENT_TIMESTAMP)")
 	server.db.Exec("INSERT INTO list_items (user_id, name) VALUES (1, 'eggs')")
 
 	server.processDailyDigest()

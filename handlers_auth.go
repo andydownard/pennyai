@@ -880,11 +880,22 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	// Include login_count and name for onboarding flow
 	var loginCount int
 	var userName string
-	s.db.QueryRow("SELECT login_count, name FROM users WHERE id = ?", session.UserID).Scan(&loginCount, &userName)
+	var smsConsentAt sql.NullString
+	var phoneNumber sql.NullString
+	s.db.QueryRow(
+		"SELECT login_count, name, sms_consent_at, phone_number FROM users WHERE id = ?",
+		session.UserID,
+	).Scan(&loginCount, &userName, &smsConsentAt, &phoneNumber)
 	resp["login_count"] = loginCount
 	if userName != "" {
 		resp["name"] = userName
 	}
+
+	// needs_sms_consent: existing user has a phone number on file but no
+	// recorded consent timestamp. Triggers the rebrand re-consent modal so
+	// Twilio A2P 10DLC has a provable consent record per user. Set once a
+	// user explicitly re-confirms via POST /api/me/sms-consent.
+	resp["needs_sms_consent"] = phoneNumber.Valid && phoneNumber.String != "" && !smsConsentAt.Valid
 
 	// Include auth_methods array
 	authMethods := []string{}
@@ -901,6 +912,88 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	resp["auth_methods"] = authMethods
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleSmsConsent handles POST /api/me/sms-consent
+// Records the authenticated user's SMS consent decision under the new Groflo
+// brand. Required for users whose accounts pre-date the rebrand and have a
+// NULL sms_consent_at column. Twilio A2P 10DLC vetting requires a provable
+// consent record per user.
+//
+// Request:  { "opted_in": true } or { "opted_in": false }
+// Response: { "success": true, "needs_sms_consent": false }
+//
+// opted_in=true:  records timestamp + IP + UA, future SMS will fire
+// opted_in=false: clears any prior consent timestamp; future outbound SMS
+//                 to this user will be skipped by canSendSMS()
+func (s *Server) handleSmsConsent(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		OptedIn bool `json:"opted_in"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	clientIP := getClientIP(r)
+	userAgent := r.Header.Get("User-Agent")
+	if len(userAgent) > 500 {
+		userAgent = userAgent[:500]
+	}
+
+	if req.OptedIn {
+		if _, err := s.db.Exec(
+			`UPDATE users SET sms_consent_at = CURRENT_TIMESTAMP,
+			   sms_consent_ip = ?, sms_consent_user_agent = ?
+			 WHERE id = ?`,
+			clientIP, userAgent, session.UserID,
+		); err != nil {
+			dbError(w, err, "Failed to record consent")
+			return
+		}
+		log.Printf("[sms-consent] user %d opted in", session.UserID)
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"success":           true,
+			"needs_sms_consent": false,
+		})
+		return
+	}
+
+	// opted_in == false: clear any prior consent. Outbound SMS will stop.
+	if _, err := s.db.Exec(
+		`UPDATE users SET sms_consent_at = NULL WHERE id = ?`, session.UserID,
+	); err != nil {
+		dbError(w, err, "Failed to record opt-out")
+		return
+	}
+	log.Printf("[sms-consent] user %d opted out (pennySMS will be skipped)", session.UserID)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success":           true,
+		"needs_sms_consent": true,
+	})
+}
+
+// canSendSMS returns true if the user has a recorded SMS consent timestamp.
+// Wire this into every outbound SMS code path for Twilio A2P 10DLC compliance.
+// NULL consent = consent not yet captured (legacy users pre-rebrand) or user
+// explicitly opted out. Either way, do not send.
+func (s *Server) canSendSMS(userID int) bool {
+	var consentAt sql.NullString
+	err := s.db.QueryRow(
+		`SELECT sms_consent_at FROM users WHERE id = ?`, userID,
+	).Scan(&consentAt)
+	if err != nil {
+		log.Printf("[sms-consent] canSendSMS lookup failed for user %d: %v", userID, err)
+		return false
+	}
+	return consentAt.Valid
 }
 
 // handleAuthLink handles POST /api/auth/link

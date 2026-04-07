@@ -2502,10 +2502,13 @@ func TestMarketplaceHealth_WithData(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 	cookie, _ := loginUser(t, server, "3104861833")
 
+	// Use relative dates so the test does not become a time bomb. The handler
+	// filters to the last 30 days; hardcoded calendar dates fall out of the
+	// window as the calendar advances past them.
 	server.db.Exec(`INSERT INTO marketplace_health (date, supply_score, demand_score, balance_score, revenue_concentration, health_index)
-		VALUES ('2026-03-08', 80.0, 60.0, 75.0, 0.15, 72.5)`)
+		VALUES (DATE('now', '-1 day'), 80.0, 60.0, 75.0, 0.15, 72.5)`)
 	server.db.Exec(`INSERT INTO marketplace_health (date, supply_score, demand_score, balance_score, revenue_concentration, health_index)
-		VALUES ('2026-03-07', 70.0, 55.0, 65.0, 0.20, 65.0)`)
+		VALUES (DATE('now', '-2 days'), 70.0, 55.0, 65.0, 0.20, 65.0)`)
 
 	rr := doRequest(server.handleMarketplaceHealth, "GET", "/api/admin/marketplace-health", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusOK {

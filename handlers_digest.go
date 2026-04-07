@@ -120,6 +120,16 @@ func (s *Server) processDailyDigest() {
 			continue
 		}
 
+		// Twilio A2P 10DLC consent gate. Daily digest is recurring marketing
+		// per CTIA classification — must have an explicit consent record per
+		// recipient. Skip silently if user has not (re-)consented under the
+		// new Groflo brand. The dedup flag stays set so we won't try again
+		// until the next 20-hour cycle.
+		if !s.canSendSMS(u.ID) {
+			log.Printf("[digest] skipping user %d: no SMS consent on file", u.ID)
+			continue
+		}
+
 		// Send SMS (dedup guard is already set — safe from duplicates)
 		if err := s.twilio.SendSMS(s.config.TwilioPhoneNumber, u.Phone, msg); err != nil {
 			log.Printf("[digest] SMS error for user %d (dedup flag set, will retry next cycle): %v", u.ID, err)

@@ -214,6 +214,109 @@ func TestSendCode_MalformedJSON(t *testing.T) {
 }
 
 // =============================================================================
+// SMS RE-CONSENT FLOW TESTS (Phase 0 wave 3 — Twilio A2P 10DLC)
+// =============================================================================
+
+func TestSmsConsent_OptIn_RecordsConsent(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Pre-condition: existing user has phone but no recorded consent
+	server.db.Exec(`UPDATE users SET sms_consent_at = NULL WHERE id = ?`, userID)
+
+	rr := doRequest(server.handleSmsConsent, "POST", "/api/me/sms-consent",
+		map[string]interface{}{"opted_in": true}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", rr.Code)
+	}
+
+	// Consent record persisted with timestamp + IP + UA
+	var consentAt sql.NullString
+	var consentIP string
+	server.db.QueryRow(`SELECT sms_consent_at, sms_consent_ip FROM users WHERE id = ?`, userID).
+		Scan(&consentAt, &consentIP)
+	if !consentAt.Valid {
+		t.Errorf("sms_consent_at should be set, got NULL")
+	}
+	if consentIP == "" {
+		t.Errorf("sms_consent_ip should be set, got empty")
+	}
+	if !server.canSendSMS(userID) {
+		t.Errorf("canSendSMS should return true after opt-in")
+	}
+}
+
+func TestSmsConsent_OptOut_ClearsConsent(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Pre-condition: user already opted in
+	server.db.Exec(`UPDATE users SET sms_consent_at = CURRENT_TIMESTAMP WHERE id = ?`, userID)
+
+	rr := doRequest(server.handleSmsConsent, "POST", "/api/me/sms-consent",
+		map[string]interface{}{"opted_in": false}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", rr.Code)
+	}
+
+	var consentAt sql.NullString
+	server.db.QueryRow(`SELECT sms_consent_at FROM users WHERE id = ?`, userID).Scan(&consentAt)
+	if consentAt.Valid {
+		t.Errorf("sms_consent_at should be NULL after opt-out, got %q", consentAt.String)
+	}
+	if server.canSendSMS(userID) {
+		t.Errorf("canSendSMS should return false after opt-out")
+	}
+}
+
+func TestSmsConsent_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleSmsConsent, "POST", "/api/me/sms-consent",
+		map[string]interface{}{"opted_in": true}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestMe_NeedsSmsConsent_TrueForLegacyUser(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+	// Simulate pre-rebrand user: phone present, consent NULL
+	server.db.Exec(`UPDATE users SET sms_consent_at = NULL WHERE id = ?`, userID)
+
+	rr := doRequest(server.handleMe, "GET", "/auth/me", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", rr.Code)
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	needs, _ := resp["needs_sms_consent"].(bool)
+	if !needs {
+		t.Errorf("needs_sms_consent should be true for legacy user with NULL consent")
+	}
+}
+
+func TestMe_NeedsSmsConsent_FalseAfterOptIn(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+	server.db.Exec(`UPDATE users SET sms_consent_at = CURRENT_TIMESTAMP WHERE id = ?`, userID)
+
+	rr := doRequest(server.handleMe, "GET", "/auth/me", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", rr.Code)
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	needs, _ := resp["needs_sms_consent"].(bool)
+	if needs {
+		t.Errorf("needs_sms_consent should be false after consent recorded")
+	}
+}
+
+// =============================================================================
 // VERIFY CODE HANDLER TESTS
 // =============================================================================
 
