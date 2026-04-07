@@ -261,7 +261,7 @@ export function ProfileScreen({
               <input type="email" value={email} onChange={e => onEmailChange(e.target.value)} onBlur={onAutoSave} placeholder="your@email.com" style={pageStyles.floatingInput} />
             </FloatingLabelField>
             <p style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '4px', paddingLeft: '4px' }}>
-              Once set, forward any recipe or list to penny@list.thrift.ly and Penny will add it for you.
+              Once set, forward any recipe or list to penny@list.groflo.io and Penny will add it for you.
             </p>
           </div>
           <div>

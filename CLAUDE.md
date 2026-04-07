@@ -1,6 +1,8 @@
-# Thriftly (PennyAI)
+# Groflo (PennyAI, formerly Thriftly)
 
-Thriftly is an AI-powered grocery shopping list app with a personality-driven assistant named Penny, household sharing, and multi-channel input (web, SMS, email).
+Groflo is an AI-powered grocery shopping list app with a personality-driven assistant named **Penny**, household sharing, and multi-channel input (web, SMS, email). Groflo is a member of the **Rally ecosystem** — auth and Stripe payouts federate through `timpager` (rallytasks.com).
+
+**Brand history:** This product was originally "Thriftly" and rebranded to "Groflo" on 2026-04-07 (sprint plan: `GROFLO_REBRAND_SPRINT.md`). The DB filename `thriftly.db`, Litestream replication path, and historical migration symbols retain the legacy name to preserve backup chain integrity. Internal Go identifiers may still reference `thriftly` — those are non-user-visible and scheduled for the Phase 5 internal sweep.
 
 ## Architecture
 

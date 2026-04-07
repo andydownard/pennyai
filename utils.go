@@ -205,16 +205,16 @@ func serveWithOGTags(w http.ResponseWriter, r *http.Request) {
 
 	var ogTitle, ogDescription string
 	if strings.HasPrefix(r.URL.Path, "/r/") {
-		ogTitle = "Join me on Thriftly!"
+		ogTitle = "Join me on Groflo!"
 		ogDescription = "I'm using Penny, an AI shopping assistant that helps me save on groceries. Join my household and we can share lists and save together."
 	} else {
-		ogTitle = "You're invited to a Thriftly household!"
-		ogDescription = "Someone wants to share their grocery list with you. Join their household on Thriftly and let Penny help you both save."
+		ogTitle = "You're invited to a Groflo household!"
+		ogDescription = "Someone wants to share their grocery list with you. Join their household on Groflo and let Penny help you both save."
 	}
 
 	// Replace the default OG tags with dynamic ones (HTML-escaped to prevent injection)
 	page = strings.Replace(page,
-		`<meta property="og:title" content="Thriftly — Your AI Shopping Assistant" />`,
+		`<meta property="og:title" content="Groflo — Your AI Shopping Assistant" />`,
 		`<meta property="og:title" content="`+html.EscapeString(ogTitle)+`" />`, 1)
 	page = strings.Replace(page,
 		`<meta property="og:description" content="Penny helps your household save on groceries with smart suggestions and shared lists." />`,

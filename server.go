@@ -70,6 +70,8 @@ func loadConfig() Config {
 	}
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
+		// Filename retained from the Thriftly era to avoid breaking the existing
+		// Litestream backup chain. The product is now Groflo; the file is just a name.
 		dbPath = "thriftly.db"
 	}
 	npsInterval := 90
@@ -103,7 +105,7 @@ func loadConfig() Config {
 		NPSIntervalDays:     npsInterval,
 		Port:                port,
 		DBPath:              dbPath,
-		WebhookBaseURL:      os.Getenv("WEBHOOK_BASE_URL"), // e.g. "https://app.thrift.ly"
+		WebhookBaseURL:      os.Getenv("WEBHOOK_BASE_URL"), // e.g. "https://app.groflo.io"
 		SecureCookies:       os.Getenv("RAILWAY_ENVIRONMENT_NAME") != "",
 		TestMode:            os.Getenv("TEST_MODE") == "true",
 		GoogleClientID:      os.Getenv("GOOGLE_CLIENT_ID"),
@@ -401,8 +403,8 @@ Get these from https://console.twilio.com (see README for full setup).
 	})
 
 	// Serve the React frontends. Two separate SPAs:
-	// - Consumer app (static/) at app.thrift.ly
-	// - Brand portal (static-brand/) at brand.thrift.ly
+	// - Consumer app (static/) at app.groflo.io
+	// - Brand portal (static-brand/) at brands.groflo.io
 	// Known files are served directly, everything else gets index.html for SPA routing.
 	// /r/{code} referral links and /join/:code inject dynamic OG tags for social previews.
 	consumerFS := http.FileServer(http.Dir("static"))
@@ -465,16 +467,43 @@ Get these from https://console.twilio.com (see README for full setup).
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 			}
 		}()
+
+		// 301 redirect: legacy thrift.ly hosts → groflo.io. Catches existing
+		// SMS share links, email signatures, bookmarks, and search results
+		// that point at the old domain. Required for ≥12 months per panel R5
+		// (household continuity). Strip the port if present (Railway adds one).
+		host := r.Host
+		if i := strings.Index(host, ":"); i >= 0 {
+			host = host[:i]
+		}
+		var redirectHost string
+		switch host {
+		case "thrift.ly", "www.thrift.ly":
+			redirectHost = "groflo.io"
+		case "app.thrift.ly":
+			redirectHost = "app.groflo.io"
+		case "brand.thrift.ly", "brands.thrift.ly":
+			redirectHost = "brands.groflo.io"
+		case "deck.thrift.ly":
+			redirectHost = "deck.groflo.io"
+		}
+		if redirectHost != "" {
+			target := "https://" + redirectHost + r.URL.RequestURI()
+			log.Printf("[redirect] %s%s → %s", r.Host, r.URL.RequestURI(), target)
+			http.Redirect(w, r, target, http.StatusMovedPermanently)
+			return
+		}
+
 		// Security headers
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 
 		// Embed routes: allow framing by approved origins; all other routes: DENY
 		if strings.HasPrefix(r.URL.Path, "/embed") {
-			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://www.google-analytics.com https://www.googletagmanager.com; frame-src https://accounts.google.com; frame-ancestors 'self' https://vibeflourishing.com https://vibeflourishing-production.up.railway.app https://deck.thrift.ly https://localhost:5173")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://www.google-analytics.com https://www.googletagmanager.com; frame-src https://accounts.google.com; frame-ancestors 'self' https://vibeflourishing.com https://vibeflourishing-production.up.railway.app https://deck.groflo.io https://deck.thrift.ly https://localhost:5173")
 			// Dynamic CORS origin for approved embed hosts
 			origin := r.Header.Get("Origin")
-			allowedOrigins := map[string]bool{"https://vibeflourishing.com": true, "https://deck.thrift.ly": true}
+			allowedOrigins := map[string]bool{"https://vibeflourishing.com": true, "https://deck.groflo.io": true, "https://deck.thrift.ly": true}
 			if allowedOrigins[origin] {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 			} else {
@@ -551,6 +580,6 @@ Get these from https://console.twilio.com (see README for full setup).
 		}
 	}()
 
-	log.Printf("thriftly is running on http://localhost:%s", cfg.Port)
+	log.Printf("Groflo is running on http://localhost:%s", cfg.Port)
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, handler))
 }

@@ -252,14 +252,14 @@ func TestVCard(t *testing.T) {
 	if !strings.Contains(body, "BEGIN:VCARD") {
 		t.Error("Body should contain BEGIN:VCARD")
 	}
-	if !strings.Contains(body, "penny@list.thrift.ly") {
-		t.Error("Body should contain penny@list.thrift.ly")
+	if !strings.Contains(body, "penny@list.groflo.io") {
+		t.Error("Body should contain penny@list.groflo.io")
 	}
 	if !strings.Contains(body, "N:AI;Penny") {
 		t.Error("Body should contain N:AI;Penny")
 	}
-	if !strings.Contains(body, "ORG:Thriftly") {
-		t.Error("Body should contain ORG:Thriftly")
+	if !strings.Contains(body, "ORG:Groflo") {
+		t.Error("Body should contain ORG:Groflo")
 	}
 	if !strings.Contains(body, "TITLE:Shopping Assistant") {
 		t.Error("Body should contain TITLE:Shopping Assistant")

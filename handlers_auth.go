@@ -100,7 +100,7 @@ func (s *Server) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 	}
 	if user.Merged {
 		authResp["account_merged"] = true
-		authResp["merge_message"] = "Welcome back! I linked your Google account to your existing Thriftly account."
+		authResp["merge_message"] = "Welcome back! I linked your Google account to your existing Groflo account."
 	}
 	writeJSON(w, http.StatusOK, authResp)
 }
@@ -245,7 +245,7 @@ func (s *Server) handleEmailRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	if user.Merged {
 		resp["account_merged"] = true
-		resp["merge_message"] = "Welcome back! I linked your email to your existing Thriftly account."
+		resp["merge_message"] = "Welcome back! I linked your email to your existing Groflo account."
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -504,7 +504,7 @@ func (s *Server) handleMagicLinkVerify(w http.ResponseWriter, r *http.Request) {
 }
 
 // sendTransactionalEmail sends an HTML email via SendGrid. subject and htmlBody
-// are caller-provided; the from address is always noreply@thrift.ly.
+// are caller-provided; the from address is always noreply@groflo.io.
 func (s *Server) sendTransactionalEmail(to, subject, htmlBody string) error {
 	payload := map[string]interface{}{
 		"personalizations": []map[string]interface{}{
@@ -514,8 +514,8 @@ func (s *Server) sendTransactionalEmail(to, subject, htmlBody string) error {
 			},
 		},
 		"from": map[string]string{
-			"email": "noreply@thrift.ly",
-			"name":  "thriftly",
+			"email": "noreply@groflo.io",
+			"name":  "Groflo",
 		},
 		"content": []map[string]string{
 			{"type": "text/html", "value": htmlBody},
@@ -548,8 +548,8 @@ func (s *Server) sendMagicLinkEmail(email, token string) {
 		baseURL = "http://localhost:" + s.config.Port
 	}
 	loginLink := baseURL + "/auth/email/magic-verify?token=" + token
-	htmlBody := fmt.Sprintf(`<p>Hi there,</p><p>Click the link below to sign in to thriftly:</p><p><a href="%s">Sign in to thriftly</a></p><p>This link expires in 15 minutes. If you didn't request this, you can safely ignore this email.</p><p>— Penny</p>`, loginLink)
-	if err := s.sendTransactionalEmail(email, "Sign in to thriftly", htmlBody); err != nil {
+	htmlBody := fmt.Sprintf(`<p>Hi there,</p><p>Click the link below to sign in to Groflo:</p><p><a href="%s">Sign in to Groflo</a></p><p>This link expires in 15 minutes. If you didn't request this, you can safely ignore this email.</p><p>— Penny</p>`, loginLink)
+	if err := s.sendTransactionalEmail(email, "Sign in to Groflo", htmlBody); err != nil {
 		log.Printf("[email-auth] magic link email to %s failed: %v", email, err)
 	}
 }
@@ -561,8 +561,8 @@ func (s *Server) sendPasswordResetEmail(email, token string) {
 		baseURL = "http://localhost:" + s.config.Port
 	}
 	resetLink := baseURL + "/reset-password?token=" + token
-	htmlBody := fmt.Sprintf(`<p>Hi there,</p><p>We received a request to reset your password. Click the link below to set a new password:</p><p><a href="%s">Reset Password</a></p><p>This link expires in 1 hour. If you didn't request this, you can safely ignore this email.</p><p>— thriftly</p>`, resetLink)
-	if err := s.sendTransactionalEmail(email, "Reset your thriftly password", htmlBody); err != nil {
+	htmlBody := fmt.Sprintf(`<p>Hi there,</p><p>We received a request to reset your password. Click the link below to set a new password:</p><p><a href="%s">Reset Password</a></p><p>This link expires in 1 hour. If you didn't request this, you can safely ignore this email.</p><p>— Groflo</p>`, resetLink)
+	if err := s.sendTransactionalEmail(email, "Reset your Groflo password", htmlBody); err != nil {
 		log.Printf("[email-auth] password reset email to %s failed: %v", email, err)
 	} else {
 		log.Printf("[email-auth] password reset email sent to %s", email)
@@ -648,8 +648,13 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSendCode handles POST /auth/send-code
-// Request:  { "phone_number": "5551234567" }
+// Request:  { "phone_number": "5551234567", "sms_opt_in": true }
 // Response: { "success": true }
+//
+// Twilio A2P 10DLC compliance: requires sms_opt_in=true. The user affirmatively
+// consented on the PhoneScreen checkbox; this server-side gate prevents
+// bypass via the API and persists the consent record (timestamp + IP + UA)
+// against the phone number for vetting audit. See `users.sms_consent_at`.
 func (s *Server) handleSendCode(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPost) {
 		return
@@ -664,6 +669,16 @@ func (s *Server) handleSendCode(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "Please enter a valid 10-digit US phone number",
+		})
+		return
+	}
+
+	// Reject when consent is missing. CTIA + Twilio A2P 10DLC require explicit
+	// consent capture. The frontend checkbox is the user's affirmative act;
+	// this server-side gate enforces it for non-browser callers and bots.
+	if !req.SMSOptIn {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "SMS consent is required to send a verification code.",
 		})
 		return
 	}
@@ -691,7 +706,30 @@ func (s *Server) handleSendCode(w http.ResponseWriter, r *http.Request) {
 		s.otpLimiter.Store(e164, time.Now())
 	}
 
-	log.Printf("Sending verification code to %s", maskPhone(e164))
+	// Persist SMS consent against the phone number. Idempotent: if the user
+	// already exists with a captured consent, we update only the timestamp
+	// (last consent confirmation) so the record reflects the most recent act.
+	// If the user does not exist yet, we use INSERT OR IGNORE so the next
+	// verify-code call's upsertUser sees the consent already on the row.
+	userAgent := r.Header.Get("User-Agent")
+	if len(userAgent) > 500 {
+		userAgent = userAgent[:500]
+	}
+	if _, err := s.db.Exec(
+		`INSERT INTO users (phone_number, sms_consent_at, sms_consent_ip, sms_consent_user_agent)
+		 VALUES (?, CURRENT_TIMESTAMP, ?, ?)
+		 ON CONFLICT(phone_number) DO UPDATE SET
+		   sms_consent_at = CURRENT_TIMESTAMP,
+		   sms_consent_ip = excluded.sms_consent_ip,
+		   sms_consent_user_agent = excluded.sms_consent_user_agent`,
+		e164, clientIP, userAgent,
+	); err != nil {
+		log.Printf("[sms-consent] failed to record consent for %s: %v", maskPhone(e164), err)
+		// Do NOT fail the request — SMS consent is best-effort logged.
+		// The OTP path is the user's affirmative act; the row update is audit.
+	}
+
+	log.Printf("Sending verification code to %s (consent captured)", maskPhone(e164))
 
 	// In test mode, skip Twilio entirely — the test will use code "000000"
 	if s.config.TestMode {

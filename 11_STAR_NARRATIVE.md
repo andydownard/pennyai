@@ -2,7 +2,7 @@
 
 **Prepared for:** CEO Review
 **Date:** March 2026
-**Product:** Thriftly / Penny AI
+**Product:** Groflo (formerly Thriftly) / Penny AI
 
 ---
 

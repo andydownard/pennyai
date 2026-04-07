@@ -1,3 +1,6 @@
+# Litestream config — replicates the Groflo SQLite db to S3/R2 continuously.
+# The db file and replica path retain the historical "thriftly" name to avoid
+# breaking the existing backup chain. Renaming would orphan all prior snapshots.
 dbs:
   - path: ${DB_PATH:-thriftly.db}
     replicas:

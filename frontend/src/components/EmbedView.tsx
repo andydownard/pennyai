@@ -245,7 +245,7 @@ export function EmbedView() {
         textAlign: 'center',
       }}>
         <a
-          href="https://app.thrift.ly"
+          href="https://app.groflo.io"
           target="_blank"
           rel="noopener noreferrer"
           style={{

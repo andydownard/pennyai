@@ -72,7 +72,7 @@ export function NavMenu({ open, active, isAdmin, onNavigate, onClose }: NavMenuP
           borderBottom: '1px solid var(--border)',
           display: 'flex', alignItems: 'center', gap: '12px',
         }}>
-          <svg width="36" height="36" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Thriftly logo" style={{ flexShrink: 0 }}>
+          <svg width="36" height="36" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Groflo logo" style={{ flexShrink: 0 }}>
             <rect x="12" y="10" width="42" height="52" rx="6" stroke="var(--brand)" strokeWidth="2.5" fill="var(--surface)" />
             <rect x="25" y="4" width="16" height="10" rx="4" fill="var(--brand)" />
             <rect x="29" y="7" width="8" height="4" rx="2" fill="var(--surface)" />
@@ -89,7 +89,7 @@ export function NavMenu({ open, active, isAdmin, onNavigate, onClose }: NavMenuP
             <span style={{
               fontFamily: FONT, fontSize: '1.25rem', fontWeight: 700,
               color: 'var(--brand)', letterSpacing: '-0.5px',
-            }}>thriftly</span>
+            }}>Groflo</span>
             <p style={{
               fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)',
               margin: '2px 0 0', lineHeight: 1.3,
@@ -126,7 +126,7 @@ export function NavMenu({ open, active, isAdmin, onNavigate, onClose }: NavMenuP
 
         {/* Brand portal link */}
         <a
-          href="https://brand.thrift.ly/"
+          href="https://brands.groflo.io/"
           target="_blank"
           rel="noopener noreferrer"
           style={{

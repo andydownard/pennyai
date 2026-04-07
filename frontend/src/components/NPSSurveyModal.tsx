@@ -28,7 +28,7 @@ export function NPSSurveyModal({ onClose, onSubmit }: NPSSurveyModalProps) {
   // Typewriter effect for NPS questions
   useEffect(() => {
     const question = step === 1
-      ? 'How likely are you to recommend Thriftly to a friend?'
+      ? 'How likely are you to recommend Groflo to a friend?'
       : `You picked ${score}! What's the biggest reason for your score?`
     setTypedText('')
     setTypingDone(false)

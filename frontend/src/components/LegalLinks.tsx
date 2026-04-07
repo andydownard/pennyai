@@ -4,12 +4,12 @@ export function LegalLinks() {
   return (
     <>
       <a
-        href="https://thrift.ly"
+        href="https://groflo.io"
         target="_blank"
         rel="noopener noreferrer"
         style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', textDecoration: 'none', marginTop: '48px', opacity: 0.7 }}
       >
-        powered by <span style={{ fontWeight: 600 }}>thriftly</span>
+        Penny by <span style={{ fontWeight: 600 }}>Groflo</span>
       </a>
       <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '12px', opacity: 0.6 }}>
         <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>Privacy</a>

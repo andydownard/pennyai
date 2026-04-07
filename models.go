@@ -378,6 +378,10 @@ type PasswordResetRequest struct {
 
 type PhoneRequest struct {
 	PhoneNumber string `json:"phone_number"`
+	// SMSOptIn is the user's affirmative consent to receive SMS messages from
+	// Penny. Required for Twilio A2P 10DLC compliance — the absence of this
+	// field is treated as missing consent and the request is rejected.
+	SMSOptIn bool `json:"sms_opt_in"`
 }
 
 type VerifyCodeRequest struct {

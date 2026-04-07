@@ -171,13 +171,13 @@ func (s *Server) handleBrandDeposit(w http.ResponseWriter, r *http.Request) {
 		// Stripe must redirect back to the BRAND PORTAL.
 		// Hardcode to the known working domain — Origin header is unreliable
 		// (may be empty behind proxies, or may contain a non-resolving subdomain).
-		baseURL := "https://brand.thrift.ly"
+		baseURL := "https://brands.groflo.io"
 		log.Printf("[stripe] deposit: using baseURL=%s (origin was %q)", baseURL, r.Header.Get("Origin"))
 
 		form := url.Values{}
 		form.Set("mode", "payment")
 		form.Set("line_items[0][price_data][currency]", "usd")
-		form.Set("line_items[0][price_data][product_data][name]", "Thriftly Brand Account Deposit")
+		form.Set("line_items[0][price_data][product_data][name]", "Groflo Brand Account Deposit")
 		form.Set("line_items[0][price_data][unit_amount]", strconv.Itoa(req.AmountCents))
 		form.Set("line_items[0][quantity]", "1")
 		form.Set("payment_intent_data[metadata][brand_user_id]", strconv.Itoa(bs.BrandUserID))

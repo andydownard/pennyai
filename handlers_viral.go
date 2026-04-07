@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// handleWrapped returns a "Thriftly Wrapped" monthly savings summary card.
+// handleWrapped returns a "Groflo Wrapped" monthly savings summary card.
 // GET /api/wrapped?month=2026-03 (defaults to current month)
 func (s *Server) handleWrapped(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
@@ -112,7 +112,7 @@ func (s *Server) handleWrapped(w http.ResponseWriter, r *http.Request) {
 
 	// Build share text
 	savingsStr := fmt.Sprintf("$%d.%02d", totalSavingsCents/100, totalSavingsCents%100)
-	shareText := fmt.Sprintf("I saved %s with Thriftly in %s!", savingsStr, monthLabel)
+	shareText := fmt.Sprintf("I saved %s with Groflo in %s!", savingsStr, monthLabel)
 	if swapsCount > 0 {
 		shareText += fmt.Sprintf(" %d smart swaps 🔄", swapsCount)
 	}
@@ -269,16 +269,16 @@ func (s *Server) handleMilestoneCheck(w http.ResponseWriter, r *http.Request) {
 	var userName string
 	s.db.QueryRow("SELECT COALESCE(name, '') FROM users WHERE id = ?", session.UserID).Scan(&userName)
 
-	shareText := fmt.Sprintf("I just hit %s in savings on Thriftly! Brands pay me to try their products.", dollars)
+	shareText := fmt.Sprintf("I just hit %s in savings on Groflo! Brands pay me to try their products.", dollars)
 	if userName != "" {
-		shareText = fmt.Sprintf("%s just hit %s in savings on Thriftly! Brands pay you to try their products.", userName, dollars)
+		shareText = fmt.Sprintf("%s just hit %s in savings on Groflo! Brands pay you to try their products.", userName, dollars)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"milestone": map[string]interface{}{
 			"cents":      unacked.cents,
 			"dollars":    dollars,
-			"share_text": shareText + "\n\nGet Thriftly: https://app.thrift.ly",
+			"share_text": shareText + "\n\nGet Groflo: https://app.groflo.io",
 			"total_cents": totalCents,
 		},
 	})

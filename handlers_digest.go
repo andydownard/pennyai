@@ -205,6 +205,6 @@ func buildDigestMessage(userName string, items []string) string {
 		noun = "item was"
 	}
 
-	return fmt.Sprintf("%s, %d %s added to your list today: %s. Open: https://app.thrift.ly",
+	return fmt.Sprintf("%s, %d %s added to your list today: %s. Open: https://app.groflo.io",
 		firstName, count, noun, itemList)
 }

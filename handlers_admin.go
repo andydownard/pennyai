@@ -621,7 +621,7 @@ func (s *Server) handleAdminPayouts(w http.ResponseWriter, r *http.Request) {
 func legalPageHTML(title, body string) string {
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>%s — Penny by Thriftly</title>
+<title>%s — Penny by Groflo</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Avenir','Avenir Next',-apple-system,'Segoe UI',sans-serif;color:#2A2A2A;background:#F7F6F3;line-height:1.6}
@@ -644,119 +644,130 @@ func handlePrivacyPolicy(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprint(w, legalPageHTML("Privacy Policy", `
 <h1>Privacy Policy</h1>
-<p class="updated">Last updated: March 4, 2026</p>
+<p class="updated">Effective: April 7, 2026</p>
 
-<p>Penny by Thriftly ("Penny," "we," "us," or "our") operates the Penny shopping list application
-and related SMS messaging service. This Privacy Policy describes what information we collect,
-how we use it, and your choices.</p>
+<p>Groflo, Inc. ("Groflo," "we," "us," or "our") makes a shared shopping list app you control by texting Penny, our AI assistant. This policy tells you what we collect, how we use it, and what you control. We wrote it in plain English and we mean it.</p>
 
-<h2>1. Information We Collect</h2>
+<h2>1. Account and the Rally ecosystem</h2>
+<p>Your Groflo account is part of the <strong>Rally ecosystem</strong>, a shared identity layer that lets one Rally login work across Groflo and other Rally apps. <strong>Your account is shared. Your shopping list is not.</strong> Other Rally apps cannot read your list, your dietary preferences, your household, or your messages with Penny.</p>
+<p>When you create a Groflo account we record your phone number, optional email, optional display name, and the timestamp of your consent. If you sign in with Google, we also receive your Google email and name.</p>
+
+<h2>2. SMS messages and your consent</h2>
+<p>Penny is an SMS-native assistant. If you give us your phone number, you are choosing to receive text messages from Penny: replies to messages you send her, list updates from your household, and occasional reminders about items you have asked her to track.</p>
+<p><strong>Message frequency varies</strong> based on your usage and your household's activity. <strong>Message and data rates may apply</strong> from your wireless carrier.</p>
+<p>You can change how often Penny texts you in Settings. You can stop texts at any time by replying <strong>STOP</strong> to any Penny message. After you reply STOP we send one confirmation text and no more. Reply <strong>HELP</strong> to any Penny message for support.</p>
+<p><strong>We will not share your mobile information with third parties or affiliates for marketing or promotional purposes.</strong> Information you share with Penny stays inside Groflo and the service providers listed in section 4.</p>
+
+<h2>3. Information we collect</h2>
 <ul>
-<li><strong>Phone number</strong> — provided when you sign up, used for account verification and to send/receive SMS messages.</li>
-<li><strong>Name and email</strong> — optionally provided in your profile settings.</li>
-<li><strong>Shopping list data</strong> — items you add via the app, text message, or email.</li>
-<li><strong>Usage data</strong> — basic analytics such as page views and feature usage to improve the service.</li>
+<li><strong>Phone number</strong> — required for SMS, used to verify your account and to send and receive texts with Penny.</li>
+<li><strong>Email and name</strong> — optional, used to recover access and to address you in messages.</li>
+<li><strong>Shopping list data</strong> — items you add by app, text, or email, your edits, and your check-offs.</li>
+<li><strong>Household relationships</strong> — who you share lists with.</li>
+<li><strong>Brand preferences and dietary attributes</strong> — saved when you correct Penny or set them in Settings.</li>
+<li><strong>Receipts you upload</strong> — to verify swap rebates. We extract the line items and store the parsed data; the original image is deleted within 30 days.</li>
+<li><strong>Usage data</strong> — page views, feature usage, and error reports, used to keep Penny working.</li>
 </ul>
 
-<h2>2. How We Use Your Information</h2>
+<h2>4. Service providers</h2>
+<p>We share the minimum data needed with the providers who run the service. Each provider sees only the slice of data they need.</p>
 <ul>
-<li>To verify your identity and manage your account.</li>
-<li>To send and receive SMS messages related to your shopping list (e.g., adding items, notifications).</li>
-<li>To operate, maintain, and improve the Penny service.</li>
-<li>To respond to your support requests.</li>
+<li><strong>Twilio</strong> — sends and receives your SMS messages, and sends one-time verification codes.</li>
+<li><strong>Anthropic</strong> — runs the AI that turns your texts into list items. Your texts are sent for processing. Anthropic does not train its models on your data.</li>
+<li><strong>Stripe</strong> — processes brand swap rebate payouts to you, when applicable. Stripe is also the payments backbone for the Rally ecosystem.</li>
+<li><strong>Railway</strong> — hosts the Groflo backend.</li>
+<li><strong>Google</strong> — only if you sign in with Google.</li>
+<li><strong>SendGrid</strong> — sends transactional emails (password resets, magic links, optional digests).</li>
 </ul>
 
-<h2>3. Information Sharing</h2>
-<p>We do <strong>not</strong> sell, rent, or share your personal information with third parties for their
-marketing purposes. We share data only in these limited circumstances:</p>
+<h2>5. How we use your data</h2>
 <ul>
-<li><strong>Service providers</strong> — We use Twilio to deliver SMS messages and Anthropic to process natural-language list items. These providers access only the data necessary to perform their services.</li>
-<li><strong>Household members</strong> — If you join a household, other members can see the shared shopping list and your display name.</li>
-<li><strong>Anonymized &amp; aggregated data</strong> — We may share anonymized, aggregated shopping data with brands, retailers, and advertising partners to enable product rebates and improve the shopping experience. This data does not identify you personally — it contains no names, phone numbers, or other personal identifiers.</li>
-<li><strong>Legal requirements</strong> — We may disclose information if required by law or to protect our rights.</li>
+<li>To verify your identity and keep your account secure.</li>
+<li>To send and receive SMS messages with Penny and your household.</li>
+<li>To organize your list, learn your brand preferences, and respect your dietary attributes.</li>
+<li>To pay you brand swap rebates you have earned.</li>
+<li>To improve Penny — but only with anonymized, aggregated data, never your individual list.</li>
 </ul>
 
-<h2>4. Data Retention</h2>
-<p>We retain your account data for as long as your account is active. You can delete your list data
-at any time through the app. To delete your account entirely, contact us at the address below.</p>
+<h2>6. Brand partners and rebates</h2>
+<p>Groflo is free for shoppers because brands pay to suggest products on your list. Suggestions are always labeled. Brand partners <strong>never</strong> see your name, your phone number, your email, your address, or your individual list. They see aggregated, anonymized statistics about how often their products are chosen across the whole Groflo population.</p>
 
-<h2>5. Security</h2>
-<p>We use industry-standard measures to protect your data, including encrypted connections (HTTPS),
-HttpOnly session cookies, and secure credential storage.</p>
+<h2>7. Data retention</h2>
+<p>We keep your account data while your account is active. You can delete individual list items at any time in the app. You can delete your account by emailing <a href="mailto:privacy@groflo.io">privacy@groflo.io</a>. After we receive your request we delete your personal data within 30 days, except records we are legally required to keep (for example, financial records of rebate payouts).</p>
 
-<h2>6. Children's Privacy</h2>
-<p>Penny is not directed at children under 13 and we do not knowingly collect information from children under 13.</p>
+<h2>8. Security</h2>
+<p>We protect your data with encrypted connections (TLS), HttpOnly session cookies, hashed passwords (bcrypt), short-lived authentication codes, and industry-standard server hardening. We do not store payment card numbers; Stripe does.</p>
 
-<h2>7. Changes</h2>
-<p>We may update this policy from time to time. We will notify you of material changes by posting the updated policy on this page.</p>
+<h2>9. Your rights</h2>
+<p>You have the right to access, correct, export, or delete your personal data at any time. California residents have additional rights under the CCPA, including the right not to be discriminated against for exercising those rights. We do not sell or share personal information as those terms are defined under the CCPA. To exercise any of these rights, email <a href="mailto:privacy@groflo.io">privacy@groflo.io</a>.</p>
 
-<h2>8. Contact Us</h2>
-<p>If you have questions about this Privacy Policy, contact us at
-<a href="mailto:privacy@thrift.ly">privacy@thrift.ly</a>.</p>
+<h2>10. Children</h2>
+<p>Groflo is not for children under 13 and we do not knowingly collect data from children under 13.</p>
+
+<h2>11. Changes</h2>
+<p>When we make material changes to this policy we will notify you by email or by an in-app notice before the changes take effect. The "Effective" date at the top of this page always reflects the current version.</p>
+
+<h2>12. Contact</h2>
+<p>Questions or requests: <a href="mailto:privacy@groflo.io">privacy@groflo.io</a>.</p>
 `))
 }
 
 func handleTerms(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, legalPageHTML("Terms & Conditions", `
-<h1>Terms &amp; Conditions</h1>
-<p class="updated">Last updated: March 4, 2026</p>
+	fmt.Fprint(w, legalPageHTML("Terms of Service", `
+<h1>Terms of Service</h1>
+<p class="updated">Effective: April 7, 2026</p>
 
-<h2>1. Program Name</h2>
-<p><strong>Penny by Thriftly</strong> — an AI-powered shared shopping list service.</p>
+<p>These terms cover your use of <strong>Groflo</strong>, the shared shopping list service operated by Groflo, Inc., and your conversations with <strong>Penny</strong>, our AI assistant. Read them. By using Groflo you accept them.</p>
 
-<h2>2. Service Description</h2>
-<p>Penny lets you create and manage a shared grocery shopping list. You can add items by typing in the app,
-sending a text message (SMS), or forwarding an email. Penny uses AI to parse your input into organized list items.</p>
+<h2>1. The service</h2>
+<p>Groflo lets you and your household share a single shopping list. You can add items by typing in the app, by texting Penny, or by emailing her. Penny uses AI to organize your list, learn your brand preferences, and surface savings.</p>
 
-<h2>3. Messaging Terms</h2>
+<h2>2. Your account and the Rally ecosystem</h2>
+<p>Your Groflo account is part of the Rally ecosystem. One Rally login works across Groflo and other Rally apps. Your shopping list, household, dietary preferences, and messages with Penny are private to Groflo and are not shared with other Rally apps.</p>
+<p>You are responsible for keeping your account credentials secure. Tell us right away if you think someone else has access to your account.</p>
+
+<h2>3. SMS messaging program</h2>
+<p>When you give Groflo your phone number you are enrolling in Penny's SMS program. By enrolling, you agree to receive recurring text messages from Penny: replies, list updates from your household, and reminders.</p>
 <ul>
-<li><strong>Message frequency:</strong> Message frequency varies based on your usage. You will receive SMS messages
-when household members add items, and in response to messages you send to Penny.</li>
-<li><strong>Message and data rates may apply.</strong> Your carrier's standard messaging and data rates apply to all
-SMS messages sent to and received from Penny.</li>
+<li><strong>Message frequency varies</strong> based on your usage and your household's activity.</li>
+<li><strong>Message and data rates may apply.</strong></li>
+<li>To stop messages, reply <strong>STOP</strong> to any Penny message. To get help, reply <strong>HELP</strong> to any Penny message or email <a href="mailto:support@groflo.io">support@groflo.io</a>.</li>
+<li>Carriers are not liable for delayed or undelivered messages.</li>
+<li>You can change how often Penny texts you at any time in Settings.</li>
 </ul>
+<p>For details on what we collect and how we use it, see our <a href="/privacy">Privacy Policy</a>.</p>
 
-<h2>4. Opt-Out</h2>
-<p>You can opt out of SMS messages at any time by texting <strong>STOP</strong> to the Penny phone number.
-After opting out, you will receive one final confirmation message and no further SMS messages.</p>
+<h2>4. Your content</h2>
+<p>You own your shopping list, your household, and the messages you send Penny. You give Groflo a limited license to store and display that content as needed to run the service. We will never sell your individual content.</p>
 
-<h2>5. Help</h2>
-<p>For support, text <strong>HELP</strong> to the Penny phone number, or email us at
-<a href="mailto:support@thrift.ly">support@thrift.ly</a>.</p>
+<h2>5. Brand suggestions and swap rebates</h2>
+<p>Groflo is free because brands pay to suggest products on your list. Brand suggestions are always labeled. You are never required to accept a suggestion.</p>
+<p>When you accept a swap that includes a rebate, the rebate is paid to your in-app wallet. You can cash out your wallet balance through Stripe. Cash-outs are subject to Stripe's terms and may require identity verification. Rebate amounts and availability may change at any time.</p>
 
-<h2>6. Eligibility</h2>
-<p>You must be at least 13 years old and have a valid US mobile phone number to use Penny.</p>
+<h2>6. Acceptable use</h2>
+<p>Use Groflo to manage your household's shopping. Do not use it to harass other users, to send unsolicited commercial messages, to scrape brand data, or to break the law. We may suspend accounts that abuse the service.</p>
 
-<h2>7. User Conduct</h2>
-<p>You agree to use Penny only for lawful purposes related to managing shopping lists. You are
-responsible for all activity under your account.</p>
+<h2>7. Eligibility</h2>
+<p>You must be at least 13 years old and have a valid US mobile phone number to use Groflo.</p>
 
-<h2>8. Intellectual Property</h2>
-<p>All content, branding, and technology associated with Penny are owned by Thriftly. You retain
-ownership of your shopping list data.</p>
+<h2>8. Termination</h2>
+<p>You can delete your account at any time by emailing <a href="mailto:privacy@groflo.io">privacy@groflo.io</a>. We may suspend or terminate your account if you violate these terms or if we are required to by law. After termination, your data is deleted as described in the Privacy Policy.</p>
 
-<h2>8a. Anonymized Data &amp; Brand Partnerships</h2>
-<p>By using Penny, you agree that we may anonymize and aggregate your shopping list data and share
-it with brand and retail partners. This data is stripped of all personally identifying information
-(such as your name, phone number, and household details) and is used solely to enable product
-rebates, improve product recommendations, and support market research. You will never be personally
-identified to any partner.</p>
+<h2>9. Disclaimers</h2>
+<p>Groflo and Penny are provided "as is" and "as available." We do not guarantee that the service will be uninterrupted, error-free, or that brand suggestions will be accurate or available. Penny is an AI assistant and may make mistakes. Always check labels for allergens.</p>
 
-<h2>9. Disclaimer of Warranties</h2>
-<p>Penny is provided "as is" without warranties of any kind. We do not guarantee uninterrupted
-or error-free service.</p>
+<h2>10. Limitation of liability</h2>
+<p>To the fullest extent permitted by law, Groflo, Inc., its officers, employees, and partners are not liable for any indirect, incidental, special, consequential, or punitive damages, or any loss of profits or revenues, arising from your use of the service. Our total liability for any claim is limited to one hundred US dollars ($100).</p>
 
-<h2>10. Limitation of Liability</h2>
-<p>To the fullest extent permitted by law, Thriftly shall not be liable for any indirect, incidental,
-or consequential damages arising from your use of Penny.</p>
+<h2>11. Governing law and disputes</h2>
+<p>These terms are governed by the laws of the State of Delaware, without regard to conflict-of-laws rules. Disputes will be resolved in the state or federal courts located in Delaware, except where you have a non-waivable right to bring claims in your local jurisdiction.</p>
 
-<h2>11. Changes</h2>
-<p>We may update these terms at any time. Continued use of Penny after changes constitutes acceptance
-of the updated terms.</p>
+<h2>12. Changes</h2>
+<p>We may update these terms. When we do, we will post the updated terms here and update the Effective date. If the changes are material, we will notify you in the app or by email before they take effect. Continued use of Groflo after the changes take effect means you accept them.</p>
 
-<h2>12. Contact</h2>
-<p>Questions? Email us at <a href="mailto:support@thrift.ly">support@thrift.ly</a>.</p>
+<h2>13. Contact</h2>
+<p>Questions about these terms: <a href="mailto:legal@groflo.io">legal@groflo.io</a>. Support: <a href="mailto:support@groflo.io">support@groflo.io</a>.</p>
 `))
 }
 

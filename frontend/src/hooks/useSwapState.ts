@@ -128,8 +128,10 @@ export function useSwapState(options: UseSwapStateOptions) {
         if (data.swap_credits_cents != null) {
           optRef.current.setEarningsTotalCents(data.swap_credits_cents)
         }
-        const firstSwapKey = 'thriftly_first_swap'
-        if (!localStorage.getItem(firstSwapKey)) {
+        // Backwards-compat: read both legacy and new keys during cutover
+        const firstSwapKey = 'groflo_first_swap'
+        const legacyFirstSwapKey = 'thriftly_first_swap'
+        if (!localStorage.getItem(firstSwapKey) && !localStorage.getItem(legacyFirstSwapKey)) {
           localStorage.setItem(firstSwapKey, '1')
           optRef.current.setShowFireworks(true)
           optRef.current.typePennyHome('Your first swap — nice save!')

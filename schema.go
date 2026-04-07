@@ -347,6 +347,14 @@ func initDB(path string) (*sql.DB, error) {
 		"ALTER TABLE users ADD COLUMN penny_autotune INTEGER NOT NULL DEFAULT 1",
 		"ALTER TABLE users ADD COLUMN penny_deals INTEGER NOT NULL DEFAULT 0",
 		"ALTER TABLE users ADD COLUMN last_cleared_items TEXT NOT NULL DEFAULT '[]'",
+		// Twilio A2P 10DLC compliance: capture SMS consent at signup with timestamp + IP + UA
+		// for proof during campaign vetting and audit. NULL = consent not yet captured (pre-rebrand users).
+		"ALTER TABLE users ADD COLUMN sms_consent_at DATETIME",
+		"ALTER TABLE users ADD COLUMN sms_consent_ip TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE users ADD COLUMN sms_consent_user_agent TEXT NOT NULL DEFAULT ''",
+		// Rally ecosystem federation: link to canonical timpager user_id for shared identity.
+		// NULL until Phase 3 backfill runs.
+		"ALTER TABLE users ADD COLUMN timpager_user_id TEXT",
 	} {
 		db.Exec(stmt) // errors ignored — column may already exist
 	}
@@ -599,6 +607,13 @@ func initDB(path string) (*sql.DB, error) {
 		"ALTER TABLE users ADD COLUMN penny_deals INTEGER NOT NULL DEFAULT 0",
 		"ALTER TABLE users ADD COLUMN last_cleared_items TEXT NOT NULL DEFAULT '[]'",
 		"ALTER TABLE users ADD COLUMN swap_credits_cents INTEGER NOT NULL DEFAULT 0",
+		// SMS consent + Rally federation columns are also added in the earlier
+		// pre-recreation migration block; repeated here so they survive the
+		// users-table recreation that this section runs after.
+		"ALTER TABLE users ADD COLUMN sms_consent_at DATETIME",
+		"ALTER TABLE users ADD COLUMN sms_consent_ip TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE users ADD COLUMN sms_consent_user_agent TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE users ADD COLUMN timpager_user_id TEXT",
 	} {
 		db.Exec(stmt)
 	}

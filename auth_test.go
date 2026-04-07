@@ -102,13 +102,59 @@ func TestSendCode_Success(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	rr := doRequest(server.handleSendCode, "POST", "/auth/send-code",
-		map[string]string{"phone_number": "5551234567"}, nil)
+		map[string]interface{}{"phone_number": "5551234567", "sms_opt_in": true}, nil)
 
 	if rr.Code != http.StatusOK {
 		t.Errorf("Status: got %d, want 200", rr.Code)
 	}
 	if mock.LastSendPhone != "+15551234567" {
 		t.Errorf("Twilio got %s, want +15551234567", mock.LastSendPhone)
+	}
+
+	// Verify SMS consent was persisted with timestamp + IP + UA. This is the
+	// audit trail Twilio A2P 10DLC vetting requires.
+	var consentAt sql.NullString
+	var consentIP, consentUA string
+	err := server.db.QueryRow(
+		`SELECT sms_consent_at, sms_consent_ip, sms_consent_user_agent FROM users WHERE phone_number = ?`,
+		"+15551234567",
+	).Scan(&consentAt, &consentIP, &consentUA)
+	if err != nil {
+		t.Fatalf("query consent record: %v", err)
+	}
+	if !consentAt.Valid || consentAt.String == "" {
+		t.Errorf("sms_consent_at not persisted")
+	}
+	if consentIP == "" {
+		t.Errorf("sms_consent_ip not persisted")
+	}
+}
+
+func TestSendCode_NoConsentRejected(t *testing.T) {
+	// Twilio A2P 10DLC requires affirmative consent. Calling /auth/send-code
+	// without sms_opt_in=true must be rejected. The frontend checkbox is the
+	// user's consent act; this server-side gate prevents bypass via API.
+	mock := &MockTwilioClient{}
+	server := newTestServer(t, mock)
+
+	// Case 1: sms_opt_in=false explicitly
+	rr := doRequest(server.handleSendCode, "POST", "/auth/send-code",
+		map[string]interface{}{"phone_number": "5551234567", "sms_opt_in": false}, nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("opt_in=false: got %d, want 400", rr.Code)
+	}
+	if mock.LastSendPhone != "" {
+		t.Errorf("Twilio was called despite missing consent: %s", mock.LastSendPhone)
+	}
+
+	// Case 2: sms_opt_in field absent (legacy clients / bots)
+	rr = doRequest(server.handleSendCode, "POST", "/auth/send-code",
+		map[string]string{"phone_number": "5551234567"}, nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("opt_in absent: got %d, want 400", rr.Code)
+	}
+	if mock.LastSendPhone != "" {
+		t.Errorf("Twilio was called despite missing consent: %s", mock.LastSendPhone)
 	}
 }
 
@@ -128,7 +174,7 @@ func TestSendCode_InvalidPhone(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rr := doRequest(server.handleSendCode, "POST", "/auth/send-code",
-				map[string]string{"phone_number": tt.phone}, nil)
+				map[string]interface{}{"phone_number": tt.phone, "sms_opt_in": true}, nil)
 			if rr.Code != http.StatusBadRequest {
 				t.Errorf("Phone %q: got %d, want 400", tt.phone, rr.Code)
 			}
@@ -141,7 +187,7 @@ func TestSendCode_TwilioFails(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	rr := doRequest(server.handleSendCode, "POST", "/auth/send-code",
-		map[string]string{"phone_number": "5551234567"}, nil)
+		map[string]interface{}{"phone_number": "5551234567", "sms_opt_in": true}, nil)
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Errorf("Status: got %d, want 500", rr.Code)
@@ -422,9 +468,9 @@ func TestFullLoginFlow(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	// Step 1: Send code
+	// Step 1: Send code (with consent capture)
 	rr := doRequest(server.handleSendCode, "POST", "/auth/send-code",
-		map[string]string{"phone_number": "5559876543"}, nil)
+		map[string]interface{}{"phone_number": "5559876543", "sms_opt_in": true}, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("Step 1 (send): got %d, want 200", rr.Code)
 	}

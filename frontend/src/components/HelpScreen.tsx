@@ -14,7 +14,7 @@ const faqs = [
   { q: 'How do Penny\'s deals work?', a: 'When you add an item, Penny may suggest a deal from a brand partner. If you accept, the brand covers part of the cost. You can always decline — no pressure!' },
   { q: 'How do I add items via text message?', a: 'Text your grocery items to Penny\'s number (you can find it in the Penny settings screen). She\'ll parse your message and add them to your list automatically.' },
   { q: 'How do I save a list for later?', a: 'Just ask Penny! Say something like "save this as my weekly groceries" in the Penny chat. You can load saved lists later by asking Penny "what lists do I have?"' },
-  { q: 'How do I delete my account?', a: 'Email support@thrift.ly and I\'ll take care of it within 48 hours. All your data will be permanently deleted.' },
+  { q: 'How do I delete my account?', a: 'Email support@groflo.io and I\'ll take care of it within 48 hours. All your data will be permanently deleted.' },
 ]
 
 export function HelpScreen({

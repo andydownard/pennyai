@@ -135,7 +135,7 @@ export function SharedListScreen({
         <div style={{ fontFamily: FONT, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text)' }}>
           {sharedData ? (sharedData.sharer_name ? `${sharedData.sharer_name}'s Shopping List` : 'Shopping List') : 'Shopping List'}
         </div>
-        <div style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--brand)', fontWeight: 600, letterSpacing: '-0.3px', marginTop: '4px' }}>thriftly</div>
+        <div style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--brand)', fontWeight: 600, letterSpacing: '-0.3px', marginTop: '4px' }}>Groflo</div>
       </div>
 
       {/* Expiry banner */}
@@ -164,7 +164,7 @@ export function SharedListScreen({
               onClick={onSignUp}
               style={{ backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '10px', padding: '14px 28px', fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, cursor: 'pointer' }}
             >
-              Sign up for Thriftly
+              Sign up for Groflo
             </button>
           </div>
         )}
@@ -180,7 +180,7 @@ export function SharedListScreen({
               onClick={onSignUp}
               style={{ backgroundColor: 'var(--brand)', color: '#fff', border: 'none', borderRadius: '10px', padding: '14px 28px', fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, cursor: 'pointer' }}
             >
-              Sign up for Thriftly
+              Sign up for Groflo
             </button>
           </div>
         )}
@@ -331,7 +331,7 @@ export function SharedListScreen({
             <p style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', margin: '0 0 12px' }}>
               {sharedData?.invite_code
                 ? `Join ${sharedData?.sharer_name ? sharedData.sharer_name + "'s" : 'this'} grocery list — enter your phone to get started`
-                : 'Sign up for Thriftly to make your own grocery list'}
+                : 'Sign up for Groflo to make your own grocery list'}
             </p>
             <button
               onClick={() => sharedData?.invite_code ? setStep('phone') : onSignUpClear()}

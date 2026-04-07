@@ -1,11 +1,38 @@
 // =============================================================================
-// thriftly — App.tsx
+// Groflo — App.tsx (formerly Thriftly)
 //
 // Screens: phone → code → home, penny settings, profile, share, admin
 // All styles inline. All API calls go to the Go backend.
 // =============================================================================
 
 import React, { useState, useRef, useEffect, useCallback, Suspense, lazy } from 'react'
+
+// One-shot migration: copy any legacy `thriftly_*` keys to `groflo_*` so
+// existing users keep their dismissed prompts, redirect intents, and join
+// codes after the rebrand. Runs once at module load. Idempotent (a second run
+// finds the new keys already present and removes the legacy ones).
+;(function migrateLegacyGrofloStorage() {
+  if (typeof window === 'undefined') return
+  try {
+    const stores: Storage[] = [window.localStorage, window.sessionStorage]
+    for (const store of stores) {
+      const legacyKeys: string[] = []
+      for (let i = 0; i < store.length; i++) {
+        const k = store.key(i)
+        if (k && k.startsWith('groflo_')) legacyKeys.push(k)
+      }
+      for (const legacyKey of legacyKeys) {
+        const newKey = 'groflo_' + legacyKey.slice('groflo_'.length)
+        const val = store.getItem(legacyKey)
+        if (val !== null && store.getItem(newKey) === null) {
+          store.setItem(newKey, val)
+        }
+        store.removeItem(legacyKey)
+      }
+    }
+  } catch { /* private browsing or storage disabled — ignore */ }
+})()
+
 import { QRCodeCanvas } from 'qrcode.react'
 import { fetchAPI, fetchAction, setSessionExpiredHandler } from './api'
 import { useToast } from './hooks/useToast'
@@ -103,22 +130,22 @@ const SCREEN_PATHS: Record<Screen, string> = {
 }
 
 const SCREEN_TITLES: Record<Screen, string> = {
-  phone: 'Sign In — Thriftly',
-  code: 'Verify — Thriftly',
-  home: 'Shopping List — Thriftly',
-  penny: 'Penny — Thriftly',
-  profile: 'Profile — Thriftly',
-  'settings-share': 'Share & Earn — Thriftly',
-  admin: 'Admin — Thriftly',
-  'email-login': 'Sign In — Thriftly',
-  'email-register': 'Register — Thriftly',
-  'forgot-password': 'Reset Password — Thriftly',
-  'reset-password': 'Reset Password — Thriftly',
-  'shared-list': 'Shared List — Thriftly',
-  help: 'Help — Thriftly',
-  earnings: 'Earnings — Thriftly',
-  receipts: 'Receipts — Thriftly',
-  'saved-lists': 'My Lists — Thriftly',
+  phone: 'Sign In — Groflo',
+  code: 'Verify — Groflo',
+  home: 'Shopping List — Groflo',
+  penny: 'Penny — Groflo',
+  profile: 'Profile — Groflo',
+  'settings-share': 'Share & Earn — Groflo',
+  admin: 'Admin — Groflo',
+  'email-login': 'Sign In — Groflo',
+  'email-register': 'Register — Groflo',
+  'forgot-password': 'Reset Password — Groflo',
+  'reset-password': 'Reset Password — Groflo',
+  'shared-list': 'Shared List — Groflo',
+  help: 'Help — Groflo',
+  earnings: 'Earnings — Groflo',
+  receipts: 'Receipts — Groflo',
+  'saved-lists': 'My Lists — Groflo',
 }
 
 const PATH_TO_SCREEN: Record<string, Screen> = {
@@ -174,7 +201,7 @@ function Logo() {
       viewBox="0 0 72 72"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      aria-label="Thriftly logo"
+      aria-label="Groflo logo"
     >
       {/* Clipboard body */}
       <rect x="12" y="10" width="42" height="52" rx="6" stroke="var(--brand)" strokeWidth="2.5" fill="var(--surface)" />
@@ -300,7 +327,7 @@ function AppInner() {
   }
 
   // Update page title on screen change
-  useEffect(() => { document.title = SCREEN_TITLES[screen] || 'Thriftly' }, [screen])
+  useEffect(() => { document.title = SCREEN_TITLES[screen] || 'Groflo' }, [screen])
 
   // Screen transition animation styles (must be called before any conditional returns)
   const transitionStyle = useScreenTransition(screen)
@@ -309,6 +336,15 @@ function AppInner() {
 
   const [installPrompt, setInstallPrompt] = useState<any>(null)
   const [showInstallBanner, setShowInstallBanner] = useState(false)
+
+  // One-time Groflo rebrand banner — shown to existing Thriftly users on
+  // their next visit so the name change isn't a surprise. Per panel R7
+  // (Nadia): "Penny is now part of Groflo. Same Penny, same list, same
+  // household." Dismissed once and persisted; never re-shown.
+  const [showRebrandBanner, setShowRebrandBanner] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return localStorage.getItem('groflo_rebrand_banner_dismissed') !== '1'
+  })
 
   // Shared list deep link state
   const [sharedCode, setSharedCode] = useState<string | null>(null)
@@ -365,7 +401,7 @@ function AppInner() {
   // --- Shopping trip planner state ---
   const [trips, setTrips] = useState<ShoppingTrip[]>([])
   const [showTripSheet, setShowTripSheet] = useState(false)
-  const [tripSuggestionDismissed, setTripSuggestionDismissed] = useState(() => sessionStorage.getItem('thriftly_trip_dismissed') === '1')
+  const [tripSuggestionDismissed, setTripSuggestionDismissed] = useState(() => sessionStorage.getItem('groflo_trip_dismissed') === '1')
 
   // --- Saved lists state ---
   const [showSaveSheet, setShowSaveSheet] = useState(false)
@@ -795,7 +831,7 @@ function AppInner() {
     const path = window.location.pathname
     const joinMatch = path.match(/^\/join\/(.+)$/)
     if (joinMatch) {
-      localStorage.setItem('thriftly_join_code', joinMatch[1])
+      localStorage.setItem('groflo_join_code', joinMatch[1])
       window.history.replaceState({}, '', '/')
       return
     }
@@ -814,7 +850,7 @@ function AppInner() {
     // Unknown route: fix URL and flag for toast after auth resolves
     if (path !== '/' && !PATH_TO_SCREEN[path]) {
       window.history.replaceState({}, '', '/')
-      sessionStorage.setItem('thriftly_404', '1')
+      sessionStorage.setItem('groflo_404', '1')
     }
   }, [])
 
@@ -839,8 +875,8 @@ function AppInner() {
           setSharedData(data)
           // Stash invite code for post-auth join prompt
           if (data.invite_code) {
-            localStorage.setItem('thriftly_share_invite', data.invite_code)
-            localStorage.setItem('thriftly_share_name', data.sharer_name || '')
+            localStorage.setItem('groflo_share_invite', data.invite_code)
+            localStorage.setItem('groflo_share_name', data.sharer_name || '')
           }
         }
       })
@@ -889,7 +925,7 @@ function AppInner() {
 
   // Try to use join code after login
   const tryJoinCode = useCallback(async () => {
-    const joinCode = localStorage.getItem('thriftly_join_code')
+    const joinCode = localStorage.getItem('groflo_join_code')
     if (joinCode) {
       try {
         const res = await fetch('/api/join', {
@@ -899,14 +935,14 @@ function AppInner() {
         })
         const data = await res.json().catch(() => null)
         if (res.ok) {
-          localStorage.removeItem('thriftly_join_code')
+          localStorage.removeItem('groflo_join_code')
           showToast(data?.penny_message || 'You joined the shared list!')
         } else {
-          localStorage.removeItem('thriftly_join_code')
+          localStorage.removeItem('groflo_join_code')
           if (data?.error) showToast(data.error, 'error')
         }
       } catch {
-        localStorage.removeItem('thriftly_join_code')
+        localStorage.removeItem('groflo_join_code')
         showToast('Something went wrong. Try again.', 'error')
       }
     }
@@ -986,11 +1022,11 @@ function AppInner() {
           tryJoinCode()
           loadSettings() // Load settings once at auth
           // Check for post-auth join prompt from shared list link
-          const shareInvite = localStorage.getItem('thriftly_share_invite')
-          const shareName = localStorage.getItem('thriftly_share_name')
+          const shareInvite = localStorage.getItem('groflo_share_invite')
+          const shareName = localStorage.getItem('groflo_share_name')
           if (shareInvite) {
-            localStorage.removeItem('thriftly_share_invite')
-            localStorage.removeItem('thriftly_share_name')
+            localStorage.removeItem('groflo_share_invite')
+            localStorage.removeItem('groflo_share_name')
             setJoinPromptCode(shareInvite)
             setJoinPromptName(shareName || '')
             setShowJoinPrompt(true)
@@ -1003,9 +1039,9 @@ function AppInner() {
             setScreen(resolved, true)
           } else {
             // Check for stored redirect from pre-login deep link
-            const redirect = sessionStorage.getItem('thriftly_redirect')
+            const redirect = sessionStorage.getItem('groflo_redirect')
             if (redirect) {
-              sessionStorage.removeItem('thriftly_redirect')
+              sessionStorage.removeItem('groflo_redirect')
               const target = PATH_TO_SCREEN[redirect] || 'home'
               setScreen(target as Screen, true)
             } else {
@@ -1018,7 +1054,7 @@ function AppInner() {
           const path = window.location.pathname
           const resolved = PATH_TO_SCREEN[path]
           if (resolved && !AUTH_SCREENS.includes(resolved)) {
-            sessionStorage.setItem('thriftly_redirect', path)
+            sessionStorage.setItem('groflo_redirect', path)
           }
           // Check if on a specific auth screen (email login, reset password, etc.)
           if (resolved && AUTH_SCREENS.includes(resolved)) {
@@ -1035,8 +1071,8 @@ function AppInner() {
       .finally(() => {
         setChecking(false)
         // Show 404 toast if user landed on an unknown route
-        if (sessionStorage.getItem('thriftly_404')) {
-          sessionStorage.removeItem('thriftly_404')
+        if (sessionStorage.getItem('groflo_404')) {
+          sessionStorage.removeItem('groflo_404')
           showToast("Page not found — here's your list")
         }
       })
@@ -1066,7 +1102,7 @@ function AppInner() {
           const data = await res.json()
           if (res.ok && data.success) {
             if (data.account_merged && data.merge_message) {
-              sessionStorage.setItem('thriftly_merge_msg', data.merge_message)
+              sessionStorage.setItem('groflo_merge_msg', data.merge_message)
             }
             setScreen('home', true)
           } else {
@@ -1215,9 +1251,9 @@ function AppInner() {
     loadRestockNudges().catch(e => console.warn('[load] nudges failed:', e))
     loadStoreDeptOrder(activeStore).catch(e => console.warn('[load] dept order failed:', e))
     // Show account merge message if auth just linked accounts
-    const mergeMsg = sessionStorage.getItem('thriftly_merge_msg')
+    const mergeMsg = sessionStorage.getItem('groflo_merge_msg')
     if (mergeMsg) {
-      sessionStorage.removeItem('thriftly_merge_msg')
+      sessionStorage.removeItem('groflo_merge_msg')
       setTimeout(() => typePennyHome(mergeMsg), 500)
     }
     // Only check NPS once per session — dismiss expires after 90 days
@@ -1265,7 +1301,7 @@ function AppInner() {
 
   // PWA install prompt — capture the browser event and show a banner after the user has items
   useEffect(() => {
-    if (localStorage.getItem('thriftly_install_dismissed')) return
+    if (localStorage.getItem('groflo_install_dismissed')) return
     const handler = (e: Event) => {
       e.preventDefault()
       setInstallPrompt(e)
@@ -2487,18 +2523,18 @@ function AppInner() {
           } catch { showToast('Connection error', 'error') }
         }}
         onShareReferral={() => {
-          const url = `https://app.thrift.ly/r/${referralCode}`
-          const text = `Try Thriftly — Penny AI helps your household organize the grocery list. Just text, email, or snap a photo and she handles the rest! ${url}`
+          const url = `https://app.groflo.io/r/${referralCode}`
+          const text = `Try Groflo — Penny AI helps your household organize the grocery list. Just text, email, or snap a photo and she handles the rest! ${url}`
           track('referral_shared', { method: 'share' in navigator ? 'native' : 'sms' })
           if (navigator.share) {
-            navigator.share({ title: 'Thriftly', text }).catch(() => {})
+            navigator.share({ title: 'Groflo', text }).catch(() => {})
           } else {
             window.open(`sms:?&body=${encodeURIComponent(text)}`, '_self')
           }
         }}
         onCopyReferral={() => {
           track('referral_copied')
-          navigator.clipboard.writeText(`https://app.thrift.ly/r/${referralCode}`).then(() => showToast('Link copied!')).catch(() => showToast('Could not copy', 'error'))
+          navigator.clipboard.writeText(`https://app.groflo.io/r/${referralCode}`).then(() => showToast('Link copied!')).catch(() => showToast('Could not copy', 'error'))
         }}
         onShowToast={showToast}
         runConfirmAction={runConfirmAction}
@@ -2549,7 +2585,7 @@ function AppInner() {
             {/* QR code for sharing */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '8px 0 16px' }}>
               <QRCodeCanvas
-                value={`https://app.thrift.ly/r/${referralCode}?via=qr`}
+                value={`https://app.groflo.io/r/${referralCode}?via=qr`}
                 size={160}
                 level="M"
                 marginSize={2}
@@ -2611,7 +2647,7 @@ function AppInner() {
       <div style={listStyles.page}>
         {renderPageHeader('Savings', 'earnings')}
         <div style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'none', WebkitOverflowScrolling: 'touch' }}>
-          {/* Thriftly Wrapped CTA */}
+          {/* Groflo Wrapped CTA */}
           <div
             onClick={() => setShowWrapped(true)}
             style={{
@@ -2852,6 +2888,28 @@ function AppInner() {
         </div>
       )}
 
+      {/* One-time rebrand announcement (panel R7 — Nadia) */}
+      {showRebrandBanner && screen === 'home' && (
+        <div role="status" style={{
+          ...layout.row, flexShrink: 0, padding: '10px 16px', gap: '12px',
+          backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)',
+          borderBottom: '1px solid var(--border)',
+        }}>
+          <span style={{ flex: 1, fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text)', lineHeight: 1.45 }}>
+            <strong>Penny is now part of Groflo.</strong> Same Penny, same list, same household.
+          </span>
+          <button
+            aria-label="Dismiss rebrand announcement"
+            onClick={() => {
+              setShowRebrandBanner(false)
+              try { localStorage.setItem('groflo_rebrand_banner_dismissed', '1') } catch {}
+              track('rebrand_banner_dismissed')
+            }}
+            style={{ ...buttons.reset, color: 'var(--text-secondary)', fontSize: FONT_SM, padding: '4px 8px' }}
+          >×</button>
+        </div>
+      )}
+
       {/* PWA install prompt */}
       {showInstallBanner && (
         <div style={{
@@ -2859,7 +2917,7 @@ function AppInner() {
           backgroundColor: 'var(--success-bg, #F0FFF4)', borderBottom: '1px solid var(--border)',
         }}>
           <span style={{ flex: 1, fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text)' }}>
-            Add Thriftly to your home screen for quick access
+            Add Groflo to your home screen for quick access
           </span>
           <button onClick={async () => {
             if (installPrompt?.prompt) {
@@ -2876,7 +2934,7 @@ function AppInner() {
           }}>Install</button>
           <button onClick={() => {
             setShowInstallBanner(false)
-            localStorage.setItem('thriftly_install_dismissed', '1')
+            localStorage.setItem('groflo_install_dismissed', '1')
           }} style={{ ...buttons.reset, color: 'var(--text-secondary)', fontSize: FONT_SM, padding: '4px' }}>×</button>
         </div>
       )}
@@ -3126,7 +3184,7 @@ function AppInner() {
             >Plan a trip</button>
           </span>
           <button
-            onClick={() => { setTripSuggestionDismissed(true); sessionStorage.setItem('thriftly_trip_dismissed', '1') }}
+            onClick={() => { setTripSuggestionDismissed(true); sessionStorage.setItem('groflo_trip_dismissed', '1') }}
             aria-label="Dismiss trip suggestion"
             style={{
               background: 'none', border: 'none', cursor: 'pointer', padding: '4px',

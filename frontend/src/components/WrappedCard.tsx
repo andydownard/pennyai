@@ -143,7 +143,7 @@ export function WrappedCard({ onClose }: WrappedCardProps) {
     // Footer branding
     ctx.fillStyle = '#FFFFFF'
     ctx.font = '600 32px Avenir, sans-serif'
-    ctx.fillText('thrift.ly', W / 2, H - 80)
+    ctx.fillText('groflo.io', W / 2, H - 80)
     ctx.fillStyle = 'rgba(255,255,255,0.6)'
     ctx.font = '400 22px Avenir, sans-serif'
     ctx.fillText('Smart grocery savings', W / 2, H - 45)
@@ -156,20 +156,20 @@ export function WrappedCard({ onClose }: WrappedCardProps) {
     track('wrapped_shared', { month: data.month, savings: data.total_savings_cents })
 
     const blob = await generateShareImage()
-    if (blob && navigator.share && navigator.canShare?.({ files: [new File([blob], 'thriftly-wrapped.png', { type: 'image/png' })] })) {
-      const file = new File([blob], 'thriftly-wrapped.png', { type: 'image/png' })
+    if (blob && navigator.share && navigator.canShare?.({ files: [new File([blob], 'groflo-wrapped.png', { type: 'image/png' })] })) {
+      const file = new File([blob], 'groflo-wrapped.png', { type: 'image/png' })
       navigator.share({ files: [file], text: data.share_text }).catch(() => {})
     } else if (blob) {
       // Fallback: download the image
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = 'thriftly-wrapped.png'
+      a.download = 'groflo-wrapped.png'
       a.click()
       URL.revokeObjectURL(url)
     } else {
       // Ultimate fallback: text-only sharing
-      const shareText = data.share_text + '\n\nGet Thriftly: https://app.thrift.ly'
+      const shareText = data.share_text + '\n\nGet Groflo: https://app.groflo.io'
       if (navigator.share) {
         navigator.share({ text: shareText }).catch(() => {})
       } else {
@@ -234,9 +234,9 @@ export function WrappedCard({ onClose }: WrappedCardProps) {
           </div>
         )}
 
-        {/* Thriftly branding */}
+        {/* Groflo branding */}
         <div style={{ ...text.caption, textAlign: 'center', marginBottom: '16px' }}>
-          thrift.ly
+          groflo.io
         </div>
 
         {/* Actions */}

@@ -1227,14 +1227,14 @@ func TestCov_SendCode_PerPhoneRateLimit(t *testing.T) {
 
 	// First request should succeed
 	rr := doRequest(server.handleSendCode, "POST", "/auth/send-code",
-		map[string]string{"phone_number": "5551111111"}, nil)
+		map[string]interface{}{"phone_number": "5551111111", "sms_opt_in": true}, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("First request: got %d, want 200", rr.Code)
 	}
 
 	// Second request within 60s to the same phone should be rate limited
 	rr = doRequest(server.handleSendCode, "POST", "/auth/send-code",
-		map[string]string{"phone_number": "5551111111"}, nil)
+		map[string]interface{}{"phone_number": "5551111111", "sms_opt_in": true}, nil)
 	if rr.Code != http.StatusTooManyRequests {
 		t.Errorf("Second request: got %d, want 429", rr.Code)
 	}
@@ -1254,7 +1254,7 @@ func TestCov_SendCode_PerIPRateLimit(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		phone := fmt.Sprintf("555200%04d", i)
 		rr := doRequest(server.handleSendCode, "POST", "/auth/send-code",
-			map[string]string{"phone_number": phone}, nil)
+			map[string]interface{}{"phone_number": phone, "sms_opt_in": true}, nil)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("Request %d: got %d, want 200", i+1, rr.Code)
 		}
@@ -1262,7 +1262,7 @@ func TestCov_SendCode_PerIPRateLimit(t *testing.T) {
 
 	// 6th request from the same IP should be rate limited
 	rr := doRequest(server.handleSendCode, "POST", "/auth/send-code",
-		map[string]string{"phone_number": "5553000000"}, nil)
+		map[string]interface{}{"phone_number": "5553000000", "sms_opt_in": true}, nil)
 	if rr.Code != http.StatusTooManyRequests {
 		t.Errorf("6th request: got %d, want 429", rr.Code)
 	}
@@ -1274,7 +1274,7 @@ func TestCov_SendCode_TestModeSkipsTwilio(t *testing.T) {
 	server.config.TestMode = true
 
 	rr := doRequest(server.handleSendCode, "POST", "/auth/send-code",
-		map[string]string{"phone_number": "5559999999"}, nil)
+		map[string]interface{}{"phone_number": "5559999999", "sms_opt_in": true}, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("Status: got %d, want 200", rr.Code)
 	}
@@ -1994,7 +1994,7 @@ func TestCov_SendCode_TestModeNoRateLimit(t *testing.T) {
 	// Send multiple requests to the same phone — all should succeed in test mode
 	for i := 0; i < 3; i++ {
 		rr := doRequest(server.handleSendCode, "POST", "/auth/send-code",
-			map[string]string{"phone_number": "5551234567"}, nil)
+			map[string]interface{}{"phone_number": "5551234567", "sms_opt_in": true}, nil)
 		if rr.Code != http.StatusOK {
 			t.Errorf("Request %d: got %d, want 200 (test mode should skip rate limiting)", i+1, rr.Code)
 		}
@@ -2007,13 +2007,13 @@ func TestCov_SendCode_DifferentPhonesNoPerPhoneRateLimit(t *testing.T) {
 	server.config.TestMode = false
 
 	rr1 := doRequest(server.handleSendCode, "POST", "/auth/send-code",
-		map[string]string{"phone_number": "5551000001"}, nil)
+		map[string]interface{}{"phone_number": "5551000001", "sms_opt_in": true}, nil)
 	if rr1.Code != http.StatusOK {
 		t.Errorf("Phone 1: got %d, want 200", rr1.Code)
 	}
 
 	rr2 := doRequest(server.handleSendCode, "POST", "/auth/send-code",
-		map[string]string{"phone_number": "5551000002"}, nil)
+		map[string]interface{}{"phone_number": "5551000002", "sms_opt_in": true}, nil)
 	if rr2.Code != http.StatusOK {
 		t.Errorf("Phone 2: got %d, want 200", rr2.Code)
 	}

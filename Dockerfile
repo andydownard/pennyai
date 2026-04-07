@@ -30,7 +30,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY *.go ./
-RUN CGO_ENABLED=0 go build -o thriftly .
+RUN CGO_ENABLED=0 go build -o groflo .
 
 # Stage 3: Final image with Litestream for continuous SQLite replication
 FROM alpine:3.20
@@ -41,7 +41,7 @@ ADD https://github.com/benbjohnson/litestream/releases/download/v0.3.13/litestre
 RUN tar -xzf /tmp/litestream.tar.gz -C /usr/local/bin && rm /tmp/litestream.tar.gz
 
 WORKDIR /app
-COPY --from=backend /app/thriftly .
+COPY --from=backend /app/groflo .
 COPY --from=frontend /app/static ./static
 COPY --from=frontend-brand /app/static-brand ./static-brand
 COPY litestream.yml /etc/litestream.yml

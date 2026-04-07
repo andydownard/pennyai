@@ -26,7 +26,7 @@ export function PostSwapShareCard({ brand, savings, showToast, onDismiss }: Post
         </div>
       </div>
       <button onClick={() => {
-        const text = `I just saved $${(savings / 100).toFixed(2)} by swapping to ${brand} on Thriftly! 🔄`
+        const text = `I just saved $${(savings / 100).toFixed(2)} by swapping to ${brand} on Groflo! 🔄`
         track('post_swap_share_tapped', { brand, savings })
         if (navigator.share) {
           navigator.share({ text }).catch(() => {})

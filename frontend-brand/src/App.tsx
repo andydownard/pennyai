@@ -317,7 +317,7 @@ export function App() {
       <div style={{ minHeight: '100vh', backgroundColor: BG }}>
         {/* Nav */}
         <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: `1px solid ${BORDER}`, backgroundColor: WHITE }}>
-          <div style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: BRAND }}>Thriftly <span style={{ fontWeight: 400, color: TEXT_SEC }}>for Brands</span></div>
+          <div style={{ fontFamily: FONT, fontSize: '20px', fontWeight: 700, color: BRAND }}>Groflo <span style={{ fontWeight: 400, color: TEXT_SEC }}>for Brands</span></div>
           <div style={{ display: 'flex', gap: '12px' }}>
             <button onClick={() => { setScreen('login'); setError('') }} style={linkBtn}>Sign In</button>
             <button onClick={() => { setScreen('register'); setError('') }} style={primaryBtn}>Get Started</button>
@@ -333,7 +333,7 @@ export function App() {
                 Put your product on<br />every grocery list
               </h1>
               <p style={{ fontFamily: FONT, fontSize: '20px', color: TEXT_SEC, marginTop: '16px', lineHeight: 1.6 }}>
-                When a Thriftly shopper adds a competitor item, Penny suggests your product as a smart swap.
+                When a Groflo shopper adds a competitor item, Penny suggests your product as a smart swap.
                 Pay only when they accept.
               </p>
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginTop: '32px', flexWrap: 'wrap' }}>
@@ -425,7 +425,7 @@ export function App() {
 
             {/* Footer */}
             <div style={{ padding: '24px', textAlign: 'center', fontFamily: FONT, fontSize: '13px', color: TEXT_SEC }}>
-              Thriftly, Inc. &mdash; The AI shopping list for families
+              Groflo, Inc. &mdash; The AI shopping list for families
             </div>
           </>
         )}
@@ -477,7 +477,7 @@ export function App() {
       {/* Nav */}
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', borderBottom: `1px solid ${BORDER}`, backgroundColor: WHITE, position: 'sticky', top: 0, zIndex: 10 }}>
         <div style={{ fontFamily: FONT, fontSize: '18px', fontWeight: 700, color: BRAND, cursor: 'pointer' }} onClick={() => { setScreen('dashboard'); setNavOpen(false) }}>
-          Thriftly <span style={{ fontWeight: 400, color: TEXT_SEC }}>for Brands</span>
+          Groflo <span style={{ fontWeight: 400, color: TEXT_SEC }}>for Brands</span>
         </div>
         {/* Desktop nav */}
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }} className="brand-nav-desktop">

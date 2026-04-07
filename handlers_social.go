@@ -30,10 +30,10 @@ func (s *Server) handleVCard(w http.ResponseWriter, r *http.Request) {
 VERSION:3.0
 N:AI;Penny;;;
 FN:Penny AI
-ORG:Thriftly
+ORG:Groflo
 TITLE:Shopping Assistant
 TEL;TYPE=CELL:%s
-EMAIL:penny@list.thrift.ly
+EMAIL:penny@list.groflo.io
 END:VCARD`, phoneNumber)
 
 	w.Header().Set("Content-Type", "text/vcard")
@@ -116,9 +116,9 @@ func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 		inviterName = strings.TrimSpace(inviterName)
 		var smsBody string
 		if inviterName != "" {
-			smsBody = fmt.Sprintf("%s invited you to their grocery list on Thriftly! Tap to join: https://app.thrift.ly/join/%s", inviterName, code)
+			smsBody = fmt.Sprintf("%s invited you to their grocery list on Groflo! Tap to join: https://app.groflo.io/join/%s", inviterName, code)
 		} else {
-			smsBody = fmt.Sprintf("You've been invited to a shared grocery list on Thriftly! Tap to join: https://app.thrift.ly/join/%s", code)
+			smsBody = fmt.Sprintf("You've been invited to a shared grocery list on Groflo! Tap to join: https://app.groflo.io/join/%s", code)
 		}
 		if err := s.twilio.SendSMS(s.config.TwilioPhoneNumber, e164, smsBody); err != nil {
 			log.Printf("[invite] error sending SMS to %s: %v", e164, err)
@@ -128,7 +128,7 @@ func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	link := fmt.Sprintf("https://app.thrift.ly/join/%s", code)
+	link := fmt.Sprintf("https://app.groflo.io/join/%s", code)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"code":    code,
@@ -310,7 +310,7 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 				if who == "" {
 					who = "Someone"
 				}
-				smsBody := fmt.Sprintf("%s just joined your Thriftly list!", who)
+				smsBody := fmt.Sprintf("%s just joined your Groflo list!", who)
 				if err := s.twilio.SendSMS(s.config.TwilioPhoneNumber, inviterPhone.String, smsBody); err != nil {
 					log.Printf("[join] failed to notify inviter %d: %v", createdBy, err)
 				} else {

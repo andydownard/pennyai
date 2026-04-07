@@ -183,7 +183,7 @@ export function useAuthState(options: UseAuthStateOptions) {
       if (res.ok && data.success) {
         setPasswordInput(''); setConfirmPassword('')
         if (data.account_merged && data.merge_message) {
-          sessionStorage.setItem('thriftly_merge_msg', data.merge_message)
+          sessionStorage.setItem('groflo_merge_msg', data.merge_message)
         }
         setScreenRef.current('home', true)
       } else {
@@ -285,6 +285,11 @@ export function useAuthState(options: UseAuthStateOptions) {
   const handleSendCode = async (phoneOverride?: string) => {
     const p = phoneOverride || phone
     if (p.length !== 10 || loading) return
+    // Server-side enforcement requires sms_opt_in=true. Don't even fire if unchecked.
+    if (!smsOptIn) {
+      setError('Please check the box to text with Penny first.')
+      return
+    }
 
     setLoading(true)
     setError('')
@@ -293,7 +298,7 @@ export function useAuthState(options: UseAuthStateOptions) {
       const res = await fetch('/auth/send-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone_number: p }),
+        body: JSON.stringify({ phone_number: p, sms_opt_in: true }),
       })
 
       const data = await res.json().catch(() => ({} as Record<string, string>))
@@ -335,9 +340,9 @@ export function useAuthState(options: UseAuthStateOptions) {
         })
         tryJoinCodeRef.current()
         // Check for post-login redirect (deep link before auth)
-        const redirect = sessionStorage.getItem('thriftly_redirect')
+        const redirect = sessionStorage.getItem('groflo_redirect')
         if (redirect) {
-          sessionStorage.removeItem('thriftly_redirect')
+          sessionStorage.removeItem('groflo_redirect')
           const target = pathToScreenRef.current[redirect]
           setScreenRef.current((target || 'home') as string, true)
         } else {

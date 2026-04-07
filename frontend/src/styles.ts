@@ -88,13 +88,13 @@ export const THEME_CSS = `
 
 export function getTheme(): 'light' | 'dark' {
   if (typeof window === 'undefined') return 'light'
-  const stored = localStorage.getItem('thriftly_theme')
+  const stored = localStorage.getItem('groflo_theme')
   if (stored === 'dark' || stored === 'light') return stored
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
 export function setTheme(theme: 'light' | 'dark') {
-  localStorage.setItem('thriftly_theme', theme)
+  localStorage.setItem('groflo_theme', theme)
   document.documentElement.setAttribute('data-theme', theme)
   // Update meta theme-color for browser chrome
   const meta = document.querySelector('meta[name="theme-color"]')

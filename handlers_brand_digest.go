@@ -136,7 +136,7 @@ func (s *Server) sendBrandDigest(brandUserID int, email, companyName string) err
 	s.db.QueryRow(`SELECT COUNT(*) FROM brand_deals WHERE brand_user_id = ? AND status = 'active'`,
 		brandUserID).Scan(&activeDeals)
 
-	dashURL := "https://brand.thrift.ly"
+	dashURL := "https://brands.groflo.io"
 	if s.config.WebhookBaseURL == "" {
 		dashURL = "http://localhost:" + s.config.Port
 	}
@@ -157,7 +157,7 @@ func (s *Server) sendBrandDigest(brandUserID int, email, companyName string) err
 	}
 
 	html := buildBrandDigestHTML(data)
-	subject := fmt.Sprintf("Your Thriftly Weekly Recap — %s", data.WeekLabel)
+	subject := fmt.Sprintf("Your Groflo Weekly Recap — %s", data.WeekLabel)
 
 	// SAFETY: Update dedup flag BEFORE sending email. Missing one weekly digest
 	// is recoverable; duplicate email is trust-eroding (per CLAUDE.md hard rule).
@@ -188,7 +188,7 @@ func buildBrandDigestHTML(d brandDigestData) string {
 <body style="margin:0;padding:0;background:#f5f5f5;font-family:'Avenir','Avenir Next',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
 <table width="100%%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;margin-top:24px;margin-bottom:24px;">
 <tr><td style="background:#35644F;padding:24px 28px;text-align:center;">
-  <div style="color:#fff;font-size:24px;font-weight:700;">thriftly</div>
+  <div style="color:#fff;font-size:24px;font-weight:700;">Groflo</div>
   <div style="color:rgba(255,255,255,0.85);font-size:13px;margin-top:4px;">Weekly Brand Recap</div>
 </td></tr>
 <tr><td style="padding:28px;">
@@ -256,7 +256,7 @@ func buildBrandDigestHTML(d brandDigestData) string {
   </div>
 
   <div style="font-size:12px;color:#bbb;text-align:center;line-height:1.5;">
-    You're receiving this because you have an active brand account on Thriftly.<br>
+    You're receiving this because you have an active brand account on Groflo.<br>
     <a href="%s/brand/unsubscribe" style="color:#888;">Unsubscribe</a> from weekly recaps.
   </div>
 </td></tr>
@@ -300,7 +300,7 @@ func (s *Server) handleBrandUnsubscribe(w http.ResponseWriter, r *http.Request) 
 	if brandUserID == 0 {
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte(`<html><body style="font-family:sans-serif;text-align:center;padding:60px 20px;">
-		<h2>Unsubscribe from Thriftly Weekly Recaps</h2>
+		<h2>Unsubscribe from Groflo Weekly Recaps</h2>
 		<p>Please <a href="/brand/login">log in</a> to manage your email preferences.</p>
 		</body></html>`))
 		return

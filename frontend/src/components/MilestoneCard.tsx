@@ -81,9 +81,9 @@ export function MilestoneCard({ milestone, onClose }: MilestoneCardProps) {
             : "You're off to a great start! Every swap puts money back in your pocket."}
         </div>
 
-        {/* Thriftly branding */}
+        {/* Groflo branding */}
         <div style={{ textAlign: 'center', fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginBottom: '16px' }}>
-          thrift.ly
+          groflo.io
         </div>
 
         {/* Actions */}

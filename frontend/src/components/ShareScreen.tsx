@@ -42,7 +42,7 @@ export function ShareScreen({
 }: ShareScreenProps) {
   const qrCanvasRef = useRef<HTMLDivElement>(null)
 
-  const referralUrl = `https://app.thrift.ly/r/${referralCode}?via=qr`
+  const referralUrl = `https://app.groflo.io/r/${referralCode}?via=qr`
 
   const handleSaveQR = useCallback(async () => {
     // Build a branded 1000x1240 PNG with QR code centered
@@ -65,7 +65,7 @@ export function ShareScreen({
     ctx.fillStyle = '#FFFFFF'
     ctx.font = 'bold 36px -apple-system, "Segoe UI", sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText('Thriftly', w / 2, 62)
+    ctx.fillText('Groflo', w / 2, 62)
 
     // "Scan to try Penny AI" subtitle
     ctx.fillStyle = '#2A2A2A'
@@ -95,7 +95,7 @@ export function ShareScreen({
     ctx.fillStyle = '#525252'
     ctx.font = '20px -apple-system, "Segoe UI", sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText(`app.thrift.ly/r/${referralCode}`, w / 2, 860)
+    ctx.fillText(`app.groflo.io/r/${referralCode}`, w / 2, 860)
 
     // Earn message
     ctx.fillStyle = BRAND
@@ -107,7 +107,7 @@ export function ShareScreen({
     ctx.fillRect(0, h - 80, w, 80)
     ctx.fillStyle = '#FFFFFF'
     ctx.font = '20px -apple-system, "Segoe UI", sans-serif'
-    ctx.fillText('thrift.ly', w / 2, h - 35)
+    ctx.fillText('groflo.io', w / 2, h - 35)
 
     // Export
     const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'))
@@ -131,7 +131,7 @@ export function ShareScreen({
   const handleEmailInvite = useCallback(() => {
     const subject = encodeURIComponent('Try Penny AI — your AI grocery list assistant')
     const body = encodeURIComponent(
-      `Hey!\n\nI've been using Penny AI to manage my grocery list — she organizes everything, suggests brands, and keeps the whole family in sync.\n\nTry it out: https://app.thrift.ly/r/${referralCode}\n\nJust text, email, or type your list — Penny handles the rest!`
+      `Hey!\n\nI've been using Penny AI to manage my grocery list — she organizes everything, suggests brands, and keeps the whole family in sync.\n\nTry it out: https://app.groflo.io/r/${referralCode}\n\nJust text, email, or type your list — Penny handles the rest!`
     )
     window.open(`mailto:?subject=${subject}&body=${body}`, '_self')
   }, [referralCode])
@@ -181,7 +181,7 @@ export function ShareScreen({
 
             {/* Link + copy */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', backgroundColor: 'var(--bg)', borderRadius: '10px', border: '1px solid var(--border)', marginBottom: '12px' }}>
-              <span style={{ flex: 1, fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text)', wordBreak: 'break-all' as const }}>{`https://app.thrift.ly/r/${referralCode}`}</span>
+              <span style={{ flex: 1, fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text)', wordBreak: 'break-all' as const }}>{`https://app.groflo.io/r/${referralCode}`}</span>
               <button
                 onClick={onCopyReferral}
                 style={{ padding: '6px 12px', fontFamily: FONT, fontSize: FONT_2XS, fontWeight: 600, color: 'var(--brand)', backgroundColor: 'transparent', border: '1px solid var(--brand)', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}

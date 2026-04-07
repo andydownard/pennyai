@@ -1,8 +1,9 @@
 {
-  "name": "Thriftly",
-  "short_name": "Thriftly",
+  "name": "Groflo",
+  "short_name": "Groflo",
   "description": "Your household's AI shopping assistant",
   "start_url": "/",
+  "id": "/",
   "display": "standalone",
   "background_color": "#FFFFFF",
   "theme_color": "#35644F",

@@ -25,7 +25,7 @@ func TestBuildDigestMessage_SingleItem(t *testing.T) {
 	if !strings.Contains(msg, "milk") {
 		t.Errorf("Expected 'milk' in message, got: %s", msg)
 	}
-	if !strings.Contains(msg, "https://app.thrift.ly") {
+	if !strings.Contains(msg, "https://app.groflo.io") {
 		t.Errorf("Expected link in message, got: %s", msg)
 	}
 }

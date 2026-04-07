@@ -1,4 +1,4 @@
-// thriftly — main.go
+// Groflo — main.go (formerly Thriftly)
 //
 // This file is intentionally minimal. All logic has been split into:
 //   server.go          — config, main(), route registration

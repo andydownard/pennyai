@@ -201,10 +201,10 @@ export function useSettingsState(options: UseSettingsStateOptions) {
         return
       }
       const link = data.link as string
-      const message = `Join our household shopping list on Thriftly! ${link}`
+      const message = `Join our household shopping list on Groflo! ${link}`
       if (navigator.share) {
         track('invite_shared', { method: 'native_share' })
-        try { await navigator.share({ title: 'Join my Thriftly list', text: message, url: link }); setShowInviteSheet(false); return } catch { /* fall through */ }
+        try { await navigator.share({ title: 'Join my Groflo list', text: message, url: link }); setShowInviteSheet(false); return } catch { /* fall through */ }
       }
       const isMobile = /Mobi|Android/i.test(navigator.userAgent)
       track('invite_shared', { method: isMobile ? 'sms' : 'clipboard' })

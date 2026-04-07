@@ -1,18 +1,22 @@
 {
   "_meta": {
-    "version": "2.0.0",
-    "updated": "2026-03-15",
-    "description": "Brand identity bible for Penny. One page. Derives all messaging across app, website, and pitch deck."
+    "version": "3.0.0",
+    "updated": "2026-04-07",
+    "description": "Brand identity bible for Groflo. One page. Derives all messaging across app, website, and pitch deck. v3.0 = Thriftly→Groflo rebrand. Penny remains the in-app AI assistant character."
   },
 
   "identity": {
-    "company": "Thriftly, Inc.",
+    "company": "Groflo, Inc.",
+    "app": "Groflo",
+    "assistant": "Penny",
     "product": "Penny",
-    "domain": "thrift.ly",
+    "domain": "groflo.io",
+    "ecosystem": "Rally",
     "promise": "You never ask 'Did you get milk?' again.",
     "one_liner": "Text Penny. She handles the rest.",
     "tagline_external": "The AI shopping list for families.",
-    "mission": "Helping families eat better, waste less."
+    "mission": "Helping families eat better, waste less.",
+    "footer_attribution": "Penny by Groflo"
   },
 
   "voice": {

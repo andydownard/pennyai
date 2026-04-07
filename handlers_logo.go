@@ -133,7 +133,7 @@ func fetchBrandLogo(domain, secretKey, publicToken string) ([]byte, string) {
 		return nil, ""
 	}
 	if useReferer {
-		req.Header.Set("Referer", "https://app.thrift.ly/")
+		req.Header.Set("Referer", "https://app.groflo.io/")
 	}
 	resp, err := client.Do(req)
 	if err != nil {

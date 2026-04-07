@@ -60,7 +60,7 @@ export function PhoneScreen({
         {/* SMS opt-in */}
         <label style={{
           display: 'flex', alignItems: 'flex-start', gap: '8px',
-          width: '100%', marginBottom: '20px',
+          width: '100%', marginBottom: '6px',
           cursor: 'pointer', userSelect: 'none' as const,
         }}>
           <input
@@ -73,6 +73,9 @@ export function PhoneScreen({
             I want to SMS with Penny
           </span>
         </label>
+        <div style={{ ...text.caption, fontStyle: 'italic', opacity: 0.7, marginLeft: '24px', marginBottom: '20px', fontSize: '0.6875rem' }}>
+          Change frequency anytime in Settings.
+        </div>
 
         {error && <p role="alert" style={{ ...authStyles.error, width: '100%', textAlign: 'left' as const }}>{error}</p>}
 
@@ -90,6 +93,12 @@ export function PhoneScreen({
         >
           {loading ? 'Sending…' : 'Continue →'}
         </button>
+
+        {/* A2P 10DLC required disclosure — keep present, unobtrusive */}
+        <div style={{ ...text.caption, fontSize: '0.625rem', opacity: 0.6, lineHeight: 1.5, marginTop: '8px', textAlign: 'center', maxWidth: '320px' }}>
+          Reply STOP to opt out, HELP for help. Msg &amp; data rates may apply.<br />
+          By continuing you agree to our <a href="/terms" style={{ color: 'var(--text-secondary)', textDecoration: 'underline' }}>Terms</a> and <a href="/privacy" style={{ color: 'var(--text-secondary)', textDecoration: 'underline' }}>Privacy Policy</a>.
+        </div>
 
         {/* Divider + alternative auth */}
         <div style={{ ...authStyles.dividerRow, margin: '20px 0 16px' }}>
