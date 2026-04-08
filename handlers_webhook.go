@@ -269,6 +269,18 @@ func (s *Server) handleSMSWebhook(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[sms] incoming from %s: numMedia=%d", maskPhone(from), numMedia)
 
+	// CTIA / A2P 10DLC compliance keywords. Detect BEFORE buffering or any
+	// Claude parsing — keyword messages must never be added to the user's
+	// shopping list, never go to AI, and must respond synchronously with
+	// the branded reply Twilio's vetting bot expects.
+	if kind := classifySMSKeyword(body); kind != "" {
+		s.handleSMSKeyword(from, kind)
+		w.Header().Set("Content-Type", "text/xml")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "<Response></Response>")
+		return
+	}
+
 	// Download all image attachments (cap to prevent abuse)
 	if numMedia > 10 {
 		numMedia = 10
@@ -405,6 +417,83 @@ func (s *Server) sendSMSReply(to, body string) {
 	}
 	if err := s.twilio.SendSMS(s.config.TwilioPhoneNumber, to, body); err != nil {
 		log.Printf("[sms] error sending reply to %s: %v", to, err)
+	}
+}
+
+// =============================================================================
+// CTIA / Twilio A2P 10DLC keyword handling
+// =============================================================================
+
+// classifySMSKeyword returns "stop", "help", "start", or "" based on the body.
+// Match is exact (case-insensitive, single word). Embedded usage like "I need
+// help with eggs" does NOT trigger HELP — that's a list item the user wants
+// added. Only an SMS body that is exactly the keyword qualifies.
+//
+// Keyword sets per CTIA Messaging Principles:
+//
+//	stop:  STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, QUIT
+//	help:  HELP, INFO
+//	start: START, UNSTOP
+//
+// "YES" is intentionally NOT a START keyword. Penny uses YES/NO as conversational
+// confirmation in restock nudges and swap offers; treating it as a global opt-in
+// would break those flows.
+func classifySMSKeyword(body string) string {
+	upper := strings.ToUpper(strings.TrimSpace(body))
+	switch upper {
+	case "STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT":
+		return "stop"
+	case "HELP", "INFO":
+		return "help"
+	case "START", "UNSTOP":
+		return "start"
+	}
+	return ""
+}
+
+// handleSMSKeyword routes a CTIA keyword to the appropriate side effect
+// (consent state change) and sends the branded reply. Synchronous: does NOT
+// buffer, does NOT go to Claude, does NOT touch the user's shopping list.
+func (s *Server) handleSMSKeyword(from, kind string) {
+	digits := strings.TrimPrefix(from, "+1")
+	switch kind {
+	case "stop":
+		// Clear consent so canSendSMS() returns false. Twilio also handles
+		// the carrier-level STOP at the platform; this branded reply is
+		// the application-level confirmation Penny owes the user.
+		if _, err := s.db.Exec(
+			`UPDATE users SET sms_consent_at = NULL WHERE phone_number = ?`, digits,
+		); err != nil {
+			log.Printf("[sms-keyword] STOP consent clear failed for %s: %v", maskPhone(from), err)
+		}
+		log.Printf("[sms-keyword] STOP from %s — consent cleared", maskPhone(from))
+		s.sendSMSReply(from,
+			"You're unsubscribed from Penny / Groflo. You won't get any more texts. "+
+				"Reply START to opt back in anytime.")
+
+	case "help":
+		log.Printf("[sms-keyword] HELP from %s", maskPhone(from))
+		s.sendSMSReply(from,
+			"Hi — I'm Penny, your Groflo shopping list keeper. Text me items "+
+				"to add to your list. Reply STOP to opt out. Msg & data rates may apply. "+
+				"Help: support@groflo.io")
+
+	case "start":
+		// Re-opt-in. Set consent timestamp to NOW with placeholder IP/UA
+		// (carrier-level inbound has no client IP). Twilio carrier-level
+		// START handles the actual re-subscription; this is the app's record.
+		if _, err := s.db.Exec(
+			`UPDATE users SET sms_consent_at = CURRENT_TIMESTAMP,
+			   sms_consent_ip = 'sms-keyword',
+			   sms_consent_user_agent = 'twilio-inbound'
+			 WHERE phone_number = ?`, digits,
+		); err != nil {
+			log.Printf("[sms-keyword] START consent set failed for %s: %v", maskPhone(from), err)
+		}
+		log.Printf("[sms-keyword] START from %s — consent restored", maskPhone(from))
+		s.sendSMSReply(from,
+			"Welcome back. I'm Penny — text me anything you need on your "+
+				"shopping list and I'll add it. Reply STOP anytime to opt out.")
 	}
 }
 

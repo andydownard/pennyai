@@ -1349,4 +1349,161 @@ func TestSMSWebhook_EmptyMessage(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// CTIA / A2P 10DLC keyword handling tests
+// =============================================================================
+
+func TestClassifySMSKeyword(t *testing.T) {
+	cases := []struct {
+		body string
+		want string
+	}{
+		// stop variants
+		{"STOP", "stop"},
+		{"stop", "stop"},
+		{" Stop ", "stop"},
+		{"STOPALL", "stop"},
+		{"UNSUBSCRIBE", "stop"},
+		{"CANCEL", "stop"},
+		{"END", "stop"},
+		{"QUIT", "stop"},
+		// help variants
+		{"HELP", "help"},
+		{"help", "help"},
+		{"INFO", "help"},
+		// start variants
+		{"START", "start"},
+		{"unstop", "start"},
+		// NON-keyword: list items, embedded usage, conversational YES
+		{"milk and bread", ""},
+		{"I need help with eggs", ""}, // embedded "help" must NOT trigger
+		{"YES", ""},                    // YES is conversational, not a global keyword
+		{"NO", ""},
+		{"stop me from buying milk", ""},
+		{"", ""},
+	}
+	for _, c := range cases {
+		got := classifySMSKeyword(c.body)
+		if got != c.want {
+			t.Errorf("classifySMSKeyword(%q) = %q, want %q", c.body, got, c.want)
+		}
+	}
+}
+
+func TestSMSWebhook_HelpKeyword_RespondsBranded(t *testing.T) {
+	mock := &MockTwilioClient{}
+	server := newTestServer(t, mock)
+
+	// Track that Claude was NOT called
+	parseCalled := false
+	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
+		parseCalled = true
+		return nil, nil
+	}
+
+	rr := doSMSRequest(server.handleSMSWebhook, "+15551234567", "HELP", 0)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", rr.Code)
+	}
+	if parseCalled {
+		t.Error("HELP keyword must not be parsed by Claude")
+	}
+
+	// Branded HELP reply must mention Groflo and STOP
+	_, body := mock.GetLastSMS()
+	if !strings.Contains(body, "Groflo") {
+		t.Errorf("HELP reply must mention Groflo, got: %q", body)
+	}
+	if !strings.Contains(body, "STOP") {
+		t.Errorf("HELP reply must mention STOP, got: %q", body)
+	}
+
+	// HELP must NOT add anything to the list
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM list_items").Scan(&count)
+	if count != 0 {
+		t.Errorf("HELP must not add list items, got %d", count)
+	}
+}
+
+func TestSMSWebhook_StopKeyword_ClearsConsent(t *testing.T) {
+	mock := &MockTwilioClient{}
+	server := newTestServer(t, mock)
+
+	// Pre-create user with consent
+	server.db.Exec(`INSERT INTO users (id, phone_number, sms_consent_at)
+		VALUES (1, '5551234567', CURRENT_TIMESTAMP)`)
+
+	rr := doSMSRequest(server.handleSMSWebhook, "+15551234567", "STOP", 0)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", rr.Code)
+	}
+
+	// Consent should be cleared
+	if server.canSendSMS(1) {
+		t.Error("canSendSMS should return false after STOP")
+	}
+
+	// Confirmation reply sent
+	_, body := mock.GetLastSMS()
+	if !strings.Contains(body, "unsubscribed") {
+		t.Errorf("STOP confirmation should say 'unsubscribed', got: %q", body)
+	}
+	if !strings.Contains(body, "START") {
+		t.Errorf("STOP confirmation should mention START to opt back in, got: %q", body)
+	}
+}
+
+func TestSMSWebhook_StartKeyword_RestoresConsent(t *testing.T) {
+	mock := &MockTwilioClient{}
+	server := newTestServer(t, mock)
+
+	// Pre-create user without consent (previously opted out)
+	server.db.Exec(`INSERT INTO users (id, phone_number, sms_consent_at)
+		VALUES (1, '5551234567', NULL)`)
+
+	rr := doSMSRequest(server.handleSMSWebhook, "+15551234567", "START", 0)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", rr.Code)
+	}
+
+	// Consent should be restored
+	if !server.canSendSMS(1) {
+		t.Error("canSendSMS should return true after START")
+	}
+
+	// Welcome-back reply sent
+	_, body := mock.GetLastSMS()
+	if !strings.Contains(body, "Welcome back") {
+		t.Errorf("START reply should say 'Welcome back', got: %q", body)
+	}
+}
+
+func TestSMSWebhook_HelpInSentence_NotKeyword(t *testing.T) {
+	// Embedded "help" (e.g., "I need help with the eggs") must reach the
+	// item parser, not the keyword handler. The whole point of the exact
+	// match in classifySMSKeyword is to allow grocery items containing
+	// "help" / "stop" to flow through normally.
+	mock := &MockTwilioClient{}
+	server := newTestServer(t, mock)
+	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
+		return []ParsedItem{{Name: "eggs", Department: "Dairy", Quantity: 12}}, nil
+	}
+
+	rr := doSMSRequest(server.handleSMSWebhook, "+15551234567", "I need help with eggs", 0)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", rr.Code)
+	}
+
+	// Wait for the debounce timer
+	time.Sleep(200 * time.Millisecond)
+
+	// Item should be added (not treated as keyword)
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM list_items WHERE name = 'eggs'").Scan(&count)
+	if count != 1 {
+		t.Errorf("embedded 'help' should not block item parsing, got count=%d", count)
+	}
+}
+
 // --- List Swaps Tests ---
