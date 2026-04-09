@@ -183,3 +183,10 @@ it is putting a lot of items in other category
 ---
 _Device: Screen: home | Viewport: 1710x904 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 | Dark: light | Items: 15_
 _Submitted: 2026-04-09 18:17 UTC_
+
+## [NORMAL] 2026-04-09 18:21 UTC
+when i make an update to the list, please send link via text to a group chat of all folks with whom i've shared the list.  so we have a group shopping chat group and easy to find the list link when someone goes shopping
+
+---
+_Device: Screen: home | Viewport: 1710x904 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 | Dark: light | Items: 21_
+_Submitted: 2026-04-09 18:21 UTC_
