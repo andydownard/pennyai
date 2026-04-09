@@ -155,3 +155,10 @@ have the url in the browser for my shopping list have my affiliate code embeeded
 ---
 _Device: Screen: home | Viewport: 1710x906 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 | Dark: dark | Items: 22_
 _Submitted: 2026-03-19 10:52 UTC_
+
+## [NORMAL] 2026-04-09 18:11 UTC
+would love to have the share&earn button
+
+---
+_Device: Screen: home | Viewport: 1710x904 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 | Dark: light | Items: 12_
+_Submitted: 2026-04-09 18:11 UTC_
