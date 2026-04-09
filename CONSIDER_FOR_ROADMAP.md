@@ -162,3 +162,10 @@ would love to have the share&earn button
 ---
 _Device: Screen: home | Viewport: 1710x904 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 | Dark: light | Items: 12_
 _Submitted: 2026-04-09 18:11 UTC_
+
+## [NORMAL] 2026-04-09 18:12 UTC
+need a button to share my list with those in my house who shop together
+
+---
+_Device: Screen: home | Viewport: 1710x904 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 | Dark: light | Items: 12_
+_Submitted: 2026-04-09 18:12 UTC_
