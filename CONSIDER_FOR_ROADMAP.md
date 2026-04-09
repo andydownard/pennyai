@@ -176,3 +176,10 @@ may want to put quantity on the list view
 ---
 _Device: Screen: home | Viewport: 1710x904 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 | Dark: light | Items: 14_
 _Submitted: 2026-04-09 18:16 UTC_
+
+## [NORMAL] 2026-04-09 18:17 UTC
+it is putting a lot of items in other category
+
+---
+_Device: Screen: home | Viewport: 1710x904 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 | Dark: light | Items: 15_
+_Submitted: 2026-04-09 18:17 UTC_
