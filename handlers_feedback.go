@@ -25,6 +25,7 @@ var (
 var githubHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
 // isFeedbackUser returns true if the user's phone is in the approved FeedbackPhones list.
+// Checks both the session phone and the user's phone in the users table (covers Google/email logins).
 func (s *Server) isFeedbackUser(session Session) bool {
 	if session.UserID == 0 {
 		return false
@@ -33,10 +34,25 @@ func (s *Server) isFeedbackUser(session Session) bool {
 	if len(s.config.FeedbackPhones) == 0 {
 		return false
 	}
-	// Check if user's phone number is in the approved list
-	for _, p := range s.config.FeedbackPhones {
-		if session.PhoneNumber != "" && session.PhoneNumber == p {
-			return true
+
+	// Collect phone numbers to check: session phone + user table phone
+	phones := []string{}
+	if session.PhoneNumber != "" {
+		phones = append(phones, session.PhoneNumber)
+	}
+	// Also check the users table — session may not have phone if logged in via Google/email
+	var userPhone sql.NullString
+	if err := s.db.QueryRow("SELECT phone_number FROM users WHERE id = ?", session.UserID).Scan(&userPhone); err == nil && userPhone.Valid && userPhone.String != "" {
+		phones = append(phones, userPhone.String)
+	}
+
+	for _, phone := range phones {
+		// Strip +1 prefix for comparison (FEEDBACK_PHONES are stored without it)
+		normalized := strings.TrimPrefix(phone, "+1")
+		for _, p := range s.config.FeedbackPhones {
+			if normalized == p || phone == p {
+				return true
+			}
 		}
 	}
 	return false
