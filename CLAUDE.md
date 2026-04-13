@@ -102,6 +102,8 @@ Watch for these across the codebase. When detected, audit for ALL instances of t
 6. Missing rate limits — external API calls or user-facing mutations without rate limiting
 7. Cross-user access — queries that don't scope to current user's data
 8. Color/font drift — hex colors or font-families that don't match `penny-brand-source.json`
+9. Cross-marketplace access — sessions or API keys scoped to Groflo that reach into other timpager marketplaces (or vice versa)
+10. Prompt injection — user-supplied content (receipt images, inbound SMS/email, list items, brand descriptions) passed to Claude without sanitization or instruction-boundary markers
 
 ## CST Principles
 

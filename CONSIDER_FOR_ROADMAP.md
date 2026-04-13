@@ -190,3 +190,28 @@ when i make an update to the list, please send link via text to a group chat of 
 ---
 _Device: Screen: home | Viewport: 1710x904 | UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 | Dark: light | Items: 21_
 _Submitted: 2026-04-09 18:21 UTC_
+
+---
+
+## Harvested from Unicorn CEO Panel — 2026-03-09 (archived in `archive/CEO-PANEL-UNICORN-2026-03-09.md`)
+
+### [STRATEGIC] Patrick Collison — Reliability & graceful degradation
+"Every endpoint is a promise." Specific asks:
+- Load-test household coordination under 50 concurrent users editing the same list (SQLite WAL limits under contention).
+- Claude dependency fallback: define graceful-degrade path when Anthropic has a bad hour. Users should see degraded features, not errors.
+- Chaos test: kill Claude API, kill DB, kill SMS — does the core list flow still work?
+- Define the 99.9% availability story before scaling past 10K households.
+
+**Product team decision:** _pending_. Ranking against data flywheel and household coordination P0s. Chaos testing is a Gate 3 enabler (compounding data is worthless if the core flywheel drops signal during outages).
+
+---
+
+### [STRATEGIC] Whitney Wolfe Herd — Household decision-making model
+Households aren't egalitarian. UI currently treats "everyone can add items" as equal, but:
+- Who decides brand when Alex adds "fancy pasta" and Jamie adds "budget pasta"?
+- Who sees household feedback/complaints?
+- Should households pick an operating model: "I decide brands" vs "Everyone votes" vs "Penny surprises us"?
+
+**Product team decision:** _pending_. Intersects with dietary-attribute conflict resolution (what if members have conflicting preferences?) and swap acceptance semantics (per-user is current rule — but brand choice on a shared list is ambiguous). Worth a short focus-group ping with James (household coordinator persona) before spec work.
+
+---
