@@ -12,7 +12,7 @@ Groflo is an AI-powered grocery shopping list app with personality-driven assist
 
 **Brand history:** Rebranded from "Thriftly" to "Groflo" on 2026-04-07 (sprint plan: `GROFLO_REBRAND_SPRINT.md`). Migrated from SQLite to PostgreSQL on 2026-04-13.
 
-**Git branching:** `main` → `staging` → `production`. All code reaches main through a PR.
+**Git branching:** `main` → `staging` → `production`. All code reaches main through a PR. **NEVER promote staging→production without groflo.io green on staging.** Verify healthcheck passes on staging before any production merge.
 
 **Read first:** [QUICKSTART.md](./QUICKSTART.md) → this file → [ARCHITECTURE.md](./ARCHITECTURE.md).
 
