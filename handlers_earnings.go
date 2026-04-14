@@ -42,7 +42,7 @@ func (s *Server) handleEarnings(w http.ResponseWriter, r *http.Request) {
 	query := `
 		SELECT sr.id, bd.offer_brand, bd.offer_product, bd.competitor_product,
 		       COALESCE(li.name, ''), sr.amount_cents, sr.status, sr.created_at,
-		       sr.attachment_path, sr.verified_amount_cents, sr.verified_at,
+		       sr.attachment_path, sr.verified_amount_cents, COALESCE(sr.verified_at, ''),
 		       bd.deal_type
 		FROM swap_rebates sr
 		JOIN brand_deals bd ON bd.id = sr.deal_id

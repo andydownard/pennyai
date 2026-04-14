@@ -324,11 +324,11 @@ func TestBrandPortal_DashboardDaysFilter(t *testing.T) {
 
 	// Insert swap events: 1 recent (today) and 1 old (60 days ago)
 	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-999', '5559999999')")
-	server.db.Exec("INSERT INTO list_items (id, user_id, name) VALUES (999, 999, 'Test Item')")
+	server.db.Exec("INSERT INTO list_items (id, user_id, name) VALUES (999, 'user-999', 'Test Item')")
 	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action, created_at)
-		VALUES (999, ?, 999, 'offered', datetime('now'))`, dealID)
+		VALUES ('user-999', ?, 999, 'offered', datetime('now'))`, dealID)
 	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action, created_at)
-		VALUES (999, ?, 999, 'offered', datetime('now', '-60 days'))`, dealID)
+		VALUES ('user-999', ?, 999, 'offered', datetime('now', '-60 days'))`, dealID)
 
 	// Without filter: should see both
 	rr := doRequest(server.handleBrandDashboard, "GET", "/brand/dashboard", nil, []*http.Cookie{cookie})
