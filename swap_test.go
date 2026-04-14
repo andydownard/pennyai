@@ -23,8 +23,8 @@ func TestSwaps_DealMatchingBasic(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	// Create user and session
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Use seeded skippy→jif deal: add a Skippy item and verify swap is offered
@@ -67,8 +67,8 @@ func TestSwaps_AcceptSwap(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Create item matching seeded skippy→jif deal (deal ID 1)
@@ -117,8 +117,8 @@ func TestSwaps_DeclineAndSuppression(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Peanut Butter', 'Skippy', 'Pantry & Dry Goods')")
@@ -168,7 +168,7 @@ func TestSwaps_SliderConvenienceBlocksDeals(t *testing.T) {
 
 	// Create user with slider = 100 (convenience, never show deals)
 	server.db.Exec("INSERT INTO users (id, phone_number, penny_slider, penny_autotune) VALUES (1, '5551234567', 100, 0)")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Use seeded deals — add a skippy item with slider=100, should get no swap
@@ -194,8 +194,8 @@ func TestSwaps_BudgetExhaustedAutopauses(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Create a deal with tight budget: discount = budget, so one accept exhausts it
@@ -225,8 +225,8 @@ func TestSwaps_FrequencyCapLimitsPendingOffers(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Add 4 different items with matching deals via parse, each should trigger a swap offer
@@ -272,8 +272,8 @@ func TestSwaps_FrequencyCapResetsAfterDecline(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Add 3 items to hit the cap
@@ -341,8 +341,8 @@ func TestDoneShopping_Action(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
@@ -381,8 +381,8 @@ func TestAdminDeals_CRUD(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	// Create admin user
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '3104861833')")
-	token, _ := server.sessions.CreateSession(1, "3104861833", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '3104861833')")
+	token, _ := server.sessions.CreateSession("user-1", "3104861833", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// POST — create deal
@@ -466,8 +466,8 @@ func TestAdminDeals_RequiresAdmin(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	// Non-admin user
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	rr := doRequest(server.handleAdminDeals, "GET", "/api/admin/deals", nil, cookies)
@@ -480,8 +480,8 @@ func TestAdminDeals_RejectsNegativeValues(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '3104861833')")
-	token, _ := server.sessions.CreateSession(1, "3104861833", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '3104861833')")
+	token, _ := server.sessions.CreateSession("user-1", "3104861833", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Negative discount should be rejected
@@ -513,8 +513,8 @@ func TestSwaps_RebateCreatedOnAccept(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Peanut Butter', 'Skippy', 'Pantry & Dry Goods')")
@@ -557,7 +557,7 @@ func TestSwaps_RebateAppearsInSettings(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone_number, swap_credits_cents) VALUES (1, '5551234567', 350)")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	rr := doRequest(server.handleSettings, "GET", "/api/settings", nil, cookies)
@@ -575,8 +575,8 @@ func TestRebates_ReturnsHistory(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Insert swap events and rebates with different statuses
@@ -630,8 +630,8 @@ func TestRebates_EmptyForNewUser(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	rr := doRequest(server.handleRebates, "GET", "/api/rebates", nil, cookies)
@@ -654,7 +654,7 @@ func TestSwaps_AcceptIncludesCumulativeTotal(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone_number, swap_credits_cents) VALUES (1, '5551234567', 500)")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Peanut Butter', 'Skippy', 'Pantry & Dry Goods')")
@@ -685,8 +685,8 @@ func TestSwaps_PendingSwapIncludesPriceData(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
@@ -734,8 +734,8 @@ func TestSwaps_WhyBulletsParsed(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
@@ -767,8 +767,8 @@ func TestSwaps_AllergenWarningIncluded(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Use the archer→chomps deal which has allergen_notes
@@ -798,8 +798,8 @@ func TestSwaps_PendingSwapGracefulDegradation(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Insert a deal with no price/why data (only required fields)
@@ -857,7 +857,7 @@ func TestSwaps_AutotuneThresholdBlocksDeals(t *testing.T) {
 	// Create user with autotune ON, 20+ shown, <5% accept rate → should block deals
 	server.db.Exec(`INSERT INTO users (id, phone_number, penny_autotune, deal_shown_count, deal_accept_count)
 		VALUES (1, '5551234567', 1, 25, 1)`)
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
@@ -885,7 +885,7 @@ func TestSwaps_SliderMidRangeFiltersSmallDiscounts(t *testing.T) {
 	// Slider 50, autotune OFF — should block deals with discount <= $1
 	server.db.Exec(`INSERT INTO users (id, phone_number, penny_slider, penny_autotune)
 		VALUES (1, '5551234567', 50, 0)`)
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Archer→Chomps has discount_cents=75 (< $1), should be filtered by mid-range slider
@@ -929,8 +929,8 @@ func TestSwaps_InvalidDealIDReturnsError(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Ketchup', 'Heinz', 'Pantry & Dry Goods')")
@@ -953,8 +953,8 @@ func TestSwaps_DoubleAcceptBlocked(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Peanut Butter', 'Skippy', 'Pantry & Dry Goods')")
@@ -996,12 +996,12 @@ func TestSwaps_CrossUserAcceptBlocked(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	// User 1 owns the item
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (2, '5559876543')")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-2', '5559876543')")
 	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 1, 'Peanut Butter', 'Skippy', 'Pantry & Dry Goods')")
 
 	// User 2 tries to accept swap on User 1's item (not in same household)
-	token2, _ := server.sessions.CreateSession(2, "5559876543", "phone")
+	token2, _ := server.sessions.CreateSession("user-2", "5559876543", "phone")
 	cookies2 := []*http.Cookie{{Name: "session", Value: token2}}
 
 	var dealID int
@@ -1026,8 +1026,8 @@ func TestSwaps_BudgetExhaustionBlocksAccept(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Set a deal budget that's barely enough for one accept (discount=125, budget=125)
@@ -1052,8 +1052,8 @@ func TestSwaps_BudgetExhaustionBlocksAccept(t *testing.T) {
 
 	// Second accept from a DIFFERENT user — should fail (deal paused/budget exhausted)
 	// (Same user would be blocked by per-campaign limit; use user 2 to test budget enforcement)
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (2, '5559998888')")
-	token2, _ := server.sessions.CreateSession(2, "5559998888", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-2', '5559998888')")
+	token2, _ := server.sessions.CreateSession("user-2", "5559998888", "phone")
 	cookies2 := []*http.Cookie{{Name: "session", Value: token2}}
 	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (2, 2, 'Peanut Butter 2', 'Skippy', 'Pantry & Dry Goods')")
 	rr2 := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
@@ -1074,8 +1074,8 @@ func TestSwaps_OneSwapPerUserPerCampaign(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	var dealID int
@@ -1113,8 +1113,8 @@ func TestSwaps_BOGOAcceptSetsQuantity(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Get the seeded BOGO deal (cheerios→Magic Spoon)
@@ -1155,8 +1155,8 @@ func TestSwaps_TrialAcceptAddsItem(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Get the seeded Trial deal (folgers→Counter Culture)
@@ -1200,8 +1200,8 @@ func TestSwaps_SeasonalDealIncludesEndsAt(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Create matching item for seasonal deal (oreo→Partake)
@@ -1233,8 +1233,8 @@ func TestSwaps_NewDealTypesInAdminGET(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	// Use the admin phone directly
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '3104861833')")
-	token, _ := server.sessions.CreateSession(1, "3104861833", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '3104861833')")
+	token, _ := server.sessions.CreateSession("user-1", "3104861833", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	rr := doRequest(server.handleAdminDeals, "GET", "/api/admin/deals", nil, cookies)
@@ -1327,8 +1327,8 @@ func TestWrapped_WithSwapRebates(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	// Create user directly
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
-	token, _ := server.sessions.CreateSession(100, "+15551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-100', '+15551234567')")
+	token, _ := server.sessions.CreateSession("user-100", "+15551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	// Insert a brand deal with high ID to avoid conflict with seeded deals
@@ -1515,7 +1515,7 @@ func TestAllergenHardFilter_BlocksSwap(t *testing.T) {
 
 	// Add a milk item — should NOT trigger the dairy deal due to allergen filter
 	milkItem := ListItem{ID: 1, Name: "Milk", Brand: "Kirkland", Department: "Dairy & Eggs"}
-	swap := server.checkDealsForItems(100, []ListItem{milkItem})
+	swap := server.checkDealsForItems("user-100", []ListItem{milkItem})
 	if swap != nil {
 		t.Errorf("Expected no swap for dairy-allergic user with milk deal, got deal ID %d", swap.DealID)
 	}
@@ -1523,7 +1523,7 @@ func TestAllergenHardFilter_BlocksSwap(t *testing.T) {
 	// Add a ketchup item — should trigger the ketchup deal (no allergen match)
 	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department, checked) VALUES (2, 100, 'Ketchup', 'Heinz', 'Pantry & Dry Goods', 0)")
 	ketchupItem := ListItem{ID: 2, Name: "Ketchup", Brand: "Heinz", Department: "Pantry & Dry Goods"}
-	swap = server.checkDealsForItems(100, []ListItem{ketchupItem})
+	swap = server.checkDealsForItems("user-100", []ListItem{ketchupItem})
 	if swap == nil {
 		t.Error("Expected swap for ketchup deal (no allergen match)")
 	}
@@ -1539,7 +1539,7 @@ func TestAllergenHardFilter_NoProfile(t *testing.T) {
 
 	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department, checked) VALUES (1, 100, 'Milk', 'Kirkland', 'Dairy & Eggs', 0)")
 	milkItem := ListItem{ID: 1, Name: "Milk", Brand: "Kirkland", Department: "Dairy & Eggs"}
-	swap := server.checkDealsForItems(100, []ListItem{milkItem})
+	swap := server.checkDealsForItems("user-100", []ListItem{milkItem})
 	if swap == nil {
 		t.Error("Expected swap for user without dietary profile")
 	}
@@ -1634,9 +1634,9 @@ func TestOptimizeDeal_MissingBullets(t *testing.T) {
 	dealID64, _ := result.LastInsertId()
 
 	// Add 15 swap events (offered + declined) to get past low-impression threshold
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '+15551234567')")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '+15551234567')")
 	for i := 0; i < 15; i++ {
-		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (1, ?, 'offered')", dealID64)
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-1', ?, 'offered')", dealID64)
 		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, decline_reason) VALUES (1, ?, 'declined', 'price')", dealID64)
 	}
 
@@ -1690,7 +1690,7 @@ func TestSwapEvent_TimeToActionAndWhyTapped(t *testing.T) {
 		VALUES (1, 1, 'offered', 0, 0)`)
 	if err != nil {
 		// Need parent rows for foreign keys
-		server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '+15551234567')")
+		server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '+15551234567')")
 		server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, status)
 			VALUES (1, 'test', 'TestBrand', 'TestProduct', 50, 'active')`)
 		_, err = server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, action, time_to_action_ms, why_tapped)
@@ -1701,7 +1701,7 @@ func TestSwapEvent_TimeToActionAndWhyTapped(t *testing.T) {
 	}
 
 	// Insert with enrichment values
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (2, '+15559999999')")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-2', '+15559999999')")
 	_, err = server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, action, time_to_action_ms, why_tapped)
 		VALUES (2, 1, 'accepted', 4500, 1)`)
 	if err != nil {
@@ -1912,14 +1912,10 @@ func TestSwapPredictions_PredictionFilter(t *testing.T) {
 }
 
 func TestUserSwapPredictions_TableExists(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
+	_, pgdb := openTestDB(t)
 
 	var count int
-	err = db.QueryRow("SELECT COUNT(*) FROM user_swap_predictions").Scan(&count)
+	err := pgdb.QueryRow("SELECT COUNT(*) FROM user_swap_predictions").Scan(&count)
 	if err != nil {
 		t.Errorf("user_swap_predictions table doesn't exist: %v", err)
 	}
@@ -1932,14 +1928,10 @@ func TestUserSwapPredictions_TableExists(t *testing.T) {
 // =============================================================================
 
 func TestSwapPropagations_TableExists(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
+	_, pgdb := openTestDB(t)
 
 	var count int
-	err = db.QueryRow("SELECT COUNT(*) FROM swap_propagations").Scan(&count)
+	err := pgdb.QueryRow("SELECT COUNT(*) FROM swap_propagations").Scan(&count)
 	if err != nil {
 		t.Fatalf("swap_propagations table should exist: %v", err)
 	}
@@ -2067,8 +2059,8 @@ func TestAuction_HighestBidScoreWins(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	// Create user
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Delete seeded deals to have a clean slate
@@ -2119,8 +2111,8 @@ func TestAuction_OutbidEventsLogged(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	server.db.Exec("DELETE FROM brand_deals")
@@ -2176,8 +2168,8 @@ func TestAuction_SingleCandidate_NoOutbidEvents(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	server.db.Exec("DELETE FROM brand_deals")
@@ -2222,8 +2214,8 @@ func TestAuction_PredictionWeightedBidding(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Enable autotune so predictions are used
@@ -2283,8 +2275,8 @@ func TestAuction_PredictionWeightedBidding(t *testing.T) {
 
 func TestStorePriceAverages_Basic(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Create a store and some price observations
@@ -2329,8 +2321,8 @@ func TestStorePriceAverages_Basic(t *testing.T) {
 
 func TestStorePriceAverages_FilterByProduct(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	storeID, _ := server.upsertStore("Target #456", "Target", "456 Oak Ave", "Austin", "TX", "78701", "", nil, nil)
@@ -2352,8 +2344,8 @@ func TestStorePriceAverages_FilterByProduct(t *testing.T) {
 
 func TestPriceComparison_AcrossStores(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Create 2 stores with different prices for same product
@@ -2385,8 +2377,8 @@ func TestPriceComparison_AcrossStores(t *testing.T) {
 
 func TestPriceComparison_RequiresProduct(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	rr := doRequest(server.handlePriceComparison, "GET", "/api/price-compare", nil, cookies)
@@ -2397,8 +2389,8 @@ func TestPriceComparison_RequiresProduct(t *testing.T) {
 
 func TestRegionalSwapPerformance_AdminOnly(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	rr := doRequest(server.handleRegionalSwapPerformance, "GET", "/api/admin/regional-swaps", nil, cookies)
@@ -2417,13 +2409,13 @@ func TestRegionalSwapPerformance_ReturnsData(t *testing.T) {
 	storeID, _ := server.upsertStore("Kroger Columbus", "Kroger", "100 Main St", "Columbus", "OH", "43215", "", nil, nil)
 
 	// Create user with trip linked to store
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (2, '5559876543')")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-2', '5559876543')")
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
 	server.db.Exec("INSERT INTO shopping_trips (user_id, household_id, trip_date, store_id) VALUES (2, 1, '2026-03-08', ?)", storeID)
 
 	// Create swap events for that user
-	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (2, 1, 'offered')")
-	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (2, 1, 'accepted')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-2', 1, 'offered')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-2', 1, 'accepted')")
 
 	rr := doRequest(server.handleRegionalSwapPerformance, "GET", "/api/admin/regional-swaps",
 		nil, []*http.Cookie{adminCookie})
@@ -2442,8 +2434,8 @@ func TestStoreAwarePricing_EnrichesSwapCard(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Create a store
@@ -2516,8 +2508,8 @@ func TestProductDescription_InSwapResponse(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	server.db.Exec("DELETE FROM brand_deals")
@@ -2564,8 +2556,8 @@ func TestProductDescription_EmptyGracefulDegradation(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	server.db.Exec("DELETE FROM brand_deals")
@@ -2629,7 +2621,7 @@ func TestConversationDepthColumn_Exists(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	// Insert a swap event with conversation_depth
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
 	_, err := server.db.Exec(
 		"INSERT INTO swap_events (user_id, deal_id, action, conversation_depth) VALUES (1, 1, 'offered', 3)")
 	if err != nil {

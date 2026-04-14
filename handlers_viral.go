@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 )
@@ -138,7 +137,8 @@ func (s *Server) handleWrapped(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAdminBackup handles POST /api/admin/backup.
-// Creates a VACUUM INTO clone of the database for reporting/disaster recovery.
+// With PostgreSQL, backups are handled by pg_dump or cloud provider snapshots.
+// This endpoint is a no-op placeholder that returns success.
 func (s *Server) handleAdminBackup(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPost) {
 		return
@@ -147,67 +147,18 @@ func (s *Server) handleAdminBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reportPath := s.config.DBPath + ".reporting"
-	if rp := s.config.ReportingDBPath; rp != "" {
-		reportPath = rp
-	}
-
-	start := time.Now()
-
-	// WAL checkpoint first to ensure all data is flushed
-	if _, err := s.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
-		log.Printf("[backup] WAL checkpoint failed: %v", err)
-		// Continue anyway — VACUUM INTO will still work
-	}
-
-	// VACUUM INTO creates a complete, consistent copy of the database
-	if _, err := s.db.Exec(fmt.Sprintf("VACUUM INTO '%s'", reportPath)); err != nil {
-		log.Printf("[backup] VACUUM INTO failed: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Backup failed: " + err.Error()})
-		return
-	}
-
-	elapsed := time.Since(start)
-	log.Printf("[backup] VACUUM INTO %s completed in %v", reportPath, elapsed)
-
-	// Reopen reporting DB for admin queries
-	if s.reportDB != nil {
-		s.reportDB.Close()
-	}
-	rdb, err := openReportDB(reportPath)
-	if err != nil {
-		log.Printf("[backup] failed to open reporting DB: %v", err)
-	} else {
-		s.reportDB = rdb
-		log.Printf("[backup] reporting DB opened at %s", reportPath)
-	}
-
+	// PostgreSQL backups are managed externally (pg_dump, cloud snapshots).
+	// This endpoint is retained for API compatibility.
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"success":     true,
-		"path":        reportPath,
-		"elapsed_ms":  elapsed.Milliseconds(),
-		"report_db":   s.reportDB != nil,
+		"success": true,
+		"message": "PostgreSQL backups are managed externally",
 	})
 }
 
-// openReportDB opens a read-only SQLite connection for the reporting clone.
-func openReportDB(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", path+"?mode=ro")
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(2) // read-only, low concurrency
-	db.Exec("PRAGMA query_only = ON")
-	return db, nil
-}
-
-// adminDB returns the reporting DB if available, otherwise the primary DB.
-// This lets admin analytics run against the clone without impacting production.
+// adminDB returns the primary database connection.
+// With PostgreSQL, there is no separate reporting clone — all queries use the same connection.
 func (s *Server) adminDB() *sql.DB {
-	if s.reportDB != nil {
-		return s.reportDB
-	}
-	return s.db
+	return s.db.DB
 }
 
 // Savings milestone thresholds in cents

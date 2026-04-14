@@ -96,7 +96,7 @@ func (s *Server) handleReceiptItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify ownership
-	var ownerID int
+	var ownerID string
 	if err := s.db.QueryRow("SELECT user_id FROM receipts WHERE id = ?", receiptID).Scan(&ownerID); err != nil || ownerID != session.UserID {
 		writeNotFound(w, "Receipt not found")
 		return
@@ -158,7 +158,7 @@ func (s *Server) handleReceiptConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify ownership
-	var ownerID int
+	var ownerID string
 	if err := s.db.QueryRow("SELECT user_id FROM receipts WHERE id = ?", receiptID).Scan(&ownerID); err != nil || ownerID != session.UserID {
 		writeNotFound(w, "Receipt not found")
 		return
@@ -220,7 +220,7 @@ func (s *Server) handleReceiptConfirm(w http.ResponseWriter, r *http.Request) {
 // SWAP PURCHASE VERIFICATION
 // =============================================================================
 
-func (s *Server) verifySwapPurchases(userID, receiptID int) int {
+func (s *Server) verifySwapPurchases(userID string, receiptID int) int {
 	// Find accepted swaps for this user that haven't been verified yet
 	rows, err := s.db.Query(`
 		SELECT se.id, se.deal_id, bd.offer_brand, bd.offer_product
@@ -288,7 +288,7 @@ func (s *Server) verifySwapPurchases(userID, receiptID int) int {
 
 	if verified > 0 {
 		s.db.Exec("UPDATE receipts SET swaps_verified = ? WHERE id = ?", verified, receiptID)
-		log.Printf("[receipt] verified %d swap purchases for user %d via receipt %d", verified, userID, receiptID)
+		log.Printf("[receipt] verified %d swap purchases for user %s via receipt %d", verified, userID, receiptID)
 	}
 
 	return verified
@@ -349,7 +349,7 @@ func (s *Server) handleSwapClaims(w http.ResponseWriter, r *http.Request) {
 
 // processReceiptEnhanced is called after the basic receipt parsing. It performs
 // structured extraction, stores line items, and triggers swap verification.
-func (s *Server) processReceiptEnhanced(userID, receiptID int, matchedNames []string, images []string) {
+func (s *Server) processReceiptEnhanced(userID string, receiptID int, matchedNames []string, images []string) {
 	if s.config.AnthropicAPIKey == "" {
 		return
 	}
@@ -437,7 +437,7 @@ Rules:
 - raw_text should be EXACTLY as printed on the receipt
 - transaction_date in YYYY-MM-DD format
 - If you can't determine a value, use empty string or 0
-- Return ONLY the JSON, no markdown, no code fences`
+- Return ONLY the JSON, no markdown, no code fences` + injectionBoundaryNotice
 
 	var contentBlocks []map[string]interface{}
 	for _, img := range images {
@@ -463,17 +463,33 @@ Rules:
 		"text": "Extract all structured data from this receipt.",
 	})
 
-	text, err := callClaude(s.config.AnthropicAPIKey, systemPrompt, contentBlocks, 4096)
+	text, err := callClaudeHard(s.config.AnthropicAPIKey, systemPrompt, contentBlocks, 4096)
 	if err != nil {
 		log.Printf("[receipt] structured extraction failed: %v", err)
 		return nil
 	}
 	text = stripCodeFence(text)
+	text = sanitizeAIOutput(text)
 
 	var result receiptStructure
 	if err := json.Unmarshal([]byte(text), &result); err != nil {
 		log.Printf("[receipt] failed to parse structured extraction: %v (text: %.200s)", err, text)
 		return nil
+	}
+	// Sanitize extracted string fields
+	result.StoreName = stripHTML(result.StoreName)
+	result.StoreAddress = stripHTML(result.StoreAddress)
+	if len(result.StoreName) > 200 {
+		result.StoreName = result.StoreName[:200]
+	}
+	if len(result.StoreAddress) > 500 {
+		result.StoreAddress = result.StoreAddress[:500]
+	}
+	for i := range result.LineItems {
+		result.LineItems[i].RawText = stripHTML(result.LineItems[i].RawText)
+		if len(result.LineItems[i].RawText) > 200 {
+			result.LineItems[i].RawText = result.LineItems[i].RawText[:200]
+		}
 	}
 	return &result
 }
@@ -500,8 +516,8 @@ func (s *Server) handleReceiptRouting(w http.ResponseWriter, r *http.Request) {
 }
 
 // checkReceiptRateLimit enforces 3/day and 10/week per user.
-func checkReceiptRateLimit(userID int) bool {
-	key := fmt.Sprintf("receipt_%d", userID)
+func checkReceiptRateLimit(userID string) bool {
+	key := fmt.Sprintf("receipt_%s", userID)
 	if checkRateLimit(&receiptDayLimiter, key, 24*time.Hour, 3) {
 		return true
 	}

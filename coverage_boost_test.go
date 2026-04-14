@@ -568,7 +568,7 @@ func TestNewTests_TrackABEvent_NonexistentTest(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	// Track event for a test that doesn't exist — should silently succeed (no error)
-	err := trackABEvent(server.db, "nonexistent_test", 1, "conversion", 1.0)
+	err := trackABEvent(server.db, "nonexistent_test", "user-1", "conversion", 1.0)
 	if err != nil {
 		t.Errorf("Tracking event for nonexistent test should not error, got: %v", err)
 	}
@@ -588,7 +588,7 @@ func TestNewTests_TrackABEvent_InactiveTest(t *testing.T) {
 	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
 		VALUES ('inactive_test', 'desc', '["control","variant"]', 'conversion', 100, 7, 100, 'resolved')`)
 
-	err := trackABEvent(server.db, "inactive_test", 1, "conversion", 1.0)
+	err := trackABEvent(server.db, "inactive_test", "user-1", "conversion", 1.0)
 	if err != nil {
 		t.Errorf("Tracking event for inactive test should not error, got: %v", err)
 	}
@@ -608,7 +608,7 @@ func TestNewTests_TrackABEvent_SuccessfulInsert(t *testing.T) {
 	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
 		VALUES ('active_track', 'desc', '["control","variant"]', 'click', 100, 7, 100, 'active')`)
 
-	err := trackABEvent(server.db, "active_track", 42, "click", 2.5)
+	err := trackABEvent(server.db, "active_track", "user-42", "click", 2.5)
 	if err != nil {
 		t.Fatalf("Tracking event: %v", err)
 	}
@@ -633,7 +633,7 @@ func TestNewTests_TrackABEvent_MultipleEvents(t *testing.T) {
 
 	// Track multiple events for same user — should all be inserted
 	for i := 0; i < 5; i++ {
-		err := trackABEvent(server.db, "multi_track", 10, "click", 1.0)
+		err := trackABEvent(server.db, "multi_track", "user-10", "click", 1.0)
 		if err != nil {
 			t.Fatalf("Track event %d: %v", i, err)
 		}
@@ -692,8 +692,8 @@ func TestNewTests_GetVariant_TrafficPercentage(t *testing.T) {
 	// Create user — loginUser creates with upsertUser which auto-assigns IDs
 	// We need a user whose ID % 100 >= 10
 	// Insert directly to control the ID
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (50, '5559999050')")
-	token, _ := server.sessions.CreateSession(50, "5559999050", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-50', '5559999050')")
+	token, _ := server.sessions.CreateSession("user-50", "5559999050", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	rr := doRequest(handleGetVariant(server), "GET", "/api/ab/variant?test=low_traffic", nil, []*http.Cookie{cookie})
@@ -716,13 +716,13 @@ func TestNewTests_GetVariant_ThreeVariants(t *testing.T) {
 
 	// Test deterministic assignment across different user IDs
 	variants := map[string]bool{}
-	for _, uid := range []int{1, 100, 200, 300, 400, 500} {
+	for _, uid := range []string{"user-1", "user-100", "user-200", "user-300", "user-400", "user-500"} {
 		v, err := getVariant(server.db, "three_vars", uid)
 		if err != nil {
-			t.Fatalf("getVariant uid=%d: %v", uid, err)
+			t.Fatalf("getVariant uid=%s: %v", uid, err)
 		}
 		if v != "a" && v != "b" && v != "c" {
-			t.Errorf("Unexpected variant %q for uid %d", v, uid)
+			t.Errorf("Unexpected variant %q for uid %s", v, uid)
 		}
 		variants[v] = true
 	}
@@ -743,7 +743,7 @@ func TestNewTests_GetVariant_FunctionLevel_FewerThanTwoVariants(t *testing.T) {
 	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
 		VALUES ('one_var', 'desc', '["only_one"]', 'metric', 100, 7, 100, 'active')`)
 
-	_, err := getVariant(server.db, "one_var", 1)
+	_, err := getVariant(server.db, "one_var", "user-1")
 	if err == nil {
 		t.Error("Expected error for test with fewer than 2 variants")
 	}
@@ -759,7 +759,7 @@ func TestNewTests_GetVariant_FunctionLevel_InvalidVariantsJSON(t *testing.T) {
 	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
 		VALUES ('bad_json_var', 'desc', 'not-json', 'metric', 100, 7, 100, 'active')`)
 
-	_, err := getVariant(server.db, "bad_json_var", 1)
+	_, err := getVariant(server.db, "bad_json_var", "user-1")
 	if err == nil {
 		t.Error("Expected error for invalid variants JSON")
 	}
@@ -1535,7 +1535,7 @@ func TestCov_EmailRegister_NameStored(t *testing.T) {
 	}
 
 	body := parseJSON(rr)
-	userID := int(body["user_id"].(float64))
+	userID := body["user_id"].(string)
 
 	var name string
 	server.db.QueryRow("SELECT COALESCE(name,'') FROM users WHERE id = ?", userID).Scan(&name)
@@ -1653,7 +1653,7 @@ func TestCov_EmailLogin_UpdatesLoginTracking(t *testing.T) {
 		map[string]string{"email": "track@example.com", "password": "securepassword1"}, nil)
 
 	// Get user ID
-	var userID int
+	var userID string
 	server.db.QueryRow("SELECT user_id FROM auth_methods WHERE provider = 'email' AND provider_id = 'track@example.com'").Scan(&userID)
 
 	// Get initial login count (register counts as 0 login_count, since it doesn't call the login tracking)
@@ -1868,7 +1868,7 @@ func TestCov_EmailReset_InvalidatesSessions(t *testing.T) {
 		map[string]string{"email": "sessions@example.com", "password": "originalpass1"}, nil)
 
 	// Get user ID
-	var userID int
+	var userID string
 	server.db.QueryRow("SELECT user_id FROM auth_methods WHERE provider = 'email' AND provider_id = 'sessions@example.com'").Scan(&userID)
 
 	// Create additional sessions for this user
@@ -1901,7 +1901,7 @@ func TestCov_EmailReset_TokenMarkedUsed(t *testing.T) {
 	doRequest(server.handleEmailRegister, "POST", "/auth/email/register",
 		map[string]string{"email": "usedtoken@example.com", "password": "originalpass1"}, nil)
 
-	var userID int
+	var userID string
 	server.db.QueryRow("SELECT user_id FROM auth_methods WHERE provider = 'email' AND provider_id = 'usedtoken@example.com'").Scan(&userID)
 
 	resetToken := "test-used-token-check"
@@ -1929,7 +1929,7 @@ func TestCov_EmailReset_PasswordActuallyChanged(t *testing.T) {
 	doRequest(server.handleEmailRegister, "POST", "/auth/email/register",
 		map[string]string{"email": "changed@example.com", "password": "originalpass1"}, nil)
 
-	var userID int
+	var userID string
 	server.db.QueryRow("SELECT user_id FROM auth_methods WHERE provider = 'email' AND provider_id = 'changed@example.com'").Scan(&userID)
 
 	resetToken := "test-changed-password"
@@ -2562,10 +2562,10 @@ func TestCov2_RegionalSwapPerformance_UnknownRegion(t *testing.T) {
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	// Create swap events with no store link (should appear as "Unknown" region)
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (999, '5559999999')")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-999', '5559999999')")
 	server.db.Exec("INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status) VALUES (1, 'X', 'Y', 'Z', 100, 10000, 'active')")
-	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (999, 1, 'offered')")
-	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (999, 1, 'declined')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-999', 1, 'offered')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-999', 1, 'declined')")
 
 	rr := doRequest(server.handleRegionalSwapPerformance, "GET", "/api/admin/regional-swaps", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusOK {
@@ -2607,32 +2607,15 @@ func TestCov2_RegionalSwapPerformance_UnknownRegion(t *testing.T) {
 
 func TestCov2_AdminDB_NilReportDB(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	// reportDB is nil by default in test server
+	// reportDB removed — adminDB() always returns the primary DB now
 	db := server.adminDB()
-	if db != server.db {
-		t.Error("adminDB() should return primary DB when reportDB is nil")
+	if db != server.db.DB {
+		t.Error("adminDB() should return primary DB")
 	}
 }
 
 func TestCov2_AdminDB_WithReportDB(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-
-	// Create a separate in-memory DB as the report DB
-	reportDB, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create report DB: %v", err)
-	}
-	t.Cleanup(func() { reportDB.Close() })
-
-	server.reportDB = reportDB
-
-	db := server.adminDB()
-	if db != reportDB {
-		t.Error("adminDB() should return reportDB when it is set")
-	}
-	if db == server.db {
-		t.Error("adminDB() should not return primary DB when reportDB is set")
-	}
+	t.Skip("reportDB removed — reporting now uses the primary database")
 }
 
 // --- handleStores (78.4%) ---
@@ -3314,7 +3297,7 @@ func TestGetUserZip(t *testing.T) {
 	rr := doRequest(server.handleMe, "GET", "/auth/me", nil, []*http.Cookie{cookie})
 	var me map[string]interface{}
 	json.Unmarshal(rr.Body.Bytes(), &me)
-	userID := int(me["user_id"].(float64))
+	userID := me["user_id"].(string)
 
 	// No address set — should return empty
 	zip := server.getUserZip(userID)
@@ -3755,7 +3738,7 @@ func TestCov3_ListClaim_ClaimResponseContainsClaimedByID(t *testing.T) {
 		t.Fatal("ClaimedByID should not be nil after claim")
 	}
 	if *item.ClaimedByID != userID {
-		t.Errorf("ClaimedByID: got %d, want %d", *item.ClaimedByID, userID)
+		t.Errorf("ClaimedByID: got %s, want %s", *item.ClaimedByID, userID)
 	}
 	if item.ID != int(itemID) {
 		t.Errorf("Item ID: got %d, want %d", item.ID, int(itemID))
@@ -3837,7 +3820,7 @@ func TestCov3_ListClaim_OverrideRecordsClaimedModification(t *testing.T) {
 	var item ListItem
 	json.Unmarshal(rr.Body.Bytes(), &item)
 	if item.ClaimedByID == nil || *item.ClaimedByID != userID2 {
-		t.Errorf("Override claim: expected claimed_by=%d, got %v", userID2, item.ClaimedByID)
+		t.Errorf("Override claim: expected claimed_by=%s, got %v", userID2, item.ClaimedByID)
 	}
 
 	// Verify modification records — should have "claimed" entries for both users
@@ -3972,10 +3955,10 @@ func TestCov3_DeleteUserSessions_NoSessions(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	// Create a user without any sessions
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (9999, '5558920001')")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-9999', '5558920001')")
 
 	// Should not panic or error
-	server.sessions.DeleteUserSessions(9999)
+	server.sessions.DeleteUserSessions("user-9999")
 
 	var count int
 	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = 9999").Scan(&count)
@@ -4071,7 +4054,7 @@ func TestCov3_DeleteUserSessions_NonexistentUser(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	// Should not panic or error for a user that doesn't exist
-	server.sessions.DeleteUserSessions(999999)
+	server.sessions.DeleteUserSessions("user-999999")
 }
 
 // =============================================================================

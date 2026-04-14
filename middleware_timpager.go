@@ -105,13 +105,13 @@ func (s *Server) requireSessionWithTimpager(w http.ResponseWriter, r *http.Reque
 
 			// Find or create Penny user by phone
 			userID := s.resolveOrCreateTimpagerUser(phone, verifyResp.DisplayName)
-			if userID == 0 {
+			if userID == "" {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to map timpager user"})
 				return Session{}, false
 			}
 
 			return Session{
-				UserID:      userID,
+				UserID: userID,
 				PhoneNumber: phone,
 				AuthMethod:  "timpager",
 				CreatedAt:   time.Now(),
@@ -124,27 +124,26 @@ func (s *Server) requireSessionWithTimpager(w http.ResponseWriter, r *http.Reque
 }
 
 // resolveOrCreateTimpagerUser finds or creates a Penny user by phone number.
-func (s *Server) resolveOrCreateTimpagerUser(phone, displayName string) int {
+func (s *Server) resolveOrCreateTimpagerUser(phone, displayName string) string {
 	// Try to find existing user
-	var userID int
+	var userID string
 	err := s.db.QueryRow(`SELECT id FROM users WHERE phone = ?`, phone).Scan(&userID)
 	if err == nil {
 		return userID
 	}
 
 	// Create new user
-	result, err := s.db.Exec(
-		`INSERT INTO users (phone, display_name, auth_method, created_at) VALUES (?, ?, 'timpager', datetime('now'))`,
+	err = s.db.QueryRow(
+		`INSERT INTO users (phone, display_name, auth_method, created_at) VALUES (?, ?, 'timpager', datetime('now')) RETURNING id`,
 		phone, displayName,
-	)
+	).Scan(&userID)
 	if err != nil {
 		log.Printf("[timpager-auth] failed to create user for phone %s: %v", phone, err)
-		return 0
+		return ""
 	}
 
-	id, _ := result.LastInsertId()
-	log.Printf("[timpager-auth] created Penny user %d for timpager phone %s", id, phone)
-	return int(id)
+	log.Printf("[timpager-auth] created Penny user %s for timpager phone %s", userID, phone)
+	return userID
 }
 
 // pushRevenueEvent sends a revenue event to timpager (fire-and-forget).
@@ -200,7 +199,7 @@ func (s *Server) pushRevenueEvent(eventType string, amountCents int, sourceRef, 
 //
 // SAFETY (per timpager CLAUDE.md): NEVER retry on 409 — duplicate is success.
 // NEVER call from inside a wallet UPDATE transaction; call AFTER commit.
-func (s *Server) pushPayoutToTimpager(grofloUserID int, amountCents int, distributionID string) {
+func (s *Server) pushPayoutToTimpager(grofloUserID string, amountCents int, distributionID string) {
 	if amountCents <= 0 {
 		log.Printf("[timpager-payout] refusing non-positive amount: %d", amountCents)
 		return
@@ -214,7 +213,7 @@ func (s *Server) pushPayoutToTimpager(grofloUserID int, amountCents int, distrib
 	// STUB MODE — log only, do not yet POST. Flip to false in Phase 4.
 	const stubMode = true
 	if stubMode {
-		log.Printf("[timpager-payout][STUB] would push payout user=%d amount=%dc distribution=%s key=%s",
+		log.Printf("[timpager-payout][STUB] would push payout user=%s amount=%dc distribution=%s key=%s",
 			grofloUserID, amountCents, distributionID, idempotencyKey)
 		return
 	}
@@ -230,7 +229,7 @@ func (s *Server) pushPayoutToTimpager(grofloUserID int, amountCents int, distrib
 		`SELECT timpager_user_id FROM users WHERE id = ?`, grofloUserID,
 	).Scan(&timpagerUserID)
 	if !timpagerUserID.Valid || timpagerUserID.String == "" {
-		log.Printf("[timpager-payout] user %d has no timpager_user_id — falling back to direct Stripe path", grofloUserID)
+		log.Printf("[timpager-payout] user %s has no timpager_user_id — falling back to direct Stripe path", grofloUserID)
 		return
 	}
 
@@ -267,14 +266,14 @@ func (s *Server) pushPayoutToTimpager(grofloUserID int, amountCents int, distrib
 
 			if resp.StatusCode == 201 || resp.StatusCode == 409 {
 				// 201 = created, 409 = already queued (idempotent success). NEVER retry on 409.
-				log.Printf("[timpager-payout] pushed user=%d %dc distribution=%s status=%d",
+				log.Printf("[timpager-payout] pushed user=%s %dc distribution=%s status=%d",
 					grofloUserID, amountCents, distributionID, resp.StatusCode)
 				return
 			}
 			log.Printf("[timpager-payout] attempt %d got status %d", attempt+1, resp.StatusCode)
 			time.Sleep(time.Duration(1<<attempt) * time.Second)
 		}
-		log.Printf("[timpager-payout] failed after 3 attempts: user=%d %dc distribution=%s",
+		log.Printf("[timpager-payout] failed after 3 attempts: user=%s %dc distribution=%s",
 			grofloUserID, amountCents, distributionID)
 	}()
 }

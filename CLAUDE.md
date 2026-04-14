@@ -2,9 +2,17 @@
 
 ## What Is This
 
-Groflo is an AI-powered grocery shopping list app with personality-driven assistant Penny, household sharing, and multi-channel input (web, SMS, email). Part of the Rally ecosystem — auth and Stripe payouts federate through timpager (rallytasks.com). Go backend, React/TypeScript frontend, SQLite WAL, deployed on Railway. Brand source of truth: `../pitch deck/penny-brand-source.json`.
+Groflo is an AI-powered grocery shopping list app with personality-driven assistant Penny, household sharing, and multi-channel input (web, SMS, email). Part of the Rally ecosystem — auth, users, and Stripe payouts federate through timpager (rallytasks.com). Go backend, React/TypeScript frontend, PostgreSQL (shared with timpager), deployed on Railway. Brand source of truth: `../pitch deck/penny-brand-source.json`.
 
-**Brand history:** Rebranded from "Thriftly" to "Groflo" on 2026-04-07 (sprint plan: `GROFLO_REBRAND_SPRINT.md`). DB filename, Litestream path, and historical migration symbols retain legacy name for backup chain integrity.
+**Monorepo structure:** Go backend (root), `frontend/` (consumer React app), `frontend-brand/` (brand portal), `marketing/` (Groflo marketing site, from thrift.ly repo).
+
+**URLs:** `app.groflo.io` (consumer app), `penny.rallytasks.com` (consumer app, Rally ecosystem), `brands.groflo.io` (brand portal).
+
+**Database:** PostgreSQL shared with timpager. Users table is shared (timpager owns it, penny adds columns via ALTER TABLE). Sessions table is shared. All penny-specific tables (list_items, brand_deals, etc.) FK to shared `users(id)` TEXT UUIDs. SQL compatibility wrapper (`pgcompat.go`) auto-converts legacy SQLite syntax at runtime.
+
+**Brand history:** Rebranded from "Thriftly" to "Groflo" on 2026-04-07 (sprint plan: `GROFLO_REBRAND_SPRINT.md`). Migrated from SQLite to PostgreSQL on 2026-04-13.
+
+**Git branching:** `main` → `staging` → `production`. All code reaches main through a PR.
 
 **Read first:** [QUICKSTART.md](./QUICKSTART.md) → this file → [ARCHITECTURE.md](./ARCHITECTURE.md).
 
@@ -53,7 +61,7 @@ Groflo is an AI-powered grocery shopping list app with personality-driven assist
 
 **Security.** All secrets in env vars. 256-bit session tokens. HttpOnly cookies. 30-day session expiry. Auth methods: phone/SMS (Twilio), Google OAuth, email/password (bcrypt), magic link. NEVER weaken. NEVER remove any auth method. Phone is join key for phone users; Google `sub` is join key for OAuth users. Shared session table with timpager.
 
-**Database Rules.** SQLite WAL mode. NEVER DROP TABLE or recreate tables. ALWAYS CREATE TABLE IF NOT EXISTS. Use ALTER TABLE ADD COLUMN for migrations — keep backward-compatible. Migrations stay in `initDB()` inline, numbered and sequenced. For nullable phone_number: use `sql.NullString` and `COALESCE(u.phone_number,'')` in all queries reading it.
+**Database Rules.** PostgreSQL (shared with timpager via `DATABASE_URL`). NEVER DROP TABLE or recreate tables. ALWAYS CREATE TABLE IF NOT EXISTS. Use ALTER TABLE ADD COLUMN for migrations via `addColumnIfNotExists()` helper. Users and sessions tables are owned by timpager — DO NOT recreate them, only add columns. User IDs are TEXT UUIDs (not integers). SQL compatibility wrapper (`pgcompat.go`) converts `?` → `$N`, `datetime('now')` → `NOW()`, etc. at runtime. For nullable phone: use `sql.NullString` and `COALESCE(u.phone,'')` in queries.
 
 **Notification & Communication Safety.** Duplicate notifications and inadvertent outbound messages must NEVER happen. NEVER send SMS, email, or push without dedup (idempotency key or "already sent" flag). NEVER trigger outbound messages as side effect of refactors or migrations. Do NOT rely on React state alone for prompt dismissal (NPS, modals, announcements) — persist in sessionStorage/localStorage or server-side. Do NOT bypass server-side rate limits from client. Before shipping: trace every code path that could trigger outbound message. If you cannot prove no duplication, add a guard.
 
@@ -125,7 +133,9 @@ Check this list before coding. If your change touches a listed pattern, read exi
 
 ## Temporary State (2026-04-13)
 
-Groflo rebrand active. Database still uses `thriftly.db` for backup chain integrity. Go code references `thriftly` in non-user-visible identifiers — Phase 5 internal sweep pending. All UI surfaces updated to "Groflo" and "Penny". Household coordination narrative (11-Star) is focus for current sprint. Data flywheel strategy drafted in `DATA_FLYWHEEL.md`.
+PostgreSQL migration in progress. Shared database with timpager (rallytasks.com). User IDs migrated from INTEGER to TEXT UUIDs. SQL compatibility wrapper (`pgcompat.go`) handles legacy SQLite syntax conversion. Marketing site (from thrift.ly) integrated as `marketing/` directory. Branch strategy: main → staging → production. Email campaign templates extracted from abandoned thrift.ly branch into `marketing/emails/`.
+
+Groflo rebrand complete. Go module still named `thriftly` — rename pending. All UI surfaces show "Groflo" and "Penny". Household coordination narrative (11-Star) is focus for current sprint.
 
 ## Pre-Merge Checklist
 
@@ -143,7 +153,14 @@ Every behavior-changing PR updates affected markdown. PRs touching `handlers_*.g
 
 ## Work Tracking
 
-[ROADMAP.md](./ROADMAP.md): roadmap, bugs (B-numbers), deprioritized items. [CURRENT_SPRINT.md](./CURRENT_SPRINT.md): current sprint and blockers. NEVER create new tracking files. Delete items when shipped; move deprioritized to "Nice-to-Have".
+> **Work tracking:** new items land in [INBOX.md](./INBOX.md). Triage moves them to [BACKLOG.md](./BACKLOG.md) (`P0–P3`, `Bugs`, `Shipped`, `Not In Scope`). Pattern mirrors timpager. Read [INBOX.md](./INBOX.md) first when picking up unfinished work.
+
+- **[INBOX.md](./INBOX.md)** — Raw ideas. Items >30 days without promotion get deleted.
+- **[BACKLOG.md](./BACKLOG.md)** — Actionable work. Triaged, prioritized (P0-P3), sized.
+- **[ROADMAP.md](./ROADMAP.md)** — Strategic roadmap, focus groups, swap strategy. Reference doc.
+- **[CURRENT_SPRINT.md](./CURRENT_SPRINT.md)** — Current sprint progress.
+- Delete items from backlog when shipped (move to Shipped section). Deprioritized → Not In Scope.
+- NEVER create new tracking files.
 
 ## Doc Index
 

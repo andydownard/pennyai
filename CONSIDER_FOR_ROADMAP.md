@@ -215,3 +215,31 @@ Households aren't egalitarian. UI currently treats "everyone can add items" as e
 **Product team decision:** _pending_. Intersects with dietary-attribute conflict resolution (what if members have conflicting preferences?) and swap acceptance semantics (per-user is current rule — but brand choice on a shared list is ambiguous). Worth a short focus-group ping with James (household coordinator persona) before spec work.
 
 ---
+
+## Harvested from thrift.ly feature/groflo-user-email branch (2026-04-13)
+
+### [NORMAL] Email Campaign Templates — B2B and B2C Groflo Transition
+
+Extracted from abandoned `feature/groflo-user-email` branch on thrift.ly repo. 13 email templates ready for Klaviyo/SendGrid campaigns:
+
+**B2B variants (brand manager outreach):**
+- Variant A: "Reach families directly" — consumer-intent positioning
+- Variant B: "Ditch receipt marketing" — competitive against Ibotta/Fetch
+- Variant C: "Shelf to list" — product placement on shopping lists
+- Variant D: "Pay per intent" — performance marketing angle
+- Variant E: "Ibotta alternative" — direct competitive comparison
+
+**B2C variants (consumer acquisition):**
+- Variant A: "No more receipts" — anti-receipt-scanning positioning
+- Variant B: "Deals find you" — passive savings
+- Variant C: "Free groceries" — rebate-forward
+- Variant D: "Family list" — household coordination
+- Variant E: "Stop scanning receipts" — competitor pain point
+
+**Transition email:** Groflo brand transition announcement for existing users.
+
+Files saved to `marketing/emails/`. Includes PDF review document and Python PDF generator script.
+
+**Recommendation:** These are campaign-ready. Deploy via Klaviyo or SendGrid when brand portal has 10+ active brands (B2B) or when consumer acquisition push begins (B2C). A/B test the 5 variants per audience. Estimated effort: Small (templates are done, need CRM integration).
+
+---

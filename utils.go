@@ -226,8 +226,8 @@ func serveWithOGTags(w http.ResponseWriter, r *http.Request) {
 
 // requireSavedListAccess checks that listID exists and belongs to a member of
 // the caller's household. Returns false (and writes an error response) on failure.
-func (s *Server) requireSavedListAccess(w http.ResponseWriter, userID, listID int) bool {
-	var ownerID int
+func (s *Server) requireSavedListAccess(w http.ResponseWriter, userID string, listID int) bool {
+	var ownerID string
 	err := s.db.QueryRow("SELECT user_id FROM saved_lists WHERE id = ?", listID).Scan(&ownerID)
 	if err != nil {
 		writeNotFound(w, "Saved list not found")

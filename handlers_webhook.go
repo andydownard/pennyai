@@ -113,7 +113,7 @@ func (s *Server) handleEmailWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Look up user by email
-	var userID int
+	var userID string
 	var userPhoneNull sql.NullString
 	err := s.db.QueryRow(
 		"SELECT id, phone_number FROM users WHERE LOWER(email) = LOWER(?)",
@@ -173,7 +173,7 @@ func (s *Server) handleEmailWebhook(w http.ResponseWriter, r *http.Request) {
 	// Add items to user's list
 	added, _ := addParsedItems(s.db, userID, parsed, "email")
 
-	log.Printf("[email] added %d items for user %d from %s", len(added), userID, from)
+	log.Printf("[email] added %d items for user %s from %s", len(added), userID, from)
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 

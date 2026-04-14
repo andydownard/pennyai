@@ -16,7 +16,7 @@ import (
 
 func TestSessionStore_CreateAndGet(t *testing.T) {
 	store := newTestSessionStore(t)
-	token, err := store.CreateSession(1, "5551234567", "phone")
+	token, err := store.CreateSession("user-1", "5551234567", "phone")
 
 	if err != nil {
 		t.Fatalf("CreateSession error: %v", err)
@@ -32,8 +32,8 @@ func TestSessionStore_CreateAndGet(t *testing.T) {
 	if !ok {
 		t.Fatal("GetSession returned false for valid token")
 	}
-	if session.UserID != 1 {
-		t.Errorf("UserID: got %d, want 1", session.UserID)
+	if session.UserID != "user-1" {
+		t.Errorf("UserID: got %s, want user-1", session.UserID)
 	}
 	if session.PhoneNumber != "5551234567" {
 		t.Errorf("Phone: got %s, want 5551234567", session.PhoneNumber)
@@ -50,7 +50,7 @@ func TestSessionStore_GetNonexistent(t *testing.T) {
 
 func TestSessionStore_Delete(t *testing.T) {
 	store := newTestSessionStore(t)
-	token, _ := store.CreateSession(1, "5551234567", "phone")
+	token, _ := store.CreateSession("user-1", "5551234567", "phone")
 	store.DeleteSession(token)
 
 	_, ok := store.GetSession(token)
@@ -61,8 +61,8 @@ func TestSessionStore_Delete(t *testing.T) {
 
 func TestSessionStore_MultipleSessions(t *testing.T) {
 	store := newTestSessionStore(t)
-	token1, _ := store.CreateSession(1, "5551111111", "phone")
-	token2, _ := store.CreateSession(2, "5552222222", "phone")
+	token1, _ := store.CreateSession("user-1", "5551111111", "phone")
+	token2, _ := store.CreateSession("user-2", "5552222222", "phone")
 
 	if token1 == token2 {
 		t.Error("Two sessions got the same token")
@@ -78,8 +78,8 @@ func TestSessionStore_MultipleSessions(t *testing.T) {
 
 func TestSessionStore_DeleteDoesNotAffectOthers(t *testing.T) {
 	store := newTestSessionStore(t)
-	token1, _ := store.CreateSession(1, "5551111111", "phone")
-	token2, _ := store.CreateSession(2, "5552222222", "phone")
+	token1, _ := store.CreateSession("user-1", "5551111111", "phone")
+	token2, _ := store.CreateSession("user-2", "5552222222", "phone")
 
 	store.DeleteSession(token1)
 
@@ -339,7 +339,7 @@ func TestVerifyCode_Success(t *testing.T) {
 		t.Errorf("phone_number: got %v, want 5551234567", body["phone_number"])
 	}
 	// user_id should be a number > 0
-	if uid, ok := body["user_id"].(float64); !ok || uid < 1 {
+	if uid, ok := body["user_id"].(string); !ok || uid == "" {
 		t.Errorf("user_id: got %v, want positive integer", body["user_id"])
 	}
 
@@ -486,8 +486,8 @@ func TestMe_LoggedIn(t *testing.T) {
 	if body["phone_number"] != "5551234567" {
 		t.Errorf("phone: got %v, want 5551234567", body["phone_number"])
 	}
-	if uid, ok := body["user_id"].(float64); !ok || int(uid) != user.ID {
-		t.Errorf("user_id: got %v, want %d", body["user_id"], user.ID)
+	if uid, ok := body["user_id"].(string); !ok || uid != user.ID {
+		t.Errorf("user_id: got %v, want %s", body["user_id"], user.ID)
 	}
 }
 
@@ -522,7 +522,7 @@ func TestMe_WrongMethod(t *testing.T) {
 
 func TestLogout_ClearsSession(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 
 	rr := doRequest(server.handleLogout, "POST", "/auth/logout", nil,
 		[]*http.Cookie{{Name: "session", Value: token}})
@@ -711,20 +711,19 @@ func TestRequireAdmin_AdminUser(t *testing.T) {
 // =============================================================================
 
 func TestSessionStore_CleanExpired(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
-	store := NewSessionStore(db)
+	rawDB, _ := openTestDB(t)
+	store := NewSessionStore(rawDB)
+
+	// Create user for FK
+	rawDB.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
 
 	// Insert an already-expired session directly
-	db.Exec("INSERT INTO sessions (token, user_id, phone_number, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
-		"expired-token", 1, "5551234567", time.Now().UTC().Add(-48*time.Hour), time.Now().UTC().Add(-24*time.Hour))
+	rawDB.Exec("INSERT INTO sessions (token, user_id, phone, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+		"expired-token", "user-1", "5551234567", time.Now().UTC().Add(-48*time.Hour), time.Now().UTC().Add(-24*time.Hour))
 
 	// Insert a valid session
-	db.Exec("INSERT INTO sessions (token, user_id, phone_number, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
-		"valid-token", 1, "5551234567", time.Now().UTC(), time.Now().UTC().Add(24*time.Hour))
+	rawDB.Exec("INSERT INTO sessions (token, user_id, phone, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+		"valid-token", "user-1", "5551234567", time.Now().UTC(), time.Now().UTC().Add(24*time.Hour))
 
 	store.CleanExpired()
 
@@ -739,16 +738,15 @@ func TestSessionStore_CleanExpired(t *testing.T) {
 }
 
 func TestSessionStore_ExpiredSessionNotReturned(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
-	store := NewSessionStore(db)
+	rawDB, _ := openTestDB(t)
+	store := NewSessionStore(rawDB)
+
+	// Create user for FK
+	rawDB.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
 
 	// Insert expired session
-	db.Exec("INSERT INTO sessions (token, user_id, phone_number, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
-		"old-token", 1, "5551234567", time.Now().UTC().Add(-48*time.Hour), time.Now().UTC().Add(-1*time.Hour))
+	rawDB.Exec("INSERT INTO sessions (token, user_id, phone, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+		"old-token", "user-1", "5551234567", time.Now().UTC().Add(-48*time.Hour), time.Now().UTC().Add(-1*time.Hour))
 
 	_, ok := store.GetSession("old-token")
 	if ok {
@@ -1041,17 +1039,13 @@ func TestLogout_CookieHasSecurityFlags(t *testing.T) {
 // =============================================================================
 
 func TestResolveOrCreateUser_NewProvider(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
+	_, db := openTestDB(t)
 
 	user, err := resolveOrCreateUser(db, "google", "google-sub-123", "alice@example.com", "Alice")
 	if err != nil {
 		t.Fatalf("resolveOrCreateUser: %v", err)
 	}
-	if user.ID == 0 {
+	if user.ID == "" {
 		t.Error("Expected non-zero user ID")
 	}
 	if user.Email != "alice@example.com" {
@@ -1060,11 +1054,7 @@ func TestResolveOrCreateUser_NewProvider(t *testing.T) {
 }
 
 func TestResolveOrCreateUser_SameProviderReturnsSameUser(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
+	_, db := openTestDB(t)
 
 	u1, err := resolveOrCreateUser(db, "google", "google-sub-456", "bob@example.com", "Bob")
 	if err != nil {
@@ -1075,16 +1065,12 @@ func TestResolveOrCreateUser_SameProviderReturnsSameUser(t *testing.T) {
 		t.Fatalf("second call: %v", err)
 	}
 	if u1.ID != u2.ID {
-		t.Errorf("Same provider+sub created two users: %d vs %d", u1.ID, u2.ID)
+		t.Errorf("Same provider+sub created two users: %s vs %s", u1.ID, u2.ID)
 	}
 }
 
 func TestResolveOrCreateUser_EmailMergeAcrossProviders(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
+	_, db := openTestDB(t)
 
 	// Register via email first
 	u1, err := resolveOrCreateUser(db, "email", "carol@example.com", "carol@example.com", "Carol")
@@ -1100,16 +1086,12 @@ func TestResolveOrCreateUser_EmailMergeAcrossProviders(t *testing.T) {
 		t.Fatalf("google user: %v", err)
 	}
 	if u1.ID != u2.ID {
-		t.Errorf("Same email across providers created two users: %d vs %d", u1.ID, u2.ID)
+		t.Errorf("Same email across providers created two users: %s vs %s", u1.ID, u2.ID)
 	}
 }
 
 func TestResolveOrCreateUser_LoginCountIncremented(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
+	_, db := openTestDB(t)
 
 	user, _ := resolveOrCreateUser(db, "email", "dave@example.com", "dave@example.com", "Dave")
 
@@ -1124,11 +1106,7 @@ func TestResolveOrCreateUser_LoginCountIncremented(t *testing.T) {
 }
 
 func TestResolveOrCreateUser_MergedFlag(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
+	_, db := openTestDB(t)
 
 	// Create user via email
 	u1, err := resolveOrCreateUser(db, "email", "merge@example.com", "merge@example.com", "MergeTest")
@@ -1146,7 +1124,7 @@ func TestResolveOrCreateUser_MergedFlag(t *testing.T) {
 		t.Fatalf("google merge: %v", err)
 	}
 	if u1.ID != u2.ID {
-		t.Errorf("Expected same user, got %d vs %d", u1.ID, u2.ID)
+		t.Errorf("Expected same user, got %s vs %s", u1.ID, u2.ID)
 	}
 	if !u2.Merged {
 		t.Error("Expected Merged=true on first merge login")
@@ -1179,7 +1157,7 @@ func TestEmailRegister_Success(t *testing.T) {
 	if body["success"] != true {
 		t.Error("Expected success=true")
 	}
-	if uid, ok := body["user_id"].(float64); !ok || uid < 1 {
+	if uid, ok := body["user_id"].(string); !ok || uid == "" {
 		t.Errorf("user_id: got %v, want positive integer", body["user_id"])
 	}
 	// Session cookie must be set
@@ -1639,13 +1617,13 @@ func TestOnboarding_MeReturnsLoginCountAfterLogins(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
 
 	// Simulate a phone login which increments login_count
-	server.db.Exec("INSERT INTO users (id, phone_number, login_count) VALUES (1, '5551234567', 0)")
-	server.db.Exec("INSERT INTO auth_methods (user_id, provider, provider_id) VALUES (1, 'phone', '5551234567')")
+	server.db.Exec("INSERT INTO users (id, phone_number, login_count) VALUES ('user-1', '5551234567', 0)")
+	server.db.Exec("INSERT INTO auth_methods (user_id, provider, provider_id) VALUES ('user-1', 'phone', '5551234567')")
 
 	// Manually increment login_count as would happen during auth
-	server.db.Exec("UPDATE users SET login_count = 3 WHERE id = 1")
+	server.db.Exec("UPDATE users SET login_count = 3 WHERE id = 'user-1'")
 
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	rr := doRequest(server.handleMe, "GET", "/auth/me", nil, cookies)
@@ -1659,8 +1637,8 @@ func TestOnboarding_MeReturnsLoginCountAfterLogins(t *testing.T) {
 func TestOnboarding_MeReturnsName(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
-	server.db.Exec("INSERT INTO users (id, phone_number, name) VALUES (1, '5551234567', 'Andy')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number, name) VALUES ('user-1', '5551234567', 'Andy')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	rr := doRequest(server.handleMe, "GET", "/auth/me", nil, cookies)
@@ -1677,14 +1655,14 @@ func TestOnboarding_OnboardingFlagsColumnExists(t *testing.T) {
 
 	// Verify onboarding_flags column exists with default value
 	var flags string
-	err := server.db.QueryRow("SELECT onboarding_flags FROM users WHERE id = 1").Scan(&flags)
+	err := server.db.QueryRow("SELECT onboarding_flags FROM users WHERE id = 'nonexistent'").Scan(&flags)
 	if err == nil && flags != "{}" {
 		t.Errorf("expected default onboarding_flags='{}', got '%s'", flags)
 	}
 
 	// Insert a user and verify default
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (99, '5559999999')")
-	err = server.db.QueryRow("SELECT onboarding_flags FROM users WHERE id = 99").Scan(&flags)
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-99', '5559999999')")
+	err = server.db.QueryRow("SELECT onboarding_flags FROM users WHERE id = 'user-99'").Scan(&flags)
 	if err != nil {
 		t.Fatalf("failed to read onboarding_flags: %v", err)
 	}
@@ -1696,8 +1674,8 @@ func TestOnboarding_OnboardingFlagsColumnExists(t *testing.T) {
 func TestOnboarding_NameSavedViaSettings(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Save name via PATCH /api/settings
@@ -1709,7 +1687,7 @@ func TestOnboarding_NameSavedViaSettings(t *testing.T) {
 
 	// Verify name persisted
 	var name string
-	server.db.QueryRow("SELECT name FROM users WHERE id = 1").Scan(&name)
+	server.db.QueryRow("SELECT name FROM users WHERE id = 'user-1'").Scan(&name)
 	if name != "Penny Tester" {
 		t.Errorf("expected name='Penny Tester', got '%s'", name)
 	}
@@ -1767,7 +1745,7 @@ func TestGoogleAuthAutoPopulatesPhoto(t *testing.T) {
 	}
 
 	body := parseJSON(rr)
-	userID := int(body["user_id"].(float64))
+	userID := body["user_id"].(string)
 
 	// Verify profile photo was stored
 	var photoData []byte
@@ -1824,7 +1802,7 @@ func TestGoogleAuthDoesNotOverwriteExistingPhoto(t *testing.T) {
 	}
 
 	body := parseJSON(rr)
-	userID := int(body["user_id"].(float64))
+	userID := body["user_id"].(string)
 
 	// Manually set a custom photo (PNG magic bytes)
 	customPhoto := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00}
@@ -1881,7 +1859,7 @@ func TestGoogleAuthHandlesMissingPicture(t *testing.T) {
 	if body["success"] != true {
 		t.Errorf("expected success=true, got %v", body["success"])
 	}
-	userID := int(body["user_id"].(float64))
+	userID := body["user_id"].(string)
 
 	// Verify no profile photo was stored
 	var count int
@@ -1919,7 +1897,7 @@ func TestGoogleAuthHandlesInvalidPictureURL(t *testing.T) {
 	if body["success"] != true {
 		t.Errorf("expected success=true, got %v", body["success"])
 	}
-	userID := int(body["user_id"].(float64))
+	userID := body["user_id"].(string)
 
 	// Verify no profile photo was stored (HTTP URL was rejected)
 	var count int
@@ -2213,7 +2191,7 @@ func TestAccountMerge_AuditTrailLogged(t *testing.T) {
 	// Merge via Google with same email
 	user2, _ := resolveOrCreateUser(server.db, "google", "goog123", "merge@test.com", "Alice G")
 	if user2.ID != user1.ID {
-		t.Fatalf("expected merge to same user, got %d vs %d", user2.ID, user1.ID)
+		t.Fatalf("expected merge to same user, got %s vs %s", user2.ID, user1.ID)
 	}
 	if !user2.Merged {
 		t.Fatal("expected Merged flag to be true")
@@ -2255,7 +2233,7 @@ func TestAccountMerge_HouseholdDedup_SameHousehold(t *testing.T) {
 	merged, _ := resolveOrCreateUser(server.db, "google", "g_hh", "hh@test.com", "")
 
 	if merged.ID != user1.ID {
-		t.Fatalf("expected merge to user1, got %d", merged.ID)
+		t.Fatalf("expected merge to user1, got %s", merged.ID)
 	}
 
 	// User2 should no longer be in the household
@@ -2283,7 +2261,7 @@ func TestAccountMerge_HouseholdDedup_DifferentHouseholds(t *testing.T) {
 	// Trigger merge
 	merged, _ := resolveOrCreateUser(server.db, "google", "g_diff", "diff@test.com", "")
 	if merged.ID != user1.ID {
-		t.Fatalf("expected merge to user1, got %d", merged.ID)
+		t.Fatalf("expected merge to user1, got %s", merged.ID)
 	}
 
 	// User2 should be removed from old household
@@ -2438,7 +2416,7 @@ func TestAccountMerge_OrphanedUserSoftDeleted(t *testing.T) {
 	var orphanName, orphanEmail string
 	server.db.QueryRow("SELECT COALESCE(name,''), COALESCE(email,'') FROM users WHERE id = ?", user2.ID).Scan(&orphanName, &orphanEmail)
 
-	expectedName := fmt.Sprintf("[merged into user %d]", user1.ID)
+	expectedName := fmt.Sprintf("[merged into user %s]", user1.ID)
 	if orphanName != expectedName {
 		t.Errorf("expected orphan name '%s', got '%s'", expectedName, orphanName)
 	}
@@ -2479,7 +2457,7 @@ func TestAccountMerge_NoOrphan_AuthMethodOnly(t *testing.T) {
 	user2, _ := resolveOrCreateUser(server.db, "google", "g_auth", "authonly@test.com", "Alice G")
 
 	if user2.ID != user1.ID {
-		t.Fatalf("expected same user, got %d vs %d", user2.ID, user1.ID)
+		t.Fatalf("expected same user, got %s vs %s", user2.ID, user1.ID)
 	}
 	if !user2.Merged {
 		t.Fatal("expected Merged flag to be true")

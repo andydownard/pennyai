@@ -8,550 +8,352 @@ import (
 	"time"
 )
 
-func initDB(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		return nil, fmt.Errorf("opening database: %w", err)
+// addColumnIfNotExists safely adds a column to a table, ignoring the error
+// if the column already exists (Postgres raises an error unlike SQLite which
+// silently ignores duplicate ALTER TABLE ADD COLUMN).
+func addColumnIfNotExists(db dbExecer, table, column, definition string) {
+	_, err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition))
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		log.Printf("[schema] warning adding %s.%s: %v", table, column, err)
+	}
+}
+
+func initDB(db *sql.DB) error {
+	// =========================================================================
+	// SHARED USERS TABLE — owned by timpager, extended by penny
+	// =========================================================================
+	// The `users` and `sessions` tables are created by timpager.
+	// DO NOT CREATE them here. We add penny-specific columns to the shared
+	// users table via ALTER TABLE ADD COLUMN.
+	for _, c := range []struct{ col, def string }{
+		{"household_id", "INTEGER"},
+		{"referral_code", "TEXT"},
+		{"referral_points", "INTEGER DEFAULT 0"},
+		{"last_active", "TIMESTAMPTZ"},
+		{"login_count", "INTEGER NOT NULL DEFAULT 0"},
+		{"address", "TEXT NOT NULL DEFAULT ''"},
+		{"penny_brand_mode", "TEXT NOT NULL DEFAULT 'ask'"},
+		{"deal_accept_count", "INTEGER NOT NULL DEFAULT 0"},
+		{"deal_shown_count", "INTEGER NOT NULL DEFAULT 0"},
+		{"penny_slider", "INTEGER NOT NULL DEFAULT 15"},
+		{"penny_autotune", "INTEGER NOT NULL DEFAULT 1"},
+		{"penny_deals", "INTEGER NOT NULL DEFAULT 0"},
+		{"last_cleared_items", "JSONB NOT NULL DEFAULT '[]'::jsonb"},
+		{"swap_credits_cents", "INTEGER NOT NULL DEFAULT 0"},
+		{"sms_consent_at", "TIMESTAMPTZ"},
+		{"sms_consent_ip", "TEXT NOT NULL DEFAULT ''"},
+		{"sms_consent_user_agent", "TEXT NOT NULL DEFAULT ''"},
+		{"onboarding_flags", "JSONB NOT NULL DEFAULT '{}'::jsonb"},
+		{"profile_photo", "TEXT NOT NULL DEFAULT ''"},
+		{"name_source", "TEXT NOT NULL DEFAULT 'auto'"},
+		{"referral_source", "TEXT NOT NULL DEFAULT ''"},
+		{"nps_dismissed_at", "TEXT NOT NULL DEFAULT ''"},
+		{"store_order_enabled", "INTEGER NOT NULL DEFAULT 1"},
+		{"daily_digest_enabled", "INTEGER NOT NULL DEFAULT 0"},
+		{"daily_digest_opted_in_at", "TIMESTAMPTZ"},
+		{"daily_digest_last_sent", "TIMESTAMPTZ"},
+	} {
+		addColumnIfNotExists(db, "users", c.col, c.def)
 	}
 
-	// For in-memory databases, limit to 1 connection so all operations
-	// share the same database instance (each :memory: connection is separate).
-	// This also ensures PRAGMA settings apply to all queries.
-	if path == ":memory:" {
-		db.SetMaxOpenConns(1)
-	} else {
-		// SQLite only supports one writer at a time. Limiting connections
-		// prevents SQLITE_BUSY contention under concurrent requests.
-		db.SetMaxOpenConns(1)
-	}
-
-	// Enable foreign key enforcement (off by default in SQLite)
-	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		return nil, fmt.Errorf("enabling foreign keys: %w", err)
-	}
-
-	// WAL mode for better concurrent read performance
-	if _, err := db.Exec("PRAGMA journal_mode = WAL"); err != nil {
-		log.Printf("[warn] failed to enable WAL mode: %v", err)
-	}
-	// NORMAL sync is safe with WAL and much faster than FULL
-	if _, err := db.Exec("PRAGMA synchronous = NORMAL"); err != nil {
-		log.Printf("[warn] failed to set synchronous mode: %v", err)
-	}
-	// Wait up to 5s for locks instead of failing immediately
-	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
-		log.Printf("[warn] failed to set busy timeout: %v", err)
-	}
-
-	// Create the users table if it doesn't exist.
-	// "IF NOT EXISTS" means this is safe to run every time the app starts.
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS users (
-			id           INTEGER PRIMARY KEY AUTOINCREMENT,
-			phone_number TEXT    UNIQUE,
-			created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
-		)
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("creating users table: %w", err)
-	}
-
-	_, err = db.Exec(`
+	// =========================================================================
+	// LIST ITEMS
+	// =========================================================================
+	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS list_items (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id    INTEGER NOT NULL,
-			name       TEXT    NOT NULL,
-			department TEXT    NOT NULL DEFAULT 'Other',
+			id         SERIAL PRIMARY KEY,
+			user_id    TEXT NOT NULL,
+			name       TEXT NOT NULL,
+			department TEXT NOT NULL DEFAULT 'Other',
 			checked    INTEGER NOT NULL DEFAULT 0,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating list_items table: %w", err)
+		return fmt.Errorf("creating list_items table: %w", err)
 	}
 
-	// Add columns introduced after initial schema (safe to run repeatedly — errors ignored)
-	for _, stmt := range []string{
-		"ALTER TABLE list_items ADD COLUMN brand TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE list_items ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1",
-		"ALTER TABLE list_items ADD COLUMN size TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE list_items ADD COLUMN source TEXT NOT NULL DEFAULT 'app'",
-		"ALTER TABLE list_items ADD COLUMN urgent INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE list_items ADD COLUMN claimed_by INTEGER DEFAULT NULL",
-		"ALTER TABLE list_items ADD COLUMN claimed_at DATETIME DEFAULT NULL",
-		"ALTER TABLE list_items ADD COLUMN notes TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE list_items ADD COLUMN swap_savings_cents INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE list_items ADD COLUMN emoji TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE list_items ADD COLUMN needs_enrichment INTEGER NOT NULL DEFAULT 0",
+	for _, c := range []struct{ col, def string }{
+		{"brand", "TEXT NOT NULL DEFAULT ''"},
+		{"quantity", "INTEGER NOT NULL DEFAULT 1"},
+		{"size", "TEXT NOT NULL DEFAULT ''"},
+		{"source", "TEXT NOT NULL DEFAULT 'app'"},
+		{"urgent", "INTEGER NOT NULL DEFAULT 0"},
+		{"claimed_by", "TEXT DEFAULT NULL"},
+		{"claimed_at", "TIMESTAMPTZ DEFAULT NULL"},
+		{"notes", "TEXT NOT NULL DEFAULT ''"},
+		{"swap_savings_cents", "INTEGER NOT NULL DEFAULT 0"},
+		{"emoji", "TEXT NOT NULL DEFAULT ''"},
+		{"needs_enrichment", "INTEGER NOT NULL DEFAULT 0"},
 	} {
-		db.Exec(stmt) // "duplicate column name" error is expected and harmless
+		addColumnIfNotExists(db, "list_items", c.col, c.def)
 	}
 
+	// =========================================================================
+	// SAVED LISTS
+	// =========================================================================
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS saved_lists (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id    INTEGER NOT NULL,
-			name       TEXT    NOT NULL,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			id         SERIAL PRIMARY KEY,
+			user_id    TEXT NOT NULL,
+			name       TEXT NOT NULL,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating saved_lists table: %w", err)
+		return fmt.Errorf("creating saved_lists table: %w", err)
 	}
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS saved_list_items (
-			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			id            SERIAL PRIMARY KEY,
 			saved_list_id INTEGER NOT NULL,
-			name          TEXT    NOT NULL,
-			brand         TEXT    NOT NULL DEFAULT '',
-			department    TEXT    NOT NULL DEFAULT 'Other',
+			name          TEXT NOT NULL,
+			brand         TEXT NOT NULL DEFAULT '',
+			department    TEXT NOT NULL DEFAULT 'Other',
 			quantity      INTEGER NOT NULL DEFAULT 1,
-			size          TEXT    NOT NULL DEFAULT '',
+			size          TEXT NOT NULL DEFAULT '',
 			FOREIGN KEY (saved_list_id) REFERENCES saved_lists(id) ON DELETE CASCADE
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating saved_list_items table: %w", err)
+		return fmt.Errorf("creating saved_list_items table: %w", err)
 	}
-	db.Exec("ALTER TABLE saved_list_items ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
-	db.Exec("ALTER TABLE saved_lists ADD COLUMN store_name TEXT NOT NULL DEFAULT ''")
-	db.Exec("ALTER TABLE saved_lists ADD COLUMN is_master INTEGER NOT NULL DEFAULT 0")
-	db.Exec("ALTER TABLE saved_lists ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP")
+	addColumnIfNotExists(db, "saved_list_items", "notes", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "saved_lists", "store_name", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "saved_lists", "is_master", "INTEGER NOT NULL DEFAULT 0")
+	addColumnIfNotExists(db, "saved_lists", "updated_at", "TIMESTAMPTZ DEFAULT NOW()")
 
-	// --- Household tables ---
+	// =========================================================================
+	// HOUSEHOLDS
+	// =========================================================================
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS households (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			id         SERIAL PRIMARY KEY,
+			created_at TIMESTAMPTZ DEFAULT NOW()
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating households table: %w", err)
+		return fmt.Errorf("creating households table: %w", err)
 	}
+	addColumnIfNotExists(db, "households", "name", "TEXT NOT NULL DEFAULT ''")
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS household_members (
-			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			id           SERIAL PRIMARY KEY,
 			household_id INTEGER NOT NULL,
-			user_id      INTEGER NOT NULL UNIQUE,
+			user_id      TEXT NOT NULL UNIQUE,
 			role         TEXT NOT NULL DEFAULT 'member',
-			invited_by   INTEGER,
-			created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+			invited_by   TEXT,
+			created_at   TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (household_id) REFERENCES households(id),
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating household_members table: %w", err)
+		return fmt.Errorf("creating household_members table: %w", err)
 	}
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS invites (
-			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			id           SERIAL PRIMARY KEY,
 			household_id INTEGER NOT NULL,
 			code         TEXT UNIQUE NOT NULL,
-			created_by   INTEGER NOT NULL,
-			expires_at   DATETIME NOT NULL,
-			used_by      INTEGER,
-			used_at      DATETIME,
+			created_by   TEXT NOT NULL,
+			expires_at   TIMESTAMPTZ NOT NULL,
+			used_by      TEXT,
+			used_at      TIMESTAMPTZ,
 			FOREIGN KEY (household_id) REFERENCES households(id),
 			FOREIGN KEY (created_by) REFERENCES users(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating invites table: %w", err)
+		return fmt.Errorf("creating invites table: %w", err)
 	}
+	addColumnIfNotExists(db, "invites", "notified", "INTEGER NOT NULL DEFAULT 0")
 
-	// Add columns introduced after initial schema (safe to run repeatedly)
-	for _, stmt := range []string{
-		"ALTER TABLE users ADD COLUMN name TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''",
-		"ALTER TABLE users ADD COLUMN household_id INTEGER",
-		"ALTER TABLE users ADD COLUMN referral_code TEXT",
-		"ALTER TABLE users ADD COLUMN referral_points INTEGER DEFAULT 0",
-		"ALTER TABLE users ADD COLUMN last_active DATETIME",
-		"ALTER TABLE users ADD COLUMN login_count INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE users ADD COLUMN address TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE users ADD COLUMN onboarding_flags TEXT NOT NULL DEFAULT '{}'",
-		"ALTER TABLE users ADD COLUMN referral_source TEXT NOT NULL DEFAULT ''",
-		// M2a: dedup flag for join notification SMS
-		"ALTER TABLE invites ADD COLUMN notified INTEGER NOT NULL DEFAULT 0",
-		// M2c: editable household/list name
-		"ALTER TABLE households ADD COLUMN name TEXT NOT NULL DEFAULT ''",
-	} {
-		db.Exec(stmt)
-	}
-
+	// =========================================================================
+	// ITEM MODIFICATIONS
+	// =========================================================================
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS item_modifications (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			id         SERIAL PRIMARY KEY,
 			item_id    INTEGER NOT NULL,
-			user_id    INTEGER,
+			user_id    TEXT,
 			action     TEXT NOT NULL,
 			detail     TEXT,
 			source     TEXT,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (item_id) REFERENCES list_items(id) ON DELETE CASCADE,
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating item_modifications table: %w", err)
+		return fmt.Errorf("creating item_modifications table: %w", err)
 	}
 
-	// Migrate item_modifications to add ON DELETE CASCADE if missing.
-	// SQLite doesn't support ALTER TABLE for constraints, so we recreate the table.
-	// Check if the existing table has ON DELETE CASCADE by looking at the schema.
-	var createSQL string
-	db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='item_modifications'").Scan(&createSQL)
-	if createSQL != "" && !strings.Contains(strings.ToUpper(createSQL), "ON DELETE CASCADE") {
-		tx, err := db.Begin()
-		if err != nil {
-			return nil, fmt.Errorf("starting item_modifications migration: %w", err)
-		}
-		migrationErr := func() error {
-			if _, err := tx.Exec(`
-				CREATE TABLE IF NOT EXISTS item_modifications_new (
-					id         INTEGER PRIMARY KEY AUTOINCREMENT,
-					item_id    INTEGER NOT NULL,
-					user_id    INTEGER,
-					action     TEXT NOT NULL,
-					detail     TEXT,
-					source     TEXT,
-					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-					FOREIGN KEY (item_id) REFERENCES list_items(id) ON DELETE CASCADE,
-					FOREIGN KEY (user_id) REFERENCES users(id)
-				)
-			`); err != nil {
-				return err
-			}
-			if _, err := tx.Exec("INSERT INTO item_modifications_new SELECT * FROM item_modifications"); err != nil {
-				return err
-			}
-			if _, err := tx.Exec("DROP TABLE item_modifications"); err != nil {
-				return err
-			}
-			if _, err := tx.Exec("ALTER TABLE item_modifications_new RENAME TO item_modifications"); err != nil {
-				return err
-			}
-			return nil
-		}()
-		if migrationErr != nil {
-			tx.Rollback()
-			return nil, fmt.Errorf("migrating item_modifications: %w", migrationErr)
-		}
-		if err := tx.Commit(); err != nil {
-			return nil, fmt.Errorf("committing item_modifications migration: %w", err)
-		}
-	}
-
+	// =========================================================================
+	// REFERRALS & REDEMPTIONS
+	// =========================================================================
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS referrals (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			referrer_id INTEGER NOT NULL,
-			referred_id INTEGER NOT NULL,
-			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+			id          SERIAL PRIMARY KEY,
+			referrer_id TEXT NOT NULL,
+			referred_id TEXT NOT NULL,
+			created_at  TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (referrer_id) REFERENCES users(id),
 			FOREIGN KEY (referred_id) REFERENCES users(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating referrals table: %w", err)
+		return fmt.Errorf("creating referrals table: %w", err)
 	}
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS redemptions (
-			id           INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id      INTEGER NOT NULL,
+			id           SERIAL PRIMARY KEY,
+			user_id      TEXT NOT NULL,
 			points       INTEGER NOT NULL,
 			amount_cents INTEGER NOT NULL,
 			status       TEXT DEFAULT 'pending',
-			created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_at   TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating redemptions table: %w", err)
+		return fmt.Errorf("creating redemptions table: %w", err)
 	}
 
+	// =========================================================================
+	// NPS RESPONSES
+	// =========================================================================
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS nps_responses (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id    INTEGER NOT NULL,
+			id         SERIAL PRIMARY KEY,
+			user_id    TEXT NOT NULL,
 			score      INTEGER NOT NULL,
 			comment    TEXT NOT NULL DEFAULT '',
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating nps_responses table: %w", err)
+		return fmt.Errorf("creating nps_responses table: %w", err)
 	}
 
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS sessions (
-			token        TEXT PRIMARY KEY,
-			user_id      INTEGER NOT NULL,
-			phone_number TEXT,
-			auth_method  TEXT NOT NULL DEFAULT 'phone',
-			created_at   DATETIME NOT NULL,
-			expires_at   DATETIME NOT NULL
-		)
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("creating sessions table: %w", err)
-	}
-
-	// --- Multi-auth tables ---
+	// =========================================================================
+	// MULTI-AUTH TABLES
+	// =========================================================================
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS auth_methods (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id     INTEGER NOT NULL,
-			provider    TEXT NOT NULL,
-			provider_id TEXT NOT NULL,
+			id            SERIAL PRIMARY KEY,
+			user_id       TEXT NOT NULL,
+			provider      TEXT NOT NULL,
+			provider_id   TEXT NOT NULL,
 			password_hash TEXT DEFAULT NULL,
-			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_at    TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (user_id) REFERENCES users(id),
 			UNIQUE(provider, provider_id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating auth_methods table: %w", err)
+		return fmt.Errorf("creating auth_methods table: %w", err)
 	}
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS password_resets (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id    INTEGER NOT NULL,
+			id         SERIAL PRIMARY KEY,
+			user_id    TEXT NOT NULL,
 			token      TEXT UNIQUE NOT NULL,
-			expires_at DATETIME NOT NULL,
+			expires_at TIMESTAMPTZ NOT NULL,
 			used       INTEGER NOT NULL DEFAULT 0,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating password_resets table: %w", err)
+		return fmt.Errorf("creating password_resets table: %w", err)
 	}
 
-	// Ensure penny/brand columns exist BEFORE the table recreation migration
-	// (the recreation copies these columns, so they must be present first).
-	for _, stmt := range []string{
-		"ALTER TABLE users ADD COLUMN penny_brand_mode TEXT NOT NULL DEFAULT 'ask'",
-		"ALTER TABLE users ADD COLUMN deal_accept_count INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE users ADD COLUMN deal_shown_count INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE users ADD COLUMN penny_slider INTEGER NOT NULL DEFAULT 15",
-		"ALTER TABLE users ADD COLUMN penny_autotune INTEGER NOT NULL DEFAULT 1",
-		"ALTER TABLE users ADD COLUMN penny_deals INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE users ADD COLUMN last_cleared_items TEXT NOT NULL DEFAULT '[]'",
-		// Twilio A2P 10DLC compliance: capture SMS consent at signup with timestamp + IP + UA
-		// for proof during campaign vetting and audit. NULL = consent not yet captured (pre-rebrand users).
-		"ALTER TABLE users ADD COLUMN sms_consent_at DATETIME",
-		"ALTER TABLE users ADD COLUMN sms_consent_ip TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE users ADD COLUMN sms_consent_user_agent TEXT NOT NULL DEFAULT ''",
-		// Rally ecosystem federation: link to canonical timpager user_id for shared identity.
-		// NULL until Phase 3 backfill runs.
-		"ALTER TABLE users ADD COLUMN timpager_user_id TEXT",
-	} {
-		db.Exec(stmt) // errors ignored — column may already exist
-	}
-
-	// Migrate users.phone_number from NOT NULL to nullable.
-	// SQLite can't ALTER COLUMN, so we recreate the table if needed.
-	var usersSQL string
-	db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").Scan(&usersSQL)
-	if usersSQL != "" && strings.Contains(usersSQL, "phone_number") && strings.Contains(strings.ToUpper(usersSQL), "NOT NULL") && strings.Contains(usersSQL, "phone_number TEXT") {
-		// Check if it's specifically phone_number that has NOT NULL (not another column)
-		// The original schema is: phone_number TEXT UNIQUE NOT NULL
-		if strings.Contains(usersSQL, "phone_number TEXT") && strings.Contains(usersSQL, "UNIQUE NOT NULL") {
-			// Disable FK checks during table recreation (other tables reference users)
-			db.Exec("PRAGMA foreign_keys = OFF")
-			tx, err := db.Begin()
-			if err != nil {
-				db.Exec("PRAGMA foreign_keys = ON")
-				return nil, fmt.Errorf("starting users migration: %w", err)
-			}
-			migErr := func() error {
-				// Get all column names from the existing table by reading a row
-				if _, err := tx.Exec(`
-					CREATE TABLE IF NOT EXISTS users_new (
-						id              INTEGER PRIMARY KEY AUTOINCREMENT,
-						phone_number    TEXT    UNIQUE,
-						created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-						name            TEXT NOT NULL DEFAULT '',
-						email           TEXT DEFAULT '',
-						household_id    INTEGER,
-						referral_code   TEXT,
-						referral_points INTEGER DEFAULT 0,
-						last_active     DATETIME,
-						login_count     INTEGER NOT NULL DEFAULT 0,
-						address         TEXT NOT NULL DEFAULT '',
-						penny_brand_mode TEXT NOT NULL DEFAULT 'ask',
-						deal_accept_count INTEGER NOT NULL DEFAULT 0,
-						deal_shown_count  INTEGER NOT NULL DEFAULT 0,
-						penny_slider     INTEGER NOT NULL DEFAULT 15,
-						penny_autotune   INTEGER NOT NULL DEFAULT 1,
-						penny_deals      INTEGER NOT NULL DEFAULT 0,
-						last_cleared_items TEXT NOT NULL DEFAULT '[]',
-						swap_credits_cents INTEGER NOT NULL DEFAULT 0
-					)
-				`); err != nil {
-					return err
-				}
-				if _, err := tx.Exec(`
-					INSERT INTO users_new (id, phone_number, created_at, name, email, household_id,
-						referral_code, referral_points, last_active, login_count, address,
-						penny_brand_mode, deal_accept_count, deal_shown_count, penny_slider,
-						penny_autotune, penny_deals, last_cleared_items, swap_credits_cents)
-					SELECT id, phone_number, created_at, name, email, household_id,
-						referral_code, referral_points, last_active, login_count, address,
-						penny_brand_mode, deal_accept_count, deal_shown_count, penny_slider,
-						penny_autotune, penny_deals, last_cleared_items, COALESCE(swap_credits_cents, 0)
-					FROM users
-				`); err != nil {
-					return err
-				}
-				if _, err := tx.Exec("DROP TABLE users"); err != nil {
-					return err
-				}
-				if _, err := tx.Exec("ALTER TABLE users_new RENAME TO users"); err != nil {
-					return err
-				}
-				return nil
-			}()
-			if migErr != nil {
-				tx.Rollback()
-				db.Exec("PRAGMA foreign_keys = ON")
-				return nil, fmt.Errorf("migrating users table: %w", migErr)
-			}
-			if err := tx.Commit(); err != nil {
-				db.Exec("PRAGMA foreign_keys = ON")
-				return nil, fmt.Errorf("committing users migration: %w", err)
-			}
-			db.Exec("PRAGMA foreign_keys = ON")
-			log.Println("[migration] users.phone_number is now nullable")
-		}
-	}
-
-	// Backfill auth_methods from existing users with phone numbers
+	// Backfill auth_methods from users with phone numbers
 	db.Exec(`
-		INSERT OR IGNORE INTO auth_methods (user_id, provider, provider_id)
-		SELECT id, 'phone', phone_number FROM users
-		WHERE phone_number IS NOT NULL AND phone_number != ''
+		INSERT INTO auth_methods (user_id, provider, provider_id)
+		SELECT id, 'phone', phone FROM users
+		WHERE phone IS NOT NULL AND phone != ''
+		ON CONFLICT DO NOTHING
 	`)
 
-	// Migrate sessions table: add auth_method column, make phone_number nullable
-	var sessionsSQL string
-	db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'").Scan(&sessionsSQL)
-	if sessionsSQL != "" && !strings.Contains(sessionsSQL, "auth_method") {
-		tx, err := db.Begin()
-		if err != nil {
-			return nil, fmt.Errorf("starting sessions migration: %w", err)
-		}
-		migErr := func() error {
-			if _, err := tx.Exec(`
-				CREATE TABLE IF NOT EXISTS sessions_new (
-					token        TEXT PRIMARY KEY,
-					user_id      INTEGER NOT NULL,
-					phone_number TEXT,
-					auth_method  TEXT NOT NULL DEFAULT 'phone',
-					created_at   DATETIME NOT NULL,
-					expires_at   DATETIME NOT NULL
-				)
-			`); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(`
-				INSERT INTO sessions_new (token, user_id, phone_number, auth_method, created_at, expires_at)
-				SELECT token, user_id, phone_number, 'phone', created_at, expires_at FROM sessions
-			`); err != nil {
-				return err
-			}
-			if _, err := tx.Exec("DROP TABLE sessions"); err != nil {
-				return err
-			}
-			if _, err := tx.Exec("ALTER TABLE sessions_new RENAME TO sessions"); err != nil {
-				return err
-			}
-			return nil
-		}()
-		if migErr != nil {
-			tx.Rollback()
-			return nil, fmt.Errorf("migrating sessions table: %w", migErr)
-		}
-		if err := tx.Commit(); err != nil {
-			return nil, fmt.Errorf("committing sessions migration: %w", err)
-		}
-		log.Println("[migration] sessions table now has auth_method column")
-	}
-
+	// =========================================================================
+	// BRANDS
+	// =========================================================================
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS brand_owners (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			id         SERIAL PRIMARY KEY,
 			name       TEXT UNIQUE NOT NULL,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			created_at TIMESTAMPTZ DEFAULT NOW()
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating brand_owners table: %w", err)
+		return fmt.Errorf("creating brand_owners table: %w", err)
 	}
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS brands (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			name       TEXT UNIQUE NOT NULL COLLATE NOCASE,
+			id         SERIAL PRIMARY KEY,
+			name       TEXT UNIQUE NOT NULL,
 			domain     TEXT NOT NULL,
 			owner_id   INTEGER,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (owner_id) REFERENCES brand_owners(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating brands table: %w", err)
+		return fmt.Errorf("creating brands table: %w", err)
 	}
 
 	if err := seedBrands(db); err != nil {
 		log.Printf("WARNING: failed to seed brands: %v", err)
 	}
 
-	// --- Brand logos (stored as BLOBs to survive Railway's ephemeral filesystem) ---
+	// Brand logos (stored as BYTEa to survive ephemeral filesystems)
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS brand_logos (
 			brand_id      INTEGER PRIMARY KEY,
-			logo_data     BLOB    NOT NULL,
+			logo_data     BYTEA   NOT NULL,
 			content_type  TEXT    NOT NULL DEFAULT 'image/png',
-			fetched_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			fetched_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			source        TEXT    NOT NULL DEFAULT 'logodev',
 			FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE CASCADE
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating brand_logos table: %w", err)
+		return fmt.Errorf("creating brand_logos table: %w", err)
 	}
 
-	// --- Shopping trips ---
+	// =========================================================================
+	// SHOPPING TRIPS
+	// =========================================================================
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS shopping_trips (
-			id           INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id      INTEGER NOT NULL,
+			id           SERIAL PRIMARY KEY,
+			user_id      TEXT NOT NULL,
 			household_id INTEGER NOT NULL,
 			trip_date    TEXT    NOT NULL,
 			trip_time    TEXT    DEFAULT NULL,
 			time_label   TEXT    DEFAULT NULL,
-			created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_at   TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (user_id) REFERENCES users(id),
 			FOREIGN KEY (household_id) REFERENCES households(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating shopping_trips table: %w", err)
+		return fmt.Errorf("creating shopping_trips table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_shopping_trips_household_id ON shopping_trips(household_id)")
 
-	// Migrate old department names to new names (safe to run repeatedly — updates 0 rows if already migrated)
+	// Migrate old department names (safe to run repeatedly)
 	for _, stmt := range []string{
 		"UPDATE list_items SET department = 'Bakery & Deli' WHERE department = 'Bakery'",
 		"UPDATE list_items SET department = 'Pantry & Dry Goods' WHERE department = 'Pantry'",
@@ -563,59 +365,40 @@ func initDB(path string) (*sql.DB, error) {
 		db.Exec(stmt)
 	}
 
-	// --- Brand preference learning tables ---
+	// =========================================================================
+	// BRAND PREFERENCE LEARNING
+	// =========================================================================
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS brand_choices (
-			id               INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id          INTEGER NOT NULL,
+			id               SERIAL PRIMARY KEY,
+			user_id          TEXT NOT NULL,
 			product_category TEXT NOT NULL,
 			brand            TEXT NOT NULL,
 			source           TEXT NOT NULL DEFAULT 'disambiguation',
-			created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_at       TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating brand_choices table: %w", err)
+		return fmt.Errorf("creating brand_choices table: %w", err)
 	}
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS brand_preferences (
-			id               INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id          INTEGER NOT NULL,
+			id               SERIAL PRIMARY KEY,
+			user_id          TEXT NOT NULL,
 			product_category TEXT NOT NULL,
 			brand            TEXT NOT NULL,
 			streak           INTEGER NOT NULL DEFAULT 1,
 			pick_count       INTEGER NOT NULL DEFAULT 1,
-			last_picked      DATETIME DEFAULT CURRENT_TIMESTAMP,
-			created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+			last_picked      TIMESTAMPTZ DEFAULT NOW(),
+			created_at       TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (user_id) REFERENCES users(id),
 			UNIQUE(user_id, product_category)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating brand_preferences table: %w", err)
-	}
-
-	// Brand preference user columns (safe to run repeatedly — errors ignored)
-	for _, stmt := range []string{
-		"ALTER TABLE users ADD COLUMN penny_brand_mode TEXT NOT NULL DEFAULT 'ask'",
-		"ALTER TABLE users ADD COLUMN deal_accept_count INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE users ADD COLUMN deal_shown_count INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE users ADD COLUMN penny_slider INTEGER NOT NULL DEFAULT 15",
-		"ALTER TABLE users ADD COLUMN penny_autotune INTEGER NOT NULL DEFAULT 1",
-		"ALTER TABLE users ADD COLUMN penny_deals INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE users ADD COLUMN last_cleared_items TEXT NOT NULL DEFAULT '[]'",
-		"ALTER TABLE users ADD COLUMN swap_credits_cents INTEGER NOT NULL DEFAULT 0",
-		// SMS consent + Rally federation columns are also added in the earlier
-		// pre-recreation migration block; repeated here so they survive the
-		// users-table recreation that this section runs after.
-		"ALTER TABLE users ADD COLUMN sms_consent_at DATETIME",
-		"ALTER TABLE users ADD COLUMN sms_consent_ip TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE users ADD COLUMN sms_consent_user_agent TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE users ADD COLUMN timpager_user_id TEXT",
-	} {
-		db.Exec(stmt)
+		return fmt.Errorf("creating brand_preferences table: %w", err)
 	}
 
 	// =========================================================================
@@ -625,114 +408,116 @@ func initDB(path string) (*sql.DB, error) {
 	// brand_deals: deals seeded by admin, matching competitor products to offers
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS brand_deals (
-			id                INTEGER PRIMARY KEY AUTOINCREMENT,
+			id                 SERIAL PRIMARY KEY,
 			competitor_product TEXT    NOT NULL,
 			offer_brand        TEXT    NOT NULL,
 			offer_product      TEXT    NOT NULL,
 			discount_cents     INTEGER NOT NULL DEFAULT 0,
-			daily_budget_cents INTEGER NOT NULL DEFAULT 0, -- misnomer: this is cumulative lifetime budget, not daily (B15)
+			daily_budget_cents INTEGER NOT NULL DEFAULT 0,
 			budget_spent_cents INTEGER NOT NULL DEFAULT 0,
 			status             TEXT    NOT NULL DEFAULT 'active',
-			starts_at          TEXT    NOT NULL DEFAULT (datetime('now')),
-			ends_at            TEXT,
-			created_at         TEXT    NOT NULL DEFAULT (datetime('now'))
+			starts_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			ends_at            TIMESTAMPTZ,
+			created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating brand_deals table: %w", err)
+		return fmt.Errorf("creating brand_deals table: %w", err)
 	}
 
 	// swap_events: tracks every swap offer/accept/decline per user
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS swap_events (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id    INTEGER NOT NULL REFERENCES users(id),
+			id         SERIAL PRIMARY KEY,
+			user_id    TEXT NOT NULL REFERENCES users(id),
 			deal_id    INTEGER NOT NULL REFERENCES brand_deals(id),
 			item_id    INTEGER,
 			action     TEXT    NOT NULL,
-			created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating swap_events table: %w", err)
+		return fmt.Errorf("creating swap_events table: %w", err)
 	}
 
 	// swap_suppressions: tracks per-user deal dismissals, 3+ = permanent suppress
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS swap_suppressions (
-			user_id       INTEGER NOT NULL REFERENCES users(id),
+			user_id       TEXT NOT NULL REFERENCES users(id),
 			deal_id       INTEGER NOT NULL REFERENCES brand_deals(id),
 			decline_count INTEGER NOT NULL DEFAULT 0,
 			UNIQUE(user_id, deal_id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating swap_suppressions table: %w", err)
+		return fmt.Errorf("creating swap_suppressions table: %w", err)
 	}
 
 	// swap_rebates: immutable ledger tracking rebates owed per swap accept
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS swap_rebates (
-			id             INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id        INTEGER NOT NULL REFERENCES users(id),
+			id             SERIAL PRIMARY KEY,
+			user_id        TEXT NOT NULL REFERENCES users(id),
 			swap_event_id  INTEGER NOT NULL REFERENCES swap_events(id),
 			deal_id        INTEGER NOT NULL REFERENCES brand_deals(id),
 			amount_cents   INTEGER NOT NULL,
 			status         TEXT NOT NULL DEFAULT 'pending',
-			created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+			created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating swap_rebates table: %w", err)
+		return fmt.Errorf("creating swap_rebates table: %w", err)
 	}
 
-	// profile_photos: stores user avatar images as BLOBs (one per user)
+	// profile_photos: stores user avatar images as BYTEa (one per user)
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS profile_photos (
-			user_id      INTEGER PRIMARY KEY REFERENCES users(id),
-			photo_data   BLOB NOT NULL,
+			user_id      TEXT PRIMARY KEY REFERENCES users(id),
+			photo_data   BYTEA NOT NULL,
 			content_type TEXT NOT NULL DEFAULT 'image/jpeg',
-			updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+			updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating profile_photos table: %w", err)
+		return fmt.Errorf("creating profile_photos table: %w", err)
 	}
 
 	// receipts: tracks receipt photo submissions for dedup
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS receipts (
-			id            INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id       INTEGER NOT NULL REFERENCES users(id),
+			id            SERIAL PRIMARY KEY,
+			user_id       TEXT NOT NULL REFERENCES users(id),
 			image_hash    TEXT    NOT NULL,
 			items_found   INTEGER NOT NULL DEFAULT 0,
 			items_matched INTEGER NOT NULL DEFAULT 0,
-			created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+			created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating receipts table: %w", err)
+		return fmt.Errorf("creating receipts table: %w", err)
 	}
 
 	// shared_links: deep-link share tokens for read-only list sharing
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS shared_links (
-			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			id           SERIAL PRIMARY KEY,
 			code         TEXT NOT NULL UNIQUE,
-			user_id      INTEGER NOT NULL,
+			user_id      TEXT NOT NULL,
 			household_id INTEGER,
 			invite_code  TEXT,
-			expires_at   DATETIME NOT NULL,
+			expires_at   TIMESTAMPTZ NOT NULL,
 			view_count   INTEGER DEFAULT 0,
-			created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_at   TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating shared_links table: %w", err)
+		return fmt.Errorf("creating shared_links table: %w", err)
 	}
 
-	// Indexes for common query patterns (placed after all table creation)
+	// =========================================================================
+	// INDEXES (placed after all table creation)
+	// =========================================================================
 	for _, stmt := range []string{
 		"CREATE INDEX IF NOT EXISTS idx_household_members_household_id ON household_members(household_id)",
 		"CREATE INDEX IF NOT EXISTS idx_household_members_user_id ON household_members(user_id)",
@@ -740,7 +525,6 @@ func initDB(path string) (*sql.DB, error) {
 		"CREATE INDEX IF NOT EXISTS idx_saved_lists_user_id ON saved_lists(user_id)",
 		"CREATE INDEX IF NOT EXISTS idx_saved_list_items_saved_list_id ON saved_list_items(saved_list_id)",
 		"CREATE UNIQUE INDEX IF NOT EXISTS idx_referrals_unique ON referrals(referrer_id, referred_id)",
-		"CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)",
 		"CREATE INDEX IF NOT EXISTS idx_item_modifications_item_id ON item_modifications(item_id)",
 		"CREATE INDEX IF NOT EXISTS idx_item_modifications_created_at ON item_modifications(created_at)",
 		"CREATE INDEX IF NOT EXISTS idx_brand_preferences_user_cat ON brand_preferences(user_id, product_category)",
@@ -762,18 +546,18 @@ func initDB(path string) (*sql.DB, error) {
 	}
 
 	// brand_deals price comparison & why columns (swap card redesign M1)
-	for _, col := range []string{
-		"ALTER TABLE brand_deals ADD COLUMN offer_price_cents INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE brand_deals ADD COLUMN offer_size TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE brand_deals ADD COLUMN offer_unit_price TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE brand_deals ADD COLUMN competitor_price_cents INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE brand_deals ADD COLUMN competitor_size TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE brand_deals ADD COLUMN competitor_unit_price TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE brand_deals ADD COLUMN unit_label TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE brand_deals ADD COLUMN why_bullets TEXT NOT NULL DEFAULT '[]'",
-		"ALTER TABLE brand_deals ADD COLUMN allergen_notes TEXT NOT NULL DEFAULT ''",
+	for _, c := range []struct{ col, def string }{
+		{"offer_price_cents", "INTEGER NOT NULL DEFAULT 0"},
+		{"offer_size", "TEXT NOT NULL DEFAULT ''"},
+		{"offer_unit_price", "TEXT NOT NULL DEFAULT ''"},
+		{"competitor_price_cents", "INTEGER NOT NULL DEFAULT 0"},
+		{"competitor_size", "TEXT NOT NULL DEFAULT ''"},
+		{"competitor_unit_price", "TEXT NOT NULL DEFAULT ''"},
+		{"unit_label", "TEXT NOT NULL DEFAULT ''"},
+		{"why_bullets", "JSONB NOT NULL DEFAULT '[]'::jsonb"},
+		{"allergen_notes", "TEXT NOT NULL DEFAULT ''"},
 	} {
-		db.Exec(col)
+		addColumnIfNotExists(db, "brand_deals", c.col, c.def)
 	}
 
 	// BlueCart price cache table
@@ -788,7 +572,7 @@ func initDB(path string) (*sql.DB, error) {
 			size         TEXT NOT NULL DEFAULT '',
 			product_name TEXT NOT NULL DEFAULT '',
 			store_name   TEXT NOT NULL DEFAULT 'Walmart',
-			fetched_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+			fetched_at   TIMESTAMPTZ DEFAULT NOW(),
 			PRIMARY KEY (brand, category, zip)
 		)
 	`)
@@ -796,19 +580,19 @@ func initDB(path string) (*sql.DB, error) {
 		log.Printf("[warn] failed to create price_cache table: %v", err)
 	}
 
-	// B15: rename daily_budget_cents → total_budget_cents (the column was never daily)
-	db.Exec("ALTER TABLE brand_deals ADD COLUMN total_budget_cents INTEGER NOT NULL DEFAULT 0")
+	// B15: rename daily_budget_cents -> total_budget_cents
+	addColumnIfNotExists(db, "brand_deals", "total_budget_cents", "INTEGER NOT NULL DEFAULT 0")
 	db.Exec("UPDATE brand_deals SET total_budget_cents = daily_budget_cents WHERE total_budget_cents = 0 AND daily_budget_cents != 0")
 
 	// Sprint 3: swap type expansion columns
-	for _, col := range []string{
-		"ALTER TABLE brand_deals ADD COLUMN deal_type TEXT NOT NULL DEFAULT 'sku_swap'",
-		"ALTER TABLE brand_deals ADD COLUMN quantity_offered INTEGER NOT NULL DEFAULT 1",
-		"ALTER TABLE brand_deals ADD COLUMN trial_product_name TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE brand_deals ADD COLUMN trial_size TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE brand_deals ADD COLUMN campaign_tag TEXT NOT NULL DEFAULT ''",
+	for _, c := range []struct{ col, def string }{
+		{"deal_type", "TEXT NOT NULL DEFAULT 'sku_swap'"},
+		{"quantity_offered", "INTEGER NOT NULL DEFAULT 1"},
+		{"trial_product_name", "TEXT NOT NULL DEFAULT ''"},
+		{"trial_size", "TEXT NOT NULL DEFAULT ''"},
+		{"campaign_tag", "TEXT NOT NULL DEFAULT ''"},
 	} {
-		db.Exec(col)
+		addColumnIfNotExists(db, "brand_deals", c.col, c.def)
 	}
 
 	if err := seedDeals(db); err != nil {
@@ -820,164 +604,163 @@ func initDB(path string) (*sql.DB, error) {
 		log.Printf("WARNING: failed to init A/B tables: %v", err)
 	}
 
-	// --- Brand Portal tables (M4) ---
+	// =========================================================================
+	// BRAND PORTAL TABLES (M4)
+	// =========================================================================
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS brand_users (
-			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			id            SERIAL PRIMARY KEY,
 			email         TEXT UNIQUE NOT NULL,
 			password_hash TEXT NOT NULL,
 			company_name  TEXT NOT NULL DEFAULT '',
 			verified      INTEGER NOT NULL DEFAULT 0,
 			verify_token  TEXT DEFAULT NULL,
 			badge         TEXT NOT NULL DEFAULT '',
-			created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+			created_at    TIMESTAMPTZ DEFAULT NOW()
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating brand_users table: %w", err)
+		return fmt.Errorf("creating brand_users table: %w", err)
 	}
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS brand_sessions (
 			token      TEXT PRIMARY KEY,
 			brand_user_id INTEGER NOT NULL,
-			created_at DATETIME NOT NULL,
-			expires_at DATETIME NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL,
+			expires_at TIMESTAMPTZ NOT NULL,
 			FOREIGN KEY (brand_user_id) REFERENCES brand_users(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating brand_sessions table: %w", err)
+		return fmt.Errorf("creating brand_sessions table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_brand_sessions_expires ON brand_sessions(expires_at)")
 
-	// Link brand_deals to brand_users (optional — legacy deals have no brand_user_id)
-	db.Exec("ALTER TABLE brand_deals ADD COLUMN brand_user_id INTEGER DEFAULT NULL")
+	// Link brand_deals to brand_users
+	addColumnIfNotExists(db, "brand_deals", "brand_user_id", "INTEGER DEFAULT NULL")
 
-	// Brand logo (base64-encoded image data, stored inline for simplicity)
-	db.Exec("ALTER TABLE brand_users ADD COLUMN logo_data TEXT DEFAULT NULL")
-	db.Exec("ALTER TABLE brand_users ADD COLUMN logo_mime TEXT DEFAULT NULL")
+	// Brand logo
+	addColumnIfNotExists(db, "brand_users", "logo_data", "TEXT DEFAULT NULL")
+	addColumnIfNotExists(db, "brand_users", "logo_mime", "TEXT DEFAULT NULL")
 
 	// Brand balance for Stripe pre-funded deposits
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS brand_balance (
-			brand_user_id INTEGER PRIMARY KEY,
-			balance_cents INTEGER NOT NULL DEFAULT 0,
-			last_deposit_at DATETIME DEFAULT NULL,
+			brand_user_id   INTEGER PRIMARY KEY,
+			balance_cents   INTEGER NOT NULL DEFAULT 0,
+			last_deposit_at TIMESTAMPTZ DEFAULT NULL,
 			FOREIGN KEY (brand_user_id) REFERENCES brand_users(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating brand_balance table: %w", err)
+		return fmt.Errorf("creating brand_balance table: %w", err)
 	}
 
 	// Brand transactions ledger
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS brand_transactions (
-			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			id            SERIAL PRIMARY KEY,
 			brand_user_id INTEGER NOT NULL,
 			type          TEXT NOT NULL,
 			amount_cents  INTEGER NOT NULL,
 			description   TEXT NOT NULL DEFAULT '',
 			stripe_id     TEXT DEFAULT NULL,
-			created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_at    TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (brand_user_id) REFERENCES brand_users(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating brand_transactions table: %w", err)
+		return fmt.Errorf("creating brand_transactions table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_brand_transactions_user ON brand_transactions(brand_user_id)")
 
-	// Bug reports table (Help/Bug Report quick win)
+	// Bug reports table
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS bug_reports (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id     INTEGER,
+			id          SERIAL PRIMARY KEY,
+			user_id     TEXT,
 			description TEXT NOT NULL,
-			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_at  TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating bug_reports table: %w", err)
+		return fmt.Errorf("creating bug_reports table: %w", err)
 	}
 
-	// User profile photo column
-	db.Exec("ALTER TABLE users ADD COLUMN onboarding_flags TEXT NOT NULL DEFAULT '{}'")
-	db.Exec("ALTER TABLE users ADD COLUMN profile_photo TEXT NOT NULL DEFAULT ''")
-	db.Exec("ALTER TABLE users ADD COLUMN name_source TEXT NOT NULL DEFAULT 'auto'")
-
-	// --- M7: Receipt Reading Enhancement ---
+	// =========================================================================
+	// M7: RECEIPT READING ENHANCEMENT
+	// =========================================================================
 
 	// Structured line items extracted from receipts
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS receipt_line_items (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			receipt_id  INTEGER NOT NULL,
-			raw_text    TEXT NOT NULL,
-			price_cents INTEGER NOT NULL DEFAULT 0,
-			quantity    INTEGER NOT NULL DEFAULT 1,
+			id              SERIAL PRIMARY KEY,
+			receipt_id      INTEGER NOT NULL,
+			raw_text        TEXT NOT NULL,
+			price_cents     INTEGER NOT NULL DEFAULT 0,
+			quantity        INTEGER NOT NULL DEFAULT 1,
 			matched_item_id INTEGER DEFAULT NULL,
 			matched_name    TEXT NOT NULL DEFAULT '',
 			confidence      TEXT NOT NULL DEFAULT 'low',
-			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_at      TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (receipt_id) REFERENCES receipts(id) ON DELETE CASCADE,
 			FOREIGN KEY (matched_item_id) REFERENCES list_items(id) ON DELETE SET NULL
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating receipt_line_items table: %w", err)
+		return fmt.Errorf("creating receipt_line_items table: %w", err)
 	}
 
 	// Swap claims: links receipts to accepted swaps for purchase verification
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS swap_claims (
-			id            INTEGER PRIMARY KEY AUTOINCREMENT,
-			receipt_id    INTEGER NOT NULL,
-			swap_event_id INTEGER NOT NULL,
-			deal_id       INTEGER NOT NULL,
-			user_id       INTEGER NOT NULL,
-			status        TEXT NOT NULL DEFAULT 'pending',
-			verified_at   DATETIME DEFAULT NULL,
-			payout_held_until DATETIME DEFAULT NULL,
-			created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+			id                SERIAL PRIMARY KEY,
+			receipt_id        INTEGER NOT NULL,
+			swap_event_id     INTEGER NOT NULL,
+			deal_id           INTEGER NOT NULL,
+			user_id           TEXT NOT NULL,
+			status            TEXT NOT NULL DEFAULT 'pending',
+			verified_at       TIMESTAMPTZ DEFAULT NULL,
+			payout_held_until TIMESTAMPTZ DEFAULT NULL,
+			created_at        TIMESTAMPTZ DEFAULT NOW(),
 			FOREIGN KEY (receipt_id) REFERENCES receipts(id),
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating swap_claims table: %w", err)
+		return fmt.Errorf("creating swap_claims table: %w", err)
 	}
 
-	// Retailer abbreviation database (flywheel: user confirmations improve matching)
+	// Retailer abbreviation database
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS retailer_abbreviations (
-			id           INTEGER PRIMARY KEY AUTOINCREMENT,
-			abbreviation TEXT NOT NULL,
-			full_name    TEXT NOT NULL,
-			retailer     TEXT NOT NULL DEFAULT '',
+			id            SERIAL PRIMARY KEY,
+			abbreviation  TEXT NOT NULL,
+			full_name     TEXT NOT NULL,
+			retailer      TEXT NOT NULL DEFAULT '',
 			confirmations INTEGER NOT NULL DEFAULT 1,
-			created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_at    TIMESTAMPTZ DEFAULT NOW(),
 			UNIQUE(abbreviation, retailer)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating retailer_abbreviations table: %w", err)
+		return fmt.Errorf("creating retailer_abbreviations table: %w", err)
 	}
 
 	// Add structured fields to receipts table
-	for _, col := range []string{
-		"ALTER TABLE receipts ADD COLUMN store_name TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE receipts ADD COLUMN store_address TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE receipts ADD COLUMN transaction_date TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE receipts ADD COLUMN subtotal_cents INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE receipts ADD COLUMN tax_cents INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE receipts ADD COLUMN total_cents INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE receipts ADD COLUMN status TEXT NOT NULL DEFAULT 'processed'",
-		"ALTER TABLE receipts ADD COLUMN swaps_verified INTEGER NOT NULL DEFAULT 0",
+	for _, c := range []struct{ col, def string }{
+		{"store_name", "TEXT NOT NULL DEFAULT ''"},
+		{"store_address", "TEXT NOT NULL DEFAULT ''"},
+		{"transaction_date", "TEXT NOT NULL DEFAULT ''"},
+		{"subtotal_cents", "INTEGER NOT NULL DEFAULT 0"},
+		{"tax_cents", "INTEGER NOT NULL DEFAULT 0"},
+		{"total_cents", "INTEGER NOT NULL DEFAULT 0"},
+		{"status", "TEXT NOT NULL DEFAULT 'processed'"},
+		{"swaps_verified", "INTEGER NOT NULL DEFAULT 0"},
 	} {
-		db.Exec(col)
+		addColumnIfNotExists(db, "receipts", c.col, c.def)
 	}
 
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_receipt_line_items_receipt ON receipt_line_items(receipt_id)")
@@ -986,115 +769,110 @@ func initDB(path string) (*sql.DB, error) {
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_retailer_abbreviations_abbr ON retailer_abbreviations(abbreviation)")
 
 	// Earnings: attachment support on swap_rebates
-	db.Exec("ALTER TABLE swap_rebates ADD COLUMN attachment_path TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "swap_rebates", "attachment_path", "TEXT NOT NULL DEFAULT ''")
 
 	// savings_milestones: tracks which savings milestones a user has acknowledged
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS savings_milestones (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id    INTEGER NOT NULL REFERENCES users(id),
+			id         SERIAL PRIMARY KEY,
+			user_id    TEXT NOT NULL REFERENCES users(id),
 			cents      INTEGER NOT NULL,
-			reached_at TEXT NOT NULL DEFAULT (datetime('now')),
-			acked_at   TEXT DEFAULT NULL,
+			reached_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			acked_at   TIMESTAMPTZ DEFAULT NULL,
 			UNIQUE(user_id, cents)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating savings_milestones table: %w", err)
+		return fmt.Errorf("creating savings_milestones table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_savings_milestones_user ON savings_milestones(user_id)")
 
 	// Brand digest preferences
-	db.Exec("ALTER TABLE brand_users ADD COLUMN digest_opt_out INTEGER NOT NULL DEFAULT 0")
-	db.Exec("ALTER TABLE brand_users ADD COLUMN last_digest_at TEXT DEFAULT NULL")
+	addColumnIfNotExists(db, "brand_users", "digest_opt_out", "INTEGER NOT NULL DEFAULT 0")
+	addColumnIfNotExists(db, "brand_users", "last_digest_at", "TIMESTAMPTZ DEFAULT NULL")
 
-	// ==========================================================================
+	// =========================================================================
 	// LEARNING LOOP INFRASTRUCTURE (Sprint 11)
-	// ==========================================================================
+	// =========================================================================
 
 	// user_signals: captures discrete behavioral events for learning
-	// Each row is a signal that teaches Penny about user preferences/behavior
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS user_signals (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id    INTEGER NOT NULL REFERENCES users(id),
+			id         SERIAL PRIMARY KEY,
+			user_id    TEXT NOT NULL REFERENCES users(id),
 			signal     TEXT NOT NULL,
 			category   TEXT NOT NULL DEFAULT '',
 			value      TEXT NOT NULL DEFAULT '',
-			context    TEXT NOT NULL DEFAULT '{}',
-			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+			context    JSONB NOT NULL DEFAULT '{}'::jsonb,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating user_signals table: %w", err)
+		return fmt.Errorf("creating user_signals table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_user_signals_user ON user_signals(user_id)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_user_signals_signal ON user_signals(signal)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_user_signals_created ON user_signals(created_at)")
 
 	// penny_learnings: aggregated insights Penny has derived from signals
-	// These are the "knowledge" Penny has accumulated per user/household/brand
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS penny_learnings (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			id         SERIAL PRIMARY KEY,
 			scope      TEXT NOT NULL,
-			scope_id   INTEGER NOT NULL,
+			scope_id   TEXT NOT NULL,
 			key        TEXT NOT NULL,
 			value      TEXT NOT NULL DEFAULT '',
-			confidence REAL NOT NULL DEFAULT 0.5,
-			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+			confidence DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			UNIQUE(scope, scope_id, key)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating penny_learnings table: %w", err)
+		return fmt.Errorf("creating penny_learnings table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_penny_learnings_scope ON penny_learnings(scope, scope_id)")
-
-	// store_prices: moved to end of initDB (after stores table creation)
 
 	// --- Dietary profile table ---
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS user_dietary_profiles (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id     INTEGER NOT NULL UNIQUE REFERENCES users(id),
-			allergens   TEXT NOT NULL DEFAULT '[]',
-			diets       TEXT NOT NULL DEFAULT '[]',
-			avoid_brands TEXT NOT NULL DEFAULT '[]',
-			updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+			id          SERIAL PRIMARY KEY,
+			user_id     TEXT NOT NULL UNIQUE REFERENCES users(id),
+			allergens   JSONB NOT NULL DEFAULT '[]'::jsonb,
+			diets       JSONB NOT NULL DEFAULT '[]'::jsonb,
+			avoid_brands JSONB NOT NULL DEFAULT '[]'::jsonb,
+			updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating user_dietary_profiles table: %w", err)
+		return fmt.Errorf("creating user_dietary_profiles table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_user_dietary_user ON user_dietary_profiles(user_id)")
 
 	// penny_context_cache: pre-computed context for Penny prompts
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS penny_context_cache (
-			user_id      INTEGER PRIMARY KEY REFERENCES users(id),
-			context_json TEXT NOT NULL DEFAULT '{}',
-			computed_at  TEXT NOT NULL DEFAULT (datetime('now'))
+			user_id      TEXT PRIMARY KEY REFERENCES users(id),
+			context_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+			computed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating penny_context_cache table: %w", err)
+		return fmt.Errorf("creating penny_context_cache table: %w", err)
 	}
 
-	// swap_events: decline_reason column for tracking why users decline swaps
-	db.Exec("ALTER TABLE swap_events ADD COLUMN decline_reason TEXT NOT NULL DEFAULT ''")
-	// swap_events: enrichment columns for swap interaction analytics (CEO panel recommendation #1)
-	db.Exec("ALTER TABLE swap_events ADD COLUMN time_to_action_ms INTEGER NOT NULL DEFAULT 0")
-	db.Exec("ALTER TABLE swap_events ADD COLUMN why_tapped INTEGER NOT NULL DEFAULT 0")
+	// swap_events: additional columns
+	addColumnIfNotExists(db, "swap_events", "decline_reason", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "swap_events", "time_to_action_ms", "INTEGER NOT NULL DEFAULT 0")
+	addColumnIfNotExists(db, "swap_events", "why_tapped", "INTEGER NOT NULL DEFAULT 0")
 
-	// ==========================================================================
-	// DAILY METRICS AGGREGATION TABLES (deal performance learning)
-	// ==========================================================================
+	// =========================================================================
+	// DAILY METRICS AGGREGATION TABLES
+	// =========================================================================
 
-	// deal_performance_daily: materialized daily deal metrics, recomputed by batch job
+	// deal_performance_daily: materialized daily deal metrics
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS deal_performance_daily (
-			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			id              SERIAL PRIMARY KEY,
 			deal_id         INTEGER NOT NULL,
 			date            TEXT NOT NULL,
 			impressions     INTEGER NOT NULL DEFAULT 0,
@@ -1106,31 +884,30 @@ func initDB(path string) (*sql.DB, error) {
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating deal_performance_daily table: %w", err)
+		return fmt.Errorf("creating deal_performance_daily table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_deal_perf_daily_deal ON deal_performance_daily(deal_id, date)")
 
 	// category_swap_insights: aggregated swap metrics across deals in a category
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS category_swap_insights (
-			id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+			id                  SERIAL PRIMARY KEY,
 			category            TEXT NOT NULL UNIQUE,
-			avg_acceptance_rate REAL NOT NULL DEFAULT 0.0,
-			avg_discount_pct    REAL NOT NULL DEFAULT 0.0,
+			avg_acceptance_rate DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+			avg_discount_pct    DOUBLE PRECISION NOT NULL DEFAULT 0.0,
 			total_swaps         INTEGER NOT NULL DEFAULT 0,
-			last_computed       TEXT NOT NULL DEFAULT (datetime('now'))
+			last_computed       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating category_swap_insights table: %w", err)
+		return fmt.Errorf("creating category_swap_insights table: %w", err)
 	}
-	// Add top_decline_reason column for category-level decline reason tracking
-	db.Exec("ALTER TABLE category_swap_insights ADD COLUMN top_decline_reason TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "category_swap_insights", "top_decline_reason", "TEXT NOT NULL DEFAULT ''")
 
 	// business_metrics_daily: daily snapshot of key business metrics
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS business_metrics_daily (
-			id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+			id                  SERIAL PRIMARY KEY,
 			date                TEXT NOT NULL UNIQUE,
 			dau                 INTEGER NOT NULL DEFAULT 0,
 			wau                 INTEGER NOT NULL DEFAULT 0,
@@ -1139,101 +916,105 @@ func initDB(path string) (*sql.DB, error) {
 			swaps_offered       INTEGER NOT NULL DEFAULT 0,
 			swaps_accepted      INTEGER NOT NULL DEFAULT 0,
 			swaps_declined      INTEGER NOT NULL DEFAULT 0,
-			acceptance_rate     REAL NOT NULL DEFAULT 0.0,
+			acceptance_rate     DOUBLE PRECISION NOT NULL DEFAULT 0.0,
 			gross_revenue_cents INTEGER NOT NULL DEFAULT 0,
 			active_deals        INTEGER NOT NULL DEFAULT 0,
 			active_brands       INTEGER NOT NULL DEFAULT 0,
-			computed_at         TEXT NOT NULL DEFAULT (datetime('now'))
+			computed_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating business_metrics_daily table: %w", err)
+		return fmt.Errorf("creating business_metrics_daily table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_business_metrics_date ON business_metrics_daily(date)")
 
 	// Churn prediction signals
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS churn_signals (
-			id           INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id      INTEGER NOT NULL REFERENCES users(id),
+			id           SERIAL PRIMARY KEY,
+			user_id      TEXT NOT NULL REFERENCES users(id),
 			signal_type  TEXT NOT NULL,
-			signal_value REAL NOT NULL,
-			risk_score   REAL NOT NULL DEFAULT 0.0,
-			computed_at  TEXT NOT NULL DEFAULT (datetime('now')),
+			signal_value DOUBLE PRECISION NOT NULL,
+			risk_score   DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+			computed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			UNIQUE(user_id, signal_type)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating churn_signals table: %w", err)
+		return fmt.Errorf("creating churn_signals table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_churn_signals_user ON churn_signals(user_id, signal_type)")
 
 	// User cohort retention tracking
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS user_cohorts (
-			id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id             INTEGER NOT NULL UNIQUE REFERENCES users(id),
+			id                  SERIAL PRIMARY KEY,
+			user_id             TEXT NOT NULL UNIQUE REFERENCES users(id),
 			cohort_week         TEXT NOT NULL,
 			signup_source       TEXT NOT NULL DEFAULT '',
-			first_swap_at       TEXT DEFAULT NULL,
-			first_receipt_at    TEXT DEFAULT NULL,
+			first_swap_at       TIMESTAMPTZ DEFAULT NULL,
+			first_receipt_at    TIMESTAMPTZ DEFAULT NULL,
 			total_swaps         INTEGER NOT NULL DEFAULT 0,
 			total_savings_cents INTEGER NOT NULL DEFAULT 0,
-			last_active         TEXT DEFAULT NULL,
+			last_active         TIMESTAMPTZ DEFAULT NULL,
 			is_churned          INTEGER NOT NULL DEFAULT 0
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating user_cohorts table: %w", err)
+		return fmt.Errorf("creating user_cohorts table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_user_cohorts_week ON user_cohorts(cohort_week)")
 
-	// Marketplace health index — daily aggregate
+	// Marketplace health index
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS marketplace_health (
-			id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-			date                TEXT NOT NULL UNIQUE,
-			supply_score        REAL NOT NULL DEFAULT 0.0,
-			demand_score        REAL NOT NULL DEFAULT 0.0,
-			balance_score       REAL NOT NULL DEFAULT 0.0,
-			revenue_concentration REAL NOT NULL DEFAULT 0.0,
-			health_index        REAL NOT NULL DEFAULT 0.0,
-			computed_at         TEXT NOT NULL DEFAULT (datetime('now'))
+			id                    SERIAL PRIMARY KEY,
+			date                  TEXT NOT NULL UNIQUE,
+			supply_score          DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+			demand_score          DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+			balance_score         DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+			revenue_concentration DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+			health_index          DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+			computed_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating marketplace_health table: %w", err)
+		return fmt.Errorf("creating marketplace_health table: %w", err)
 	}
 
-	// --- Category taxonomy ---
+	// =========================================================================
+	// CATEGORY TAXONOMY
+	// =========================================================================
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS categories (
-			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			id              SERIAL PRIMARY KEY,
 			name            TEXT NOT NULL UNIQUE,
 			parent_category TEXT NOT NULL DEFAULT ''
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating categories table: %w", err)
+		return fmt.Errorf("creating categories table: %w", err)
 	}
 
 	if err := seedCategories(db); err != nil {
 		log.Printf("WARNING: failed to seed categories: %v", err)
 	}
 
-	// Link brand_deals to categories (0 = uncategorized)
-	db.Exec("ALTER TABLE brand_deals ADD COLUMN category_id INTEGER NOT NULL DEFAULT 0")
+	// Link brand_deals to categories
+	addColumnIfNotExists(db, "brand_deals", "category_id", "INTEGER NOT NULL DEFAULT 0")
 
-	// v1 Stretch: rich product descriptions for conversational swap explanations
-	db.Exec("ALTER TABLE brand_deals ADD COLUMN product_description TEXT NOT NULL DEFAULT ''")
-	db.Exec("ALTER TABLE brand_deals ADD COLUMN key_benefits TEXT NOT NULL DEFAULT '[]'") // JSON array
-	db.Exec("ALTER TABLE brand_deals ADD COLUMN brand_story TEXT NOT NULL DEFAULT ''")
+	// v1 Stretch: rich product descriptions
+	addColumnIfNotExists(db, "brand_deals", "product_description", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "brand_deals", "key_benefits", "JSONB NOT NULL DEFAULT '[]'::jsonb")
+	addColumnIfNotExists(db, "brand_deals", "brand_story", "TEXT NOT NULL DEFAULT ''")
 
 	// Swap conversational depth tracking
-	db.Exec("ALTER TABLE swap_events ADD COLUMN conversation_depth INTEGER NOT NULL DEFAULT 0")
-	db.Exec("ALTER TABLE swap_events ADD COLUMN why_tapped_at TEXT DEFAULT NULL")
+	addColumnIfNotExists(db, "swap_events", "conversation_depth", "INTEGER NOT NULL DEFAULT 0")
+	addColumnIfNotExists(db, "swap_events", "why_tapped_at", "TIMESTAMPTZ DEFAULT NULL")
 
-	// --- Category pricing tiers ---
+	// =========================================================================
+	// CATEGORY PRICING TIERS
+	// =========================================================================
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS category_pricing_tiers (
 			parent_category    TEXT PRIMARY KEY,
@@ -1243,29 +1024,31 @@ func initDB(path string) (*sql.DB, error) {
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating category_pricing_tiers table: %w", err)
+		return fmt.Errorf("creating category_pricing_tiers table: %w", err)
 	}
 	if err := seedPricingTiers(db); err != nil {
 		log.Printf("WARNING: failed to seed pricing tiers: %v", err)
 	}
 
-	// --- User swap predictions ---
+	// =========================================================================
+	// USER SWAP PREDICTIONS
+	// =========================================================================
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS user_swap_predictions (
-			user_id         INTEGER NOT NULL,
-			category_id     INTEGER NOT NULL DEFAULT 0,
-			brand           TEXT NOT NULL DEFAULT '',
-			acceptance_rate REAL NOT NULL DEFAULT 0.0,
-			total_offers    INTEGER NOT NULL DEFAULT 0,
-			total_accepts   INTEGER NOT NULL DEFAULT 0,
+			user_id             TEXT NOT NULL,
+			category_id         INTEGER NOT NULL DEFAULT 0,
+			brand               TEXT NOT NULL DEFAULT '',
+			acceptance_rate     DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+			total_offers        INTEGER NOT NULL DEFAULT 0,
+			total_accepts       INTEGER NOT NULL DEFAULT 0,
 			avg_time_to_action_ms INTEGER NOT NULL DEFAULT 0,
-			confidence      REAL NOT NULL DEFAULT 0.0,
-			computed_at     TEXT NOT NULL DEFAULT (datetime('now')),
+			confidence          DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+			computed_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			UNIQUE(user_id, category_id, brand)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating user_swap_predictions table: %w", err)
+		return fmt.Errorf("creating user_swap_predictions table: %w", err)
 	}
 
 	for _, stmt := range []string{
@@ -1275,50 +1058,50 @@ func initDB(path string) (*sql.DB, error) {
 		db.Exec(stmt)
 	}
 
-	// --- Stores (L4 Location Learning foundation) ---
+	// =========================================================================
+	// STORES (L4 Location Learning)
+	// =========================================================================
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS stores (
-			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			id           SERIAL PRIMARY KEY,
 			name         TEXT NOT NULL,
 			chain        TEXT NOT NULL DEFAULT '',
 			address      TEXT NOT NULL DEFAULT '',
 			city         TEXT NOT NULL DEFAULT '',
 			state        TEXT NOT NULL DEFAULT '',
 			zip          TEXT NOT NULL DEFAULT '',
-			latitude     REAL,
-			longitude    REAL,
+			latitude     DOUBLE PRECISION,
+			longitude    DOUBLE PRECISION,
 			place_id     TEXT NOT NULL DEFAULT '',
-			created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+			created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			UNIQUE(name, address)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating stores table: %w", err)
+		return fmt.Errorf("creating stores table: %w", err)
 	}
 
-	// Store price observations: track real prices seen at stores
+	// Store price observations
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS store_prices (
-			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			id           SERIAL PRIMARY KEY,
 			store_id     INTEGER NOT NULL REFERENCES stores(id),
 			product_name TEXT NOT NULL,
 			brand        TEXT NOT NULL DEFAULT '',
 			price_cents  INTEGER NOT NULL,
 			category_id  INTEGER NOT NULL DEFAULT 0,
 			source       TEXT NOT NULL DEFAULT 'receipt',
-			observed_at  TEXT NOT NULL DEFAULT (datetime('now')),
+			observed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			UNIQUE(store_id, product_name, brand, observed_at)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating store_prices table: %w", err)
+		return fmt.Errorf("creating store_prices table: %w", err)
 	}
 
-	// Link receipts to stores
-	db.Exec("ALTER TABLE receipts ADD COLUMN store_id INTEGER DEFAULT NULL")
-
-	// Link shopping trips to stores
-	db.Exec("ALTER TABLE shopping_trips ADD COLUMN store_id INTEGER DEFAULT NULL")
+	// Link receipts/trips to stores
+	addColumnIfNotExists(db, "receipts", "store_id", "INTEGER DEFAULT NULL")
+	addColumnIfNotExists(db, "shopping_trips", "store_id", "INTEGER DEFAULT NULL")
 
 	for _, stmt := range []string{
 		"CREATE INDEX IF NOT EXISTS idx_stores_chain ON stores(chain)",
@@ -1329,75 +1112,81 @@ func initDB(path string) (*sql.DB, error) {
 		db.Exec(stmt)
 	}
 
-	// --- Swap propagation tracking (organic adoption by household members) ---
+	// =========================================================================
+	// SWAP PROPAGATION TRACKING
+	// =========================================================================
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS swap_propagations (
-			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			id              SERIAL PRIMARY KEY,
 			deal_id         INTEGER NOT NULL REFERENCES brand_deals(id),
-			source_user_id  INTEGER NOT NULL,
-			adopter_user_id INTEGER NOT NULL,
+			source_user_id  TEXT NOT NULL,
+			adopter_user_id TEXT NOT NULL,
 			household_id    INTEGER NOT NULL,
 			item_name       TEXT NOT NULL,
 			brand           TEXT NOT NULL,
-			created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+			created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			UNIQUE(deal_id, adopter_user_id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating swap_propagations table: %w", err)
+		return fmt.Errorf("creating swap_propagations table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_swap_propagations_deal ON swap_propagations(deal_id)")
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS brand_subscriptions (
-			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			id             SERIAL PRIMARY KEY,
 			brand_user_id  INTEGER NOT NULL,
 			tier           TEXT NOT NULL DEFAULT 'free',
-			started_at     TEXT NOT NULL DEFAULT (datetime('now')),
-			expires_at     TEXT,
+			started_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			expires_at     TIMESTAMPTZ,
 			UNIQUE(brand_user_id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating brand_subscriptions table: %w", err)
+		return fmt.Errorf("creating brand_subscriptions table: %w", err)
 	}
 
-	// --- Category alerts (disruption signals) ---
+	// =========================================================================
+	// CATEGORY ALERTS (disruption signals)
+	// =========================================================================
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS category_alerts (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			id          SERIAL PRIMARY KEY,
 			alert_type  TEXT NOT NULL,
 			brand       TEXT NOT NULL DEFAULT '',
 			category_id INTEGER NOT NULL DEFAULT 0,
 			severity    TEXT NOT NULL DEFAULT 'low',
 			message     TEXT NOT NULL,
-			data_json   TEXT NOT NULL DEFAULT '{}',
-			created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+			data_json   JSONB NOT NULL DEFAULT '{}'::jsonb,
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating category_alerts table: %w", err)
+		return fmt.Errorf("creating category_alerts table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_category_alerts_type ON category_alerts(alert_type)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_category_alerts_category ON category_alerts(category_id)")
 
-	// --- Feedback system ---
+	// =========================================================================
+	// FEEDBACK SYSTEM
+	// =========================================================================
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS feedback_requests (
-			id               INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id          INTEGER NOT NULL REFERENCES users(id),
+			id               SERIAL PRIMARY KEY,
+			user_id          TEXT NOT NULL REFERENCES users(id),
 			body             TEXT NOT NULL,
 			type             TEXT NOT NULL DEFAULT 'feature',
 			urgency          TEXT NOT NULL DEFAULT 'normal',
 			status           TEXT NOT NULL DEFAULT 'new',
 			admin_notes      TEXT NOT NULL DEFAULT '',
 			github_issue_url TEXT NOT NULL DEFAULT '',
-			created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at       DATETIME
+			created_at       TIMESTAMPTZ DEFAULT NOW(),
+			updated_at       TIMESTAMPTZ
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating feedback_requests table: %w", err)
+		return fmt.Errorf("creating feedback_requests table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_feedback_requests_status ON feedback_requests(status)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_feedback_requests_user_id ON feedback_requests(user_id)")
@@ -1405,24 +1194,24 @@ func initDB(path string) (*sql.DB, error) {
 	// Account merge audit trail
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS account_merges (
-			id              INTEGER PRIMARY KEY AUTOINCREMENT,
-			surviving_user  INTEGER NOT NULL REFERENCES users(id),
-			merged_user     INTEGER,
+			id              SERIAL PRIMARY KEY,
+			surviving_user  TEXT NOT NULL REFERENCES users(id),
+			merged_user     TEXT,
 			provider_linked TEXT NOT NULL,
 			provider_id     TEXT NOT NULL,
-			data_actions    TEXT NOT NULL DEFAULT '{}',
-			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+			data_actions    JSONB NOT NULL DEFAULT '{}'::jsonb,
+			created_at      TIMESTAMPTZ DEFAULT NOW()
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating account_merges table: %w", err)
+		return fmt.Errorf("creating account_merges table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_account_merges_surviving ON account_merges(surviving_user)")
 
 	// Brand portal feedback
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS brand_feedback_requests (
-			id               INTEGER PRIMARY KEY AUTOINCREMENT,
+			id               SERIAL PRIMARY KEY,
 			brand_user_id    INTEGER NOT NULL REFERENCES brand_users(id),
 			body             TEXT NOT NULL,
 			type             TEXT NOT NULL DEFAULT 'feature',
@@ -1430,81 +1219,74 @@ func initDB(path string) (*sql.DB, error) {
 			status           TEXT NOT NULL DEFAULT 'new',
 			admin_notes      TEXT NOT NULL DEFAULT '',
 			github_issue_url TEXT NOT NULL DEFAULT '',
-			created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at       DATETIME
+			created_at       TIMESTAMPTZ DEFAULT NOW(),
+			updated_at       TIMESTAMPTZ
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating brand_feedback_requests table: %w", err)
+		return fmt.Errorf("creating brand_feedback_requests table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_brand_feedback_status ON brand_feedback_requests(status)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_brand_feedback_user ON brand_feedback_requests(brand_user_id)")
 
-	// NPS dismiss guard — server-side timestamp survives localStorage clears
-	db.Exec("ALTER TABLE users ADD COLUMN nps_dismissed_at TEXT NOT NULL DEFAULT ''")
-
 	// F3: Auto-Learn Store Department Order
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS department_order_events (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id    INTEGER NOT NULL,
+			id         SERIAL PRIMARY KEY,
+			user_id    TEXT NOT NULL,
 			store_name TEXT NOT NULL DEFAULT '',
 			department TEXT NOT NULL,
-			checked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			trip_date  TEXT NOT NULL DEFAULT '',
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("creating department_order_events table: %w", err)
+		return fmt.Errorf("creating department_order_events table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_dept_order_user_store ON department_order_events(user_id, store_name)")
-	db.Exec("ALTER TABLE users ADD COLUMN store_order_enabled INTEGER NOT NULL DEFAULT 1")
-
-	// F8 Phase 2: Daily Digest SMS columns
-	db.Exec("ALTER TABLE users ADD COLUMN daily_digest_enabled INTEGER NOT NULL DEFAULT 0")
-	db.Exec("ALTER TABLE users ADD COLUMN daily_digest_opted_in_at TEXT")
-	db.Exec("ALTER TABLE users ADD COLUMN daily_digest_last_sent TEXT")
 
 	// --- Campaign Review (compliance) ---
-	for _, col := range []string{
-		"ALTER TABLE brand_deals ADD COLUMN review_status TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE brand_deals ADD COLUMN review_note TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE brand_deals ADD COLUMN reviewed_by TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE brand_deals ADD COLUMN reviewed_at TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE brand_deals ADD COLUMN submitted_at TEXT NOT NULL DEFAULT ''",
+	for _, c := range []struct{ col, def string }{
+		{"review_status", "TEXT NOT NULL DEFAULT ''"},
+		{"review_note", "TEXT NOT NULL DEFAULT ''"},
+		{"reviewed_by", "TEXT NOT NULL DEFAULT ''"},
+		{"reviewed_at", "TIMESTAMPTZ"},
+		{"submitted_at", "TIMESTAMPTZ"},
 	} {
-		db.Exec(col)
+		addColumnIfNotExists(db, "brand_deals", c.col, c.def)
 	}
 
 	// --- Fully Free Trial Campaigns ---
-	// brand_deals: new columns for fully_free deal type
-	for _, col := range []string{
-		"ALTER TABLE brand_deals ADD COLUMN max_rebate_cents INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE brand_deals ADD COLUMN platform_fee_cents INTEGER NOT NULL DEFAULT 100",
-		"ALTER TABLE brand_deals ADD COLUMN require_verified_identity INTEGER NOT NULL DEFAULT 1",
-		"ALTER TABLE brand_deals ADD COLUMN receipt_grace_days INTEGER NOT NULL DEFAULT 7",
-		"ALTER TABLE brand_deals ADD COLUMN upc TEXT NOT NULL DEFAULT ''",
+	for _, c := range []struct{ col, def string }{
+		{"max_rebate_cents", "INTEGER NOT NULL DEFAULT 0"},
+		{"platform_fee_cents", "INTEGER NOT NULL DEFAULT 100"},
+		{"require_verified_identity", "INTEGER NOT NULL DEFAULT 1"},
+		{"receipt_grace_days", "INTEGER NOT NULL DEFAULT 7"},
+		{"upc", "TEXT NOT NULL DEFAULT ''"},
 	} {
-		db.Exec(col)
+		addColumnIfNotExists(db, "brand_deals", c.col, c.def)
 	}
 	// swap_rebates: receipt verification fields for fully_free
-	for _, col := range []string{
-		"ALTER TABLE swap_rebates ADD COLUMN verified_amount_cents INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE swap_rebates ADD COLUMN verified_at TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE swap_rebates ADD COLUMN receipt_image_url TEXT NOT NULL DEFAULT ''",
+	for _, c := range []struct{ col, def string }{
+		{"verified_amount_cents", "INTEGER NOT NULL DEFAULT 0"},
+		{"verified_at", "TIMESTAMPTZ"},
+		{"receipt_image_url", "TEXT NOT NULL DEFAULT ''"},
 	} {
-		db.Exec(col)
+		addColumnIfNotExists(db, "swap_rebates", c.col, c.def)
 	}
 
-	// Backfill emojis for existing items that have no AI-parsed emoji
+	// Saved list sharing: nullable saved_list_id on shared_links
+	addColumnIfNotExists(db, "shared_links", "saved_list_id", "INTEGER DEFAULT NULL")
+
+	// Backfill emojis for existing items
 	backfillItemEmojis(db)
 
-	return db, nil
+	return nil
 }
 
 // seedCategories populates the categories table with common grocery
-// subcategories organized under parent groups. Idempotent — only inserts
+// subcategories organized under parent groups. Idempotent -- only inserts
 // when the table is empty.
 func seedCategories(db *sql.DB) error {
 	var count int
@@ -1633,7 +1415,7 @@ func seedCategories(db *sql.DB) error {
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare("INSERT INTO categories (name, parent_category) VALUES (?, ?)")
+	stmt, err := tx.Prepare("INSERT INTO categories (name, parent_category) VALUES ($1, $2)")
 	if err != nil {
 		return err
 	}
@@ -1655,14 +1437,13 @@ func seedCategories(db *sql.DB) error {
 // categorizeProduct attempts to match a product name to a category using
 // case-insensitive substring matching against category names. Returns the
 // category ID, or 0 if no match is found.
-func categorizeProduct(db *sql.DB, productName string) int {
+func categorizeProduct(db dbExecer, productName string) int {
 	if productName == "" {
 		return 0
 	}
 	var id int
-	// Try exact-ish match first: category name appears in product name
 	err := db.QueryRow(
-		"SELECT id FROM categories WHERE LOWER(?) LIKE '%' || LOWER(name) || '%' ORDER BY LENGTH(name) DESC LIMIT 1",
+		"SELECT id FROM categories WHERE LOWER($1) LIKE '%' || LOWER(name) || '%' ORDER BY LENGTH(name) DESC LIMIT 1",
 		productName,
 	).Scan(&id)
 	if err == nil {
@@ -1673,7 +1454,7 @@ func categorizeProduct(db *sql.DB, productName string) int {
 
 // seedPricingTiers populates default pricing tiers based on category acceptance
 // rates. Higher-value categories (Dairy, Beverages) cost more per swap.
-// Idempotent — only inserts when table is empty.
+// Idempotent -- only inserts when table is empty.
 func seedPricingTiers(db *sql.DB) error {
 	var count int
 	if err := db.QueryRow("SELECT COUNT(*) FROM category_pricing_tiers").Scan(&count); err != nil {
@@ -1684,10 +1465,10 @@ func seedPricingTiers(db *sql.DB) error {
 	}
 
 	type tier struct {
-		parent    string
-		minCents  int
-		sugCents  int
-		label     string
+		parent   string
+		minCents int
+		sugCents int
+		label    string
 	}
 	tiers := []tier{
 		// Premium: high-frequency, high-acceptance categories
@@ -1718,7 +1499,7 @@ func seedPricingTiers(db *sql.DB) error {
 
 	for _, t := range tiers {
 		if _, err := tx.Exec(
-			"INSERT INTO category_pricing_tiers (parent_category, min_price_cents, suggested_cents, tier_label) VALUES (?, ?, ?, ?)",
+			"INSERT INTO category_pricing_tiers (parent_category, min_price_cents, suggested_cents, tier_label) VALUES ($1, $2, $3, $4)",
 			t.parent, t.minCents, t.sugCents, t.label,
 		); err != nil {
 			return fmt.Errorf("seeding tier %q: %w", t.parent, err)
@@ -1734,16 +1515,16 @@ func seedPricingTiers(db *sql.DB) error {
 
 // getCategoryPricingTier returns the min price and tier label for a given category.
 // Falls back to economy tier ($1.00) if no specific tier is found.
-func getCategoryPricingTier(db *sql.DB, categoryID int) (minCents int, suggestedCents int, tierLabel string) {
+func getCategoryPricingTier(db dbExecer, categoryID int) (minCents int, suggestedCents int, tierLabel string) {
 	if categoryID == 0 {
 		return 100, 150, "economy"
 	}
 	var parent string
-	if err := db.QueryRow("SELECT parent_category FROM categories WHERE id = ?", categoryID).Scan(&parent); err != nil {
+	if err := db.QueryRow("SELECT parent_category FROM categories WHERE id = $1", categoryID).Scan(&parent); err != nil {
 		return 100, 150, "economy"
 	}
 	if err := db.QueryRow(
-		"SELECT min_price_cents, suggested_cents, tier_label FROM category_pricing_tiers WHERE parent_category = ?",
+		"SELECT min_price_cents, suggested_cents, tier_label FROM category_pricing_tiers WHERE parent_category = $1",
 		parent,
 	).Scan(&minCents, &suggestedCents, &tierLabel); err != nil {
 		return 100, 150, "economy"
@@ -1752,8 +1533,8 @@ func getCategoryPricingTier(db *sql.DB, categoryID int) (minCents int, suggested
 }
 
 // seedDeals populates the brand_deals table with test swap deals if empty.
-// Idempotent — only inserts when no deals exist.
-func seedDeals(db *sql.DB) error {
+// Idempotent -- only inserts when no deals exist.
+func seedDeals(db dbExecer) error {
 	var count int
 	if err := db.QueryRow("SELECT COUNT(*) FROM brand_deals").Scan(&count); err != nil {
 		return err
@@ -1763,15 +1544,13 @@ func seedDeals(db *sql.DB) error {
 	}
 
 	// $20 total budget ($2000 cents) split across 5 brand-level deals.
-	// Prices are realistic Walmart averages; will be overridden by BlueCart API
-	// when BLUECART_API_KEY is set and user has a zip code.
 	deals := []struct {
-		competitor, offerBrand, offerProduct       string
-		discountCents, budgetCents                 int
-		offerPriceCents, competitorPriceCents       int
-		offerSize, competitorSize                   string
-		offerUnitPrice, competitorUnitPrice         string
-		unitLabel, whyBullets, allergenNotes        string
+		competitor, offerBrand, offerProduct        string
+		discountCents, budgetCents                  int
+		offerPriceCents, competitorPriceCents        int
+		offerSize, competitorSize                    string
+		offerUnitPrice, competitorUnitPrice          string
+		unitLabel, whyBullets, allergenNotes         string
 	}{
 		{
 			"skippy", "Jif", "Creamy Peanut Butter", 125, 400,
@@ -1808,12 +1587,12 @@ func seedDeals(db *sql.DB) error {
 			 discount_cents, total_budget_cents, status,
 			 offer_price_cents, competitor_price_cents, offer_size, competitor_size,
 			 offer_unit_price, competitor_unit_price, unit_label, why_bullets, allergen_notes)
-			 VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 			d.competitor, d.offerBrand, d.offerProduct, d.discountCents, d.budgetCents,
 			d.offerPriceCents, d.competitorPriceCents, d.offerSize, d.competitorSize,
 			d.offerUnitPrice, d.competitorUnitPrice, d.unitLabel, d.whyBullets, d.allergenNotes,
 		); err != nil {
-			return fmt.Errorf("seeding deal %s→%s: %w", d.competitor, d.offerBrand, err)
+			return fmt.Errorf("seeding deal %s->%s: %w", d.competitor, d.offerBrand, err)
 		}
 	}
 	log.Printf("[deals] seeded %d sku_swap deals ($20 total budget)", len(deals))
@@ -1849,7 +1628,7 @@ func seedDeals(db *sql.DB) error {
 			`["Allergy-friendly (top 9 free)","Limited holiday edition","Vegan & non-GMO"]`,
 			"Free of top 9 allergens.",
 			"seasonal", 1, "", "", "holiday_2026",
-			time.Now().Add(30 * 24 * time.Hour).Format("2006-01-02 15:04:05"),
+			time.Now().Add(30 * 24 * time.Hour).Format("2006-01-02T15:04:05Z"),
 		},
 	}
 	for _, d := range newTypeDeals {
@@ -1859,13 +1638,13 @@ func seedDeals(db *sql.DB) error {
 			 offer_price_cents, competitor_price_cents, offer_size, competitor_size,
 			 offer_unit_price, competitor_unit_price, unit_label, why_bullets, allergen_notes,
 			 deal_type, quantity_offered, trial_product_name, trial_size, campaign_tag, ends_at)
-			 VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''))`,
+			 VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NULLIF($20, ''))`,
 			d.competitor, d.offerBrand, d.offerProduct, d.discountCents, d.budgetCents,
 			d.offerPriceCents, d.competitorPriceCents, d.offerSize, d.competitorSize,
 			d.offerUnitPrice, d.competitorUnitPrice, d.unitLabel, d.whyBullets, d.allergenNotes,
 			d.dealType, d.quantityOffered, d.trialProductName, d.trialSize, d.campaignTag, d.endsAt,
 		); err != nil {
-			return fmt.Errorf("seeding %s deal %s→%s: %w", d.dealType, d.competitor, d.offerBrand, err)
+			return fmt.Errorf("seeding %s deal %s->%s: %w", d.dealType, d.competitor, d.offerBrand, err)
 		}
 	}
 	log.Printf("[deals] seeded %d new-type deals (bogo, trial, seasonal)", len(newTypeDeals))
@@ -1874,7 +1653,7 @@ func seedDeals(db *sql.DB) error {
 }
 
 // seedBrands populates the brands and brand_owners tables if they are empty.
-// This is idempotent — it only inserts when the brands table has no rows.
+// This is idempotent -- it only inserts when the brands table has no rows.
 func seedBrands(db *sql.DB) error {
 	var count int
 	if err := db.QueryRow("SELECT COUNT(*) FROM brands").Scan(&count); err != nil {
@@ -1892,7 +1671,7 @@ func seedBrands(db *sql.DB) error {
 
 	// Insert brand owners
 	owners := []string{
-		"Procter & Gamble", "Unilever", "Nestlé", "PepsiCo", "Coca-Cola",
+		"Procter & Gamble", "Unilever", "Nestle", "PepsiCo", "Coca-Cola",
 		"General Mills", "Kellogg's", "Kraft Heinz", "Colgate-Palmolive",
 		"Johnson & Johnson", "Mondelez", "Mars", "Danone", "Conagra",
 		"Campbell Soup", "Hormel", "Tyson", "Smucker's", "Church & Dwight",
@@ -1900,11 +1679,11 @@ func seedBrands(db *sql.DB) error {
 	}
 	ownerIDs := make(map[string]int64)
 	for _, name := range owners {
-		res, err := tx.Exec("INSERT INTO brand_owners (name) VALUES (?)", name)
+		var id int64
+		err := tx.QueryRow("INSERT INTO brand_owners (name) VALUES ($1) RETURNING id", name).Scan(&id)
 		if err != nil {
 			return fmt.Errorf("inserting owner %q: %w", name, err)
 		}
-		id, _ := res.LastInsertId()
 		ownerIDs[name] = id
 	}
 
@@ -1938,24 +1717,24 @@ func seedBrands(db *sql.DB) error {
 		{"Ben & Jerry's", "benjerry.com", "Unilever"},
 		{"Degree", "degreedeodorant.com", "Unilever"},
 		{"Vaseline", "vaseline.com", "Unilever"},
-		{"TRESemmé", "tresemme.com", "Unilever"},
+		{"TRESemme", "tresemme.com", "Unilever"},
 		{"Seventh Generation", "seventhgeneration.com", "Unilever"},
 		{"Suave", "suave.com", "Unilever"},
 		{"Magnum", "magnumicecream.com", "Unilever"},
-		// Nestlé
-		{"Nescafé", "nescafe.com", "Nestlé"},
-		{"Gerber", "gerber.com", "Nestlé"},
-		{"Stouffer's", "stouffers.com", "Nestlé"},
-		{"Hot Pockets", "hotpockets.com", "Nestlé"},
-		{"DiGiorno", "digiorno.com", "Nestlé"},
-		{"Coffee Mate", "coffeemate.com", "Nestlé"},
-		{"Lean Cuisine", "leancuisine.com", "Nestlé"},
-		{"Toll House", "verybestbaking.com", "Nestlé"},
-		{"Purina", "purina.com", "Nestlé"},
-		{"Fancy Feast", "fancyfeast.com", "Nestlé"},
-		{"Häagen-Dazs", "haagendazs.com", "Nestlé"},
-		{"San Pellegrino", "sanpellegrino.com", "Nestlé"},
-		{"Perrier", "perrier.com", "Nestlé"},
+		// Nestle
+		{"Nescafe", "nescafe.com", "Nestle"},
+		{"Gerber", "gerber.com", "Nestle"},
+		{"Stouffer's", "stouffers.com", "Nestle"},
+		{"Hot Pockets", "hotpockets.com", "Nestle"},
+		{"DiGiorno", "digiorno.com", "Nestle"},
+		{"Coffee Mate", "coffeemate.com", "Nestle"},
+		{"Lean Cuisine", "leancuisine.com", "Nestle"},
+		{"Toll House", "verybestbaking.com", "Nestle"},
+		{"Purina", "purina.com", "Nestle"},
+		{"Fancy Feast", "fancyfeast.com", "Nestle"},
+		{"Haagen-Dazs", "haagendazs.com", "Nestle"},
+		{"San Pellegrino", "sanpellegrino.com", "Nestle"},
+		{"Perrier", "perrier.com", "Nestle"},
 		// PepsiCo
 		{"Pepsi", "pepsi.com", "PepsiCo"},
 		{"Lay's", "lays.com", "PepsiCo"},
@@ -1994,7 +1773,7 @@ func seedBrands(db *sql.DB) error {
 		{"Progresso", "progresso.com", "General Mills"},
 		{"Old El Paso", "oldelpaso.com", "General Mills"},
 		{"Totino's", "totinos.com", "General Mills"},
-		{"Lärabar", "larabar.com", "General Mills"},
+		{"Larabar", "larabar.com", "General Mills"},
 		{"Cascadian Farm", "cascadianfarm.com", "General Mills"},
 		{"Blue Buffalo", "bluebuffalo.com", "General Mills"},
 		{"Fiber One", "fiberone.com", "General Mills"},
@@ -2109,7 +1888,7 @@ func seedBrands(db *sql.DB) error {
 		{"Smucker's", "smuckers.com", "Smucker's"},
 		{"Jif", "jif.com", "Smucker's"},
 		{"Folgers", "folgers.com", "Smucker's"},
-		{"Café Bustelo", "cafebustelo.com", "Smucker's"},
+		{"Cafe Bustelo", "cafebustelo.com", "Smucker's"},
 		{"Uncrustables", "uncrustables.com", "Smucker's"},
 		{"Meow Mix", "meowmix.com", "Smucker's"},
 		{"Milk-Bone", "milkbone.com", "Smucker's"},
@@ -2218,7 +1997,7 @@ func seedBrands(db *sql.DB) error {
 		{"StarKist", "starkist.com", ""},
 	}
 
-	stmtBrand, err := tx.Prepare("INSERT INTO brands (name, domain, owner_id) VALUES (?, ?, ?)")
+	stmtBrand, err := tx.Prepare("INSERT INTO brands (name, domain, owner_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING")
 	if err != nil {
 		return err
 	}
@@ -2230,10 +2009,6 @@ func seedBrands(db *sql.DB) error {
 			ownerID = ownerIDs[b.owner]
 		}
 		if _, err := stmtBrand.Exec(b.name, b.domain, ownerID); err != nil {
-			// Skip duplicates (e.g. RXBAR appears twice)
-			if strings.Contains(err.Error(), "UNIQUE") {
-				continue
-			}
 			return fmt.Errorf("inserting brand %q: %w", b.name, err)
 		}
 	}
@@ -2242,8 +2017,8 @@ func seedBrands(db *sql.DB) error {
 }
 
 // backfillItemEmojis re-computes emoji for all list_items using the latest keyword list.
-// Runs once at startup — idempotent (only updates items whose computed emoji differs).
-func backfillItemEmojis(db *sql.DB) {
+// Runs once at startup -- idempotent (only updates items whose computed emoji differs).
+func backfillItemEmojis(db dbExecer) {
 	rows, err := db.Query("SELECT id, name, department, emoji FROM list_items")
 	if err != nil {
 		log.Printf("[emoji-backfill] query error: %v", err)
@@ -2274,7 +2049,7 @@ func backfillItemEmojis(db *sql.DB) {
 	for _, it := range items {
 		computed := inferItemEmoji(it.name, it.department)
 		if computed != "" && computed != it.emoji {
-			_, err := db.Exec("UPDATE list_items SET emoji = ? WHERE id = ?", computed, it.id)
+			_, err := db.Exec("UPDATE list_items SET emoji = $1 WHERE id = $2", computed, it.id)
 			if err == nil {
 				updated++
 			}

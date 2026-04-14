@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"sync"
 	"time"
 )
@@ -22,14 +21,13 @@ type Config struct {
 	GooglePlacesAPIKey  string
 	NPSIntervalDays     int
 	Port                string
-	DBPath              string
+	DatabaseURL         string
 	WebhookBaseURL      string
 	SecureCookies       bool
 	TestMode            bool
 	GoogleClientID      string
 	SendGridAPIKey      string
 	BlueCartAPIKey      string
-	ReportingDBPath     string
 	FeedbackPhones      []string // phone numbers allowed to submit feedback
 	GitHubPAT           string   // personal access token for creating issues
 	GitHubRepo          string   // "owner/repo" format
@@ -39,12 +37,14 @@ type Config struct {
 	BcryptCost          int      // bcrypt cost factor (0 = DefaultCost, set to 4 in tests for speed)
 	TimpagerURL         string   // timpager platform URL (e.g., https://rallytasks.com)
 	TimpagerAPIKey      string   // API key for timpager revenue events
+	GeminiAPIKey        string   // Google Gemini API key
+	OpenAIAPIKey        string   // OpenAI API key
 }
 
 // FeedbackRequest represents a founder feedback item destined for the roadmap.
 type FeedbackRequest struct {
 	ID             int    `json:"id"`
-	UserID         int    `json:"user_id"`
+	UserID         string `json:"user_id"`
 	Body           string `json:"body"`
 	Type           string `json:"type"`
 	Urgency        string `json:"urgency"`
@@ -63,7 +63,7 @@ type FeedbackRequest struct {
 
 // User represents a row in the users table.
 type User struct {
-	ID          int
+	ID          string
 	PhoneNumber string
 	Name        string
 	Email       string
@@ -74,7 +74,7 @@ type User struct {
 
 // Session represents an authenticated user session.
 type Session struct {
-	UserID      int
+	UserID      string
 	PhoneNumber string // may be empty for non-phone auth
 	AuthMethod  string // "phone", "google", or "email"
 	CreatedAt   time.Time
@@ -95,7 +95,7 @@ type ListItem struct {
 	CreatedAt     string `json:"created_at"`
 	AddedByName   string `json:"added_by_name"`
 	AddedByPhone  string `json:"added_by_phone"`
-	ClaimedByID      *int   `json:"claimed_by_id"`
+	ClaimedByID      *string `json:"claimed_by_id"`
 	ClaimedByName    string `json:"claimed_by_name"`
 	SwapSavingsCents int    `json:"swap_savings_cents"`
 	Emoji            string `json:"emoji"`
@@ -168,15 +168,15 @@ type rateBucket struct {
 // sseClient represents a connected SSE client listening for list updates.
 type sseClient struct {
 	householdID int64
-	userID      int
+	userID      string
 	ch          chan []byte
 }
 
 // Server holds all runtime state for the HTTP server.
 type Server struct {
 	config       Config
-	db           *sql.DB
-	reportDB     *sql.DB // read-only clone for admin analytics (nil if unavailable)
+	db           *PGDB // PostgreSQL-compatible wrapper (see pgcompat.go)
+	// NOTE: reportDB removed — reporting queries now use the same Postgres db.
 	sessions     *SessionStore
 	twilio       TwilioClient
 	parseItems   func(apiKey, text string, images []string) ([]ParsedItem, error)
@@ -296,7 +296,7 @@ type PendingSwap struct {
 
 // ProfilePhoto represents a user's avatar image stored as a BLOB.
 type ProfilePhoto struct {
-	UserID      int    `json:"user_id"`
+	UserID      string `json:"user_id"`
 	PhotoData   []byte `json:"-"`
 	ContentType string `json:"content_type"`
 	UpdatedAt   string `json:"updated_at"`
@@ -469,3 +469,11 @@ type SavedListMergeRequest struct {
 		Notes      string `json:"notes"`
 	} `json:"items"`
 }
+
+// =============================================================================
+// DATABASE INTERFACES
+// =============================================================================
+
+// dbExecer is satisfied by both *PGDB and *PGTx (defined in pgcompat.go),
+// allowing helper functions in db.go to accept either a connection or an
+// active transaction without changing their signatures.

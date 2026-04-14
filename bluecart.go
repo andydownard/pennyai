@@ -218,15 +218,20 @@ func (s *Server) getCachedPrice(brand, category, zip string) (*BlueCartPrice, er
 // cachePrice stores a price in the price_cache table.
 func (s *Server) cachePrice(p *BlueCartPrice) {
 	s.db.Exec(`
-		INSERT OR REPLACE INTO price_cache (brand, category, zip, price_cents, unit_price,
-		                                     unit_label, size, product_name, store_name, fetched_at)
+		INSERT INTO price_cache (brand, category, zip, price_cents, unit_price,
+		                          unit_label, size, product_name, store_name, fetched_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		ON CONFLICT(brand, category, zip) DO UPDATE SET
+			price_cents = excluded.price_cents, unit_price = excluded.unit_price,
+			unit_label = excluded.unit_label, size = excluded.size,
+			product_name = excluded.product_name, store_name = excluded.store_name,
+			fetched_at = excluded.fetched_at
 	`, p.Brand, p.Category, p.Zip, p.PriceCents, p.UnitPrice,
 		p.UnitLabel, p.Size, p.ProductName, p.StoreName)
 }
 
 // getUserZip returns the user's zip code from their address, or empty string.
-func (s *Server) getUserZip(userID int) string {
+func (s *Server) getUserZip(userID string) string {
 	var address sql.NullString
 	s.db.QueryRow("SELECT COALESCE(address,'') FROM users WHERE id = ?", userID).Scan(&address)
 	if !address.Valid || address.String == "" {

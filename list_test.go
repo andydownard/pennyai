@@ -2552,7 +2552,7 @@ func TestListClaim_Success(t *testing.T) {
 	var item ListItem
 	json.Unmarshal(rr.Body.Bytes(), &item)
 	if item.ClaimedByID == nil || *item.ClaimedByID != userID {
-		t.Errorf("Expected claimed_by_id to be %d, got %v", userID, item.ClaimedByID)
+		t.Errorf("Expected claimed_by_id to be %s, got %v", userID, item.ClaimedByID)
 	}
 }
 
@@ -2615,7 +2615,7 @@ func TestListClaim_Override(t *testing.T) {
 	var item ListItem
 	json.Unmarshal(rr.Body.Bytes(), &item)
 	if item.ClaimedByID == nil || *item.ClaimedByID != userID2 {
-		t.Errorf("Expected claimed_by_id to be %d (user2), got %v", userID2, item.ClaimedByID)
+		t.Errorf("Expected claimed_by_id to be %s (user2), got %v", userID2, item.ClaimedByID)
 	}
 }
 
@@ -3143,5 +3143,139 @@ func TestStoreSubroute_NoSubpath(t *testing.T) {
 	rr := doRequest(server.handleStoreSubroute, "GET", "/api/stores/1", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("No subpath should return 404, got %d", rr.Code)
+	}
+}
+
+// =============================================================================
+// handleListUrgent TESTS
+// =============================================================================
+
+func TestListUrgent_ToggleOn(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	itemID := createListItem(t, server.db, userID, "Bananas", "Produce")
+
+	rr := doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d/urgent", itemID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	var item ListItem
+	if err := json.Unmarshal(rr.Body.Bytes(), &item); err != nil {
+		t.Fatalf("parse response: %v", err)
+	}
+	if !item.Urgent {
+		t.Error("Expected item to be urgent after toggle")
+	}
+}
+
+func TestListUrgent_ToggleOff(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	itemID := createListItem(t, server.db, userID, "Bananas", "Produce")
+	// Set urgent = 1 first
+	server.db.Exec("UPDATE list_items SET urgent = 1 WHERE id = ?", itemID)
+
+	rr := doRequest(server.handleList, "PATCH", fmt.Sprintf("/api/list/%d/urgent", itemID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	var item ListItem
+	json.Unmarshal(rr.Body.Bytes(), &item)
+	if item.Urgent {
+		t.Error("Expected item to be non-urgent after second toggle")
+	}
+}
+
+func TestListUrgent_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleList, "PATCH", "/api/list/1/urgent", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+// =============================================================================
+// handleDepartmentOrder TESTS
+// =============================================================================
+
+func TestDepartmentOrder_Empty(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleDepartmentOrder, "GET", "/api/list/department-order", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	resp := parseJSON(rr)
+	deps, ok := resp["departments"].([]interface{})
+	if !ok {
+		t.Fatal("Expected departments array in response")
+	}
+	if len(deps) != 0 {
+		t.Errorf("Expected 0 departments for empty list, got %d", len(deps))
+	}
+	if learned, _ := resp["learned"].(bool); learned {
+		t.Error("Expected learned=false with no data")
+	}
+}
+
+func TestDepartmentOrder_WithItems(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	createListItem(t, server.db, userID, "Milk", "Dairy")
+	createListItem(t, server.db, userID, "Apples", "Produce")
+	createListItem(t, server.db, userID, "Bread", "Bakery")
+
+	rr := doRequest(server.handleDepartmentOrder, "GET", "/api/list/department-order", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	resp := parseJSON(rr)
+	deps, _ := resp["departments"].([]interface{})
+	if len(deps) != 3 {
+		t.Errorf("Expected 3 departments, got %d", len(deps))
+	}
+}
+
+func TestDepartmentOrder_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleDepartmentOrder, "POST", "/api/list/department-order", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status: got %d, want 405", rr.Code)
+	}
+}
+
+func TestDepartmentOrder_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleDepartmentOrder, "GET", "/api/list/department-order", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestDepartmentOrder_WithStoreParam(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	createListItem(t, server.db, userID, "Eggs", "Dairy")
+
+	rr := doRequest(server.handleDepartmentOrder, "GET", "/api/list/department-order?store=Costco", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	resp := parseJSON(rr)
+	store, _ := resp["store"].(string)
+	if store != "Costco" {
+		t.Errorf("Expected store=Costco, got %q", store)
 	}
 }

@@ -7,6 +7,8 @@ import (
 	"log"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // dbExecer abstracts *sql.DB and *sql.Tx so functions can run inside
@@ -19,14 +21,14 @@ type dbExecer interface {
 
 // getUserHouseholdID returns the household_id for a given user. Returns 0 if
 // the user has no household or doesn't exist. Works with both *sql.DB and *sql.Tx.
-func getUserHouseholdID(db dbExecer, userID int) int64 {
+func getUserHouseholdID(db dbExecer, userID string) int64 {
 	var hid int64
 	db.QueryRow("SELECT household_id FROM users WHERE id = ?", userID).Scan(&hid)
 	return hid
 }
 
 
-func recordModification(ex dbExecer, itemID, userID int, action, detail, source string) {
+func recordModification(ex dbExecer, itemID int, userID string, action, detail, source string) {
 	_, err := ex.Exec(
 		"INSERT INTO item_modifications (item_id, user_id, action, detail, source) VALUES (?, ?, ?, ?, ?)",
 		itemID, userID, action, detail, source,
@@ -42,7 +44,7 @@ func recordModification(ex dbExecer, itemID, userID int, action, detail, source 
 // and ≥40% of total to be a meaningful default).
 // If userDiets are provided, tries dietary-matched users first before falling
 // back to general popularity.
-func getGlobalBrandDefault(db *sql.DB, category string, userDiets ...[]string) (string, bool) {
+func getGlobalBrandDefault(db dbExecer, category string, userDiets ...[]string) (string, bool) {
 	category = strings.ToLower(strings.TrimSpace(category))
 	if category == "" {
 		return "", false
@@ -98,7 +100,7 @@ func getGlobalBrandDefault(db *sql.DB, category string, userDiets ...[]string) (
 
 // getUserDiets returns the user's dietary preferences from user_dietary_profiles.
 // Returns nil if no profile exists.
-func getUserDiets(db *sql.DB, userID int) []string {
+func getUserDiets(db dbExecer, userID string) []string {
 	var dietsJSON string
 	err := db.QueryRow("SELECT COALESCE(diets, '[]') FROM user_dietary_profiles WHERE user_id = ?", userID).Scan(&dietsJSON)
 	if err != nil {
@@ -114,7 +116,7 @@ func getUserDiets(db *sql.DB, userID int) []string {
 // getDietaryBrandDefault returns the most popular brand for a category
 // among users who share at least one dietary preference with the requesting user.
 // Same thresholds as getGlobalBrandDefault (≥2 picks, ≥40% share).
-func getDietaryBrandDefault(db *sql.DB, category string, diets []string) (string, bool) {
+func getDietaryBrandDefault(db dbExecer, category string, diets []string) (string, bool) {
 	if len(diets) == 0 {
 		return "", false
 	}
@@ -172,7 +174,7 @@ func getDietaryBrandDefault(db *sql.DB, category string, diets []string) (string
 }
 
 // recordBrandChoice logs a brand choice and updates the derived preference.
-func recordBrandChoice(db *sql.DB, userID int, category, brand, source string) {
+func recordBrandChoice(db dbExecer, userID string, category, brand, source string) {
 	category = strings.ToLower(strings.TrimSpace(category))
 	brand = strings.TrimSpace(brand)
 	if category == "" || brand == "" {
@@ -220,7 +222,7 @@ func recordBrandChoice(db *sql.DB, userID int, category, brand, source string) {
 // resolveBrandAlternatives applies brand preferences to parsed items with alternatives.
 // Returns disambiguations the user still needs to resolve.
 // When useGlobalDefaults is true, new users with no preference get the most popular brand auto-assigned.
-func resolveBrandAlternatives(db *sql.DB, userID int, pennyBrandMode string, items []ListItem, parsedItems []ParsedItem, useGlobalDefaults ...bool) []BrandDisambiguation {
+func resolveBrandAlternatives(db dbExecer, userID string, pennyBrandMode string, items []ListItem, parsedItems []ParsedItem, useGlobalDefaults ...bool) []BrandDisambiguation {
 	globalDefaults := len(useGlobalDefaults) > 0 && useGlobalDefaults[0]
 	var disambiguations []BrandDisambiguation
 
@@ -321,16 +323,17 @@ func resolveBrandAlternatives(db *sql.DB, userID int, pennyBrandMode string, ite
 	return disambiguations
 }
 
-func upsertUser(db *sql.DB, phone string) (User, error) {
+func upsertUser(db *PGDB, phone string) (User, error) {
 	tx, err := db.Begin()
 	if err != nil {
 		return User{}, fmt.Errorf("starting transaction: %w", err)
 	}
 	defer tx.Rollback()
 
+	newID := uuid.New().String()
 	_, err = tx.Exec(
-		"INSERT OR IGNORE INTO users (phone_number) VALUES (?)",
-		phone,
+		"INSERT OR IGNORE INTO users (id, phone_number) VALUES (?, ?)",
+		newID, phone,
 	)
 	if err != nil {
 		return User{}, fmt.Errorf("upserting user: %w", err)
@@ -354,7 +357,7 @@ func upsertUser(db *sql.DB, phone string) (User, error) {
 
 	// Track login activity and increment login count
 	if _, err := tx.Exec("UPDATE users SET last_active = CURRENT_TIMESTAMP, login_count = login_count + 1 WHERE id = ?", user.ID); err != nil {
-		log.Printf("[warn] failed to update login count for user %d: %v", user.ID, err)
+		log.Printf("[warn] failed to update login count for user %s: %v", user.ID, err)
 	}
 
 	// Auto-create household if user doesn't have one
@@ -378,7 +381,7 @@ func upsertUser(db *sql.DB, phone string) (User, error) {
 
 // createSoloHouseholdTx creates a new household with the given user as owner
 // using the provided transaction or db handle.
-func createSoloHouseholdTx(ex dbExecer, userID int) (int, error) {
+func createSoloHouseholdTx(ex dbExecer, userID string) (int, error) {
 	result, err := ex.Exec("INSERT INTO households DEFAULT VALUES")
 	if err != nil {
 		return 0, fmt.Errorf("creating household: %w", err)
@@ -402,7 +405,7 @@ func createSoloHouseholdTx(ex dbExecer, userID int) (int, error) {
 }
 
 // createSoloHousehold wraps createSoloHouseholdTx in a transaction.
-func createSoloHousehold(db *sql.DB, userID int) (int, error) {
+func createSoloHousehold(db *PGDB, userID string) (int, error) {
 	tx, err := db.Begin()
 	if err != nil {
 		return 0, fmt.Errorf("starting transaction: %w", err)
@@ -421,10 +424,10 @@ func createSoloHousehold(db *sql.DB, userID int) (int, error) {
 }
 
 // logAccountMerge records an account merge event for audit purposes.
-func logAccountMerge(ex dbExecer, survivingUser, mergedUser int, provider, providerID string, actions map[string]string) {
+func logAccountMerge(ex dbExecer, survivingUser, mergedUser string, provider, providerID string, actions map[string]string) {
 	data, _ := json.Marshal(actions)
 	var mergedPtr interface{}
-	if mergedUser > 0 {
+	if mergedUser != "" {
 		mergedPtr = mergedUser
 	}
 	ex.Exec(
@@ -435,7 +438,7 @@ func logAccountMerge(ex dbExecer, survivingUser, mergedUser int, provider, provi
 
 // mergeHouseholds cleans up household membership when two users are merged.
 // Returns a description of what was done for the audit log.
-func mergeHouseholds(tx dbExecer, survivingID, orphanedID int) string {
+func mergeHouseholds(tx dbExecer, survivingID, orphanedID string) string {
 	survivingHH := getUserHouseholdID(tx, survivingID)
 	orphanedHH := getUserHouseholdID(tx, orphanedID)
 
@@ -455,7 +458,7 @@ func mergeHouseholds(tx dbExecer, survivingID, orphanedID int) string {
 
 // mergeUserData transfers data from an orphaned user to the surviving user.
 // Returns a map of action descriptions for the audit log.
-func mergeUserData(tx dbExecer, survivingID, orphanedID int) map[string]string {
+func mergeUserData(tx dbExecer, survivingID, orphanedID string) map[string]string {
 	actions := map[string]string{}
 
 	// 1. List items: transfer non-duplicate items, merge quantities for duplicates
@@ -585,8 +588,8 @@ func mergeUserData(tx dbExecer, survivingID, orphanedID int) map[string]string {
 
 	// 11. Soft-delete the orphaned user
 	tx.Exec("UPDATE users SET email = '', phone_number = NULL, name = ? WHERE id = ?",
-		fmt.Sprintf("[merged into user %d]", survivingID), orphanedID)
-	actions["orphaned_user"] = fmt.Sprintf("user %d soft-deleted", orphanedID)
+		fmt.Sprintf("[merged into user %s]", survivingID), orphanedID)
+	actions["orphaned_user"] = fmt.Sprintf("user %s soft-deleted", orphanedID)
 
 	return actions
 }
@@ -595,7 +598,7 @@ func mergeUserData(tx dbExecer, survivingID, orphanedID int) map[string]string {
 // 1. Check auth_methods for existing (provider, provider_id) → return that user
 // 2. If email provided, check users for matching email → link auth method (auto-merge)
 // 3. Otherwise: create new user + auth_methods row + solo household
-func resolveOrCreateUser(db *sql.DB, provider, providerID, email, name string) (User, error) {
+func resolveOrCreateUser(db *PGDB, provider, providerID, email, name string) (User, error) {
 	tx, err := db.Begin()
 	if err != nil {
 		return User{}, fmt.Errorf("starting transaction: %w", err)
@@ -603,7 +606,7 @@ func resolveOrCreateUser(db *sql.DB, provider, providerID, email, name string) (
 	defer tx.Rollback()
 
 	// 1. Check if this auth method already exists
-	var userID int
+	var userID string
 	err = tx.QueryRow(
 		"SELECT user_id FROM auth_methods WHERE provider = ? AND provider_id = ?",
 		provider, providerID,
@@ -636,7 +639,7 @@ func resolveOrCreateUser(db *sql.DB, provider, providerID, email, name string) (
 
 	// 2. If email provided, try to merge with existing user by email
 	if email != "" {
-		var existingID int
+		var existingID string
 		err = tx.QueryRow(
 			"SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND email != ''",
 			email,
@@ -666,9 +669,9 @@ func resolveOrCreateUser(db *sql.DB, provider, providerID, email, name string) (
 				email, existingID,
 			)
 			if orphanRows != nil {
-				var orphanIDs []int
+				var orphanIDs []string
 				for orphanRows.Next() {
-					var oid int
+					var oid string
 					if err := orphanRows.Scan(&oid); err == nil {
 						orphanIDs = append(orphanIDs, oid)
 					}
@@ -677,7 +680,7 @@ func resolveOrCreateUser(db *sql.DB, provider, providerID, email, name string) (
 				for _, orphanID := range orphanIDs {
 					actions := mergeUserData(tx, existingID, orphanID)
 					logAccountMerge(tx, existingID, orphanID, provider, providerID, actions)
-					log.Printf("[auth] full user merge: user %d absorbed user %d (%s)", existingID, orphanID, email)
+					log.Printf("[auth] full user merge: user %s absorbed user %s (%s)", existingID, orphanID, email)
 					merged = true
 					fullMerged = true
 				}
@@ -685,7 +688,7 @@ func resolveOrCreateUser(db *sql.DB, provider, providerID, email, name string) (
 
 			// Log the auth-method-only merge if no full user merge happened
 			if merged && !fullMerged {
-				logAccountMerge(tx, existingID, 0, provider, providerID, map[string]string{
+				logAccountMerge(tx, existingID, "", provider, providerID, map[string]string{
 					"auth_method": fmt.Sprintf("linked %s:%s", provider, providerID),
 				})
 			}
@@ -712,21 +715,21 @@ func resolveOrCreateUser(db *sql.DB, provider, providerID, email, name string) (
 				return User{}, fmt.Errorf("committing: %w", err)
 			}
 			if merged {
-				log.Printf("[auth] account merged: user %d linked %s auth to existing account (%s)", user.ID, provider, email)
+				log.Printf("[auth] account merged: user %s linked %s auth to existing account (%s)", user.ID, provider, email)
 			}
 			return user, nil
 		}
 	}
 
 	// 3. Create new user
-	result, err := tx.Exec(
-		"INSERT INTO users (phone_number, name, email) VALUES (NULL, ?, ?)",
-		name, email,
+	newID := uuid.New().String()
+	_, err = tx.Exec(
+		"INSERT INTO users (id, phone_number, name, email) VALUES (?, NULL, ?, ?)",
+		newID, name, email,
 	)
 	if err != nil {
 		return User{}, fmt.Errorf("creating user: %w", err)
 	}
-	newID, _ := result.LastInsertId()
 
 	// Create auth method
 	_, err = tx.Exec(
@@ -738,7 +741,7 @@ func resolveOrCreateUser(db *sql.DB, provider, providerID, email, name string) (
 	}
 
 	// Auto-create household
-	hID, err := createSoloHouseholdTx(tx, int(newID))
+	hID, err := createSoloHouseholdTx(tx, newID)
 	if err != nil {
 		return User{}, err
 	}
@@ -750,33 +753,33 @@ func resolveOrCreateUser(db *sql.DB, provider, providerID, email, name string) (
 	}
 
 	return User{
-		ID:          int(newID),
+		ID:          newID,
 		Name:        name,
 		Email:       email,
 		HouseholdID: hID,
 	}, nil
 }
 
-func getHouseholdUserIDs(db *sql.DB, userID int) ([]int, error) {
+func getHouseholdUserIDs(db dbExecer, userID string) ([]string, error) {
 	rows, err := db.Query(
 		"SELECT user_id FROM household_members WHERE household_id = (SELECT household_id FROM users WHERE id = ? AND household_id IS NOT NULL)",
 		userID,
 	)
 	if err != nil {
-		log.Printf("[warn] household lookup failed for user %d, falling back to single user: %v", userID, err)
-		return []int{userID}, nil
+		log.Printf("[warn] household lookup failed for user %s, falling back to single user: %v", userID, err)
+		return []string{userID}, nil
 	}
 	defer rows.Close()
 
-	var ids []int
+	var ids []string
 	for rows.Next() {
-		var id int
+		var id string
 		if err := rows.Scan(&id); err == nil {
 			ids = append(ids, id)
 		}
 	}
 	if len(ids) == 0 {
-		return []int{userID}, nil
+		return []string{userID}, nil
 	}
 	return ids, nil
 }
@@ -784,8 +787,8 @@ func getHouseholdUserIDs(db *sql.DB, userID int) ([]int, error) {
 // householdItemsWhereClause returns a SQL fragment "user_id IN (?,?,...)" and
 // the corresponding args, for queries that should span the whole household.
 // Pass optional pre-computed household IDs to avoid re-querying.
-func householdItemsWhereClause(db *sql.DB, userID int, cachedIDs ...[]int) (string, []interface{}) {
-	var ids []int
+func householdItemsWhereClause(db dbExecer, userID string, cachedIDs ...[]string) (string, []interface{}) {
+	var ids []string
 	if len(cachedIDs) > 0 && cachedIDs[0] != nil {
 		ids = cachedIDs[0]
 	} else {
@@ -801,7 +804,7 @@ func householdItemsWhereClause(db *sql.DB, userID int, cachedIDs ...[]int) (stri
 }
 
 // insertSavedListItems inserts items into saved_list_items within a transaction.
-func insertSavedListItems(tx *sql.Tx, savedListID int64, items []itemData) error {
+func insertSavedListItems(tx dbExecer, savedListID int64, items []itemData) error {
 	for _, d := range items {
 		if _, err := tx.Exec(
 			"INSERT INTO saved_list_items (saved_list_id, name, brand, department, quantity, size, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -816,7 +819,7 @@ func scanListItem(scanner interface{ Scan(dest ...interface{}) error }) (ListIte
 	var item ListItem
 	var checked, urgent int
 	var addedByName, addedByPhone sql.NullString
-	var claimedByID sql.NullInt64
+	var claimedByID sql.NullString
 	var claimedByName sql.NullString
 	err := scanner.Scan(&item.ID, &item.Name, &item.Brand, &item.Department, &item.Quantity, &item.Size, &item.Notes, &item.Source, &checked, &urgent, &item.CreatedAt, &addedByName, &addedByPhone, &claimedByID, &claimedByName, &item.SwapSavingsCents, &item.Emoji)
 	if err != nil {
@@ -827,7 +830,7 @@ func scanListItem(scanner interface{ Scan(dest ...interface{}) error }) (ListIte
 	item.AddedByName = addedByName.String
 	item.AddedByPhone = addedByPhone.String
 	if claimedByID.Valid {
-		id := int(claimedByID.Int64)
+		id := claimedByID.String
 		item.ClaimedByID = &id
 		item.ClaimedByName = claimedByName.String
 	}
@@ -850,7 +853,7 @@ func maskPhone(phone string) string {
 }
 
 // getItemByID fetches a single list item belonging to a household.
-func getItemByID(db *sql.DB, id, userID int) (ListItem, error) {
+func getItemByID(db dbExecer, id int, userID string) (ListItem, error) {
 	whereClause, whereArgs := householdItemsWhereClause(db, userID)
 	args := append([]interface{}{id}, whereArgs...)
 	row := db.QueryRow(
@@ -865,7 +868,7 @@ func getItemByID(db *sql.DB, id, userID int) (ListItem, error) {
 // resulting ListItem and whether it was newly created.
 // The SELECT+UPDATE/INSERT is wrapped in a transaction to prevent duplicate
 // items from concurrent requests.
-func upsertListItem(db *sql.DB, userID int, name, brand, department, size string, quantity int, source, notes, emoji string) (ListItem, bool, error) {
+func upsertListItem(db *PGDB, userID string, name, brand, department, size string, quantity int, source, notes, emoji string) (ListItem, bool, error) {
 	if quantity < 1 {
 		quantity = 1
 	}
@@ -1002,7 +1005,7 @@ func stripBrandFromName(name, brand string) string {
 
 // addParsedItems loops over parsed items, skips empties, and upserts each one.
 // Returns the list of added items and skipped items (already on the list).
-func addParsedItems(db *sql.DB, userID int, parsed []ParsedItem, source string) (added []ListItem, skipped []SkippedItem) {
+func addParsedItems(db *PGDB, userID string, parsed []ParsedItem, source string) (added []ListItem, skipped []SkippedItem) {
 	for _, p := range parsed {
 		if strings.TrimSpace(p.Name) == "" {
 			continue
@@ -1025,7 +1028,7 @@ func addParsedItems(db *sql.DB, userID int, parsed []ParsedItem, source string) 
 	}
 	return added, skipped
 }
-func collectListItems(db *sql.DB, userID int) ([]itemData, error) {
+func collectListItems(db dbExecer, userID string) ([]itemData, error) {
 	whereClause, whereArgs := householdItemsWhereClause(db, userID)
 	rows, err := db.Query(
 		"SELECT name, brand, department, quantity, size, notes FROM list_items WHERE "+whereClause,

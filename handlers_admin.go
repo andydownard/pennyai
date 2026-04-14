@@ -518,7 +518,7 @@ func (s *Server) handleAdminDealReview(w http.ResponseWriter, r *http.Request) {
 	// Get admin identifier for audit trail
 	adminIdentifier := admin.PhoneNumber
 	if adminIdentifier == "" {
-		adminIdentifier = fmt.Sprintf("user_%d", admin.UserID)
+		adminIdentifier = fmt.Sprintf("user_%s", admin.UserID)
 	}
 
 	if req.Action == "approve" {
@@ -569,7 +569,7 @@ func (s *Server) handleAdminPayouts(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 
 		type payoutEntry struct {
-			UserID     int    `json:"user_id"`
+			UserID     string `json:"user_id"`
 			Name       string `json:"name"`
 			Email      string `json:"email"`
 			Phone      string `json:"phone"`
@@ -590,12 +590,12 @@ func (s *Server) handleAdminPayouts(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		var req struct {
-			UserID int `json:"user_id"`
+			UserID string `json:"user_id"`
 		}
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		if req.UserID == 0 {
+		if req.UserID == "" {
 			writeBadRequest(w, "user_id is required")
 			return
 		}
@@ -609,7 +609,7 @@ func (s *Server) handleAdminPayouts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		affected, _ := result.RowsAffected()
-		log.Printf("[admin-payouts] marked %d rebates as issued for user %d", affected, req.UserID)
+		log.Printf("[admin-payouts] marked %d rebates as issued for user %s", affected, req.UserID)
 		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "updated": affected})
 
 	default:

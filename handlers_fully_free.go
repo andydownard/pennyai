@@ -35,7 +35,7 @@ func (s *Server) handleFullyFreeReceiptVerify(w http.ResponseWriter, r *http.Req
 	}
 
 	// Rate limit: max 5 fully_free verifications per user per day
-	val, _ := s.earningsUploadLimiter.LoadOrStore(fmt.Sprintf("ff_%d", session.UserID), &rateBucket{})
+	val, _ := s.earningsUploadLimiter.LoadOrStore(fmt.Sprintf("ff_%s", session.UserID), &rateBucket{})
 	rb := val.(*rateBucket)
 	rb.mu.Lock()
 	now := time.Now()
@@ -55,7 +55,8 @@ func (s *Server) handleFullyFreeReceiptVerify(w http.ResponseWriter, r *http.Req
 	rb.mu.Unlock()
 
 	// Load rebate and verify ownership + status
-	var rebateUserID, dealID, amountCents int
+	var rebateUserID string
+	var dealID, amountCents int
 	var rebateStatus string
 	err := s.db.QueryRow(
 		"SELECT user_id, deal_id, amount_cents, status FROM swap_rebates WHERE id = ?",
@@ -168,7 +169,7 @@ func (s *Server) handleFullyFreeReceiptVerify(w http.ResponseWriter, r *http.Req
 	// 30-day hold: payout will be processed after 30 days (existing payout mechanism handles this)
 	payoutDate := time.Now().Add(30 * 24 * time.Hour).Format("January 2, 2006")
 
-	log.Printf("[fully_free] verified rebate %d for user %d: actual_rebate=%d, platform_fee=%d, total_debit=%d",
+	log.Printf("[fully_free] verified rebate %d for user %s: actual_rebate=%d, platform_fee=%d, total_debit=%d",
 		req.RebateID, session.UserID, actualRebate, platformFeeCents, totalDebit)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

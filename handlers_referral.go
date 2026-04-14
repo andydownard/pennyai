@@ -144,7 +144,7 @@ func (s *Server) handleReferralClaim(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Look up referrer by code
-	var referrerID int
+	var referrerID string
 	err := s.db.QueryRow("SELECT id FROM users WHERE referral_code = ?", req.Code).Scan(&referrerID)
 	if err != nil {
 		writeNotFound(w, "Invalid referral code.")
@@ -223,7 +223,7 @@ func (s *Server) handleRebates(w http.ResponseWriter, r *http.Request) {
 		LIMIT 100
 	`, session.UserID)
 	if err != nil {
-		log.Printf("[rebates] query error for user %d: %v", session.UserID, err)
+		log.Printf("[rebates] query error for user %s: %v", session.UserID, err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load rebates"})
 		return
 	}

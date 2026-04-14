@@ -37,7 +37,7 @@ func TestFullyFree_AcceptNoBudgetDebit(t *testing.T) {
 
 	// Create user with phone (verified identity) and old enough account (>72h)
 	server.db.Exec("INSERT INTO users (id, phone_number, created_at) VALUES (1, '5551234567', datetime('now', '-4 days'))")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Create a fully_free deal with $5 max rebate and $50 budget
@@ -88,7 +88,7 @@ func TestFullyFree_ReceiptVerify_BudgetDebit(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
 
 	server.db.Exec("INSERT INTO users (id, phone_number, created_at) VALUES (1, '5551234567', datetime('now', '-4 days'))")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	dealID := createFullyFreeDeal(t, server, "Acme", "Acme Organic Milk", "milk", 500, 5000)
@@ -143,7 +143,7 @@ func TestFullyFree_DynamicRebate_ReceiptPriceLessThanMax(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
 
 	server.db.Exec("INSERT INTO users (id, phone_number, created_at) VALUES (1, '5551234567', datetime('now', '-4 days'))")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Max rebate is $8.00 but receipt price will be $5.99
@@ -183,7 +183,7 @@ func TestFullyFree_DynamicRebate_ReceiptPriceHigherThanMax(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
 
 	server.db.Exec("INSERT INTO users (id, phone_number, created_at) VALUES (1, '5551234567', datetime('now', '-4 days'))")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Max rebate is $5.00 but receipt price will be $7.99
@@ -216,7 +216,7 @@ func TestFullyFree_FraudGate_72hCoolingPeriod(t *testing.T) {
 
 	// Create user whose account is only 1 hour old
 	server.db.Exec("INSERT INTO users (id, phone_number, created_at) VALUES (1, '5551234567', datetime('now', '-1 hours'))")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	dealID := createFullyFreeDeal(t, server, "Acme", "Acme Free Product", "product", 500, 5000)
@@ -249,7 +249,7 @@ func TestFullyFree_FraudGate_UnverifiedIdentity(t *testing.T) {
 
 	// Create user WITHOUT phone (no verified identity), account > 72h old
 	server.db.Exec("INSERT INTO users (id, created_at) VALUES (1, datetime('now', '-4 days'))")
-	token, _ := server.sessions.CreateSession(1, "", "email")
+	token, _ := server.sessions.CreateSession("user-1", "", "email")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	dealID := createFullyFreeDeal(t, server, "Acme", "Acme Free Product", "product", 500, 5000)
@@ -282,8 +282,8 @@ func TestFullyFree_FraudGate_HouseholdDedup(t *testing.T) {
 	server.db.Exec("INSERT INTO users (id, phone_number, household_id, created_at) VALUES (1, '5551234567', 1, datetime('now', '-4 days'))")
 	server.db.Exec("INSERT INTO users (id, phone_number, household_id, created_at) VALUES (2, '5559876543', 1, datetime('now', '-4 days'))")
 
-	token1, _ := server.sessions.CreateSession(1, "5551234567", "phone")
-	token2, _ := server.sessions.CreateSession(2, "5559876543", "phone")
+	token1, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
+	token2, _ := server.sessions.CreateSession("user-2", "5559876543", "phone")
 	cookies1 := []*http.Cookie{{Name: "session", Value: token1}}
 	cookies2 := []*http.Cookie{{Name: "session", Value: token2}}
 
@@ -323,8 +323,8 @@ func TestFullyFree_VerifyWrongUser(t *testing.T) {
 
 	server.db.Exec("INSERT INTO users (id, phone_number, created_at) VALUES (1, '5551234567', datetime('now', '-4 days'))")
 	server.db.Exec("INSERT INTO users (id, phone_number, created_at) VALUES (2, '5559876543', datetime('now', '-4 days'))")
-	token1, _ := server.sessions.CreateSession(1, "5551234567", "phone")
-	token2, _ := server.sessions.CreateSession(2, "5559876543", "phone")
+	token1, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
+	token2, _ := server.sessions.CreateSession("user-2", "5559876543", "phone")
 	cookies1 := []*http.Cookie{{Name: "session", Value: token1}}
 	cookies2 := []*http.Cookie{{Name: "session", Value: token2}}
 
@@ -351,7 +351,7 @@ func TestFullyFree_VerifyAlreadyVerified(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
 
 	server.db.Exec("INSERT INTO users (id, phone_number, created_at) VALUES (1, '5551234567', datetime('now', '-4 days'))")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	dealID := createFullyFreeDeal(t, server, "Acme", "Acme Organic Milk", "milk", 500, 5000)
@@ -384,8 +384,8 @@ func TestFullyFree_BudgetExhaustedOnVerify(t *testing.T) {
 
 	server.db.Exec("INSERT INTO users (id, phone_number, created_at) VALUES (1, '5551234567', datetime('now', '-4 days'))")
 	server.db.Exec("INSERT INTO users (id, phone_number, created_at) VALUES (2, '5559876543', datetime('now', '-4 days'))")
-	token1, _ := server.sessions.CreateSession(1, "5551234567", "phone")
-	token2, _ := server.sessions.CreateSession(2, "5559876543", "phone")
+	token1, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
+	token2, _ := server.sessions.CreateSession("user-2", "5559876543", "phone")
 	cookies1 := []*http.Cookie{{Name: "session", Value: token1}}
 	cookies2 := []*http.Cookie{{Name: "session", Value: token2}}
 
@@ -434,7 +434,7 @@ func TestFullyFree_PendingRebatesEndpoint(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
 
 	server.db.Exec("INSERT INTO users (id, phone_number, created_at) VALUES (1, '5551234567', datetime('now', '-4 days'))")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	dealID := createFullyFreeDeal(t, server, "Acme", "Acme Product", "product", 500, 5000)
@@ -468,7 +468,7 @@ func TestFullyFree_EarningsShowNewStatuses(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
 
 	server.db.Exec("INSERT INTO users (id, phone_number, created_at) VALUES (1, '5551234567', datetime('now', '-4 days'))")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	dealID := createFullyFreeDeal(t, server, "Acme", "Acme Product", "product", 500, 5000)
@@ -601,7 +601,7 @@ func TestFullyFree_VerifyMissingRebateID(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
 
 	server.db.Exec("INSERT INTO users (id, phone_number, created_at) VALUES (1, '5551234567', datetime('now', '-4 days'))")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	rr := doRequest(server.handleFullyFreeReceiptVerify, "POST", "/api/receipt/verify",
@@ -615,7 +615,7 @@ func TestFullyFree_VerifyNonexistentRebate(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
 
 	server.db.Exec("INSERT INTO users (id, phone_number, created_at) VALUES (1, '5551234567', datetime('now', '-4 days'))")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	rr := doRequest(server.handleFullyFreeReceiptVerify, "POST", "/api/receipt/verify",

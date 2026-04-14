@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
-	_ "modernc.org/sqlite"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // =============================================================================
@@ -68,11 +68,9 @@ func loadConfig() Config {
 	if port == "" {
 		port = "8080"
 	}
-	dbPath := os.Getenv("DB_PATH")
-	if dbPath == "" {
-		// Filename retained from the Thriftly era to avoid breaking the existing
-		// Litestream backup chain. The product is now Groflo; the file is just a name.
-		dbPath = "thriftly.db"
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		databaseURL = "postgres://localhost:5432/pennyai?sslmode=disable"
 	}
 	npsInterval := 90
 	if v := os.Getenv("NPS_INTERVAL_DAYS"); v != "" {
@@ -104,14 +102,13 @@ func loadConfig() Config {
 		GooglePlacesAPIKey:  os.Getenv("GOOGLE_PLACES_API_KEY"),
 		NPSIntervalDays:     npsInterval,
 		Port:                port,
-		DBPath:              dbPath,
+		DatabaseURL:         databaseURL,
 		WebhookBaseURL:      os.Getenv("WEBHOOK_BASE_URL"), // e.g. "https://app.groflo.io"
 		SecureCookies:       os.Getenv("RAILWAY_ENVIRONMENT_NAME") != "",
 		TestMode:            os.Getenv("TEST_MODE") == "true",
 		GoogleClientID:      os.Getenv("GOOGLE_CLIENT_ID"),
 		SendGridAPIKey:      os.Getenv("SENDGRID_API_KEY"),
 		BlueCartAPIKey:      os.Getenv("BLUECART_API_KEY"),
-		ReportingDBPath:     os.Getenv("REPORTING_DB_PATH"),
 		FeedbackPhones:      feedbackPhones,
 		GitHubPAT:           os.Getenv("GH_PAT"),
 		GitHubRepo:          os.Getenv("GH_REPO"),
@@ -120,6 +117,8 @@ func loadConfig() Config {
 		WattAPIKey:          os.Getenv("WATT_API_KEY"),
 		TimpagerURL:         os.Getenv("TIMPAGER_URL"),
 		TimpagerAPIKey:      os.Getenv("TIMPAGER_API_KEY"),
+		GeminiAPIKey:        os.Getenv("GEMINI_API_KEY"),
+		OpenAIAPIKey:        os.Getenv("OPENAI_API_KEY"),
 	}
 }
 
@@ -174,40 +173,38 @@ Get these from https://console.twilio.com (see README for full setup).
 `)
 	}
 
-	// Open the database (creates the file if it doesn't exist)
-	db, err := initDB(cfg.DBPath)
+	// Open PostgreSQL database
+	db, err := sql.Open("pgx", cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("Database error: %v", err)
 	}
 	defer db.Close()
+	db.SetMaxOpenConns(20)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
-	// Open reporting DB clone if it exists (for admin analytics isolation)
-	var reportDB *sql.DB
-	if cfg.ReportingDBPath != "" {
-		if _, err := os.Stat(cfg.ReportingDBPath); err == nil {
-			rdb, err := openReportDB(cfg.ReportingDBPath)
-			if err != nil {
-				log.Printf("[startup] failed to open reporting DB at %s: %v", cfg.ReportingDBPath, err)
-			} else {
-				reportDB = rdb
-				log.Printf("[startup] reporting DB opened at %s", cfg.ReportingDBPath)
-			}
-		}
+	// Wrap with PGDB for SQLite→Postgres SQL conversion
+	pgdb := WrapPG(db)
+
+	if err := initDB(pgdb.DB); err != nil {
+		log.Fatalf("Schema initialization error: %v", err)
 	}
 
 	server := &Server{
 		config:   cfg,
-		db:       db,
-		reportDB: reportDB,
-		sessions: NewSessionStore(db),
+		db:       pgdb,
+		sessions: NewSessionStore(pgdb.DB),
 		twilio: &RealTwilioClient{
 			AccountSID:    cfg.TwilioAccountSID,
 			AuthToken:     cfg.TwilioAuthToken,
 			VerifyService: cfg.TwilioVerifyService,
 		},
-		parseItems:   parseItemsWithClaude,
-		parseCommand: parseCommandWithClaude,
-		parseReceipt: parseReceiptWithClaude,
+		// AI parse functions use multi-provider fallback (ai_providers.go).
+		// Primary: Anthropic, fallback: Gemini, then OpenAI.
+		// Complexity tiers: text→Simple, commands→Medium, images/receipts→Hard.
+		parseItems:   parseItemsWithClaude,   // Simple/Hard (auto-detected by image presence)
+		parseCommand: parseCommandWithClaude,  // Medium (natural language understanding)
+		parseReceipt: parseReceiptWithClaude,  // Hard (image parsing + fraud detection)
 		smsBuffer:    newMessageBuffer(defaultSMSBufferDuration),
 	}
 
@@ -417,6 +414,9 @@ Get these from https://console.twilio.com (see README for full setup).
 			return
 		}
 
+		// penny.rallytasks.com serves the consumer app directly (no redirect)
+		// app.groflo.io continues to work as-is
+
 		// Brand portal: serve from static-brand/ for brand(s).* subdomain
 		host := r.Host
 		if strings.HasPrefix(host, "brand.") || strings.HasPrefix(host, "brands.") || strings.HasPrefix(host, "brands-") || strings.HasPrefix(host, "brand-") {
@@ -519,7 +519,7 @@ Get these from https://console.twilio.com (see README for full setup).
 			}
 		} else {
 			w.Header().Set("X-Frame-Options", "DENY")
-			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://*.ingest.us.sentry.io https://us.i.posthog.com https://www.google-analytics.com https://www.googletagmanager.com; frame-src https://accounts.google.com; font-src 'self'")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://*.ingest.us.sentry.io https://us.i.posthog.com https://www.google-analytics.com https://www.googletagmanager.com https://penny.rallytasks.com; frame-src https://accounts.google.com; frame-ancestors 'self' https://penny.rallytasks.com; font-src 'self'")
 		}
 		if server.config.SecureCookies {
 			w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")

@@ -15,7 +15,7 @@ import (
 //
 //	slider 0-33 = always show, 34-66 = show if discount > $1, 67-100 = never show
 //	autotune ON: Penny decides based on accept/shown ratio (< 5% = stop showing)
-func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingSwap {
+func (s *Server) checkDealsForItems(userID string, addedItems []ListItem) *PendingSwap {
 	if len(addedItems) == 0 {
 		return nil
 	}
@@ -27,7 +27,7 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 		userID,
 	).Scan(&slider, &autotune, &acceptCount, &shownCount)
 	if err != nil {
-		log.Printf("[swaps] failed to load user %d settings: %v", userID, err)
+		log.Printf("[swaps] failed to load user %s settings: %v", userID, err)
 		return nil
 	}
 
@@ -241,7 +241,7 @@ func (s *Server) checkDealsForItems(userID int, addedItems []ListItem) *PendingS
 				pRate, predConf := s.getUserSwapPrediction(userID, deal.CategoryID, deal.OfferBrand)
 				predRate = pRate
 				if predConf >= 0.5 && predRate < 0.10 {
-					log.Printf("[swaps] prediction filter: skipping deal %d for user %d (predicted acceptance %.1f%%, confidence %.2f)",
+					log.Printf("[swaps] prediction filter: skipping deal %d for user %s (predicted acceptance %.1f%%, confidence %.2f)",
 						deal.ID, userID, predRate*100, predConf)
 					continue
 				}

@@ -1,10 +1,14 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // =============================================================================
@@ -48,6 +52,11 @@ func (s *Server) handleSavedLists(w http.ResponseWriter, r *http.Request) {
 
 	if len(parts) == 2 && parts[1] == "merge" && r.Method == http.MethodPost {
 		s.handleSavedListMerge(w, r, id)
+		return
+	}
+
+	if len(parts) == 2 && parts[1] == "share" && r.Method == http.MethodPost {
+		s.handleSavedListShare(w, r, id)
 		return
 	}
 
@@ -405,4 +414,213 @@ func (s *Server) handleSavedListMerge(w http.ResponseWriter, r *http.Request, id
 		"success": true,
 		"added":   added,
 	})
+}
+
+// handleSavedListShare handles POST /api/saved-lists/{id}/share
+// Creates a shared link for a saved list (fork/copy model — not live-linked).
+func (s *Server) handleSavedListShare(w http.ResponseWriter, r *http.Request, id int) {
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireSavedListAccess(w, session.UserID, id) {
+		return
+	}
+
+	// Generate 16-byte hex code
+	codeBytes := make([]byte, 16)
+	if _, err := rand.Read(codeBytes); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to generate share code"})
+		return
+	}
+	code := hex.EncodeToString(codeBytes)
+
+	// Insert shared link with 7-day expiry and saved_list_id
+	expiresAt := time.Now().Add(7 * 24 * time.Hour)
+	_, err := s.db.Exec(
+		"INSERT INTO shared_links (code, user_id, expires_at, saved_list_id) VALUES (?, ?, ?, ?)",
+		code, session.UserID, expiresAt, id,
+	)
+	if err != nil {
+		dbError(w, err, "Failed to create share link")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"url":        "/shared/" + code,
+		"code":       code,
+		"expires_at": expiresAt.Format(time.RFC3339),
+	})
+}
+
+// handleSharedSavedListCopy handles POST /api/shared/{code}/copy
+// Creates a personal copy of a shared saved list for the authenticated user.
+func (s *Server) handleSharedSavedListCopy(w http.ResponseWriter, r *http.Request, savedListID int, sharerUserID string) {
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	// Get the original saved list name and store_name
+	var listName, storeName string
+	err := s.db.QueryRow("SELECT name, COALESCE(store_name, '') FROM saved_lists WHERE id = ?", savedListID).Scan(&listName, &storeName)
+	if err != nil {
+		writeNotFound(w, "Saved list not found")
+		return
+	}
+
+	// Get all items from the original saved list
+	rows, err := s.db.Query(
+		"SELECT name, brand, department, quantity, size, notes FROM saved_list_items WHERE saved_list_id = ?",
+		savedListID,
+	)
+	if err != nil {
+		dbError(w, err, "Failed to read saved list items")
+		return
+	}
+	var items []itemData
+	for rows.Next() {
+		var d itemData
+		if err := rows.Scan(&d.Name, &d.Brand, &d.Department, &d.Quantity, &d.Size, &d.Notes); err != nil {
+			continue
+		}
+		items = append(items, d)
+	}
+	rows.Close()
+
+	// Create a new saved list owned by the recipient
+	tx, err := s.db.Begin()
+	if err != nil {
+		dbError(w, err, "Failed to copy list")
+		return
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec(
+		"INSERT INTO saved_lists (user_id, name, store_name) VALUES (?, ?, ?)",
+		session.UserID, listName, storeName,
+	)
+	if err != nil {
+		dbError(w, err, "Failed to copy list")
+		return
+	}
+	newListID, _ := result.LastInsertId()
+
+	if err := insertSavedListItems(tx, newListID, items); err != nil {
+		dbError(w, err, "Failed to copy list items")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		dbError(w, err, "Failed to copy list")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"id":         newListID,
+		"name":       listName,
+		"store_name": storeName,
+		"item_count": len(items),
+	})
+}
+
+// handleSharedSavedListAddToList handles POST /api/shared/{code}/add-to-list
+// Merges items from a shared saved list into the authenticated user's active list.
+func (s *Server) handleSharedSavedListAddToList(w http.ResponseWriter, r *http.Request, savedListID int) {
+	session, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+
+	// Get saved list items
+	rows, err := s.db.Query(
+		"SELECT name, brand, department, quantity, size, notes FROM saved_list_items WHERE saved_list_id = ?",
+		savedListID,
+	)
+	if err != nil {
+		dbError(w, err, "Failed to read saved list items")
+		return
+	}
+	var items []itemData
+	for rows.Next() {
+		var d itemData
+		if err := rows.Scan(&d.Name, &d.Brand, &d.Department, &d.Quantity, &d.Size, &d.Notes); err != nil {
+			continue
+		}
+		items = append(items, d)
+	}
+	rows.Close()
+
+	added := 0
+	alreadyOnList := 0
+	for _, si := range items {
+		siEmoji := inferItemEmoji(si.Name, si.Department)
+		_, isNew, err := upsertListItem(s.db, session.UserID, si.Name, si.Brand, si.Department, si.Size, si.Quantity, "app", si.Notes, siEmoji)
+		if err != nil {
+			log.Printf("[saved-list-share] error upserting item %q: %v", si.Name, err)
+			continue
+		}
+		if isNew {
+			added++
+		} else {
+			alreadyOnList++
+		}
+	}
+
+	// Build summary message per spec: "Added 8 items, 4 already on list"
+	var msg string
+	if alreadyOnList > 0 {
+		msg = fmt.Sprintf("Added %d items, %d already on list", added, alreadyOnList)
+	} else {
+		msg = fmt.Sprintf("Added %d items", added)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success":         true,
+		"added":           added,
+		"already_on_list": alreadyOnList,
+		"message":         msg,
+	})
+}
+
+// getSavedListItems returns items for a saved list (used in shared view).
+func getSavedListItems(db *PGDB, savedListID int) ([]map[string]interface{}, error) {
+	rows, err := db.Query(
+		"SELECT name, COALESCE(brand, ''), COALESCE(department, ''), COALESCE(quantity, 1), COALESCE(size, ''), COALESCE(notes, '') FROM saved_list_items WHERE saved_list_id = ?",
+		savedListID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []map[string]interface{}
+	for rows.Next() {
+		var name, brand, department, size, notes string
+		var quantity int
+		if rows.Scan(&name, &brand, &department, &quantity, &size, &notes) == nil {
+			item := map[string]interface{}{
+				"name":     name,
+				"quantity": quantity,
+			}
+			if brand != "" {
+				item["brand"] = brand
+			}
+			if department != "" {
+				item["department"] = department
+			}
+			if size != "" {
+				item["size"] = size
+			}
+			if notes != "" {
+				item["notes"] = notes
+			}
+			items = append(items, item)
+		}
+	}
+	if items == nil {
+		items = []map[string]interface{}{}
+	}
+	return items, nil
 }

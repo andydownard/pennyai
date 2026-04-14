@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -18,11 +19,7 @@ import (
 // =============================================================================
 
 func TestHouseholdAutoCreation(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
+	_, db := openTestDB(t)
 
 	user, err := upsertUser(db, "5551234567")
 	if err != nil {
@@ -322,7 +319,7 @@ func TestInviteAutoCreatesHousehold(t *testing.T) {
 
 	// Create a user directly (without household) to simulate legacy user
 	server.db.Exec("INSERT INTO users (phone_number) VALUES (?)", "5551234567")
-	var userID int
+	var userID string
 	server.db.QueryRow("SELECT id FROM users WHERE phone_number = '5551234567'").Scan(&userID)
 
 	token, _ := server.sessions.CreateSession(userID, "5551234567", "phone")
@@ -1340,19 +1337,14 @@ func TestInvite_CreatesHouseholdIfNeeded(t *testing.T) {
 }
 
 func TestCreateSoloHousehold_Success(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
+	_, db := openTestDB(t)
 
 	// Create user directly (no upsertUser which auto-creates household)
-	result, err := db.Exec("INSERT INTO users (phone_number) VALUES ('5559999999')")
+	userID := "test-solo-user"
+	_, err := db.Exec("INSERT INTO users (id, phone_number) VALUES (?, '5559999999')", userID)
 	if err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
-	uid, _ := result.LastInsertId()
-	userID := int(uid)
 
 	hID, err := createSoloHousehold(db, userID)
 	if err != nil {
@@ -1676,15 +1668,11 @@ func TestSettingsUpdate_InvalidEmailFormat(t *testing.T) {
 }
 
 func TestCreateSoloHousehold_VerifyMembership(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	_, db := openTestDB(t)
 
 	// Insert user without upsertUser (which auto-creates household)
 	db.Exec("INSERT INTO users (phone_number) VALUES ('5551234567')")
-	var userID int
+	var userID string
 	db.QueryRow("SELECT id FROM users WHERE phone_number = '5551234567'").Scan(&userID)
 
 	hID, err := createSoloHousehold(db, userID)
@@ -1711,11 +1699,7 @@ func TestCreateSoloHousehold_VerifyMembership(t *testing.T) {
 }
 
 func TestGetHouseholdUserIDs_NoHousehold(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	_, db := openTestDB(t)
 
 	user, _ := upsertUser(db, "5551234567")
 	ids, err := getHouseholdUserIDs(db, user.ID)
@@ -1724,16 +1708,12 @@ func TestGetHouseholdUserIDs_NoHousehold(t *testing.T) {
 	}
 	// User with no household should get back just their own ID
 	if len(ids) != 1 || ids[0] != user.ID {
-		t.Errorf("ids = %v, want [%d]", ids, user.ID)
+		t.Errorf("ids = %v, want [%s]", ids, user.ID)
 	}
 }
 
 func TestGetHouseholdUserIDs_WithHousehold(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	_, db := openTestDB(t)
 
 	user1, _ := upsertUser(db, "5551234567")
 	user2, _ := upsertUser(db, "5559876543")
@@ -1754,28 +1734,20 @@ func TestGetHouseholdUserIDs_WithHousehold(t *testing.T) {
 }
 
 func TestGetHouseholdUserIDs_NonexistentUser(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	_, db := openTestDB(t)
 
-	ids, err := getHouseholdUserIDs(db, 99999)
+	ids, err := getHouseholdUserIDs(db, "user-99999")
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Should fallback to returning just the provided ID
-	if len(ids) != 1 || ids[0] != 99999 {
-		t.Errorf("ids = %v, want [99999]", ids)
+	if len(ids) != 1 || ids[0] != "user-99999" {
+		t.Errorf("ids = %v, want [user-99999]", ids)
 	}
 }
 
 func TestHouseholdItemsWhereClause_Solo(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	_, db := openTestDB(t)
 
 	user, _ := upsertUser(db, "5551234567")
 	clause, args := householdItemsWhereClause(db, user.ID)
@@ -1789,11 +1761,7 @@ func TestHouseholdItemsWhereClause_Solo(t *testing.T) {
 }
 
 func TestHouseholdItemsWhereClause_MultiMember(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	_, db := openTestDB(t)
 
 	user1, _ := upsertUser(db, "5551234567")
 	user2, _ := upsertUser(db, "5559876543")
@@ -2832,7 +2800,7 @@ func TestGetHouseholdAllergens_Union(t *testing.T) {
 	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (101, '["dairy"]', '[]')`)
 
 	// Alice's household allergens should include both peanuts and dairy
-	allergens := server.getHouseholdAllergens(100)
+	allergens := server.getHouseholdAllergens("user-100")
 	if len(allergens) != 2 {
 		t.Fatalf("Expected 2 household allergens, got %d: %v", len(allergens), allergens)
 	}
@@ -2847,10 +2815,10 @@ func TestGetHouseholdAllergens_Union(t *testing.T) {
 
 func TestGetHouseholdAllergens_NoHousehold(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-100', '+15551234567')")
 	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (100, '["gluten"]', '[]')`)
 
-	allergens := server.getHouseholdAllergens(100)
+	allergens := server.getHouseholdAllergens("user-100")
 	if len(allergens) != 1 || allergens[0] != "gluten" {
 		t.Errorf("Expected [gluten] for solo user, got %v", allergens)
 	}
@@ -2867,7 +2835,7 @@ func TestHouseholdDietary_Endpoint(t *testing.T) {
 	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 101)")
 	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (100, '["peanuts"]', '["vegan"]')`)
 
-	token, _ := server.sessions.CreateSession(100, "+15551111111", "phone")
+	token, _ := server.sessions.CreateSession("user-100", "+15551111111", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	rr := doRequest(server.handleHouseholdDietary, "GET", "/api/household/dietary", nil, []*http.Cookie{cookie})
@@ -2908,7 +2876,7 @@ func TestHouseholdDuplicateDetection(t *testing.T) {
 
 	// Bob adds milk — should trigger duplicate warning
 	bobItems := []ListItem{{ID: 2, Name: "Milk", Brand: "", Department: "Dairy & Eggs"}}
-	warnings := server.checkHouseholdDuplicates(101, bobItems)
+	warnings := server.checkHouseholdDuplicates("user-101", bobItems)
 	if len(warnings) != 1 {
 		t.Fatalf("Expected 1 duplicate warning, got %d", len(warnings))
 	}
@@ -2918,7 +2886,7 @@ func TestHouseholdDuplicateDetection(t *testing.T) {
 
 	// No warning for non-household user
 	server.db.Exec("INSERT INTO users (id, phone_number, name) VALUES (102, '+15553333333', 'Charlie')")
-	noWarnings := server.checkHouseholdDuplicates(102, bobItems)
+	noWarnings := server.checkHouseholdDuplicates("user-102", bobItems)
 	if len(noWarnings) != 0 {
 		t.Errorf("Expected no warnings for non-household user, got %d", len(noWarnings))
 	}
@@ -3091,7 +3059,7 @@ func TestShoppingRole_NoHousehold(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	// User without household — should NOT get a shopping role
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (500, '+15559999999')")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-500', '+15559999999')")
 	for i := 1; i <= 10; i++ {
 		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (500, ?, 1)",
 			fmt.Sprintf("Item %d", i))
@@ -3117,7 +3085,7 @@ func TestShoppingRole_InLearningContext(t *testing.T) {
 	// Set the shopping_role learning directly
 	server.updateLearning("user", 600, "shopping_role", "primary_shopper", 0.8)
 
-	ctx := server.buildLearningContext(600)
+	ctx := server.buildLearningContext("user-600")
 	if !strings.Contains(ctx, "primary shopper") {
 		t.Errorf("Expected 'primary shopper' in learning context, got: %s", ctx)
 	}
@@ -3135,7 +3103,7 @@ func TestShoppingRole_ListBuilderInContext(t *testing.T) {
 
 	server.updateLearning("user", 700, "shopping_role", "list_builder", 0.6)
 
-	ctx := server.buildLearningContext(700)
+	ctx := server.buildLearningContext("user-700")
 	if !strings.Contains(ctx, "list builder") {
 		t.Errorf("Expected 'list builder' in learning context, got: %s", ctx)
 	}
@@ -3150,7 +3118,7 @@ func TestShoppingRole_OccasionalInContext(t *testing.T) {
 
 	server.updateLearning("user", 800, "shopping_role", "occasional", 0.4)
 
-	ctx := server.buildLearningContext(800)
+	ctx := server.buildLearningContext("user-800")
 	if !strings.Contains(ctx, "occasional contributor") {
 		t.Errorf("Expected 'occasional contributor' in learning context, got: %s", ctx)
 	}
@@ -3561,5 +3529,151 @@ func TestLeaveHousehold_VerifiesNewHousehold(t *testing.T) {
 	server.db.QueryRow("SELECT role FROM household_members WHERE user_id = ? AND household_id = ?", userID, newHouseholdID).Scan(&role)
 	if role != "owner" {
 		t.Errorf("User should be owner of new household, got role %q", role)
+	}
+}
+
+// =============================================================================
+// handleAvatarUpload TESTS
+// =============================================================================
+
+func TestAvatarUpload_Success_JPEG(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	jpegData := makeJPEG(100)
+	b64 := base64.StdEncoding.EncodeToString(jpegData)
+
+	rr := doRequest(server.handleAvatar, "POST", "/api/avatar", map[string]string{
+		"photo": b64,
+	}, []*http.Cookie{cookie})
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	resp := parseJSON(rr)
+	if success, _ := resp["success"].(bool); !success {
+		t.Error("Expected success=true")
+	}
+}
+
+func TestAvatarUpload_Success_PNG(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	pngData := makePNG(100)
+	b64 := base64.StdEncoding.EncodeToString(pngData)
+
+	rr := doRequest(server.handleAvatar, "POST", "/api/avatar", map[string]string{
+		"photo": b64,
+	}, []*http.Cookie{cookie})
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAvatarUpload_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleAvatar, "POST", "/api/avatar", map[string]string{
+		"photo": "dGVzdA==",
+	}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestAvatarUpload_EmptyPhoto(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleAvatar, "POST", "/api/avatar", map[string]string{
+		"photo": "",
+	}, []*http.Cookie{cookie})
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Status: got %d, want 400", rr.Code)
+	}
+}
+
+func TestAvatarUpload_InvalidFormat(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	// GIF-like data (not JPEG or PNG)
+	gifData := []byte{0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x00, 0x00}
+	b64 := base64.StdEncoding.EncodeToString(gifData)
+
+	rr := doRequest(server.handleAvatar, "POST", "/api/avatar", map[string]string{
+		"photo": b64,
+	}, []*http.Cookie{cookie})
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Status: got %d, want 400", rr.Code)
+	}
+}
+
+// =============================================================================
+// handleAvatarGet TESTS
+// =============================================================================
+
+func TestAvatarGet_NotFound(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleAvatarGet, "GET", "/api/avatar/99999", nil, nil)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Status: got %d, want 404", rr.Code)
+	}
+}
+
+func TestAvatarGet_InvalidID(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	rr := doRequest(server.handleAvatarGet, "GET", "/api/avatar/abc", nil, nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Status: got %d, want 400", rr.Code)
+	}
+}
+
+// =============================================================================
+// handleAvatarDelete TESTS
+// =============================================================================
+
+func TestAvatarDelete_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Insert a photo first
+	server.db.Exec("INSERT INTO profile_photos (user_id, photo_data, content_type) VALUES (?, ?, ?)",
+		userID, makeJPEG(50), "image/jpeg")
+
+	rr := doRequest(server.handleAvatar, "DELETE", "/api/avatar", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify photo is deleted
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM profile_photos WHERE user_id = ?", userID).Scan(&count)
+	if count != 0 {
+		t.Error("Expected photo to be deleted")
+	}
+}
+
+func TestAvatarDelete_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleAvatar, "DELETE", "/api/avatar", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestAvatar_MethodNotAllowed(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleAvatar, "PUT", "/api/avatar", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status: got %d, want 405", rr.Code)
 	}
 }

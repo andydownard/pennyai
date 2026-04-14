@@ -22,7 +22,7 @@ func (s *Server) handleNPSCheck(w http.ResponseWriter, r *http.Request) {
 
 	var loginCount int
 	if err := s.db.QueryRow("SELECT COALESCE(login_count, 0) FROM users WHERE id = ?", session.UserID).Scan(&loginCount); err != nil {
-		log.Printf("[nps] error checking login count for user %d: %v", session.UserID, err)
+		log.Printf("[nps] error checking login count for user %s: %v", session.UserID, err)
 	}
 	if loginCount < npsMinLogins {
 		writeJSON(w, http.StatusOK, map[string]bool{"show_nps": false})
@@ -36,7 +36,7 @@ func (s *Server) handleNPSCheck(w http.ResponseWriter, r *http.Request) {
 		"SELECT COUNT(*) FROM nps_responses WHERE user_id = ? AND created_at >= datetime('now', ?)",
 		session.UserID, intervalDays,
 	).Scan(&recentCount); err != nil {
-		log.Printf("[nps] error checking recent responses for user %d: %v", session.UserID, err)
+		log.Printf("[nps] error checking recent responses for user %s: %v", session.UserID, err)
 	}
 	if recentCount > 0 {
 		writeJSON(w, http.StatusOK, map[string]bool{"show_nps": false})
@@ -49,7 +49,7 @@ func (s *Server) handleNPSCheck(w http.ResponseWriter, r *http.Request) {
 		"SELECT COALESCE(nps_dismissed_at, '') FROM users WHERE id = ?",
 		session.UserID,
 	).Scan(&dismissedAt); err != nil {
-		log.Printf("[nps] error checking dismiss timestamp for user %d: %v", session.UserID, err)
+		log.Printf("[nps] error checking dismiss timestamp for user %s: %v", session.UserID, err)
 	}
 	if dismissedAt != "" {
 		dismissTime, err := time.Parse("2006-01-02 15:04:05", dismissedAt)
@@ -125,7 +125,7 @@ func (s *Server) handleNPSDismiss(w http.ResponseWriter, r *http.Request) {
 		session.UserID,
 	)
 	if err != nil {
-		log.Printf("[nps] error recording dismiss for user %d: %v", session.UserID, err)
+		log.Printf("[nps] error recording dismiss for user %s: %v", session.UserID, err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to record dismiss"})
 		return
 	}

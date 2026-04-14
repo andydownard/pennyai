@@ -21,15 +21,7 @@ func (s *Server) handleTrips(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get household_id for the user
-	var householdID sql.NullInt64
 	hid := getUserHouseholdID(s.db, session.UserID)
-	if hid == 0 {
-		// User not in a household — use a synthetic household_id of -userID
-		householdID.Int64 = int64(-session.UserID)
-	} else {
-		householdID.Int64 = hid
-	}
-	householdID.Valid = true
 
 	switch r.Method {
 	case http.MethodGet:
@@ -39,7 +31,7 @@ func (s *Server) handleTrips(w http.ResponseWriter, r *http.Request) {
 		// Get all trips for the household
 		var rows *sql.Rows
 		var err error
-		if householdID.Int64 < 0 {
+		if hid == 0 {
 			// Solo user — just their own trips
 			rows, err = s.db.Query(
 				`SELECT st.id, st.user_id, COALESCE(u.name, ''), st.trip_date, st.trip_time, st.time_label, st.created_at
@@ -52,7 +44,7 @@ func (s *Server) handleTrips(w http.ResponseWriter, r *http.Request) {
 				`SELECT st.id, st.user_id, COALESCE(u.name, ''), st.trip_date, st.trip_time, st.time_label, st.created_at
 				 FROM shopping_trips st JOIN users u ON u.id = st.user_id
 				 WHERE st.household_id = ? ORDER BY st.trip_date, st.trip_time`,
-				householdID.Int64,
+				hid,
 			)
 		}
 		if err != nil {
@@ -63,7 +55,7 @@ func (s *Server) handleTrips(w http.ResponseWriter, r *http.Request) {
 
 		type TripResponse struct {
 			ID        int    `json:"id"`
-			UserID    int    `json:"user_id"`
+			UserID    string `json:"user_id"`
 			UserName  string `json:"user_name"`
 			TripDate  string `json:"trip_date"`
 			TripTime  string `json:"trip_time"`
@@ -110,12 +102,6 @@ func (s *Server) handleTrips(w http.ResponseWriter, r *http.Request) {
 
 		// Delete any existing future trip for this user (one active trip per user)
 		s.db.Exec("DELETE FROM shopping_trips WHERE user_id = ? AND trip_date >= date('now', '-1 day')", session.UserID)
-
-		// Use real household_id or 0 for solo users
-		hid := householdID.Int64
-		if hid < 0 {
-			hid = 0
-		}
 
 		var tripTime, timeLabel *string
 		if req.TripTime != "" {
@@ -598,7 +584,7 @@ func (s *Server) handleAvatarUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("user %d uploaded profile photo (%d bytes)", session.UserID, len(photoData))
+	log.Printf("user %s uploaded profile photo (%d bytes)", session.UserID, len(photoData))
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 

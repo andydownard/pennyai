@@ -266,7 +266,7 @@ func (s *Server) createBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 	}
 
 	dealID, _ := result.LastInsertId()
-	log.Printf("[brand-portal] brand user %d created deal %d (pending review)", bs.BrandUserID, dealID)
+	log.Printf("[brand-portal] brand user %s created deal %d (pending review)", bs.BrandUserID, dealID)
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"id":      dealID,
@@ -277,9 +277,9 @@ func (s *Server) createBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 
 func (s *Server) updateBrandDeal(w http.ResponseWriter, r *http.Request, bs BrandSession, dealID int) {
 	// Verify ownership
-	var ownerID sql.NullInt64
+	var ownerID sql.NullString
 	err := s.db.QueryRow("SELECT brand_user_id FROM brand_deals WHERE id = ?", dealID).Scan(&ownerID)
-	if err != nil || !ownerID.Valid || int(ownerID.Int64) != bs.BrandUserID {
+	if err != nil || !ownerID.Valid || ownerID.String != bs.BrandUserID {
 		writeNotFound(w, "Deal not found")
 		return
 	}
@@ -344,9 +344,9 @@ func (s *Server) updateBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 }
 
 func (s *Server) deleteBrandDeal(w http.ResponseWriter, bs BrandSession, dealID int) {
-	var ownerID sql.NullInt64
+	var ownerID sql.NullString
 	err := s.db.QueryRow("SELECT brand_user_id FROM brand_deals WHERE id = ?", dealID).Scan(&ownerID)
-	if err != nil || !ownerID.Valid || int(ownerID.Int64) != bs.BrandUserID {
+	if err != nil || !ownerID.Valid || ownerID.String != bs.BrandUserID {
 		writeNotFound(w, "Deal not found")
 		return
 	}
@@ -597,7 +597,7 @@ func (s *Server) handleBugReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[bug-report] user %d submitted bug report", session.UserID)
+	log.Printf("[bug-report] user %s submitted bug report", session.UserID)
 	writeJSON(w, http.StatusCreated, map[string]string{"message": "Thank you! Your report has been submitted."})
 }
 
@@ -1436,7 +1436,7 @@ func (s *Server) handleBrandFeedbackSubmit(w http.ResponseWriter, r *http.Reques
 	}
 
 	id, _ := result.LastInsertId()
-	log.Printf("[brand-feedback] brand_user %d submitted %s (%s): %.60s...", bs.BrandUserID, req.Type, req.Urgency, req.Body)
+	log.Printf("[brand-feedback] brand_user %s submitted %s (%s): %.60s...", bs.BrandUserID, req.Type, req.Urgency, req.Body)
 
 	// Create GitHub issue asynchronously (tagged as brand portal)
 	go func() {

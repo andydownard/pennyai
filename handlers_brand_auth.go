@@ -25,11 +25,11 @@ var brandLoginIPLimiter sync.Map
 
 // BrandSession represents an authenticated brand portal session.
 type BrandSession struct {
-	BrandUserID int
+	BrandUserID string
 	CreatedAt   time.Time
 }
 
-func (s *Server) createBrandSession(brandUserID int) (string, error) {
+func (s *Server) createBrandSession(brandUserID string) (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -154,20 +154,21 @@ func (s *Server) handleBrandRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	brandUserID, _ := result.LastInsertId()
+	brandUserIDInt, _ := result.LastInsertId()
+	brandUserID := strconv.FormatInt(brandUserIDInt, 10)
 
 	// Initialize balance
 	s.db.Exec("INSERT INTO brand_balance (brand_user_id, balance_cents) VALUES (?, 0)", brandUserID)
 
 	// Create session
-	token, err := s.createBrandSession(int(brandUserID))
+	token, err := s.createBrandSession(brandUserID)
 	if err != nil {
 		dbError(w, err, "Failed to create session")
 		return
 	}
 
 	setBrandSessionCookie(w, s.config, token)
-	log.Printf("[brand-auth] brand user %d registered (%s, %s)", brandUserID, req.Email, req.CompanyName)
+	log.Printf("[brand-auth] brand user %s registered (%s, %s)", brandUserID, req.Email, req.CompanyName)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success":       true,
@@ -201,7 +202,7 @@ func (s *Server) handleBrandLogin(w http.ResponseWriter, r *http.Request) {
 
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 
-	var brandUserID int
+	var brandUserID string
 	var passwordHash string
 	err := s.db.QueryRow(
 		"SELECT id, password_hash FROM brand_users WHERE email = ?",
@@ -226,7 +227,7 @@ func (s *Server) handleBrandLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setBrandSessionCookie(w, s.config, token)
-	log.Printf("[brand-auth] brand user %d logged in (%s)", brandUserID, req.Email)
+	log.Printf("[brand-auth] brand user %s logged in (%s)", brandUserID, req.Email)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success":       true,
@@ -354,7 +355,7 @@ func (s *Server) handleBrandLogoUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[brand] logo uploaded for brand_user %d (%d bytes, %s)", bs.BrandUserID, len(decoded), mime)
+	log.Printf("[brand] logo uploaded for brand_user %s (%d bytes, %s)", bs.BrandUserID, len(decoded), mime)
 	writeJSON(w, http.StatusOK, map[string]string{"success": "true"})
 }
 
@@ -366,15 +367,14 @@ func (s *Server) handleBrandLogoServe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Extract brand_user_id from path: /brand/logo/123
-	idStr := strings.TrimPrefix(r.URL.Path, "/brand/logo/")
-	brandUserID, err := strconv.Atoi(idStr)
-	if err != nil || brandUserID <= 0 {
+	brandUserID := strings.TrimPrefix(r.URL.Path, "/brand/logo/")
+	if brandUserID == "" {
 		http.NotFound(w, r)
 		return
 	}
 
 	var logoData, logoMime string
-	err = s.db.QueryRow("SELECT COALESCE(logo_data,''), COALESCE(logo_mime,'') FROM brand_users WHERE id = ?", brandUserID).Scan(&logoData, &logoMime)
+	err := s.db.QueryRow("SELECT COALESCE(logo_data,''), COALESCE(logo_mime,'') FROM brand_users WHERE id = ?", brandUserID).Scan(&logoData, &logoMime)
 	if err != nil || logoData == "" {
 		http.NotFound(w, r)
 		return

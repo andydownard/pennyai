@@ -203,9 +203,9 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 	// Look up invite
 	var inviteID int
 	var householdID int
-	var createdBy int
+	var createdBy string
 	var expiresAt time.Time
-	var usedBy sql.NullInt64
+	var usedBy sql.NullString
 	err := s.db.QueryRow(
 		"SELECT id, household_id, created_by, expires_at, used_by FROM invites WHERE code = ?",
 		req.Code,
@@ -288,9 +288,9 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Award points to inviter for household invite
-	if createdBy > 0 {
+	if createdBy != "" {
 		s.db.Exec("UPDATE users SET referral_points = COALESCE(referral_points, 0) + ? WHERE id = ?", referralPointsPerInvite, createdBy)
-		log.Printf("[invite] awarded %d points to user %d for household invite", referralPointsPerInvite, createdBy)
+		log.Printf("[invite] awarded %d points to user %s for household invite", referralPointsPerInvite, createdBy)
 	}
 	// M2d: Track referral source
 	s.db.Exec("UPDATE users SET referral_source = 'invite' WHERE id = ? AND referral_source = ''", session.UserID)
@@ -312,9 +312,9 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 				}
 				smsBody := fmt.Sprintf("%s just joined your Groflo list!", who)
 				if err := s.twilio.SendSMS(s.config.TwilioPhoneNumber, inviterPhone.String, smsBody); err != nil {
-					log.Printf("[join] failed to notify inviter %d: %v", createdBy, err)
+					log.Printf("[join] failed to notify inviter %s: %v", createdBy, err)
 				} else {
-					log.Printf("[join] notified inviter %d that user %d joined", createdBy, session.UserID)
+					log.Printf("[join] notified inviter %s that user %s joined", createdBy, session.UserID)
 				}
 			}
 		}

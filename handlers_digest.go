@@ -57,7 +57,7 @@ func (s *Server) processDailyDigest() {
 	defer rows.Close()
 
 	type digestUser struct {
-		ID        int
+		ID        string
 		Name      string
 		Phone     string
 		LastSent  string
@@ -111,7 +111,7 @@ func (s *Server) processDailyDigest() {
 			now.Format("2006-01-02 15:04:05"), u.ID, now.Add(-20*time.Hour).Format("2006-01-02 15:04:05"),
 		)
 		if err != nil {
-			log.Printf("[digest] failed to update last_sent for user %d: %v", u.ID, err)
+			log.Printf("[digest] failed to update last_sent for user %s: %v", u.ID, err)
 			continue // Don't send if we can't set the dedup guard
 		}
 		affected, _ := res.RowsAffected()
@@ -126,13 +126,13 @@ func (s *Server) processDailyDigest() {
 		// new Groflo brand. The dedup flag stays set so we won't try again
 		// until the next 20-hour cycle.
 		if !s.canSendSMS(u.ID) {
-			log.Printf("[digest] skipping user %d: no SMS consent on file", u.ID)
+			log.Printf("[digest] skipping user %s: no SMS consent on file", u.ID)
 			continue
 		}
 
 		// Send SMS (dedup guard is already set — safe from duplicates)
 		if err := s.twilio.SendSMS(s.config.TwilioPhoneNumber, u.Phone, msg); err != nil {
-			log.Printf("[digest] SMS error for user %d (dedup flag set, will retry next cycle): %v", u.ID, err)
+			log.Printf("[digest] SMS error for user %s (dedup flag set, will retry next cycle): %v", u.ID, err)
 			continue
 		}
 
@@ -146,7 +146,7 @@ func (s *Server) processDailyDigest() {
 
 // getDigestItems returns list item names added or modified since the given time
 // for the user's household (or just the user if no household).
-func (s *Server) getDigestItems(userID int, since string) []string {
+func (s *Server) getDigestItems(userID string, since string) []string {
 	hid := getUserHouseholdID(s.db, userID)
 
 	var rows *sql.Rows
@@ -170,7 +170,7 @@ func (s *Server) getDigestItems(userID int, since string) []string {
 		`, userID, since)
 	}
 	if err != nil {
-		log.Printf("[digest] items query error for user %d: %v", userID, err)
+		log.Printf("[digest] items query error for user %s: %v", userID, err)
 		return nil
 	}
 	defer rows.Close()

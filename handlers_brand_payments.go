@@ -94,9 +94,10 @@ func (s *Server) handleBrandExport(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		for rows.Next() {
 			var date, comp, offer, action string
-			var dealID, userID int
+			var dealID int
+			var userID string
 			rows.Scan(&date, &dealID, &comp, &offer, &action, &userID)
-			fmt.Fprintf(w, "%s,%d,%q,%q,%s,%d\n", date, dealID, comp, offer, action, userID)
+			fmt.Fprintf(w, "%s,%d,%q,%q,%s,%s\n", date, dealID, comp, offer, action, userID)
 		}
 
 	case "transactions":
@@ -180,7 +181,7 @@ func (s *Server) handleBrandDeposit(w http.ResponseWriter, r *http.Request) {
 		form.Set("line_items[0][price_data][product_data][name]", "Groflo Brand Account Deposit")
 		form.Set("line_items[0][price_data][unit_amount]", strconv.Itoa(req.AmountCents))
 		form.Set("line_items[0][quantity]", "1")
-		form.Set("payment_intent_data[metadata][brand_user_id]", strconv.Itoa(bs.BrandUserID))
+		form.Set("payment_intent_data[metadata][brand_user_id]", bs.BrandUserID)
 		form.Set("success_url", baseURL+"?deposit=success")
 		form.Set("cancel_url", baseURL+"?deposit=cancel")
 
@@ -206,7 +207,7 @@ func (s *Server) handleBrandDeposit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.Printf("[brand-portal] created Stripe checkout session %s for brand user %d (%d cents)", session.ID, bs.BrandUserID, req.AmountCents)
+		log.Printf("[brand-portal] created Stripe checkout session %s for brand user %s (%d cents)", session.ID, bs.BrandUserID, req.AmountCents)
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"checkout_url": session.URL,
 		})
@@ -223,7 +224,7 @@ func (s *Server) handleBrandDeposit(w http.ResponseWriter, r *http.Request) {
 	}
 	s.db.Exec(`INSERT INTO brand_transactions (brand_user_id, type, amount_cents, description, stripe_id)
 		VALUES (?, 'deposit', ?, 'Balance deposit (test)', '')`, bs.BrandUserID, req.AmountCents)
-	log.Printf("[brand-portal] brand user %d deposited %d cents (test mode)", bs.BrandUserID, req.AmountCents)
+	log.Printf("[brand-portal] brand user %s deposited %d cents (test mode)", bs.BrandUserID, req.AmountCents)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"message":      "Deposit processed",
 		"amount_cents": req.AmountCents,
@@ -287,8 +288,8 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		brandUserID, _ := strconv.Atoi(pi.Object.Metadata.BrandUserID)
-		if brandUserID == 0 {
+		brandUserID := pi.Object.Metadata.BrandUserID
+		if brandUserID == "" {
 			log.Printf("[stripe] payment_intent missing brand_user_id metadata")
 			w.WriteHeader(http.StatusOK) // Acknowledge to prevent retries
 			return
@@ -309,7 +310,7 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 		s.db.Exec(`INSERT INTO brand_transactions (brand_user_id, type, amount_cents, description, stripe_id)
 			VALUES (?, 'deposit', ?, 'Stripe deposit', ?)`, brandUserID, pi.Object.Amount, pi.Object.ID)
 
-		log.Printf("[stripe] credited %d cents to brand user %d (pi: %s)", pi.Object.Amount, brandUserID, pi.Object.ID)
+		log.Printf("[stripe] credited %d cents to brand user %s (pi: %s)", pi.Object.Amount, brandUserID, pi.Object.ID)
 	}
 
 	w.WriteHeader(http.StatusOK)

@@ -92,7 +92,7 @@ func (s *Server) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, s.config, token)
-	log.Printf("[google-auth] user %d logged in via Google (%s)", user.ID, tokenInfo.Email)
+	log.Printf("[google-auth] user %s logged in via Google (%s)", user.ID, tokenInfo.Email)
 
 	authResp := map[string]interface{}{
 		"success": true,
@@ -107,22 +107,22 @@ func (s *Server) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 
 // maybeStoreGooglePhoto fetches and stores a Google profile photo if the user
 // doesn't already have one. Errors are logged but never fail the auth flow.
-func (s *Server) maybeStoreGooglePhoto(userID int, pictureURL string) {
+func (s *Server) maybeStoreGooglePhoto(userID string, pictureURL string) {
 	// Validate HTTPS URL
 	parsed, err := url.Parse(pictureURL)
 	if err != nil || parsed.Scheme != "https" {
-		log.Printf("[google-auth] ignoring invalid picture URL for user %d: %s", userID, pictureURL)
+		log.Printf("[google-auth] ignoring invalid picture URL for user %s: %s", userID, pictureURL)
 		return
 	}
 
 	// Check if user already has a profile photo — don't overwrite
 	var count int
 	if err := s.db.QueryRow("SELECT COUNT(*) FROM profile_photos WHERE user_id = ?", userID).Scan(&count); err != nil {
-		log.Printf("[google-auth] failed to check existing photo for user %d: %v", userID, err)
+		log.Printf("[google-auth] failed to check existing photo for user %s: %v", userID, err)
 		return
 	}
 	if count > 0 {
-		log.Printf("[google-auth] user %d already has a profile photo, skipping Google photo", userID)
+		log.Printf("[google-auth] user %s already has a profile photo, skipping Google photo", userID)
 		return
 	}
 
@@ -130,13 +130,13 @@ func (s *Server) maybeStoreGooglePhoto(userID int, pictureURL string) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(pictureURL)
 	if err != nil {
-		log.Printf("[google-auth] failed to fetch Google photo for user %d: %v", userID, err)
+		log.Printf("[google-auth] failed to fetch Google photo for user %s: %v", userID, err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[google-auth] Google photo returned %d for user %d", resp.StatusCode, userID)
+		log.Printf("[google-auth] Google photo returned %d for user %s", resp.StatusCode, userID)
 		return
 	}
 
@@ -144,15 +144,15 @@ func (s *Server) maybeStoreGooglePhoto(userID int, pictureURL string) {
 	const maxGooglePhotoBytes = 512 * 1024
 	photoData, err := io.ReadAll(io.LimitReader(resp.Body, maxGooglePhotoBytes+1))
 	if err != nil {
-		log.Printf("[google-auth] failed to read Google photo for user %d: %v", userID, err)
+		log.Printf("[google-auth] failed to read Google photo for user %s: %v", userID, err)
 		return
 	}
 	if len(photoData) > maxGooglePhotoBytes {
-		log.Printf("[google-auth] Google photo too large for user %d (%d bytes)", userID, len(photoData))
+		log.Printf("[google-auth] Google photo too large for user %s (%d bytes)", userID, len(photoData))
 		return
 	}
 	if len(photoData) == 0 {
-		log.Printf("[google-auth] Google photo empty for user %d", userID)
+		log.Printf("[google-auth] Google photo empty for user %s", userID)
 		return
 	}
 
@@ -163,7 +163,7 @@ func (s *Server) maybeStoreGooglePhoto(userID int, pictureURL string) {
 	} else if len(photoData) >= 4 && photoData[0] == 0x89 && photoData[1] == 0x50 && photoData[2] == 0x4E && photoData[3] == 0x47 {
 		contentType = "image/png"
 	} else {
-		log.Printf("[google-auth] Google photo for user %d is not JPEG or PNG", userID)
+		log.Printf("[google-auth] Google photo for user %s is not JPEG or PNG", userID)
 		return
 	}
 
@@ -175,10 +175,10 @@ func (s *Server) maybeStoreGooglePhoto(userID int, pictureURL string) {
 		userID, photoData, contentType,
 	)
 	if err != nil {
-		log.Printf("[google-auth] failed to store Google photo for user %d: %v", userID, err)
+		log.Printf("[google-auth] failed to store Google photo for user %s: %v", userID, err)
 		return
 	}
-	log.Printf("[google-auth] stored Google profile photo for user %d (%d bytes, %s)", userID, len(photoData), contentType)
+	log.Printf("[google-auth] stored Google profile photo for user %s (%d bytes, %s)", userID, len(photoData), contentType)
 }
 
 // handleEmailRegister handles POST /auth/email/register
@@ -237,7 +237,7 @@ func (s *Server) handleEmailRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, s.config, token)
-	log.Printf("[email-auth] user %d registered via email (%s)", user.ID, req.Email)
+	log.Printf("[email-auth] user %s registered via email (%s)", user.ID, req.Email)
 
 	resp := map[string]interface{}{
 		"success": true,
@@ -271,7 +271,7 @@ func (s *Server) handleEmailLogin(w http.ResponseWriter, r *http.Request) {
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 
 	// Look up auth method
-	var userID int
+	var userID string
 	var passwordHash sql.NullString
 	err := s.db.QueryRow(
 		"SELECT user_id, password_hash FROM auth_methods WHERE provider = 'email' AND provider_id = ?",
@@ -309,7 +309,7 @@ func (s *Server) handleEmailLogin(w http.ResponseWriter, r *http.Request) {
 	s.db.Exec("UPDATE users SET last_active = CURRENT_TIMESTAMP, login_count = login_count + 1 WHERE id = ?", userID)
 
 	setSessionCookie(w, s.config, token)
-	log.Printf("[email-auth] user %d logged in via email (%s)", userID, req.Email)
+	log.Printf("[email-auth] user %s logged in via email (%s)", userID, req.Email)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
@@ -345,7 +345,7 @@ func (s *Server) handleEmailForgot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Look up user by email auth method
-	var userID int
+	var userID string
 	err := s.db.QueryRow(
 		"SELECT user_id FROM auth_methods WHERE provider = 'email' AND provider_id = ?",
 		req.Email,
@@ -414,7 +414,7 @@ func (s *Server) handleMagicLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Look up user by email auth method
-	var userID int
+	var userID string
 	err := s.db.QueryRow(
 		"SELECT user_id FROM auth_methods WHERE provider = 'email' AND provider_id = ?",
 		req.Email,
@@ -468,7 +468,7 @@ func (s *Server) handleMagicLinkVerify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Look up token (stored with "magic:" prefix)
-	var userID int
+	var userID string
 	var used int
 	var expiresAt time.Time
 	err := s.db.QueryRow(
@@ -497,7 +497,7 @@ func (s *Server) handleMagicLinkVerify(w http.ResponseWriter, r *http.Request) {
 	s.db.Exec("UPDATE users SET last_active = CURRENT_TIMESTAMP, login_count = login_count + 1 WHERE id = ?", userID)
 
 	setSessionCookie(w, s.config, token)
-	log.Printf("[email-auth] user %d logged in via magic link", userID)
+	log.Printf("[email-auth] user %s logged in via magic link", userID)
 
 	// Redirect to home
 	http.Redirect(w, r, "/", http.StatusFound)
@@ -590,7 +590,7 @@ func (s *Server) handleEmailReset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Look up and validate token
-	var userID int
+	var userID string
 	var used int
 	var expiresAt time.Time
 	err := s.db.QueryRow(
@@ -633,7 +633,7 @@ func (s *Server) handleEmailReset(w http.ResponseWriter, r *http.Request) {
 	// Delete all user sessions (force re-login)
 	s.sessions.DeleteUserSessions(userID)
 
-	log.Printf("[email-auth] user %d reset password", userID)
+	log.Printf("[email-auth] user %s reset password", userID)
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
@@ -811,7 +811,7 @@ func (s *Server) handleVerifyCode(w http.ResponseWriter, r *http.Request) {
 
 	setSessionCookie(w, s.config, token)
 
-	log.Printf("User %d (%s) logged in", user.ID, digits)
+	log.Printf("User %s (%s) logged in", user.ID, digits)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success":      true,
@@ -958,7 +958,7 @@ func (s *Server) handleSmsConsent(w http.ResponseWriter, r *http.Request) {
 			dbError(w, err, "Failed to record consent")
 			return
 		}
-		log.Printf("[sms-consent] user %d opted in", session.UserID)
+		log.Printf("[sms-consent] user %s opted in", session.UserID)
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"success":           true,
 			"needs_sms_consent": false,
@@ -973,7 +973,7 @@ func (s *Server) handleSmsConsent(w http.ResponseWriter, r *http.Request) {
 		dbError(w, err, "Failed to record opt-out")
 		return
 	}
-	log.Printf("[sms-consent] user %d opted out (pennySMS will be skipped)", session.UserID)
+	log.Printf("[sms-consent] user %s opted out (pennySMS will be skipped)", session.UserID)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success":           true,
 		"needs_sms_consent": true,
@@ -984,13 +984,13 @@ func (s *Server) handleSmsConsent(w http.ResponseWriter, r *http.Request) {
 // Wire this into every outbound SMS code path for Twilio A2P 10DLC compliance.
 // NULL consent = consent not yet captured (legacy users pre-rebrand) or user
 // explicitly opted out. Either way, do not send.
-func (s *Server) canSendSMS(userID int) bool {
+func (s *Server) canSendSMS(userID string) bool {
 	var consentAt sql.NullString
 	err := s.db.QueryRow(
 		`SELECT sms_consent_at FROM users WHERE id = ?`, userID,
 	).Scan(&consentAt)
 	if err != nil {
-		log.Printf("[sms-consent] canSendSMS lookup failed for user %d: %v", userID, err)
+		log.Printf("[sms-consent] canSendSMS lookup failed for user %s: %v", userID, err)
 		return false
 	}
 	return consentAt.Valid
@@ -1024,7 +1024,7 @@ func (s *Server) handleAuthLink(w http.ResponseWriter, r *http.Request) {
 }
 
 // linkEmail links an email auth method to an existing user.
-func (s *Server) linkEmail(w http.ResponseWriter, userID int, email string) {
+func (s *Server) linkEmail(w http.ResponseWriter, userID string, email string) {
 	email = strings.TrimSpace(strings.ToLower(email))
 	if email == "" {
 		writeBadRequest(w, "Email is required")
@@ -1036,7 +1036,7 @@ func (s *Server) linkEmail(w http.ResponseWriter, userID int, email string) {
 	}
 
 	// Check if this email is already linked to a DIFFERENT user
-	var existingUserID int
+	var existingUserID string
 	err := s.db.QueryRow(
 		"SELECT user_id FROM auth_methods WHERE provider = 'email' AND provider_id = ?",
 		email,
@@ -1065,12 +1065,12 @@ func (s *Server) linkEmail(w http.ResponseWriter, userID int, email string) {
 	// Update users.email
 	s.db.Exec("UPDATE users SET email = ? WHERE id = ? AND (email IS NULL OR email = '')", email, userID)
 
-	log.Printf("[auth-link] user %d linked email %s", userID, email)
+	log.Printf("[auth-link] user %s linked email %s", userID, email)
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
 // linkPhone links a phone auth method to an existing user after verifying the SMS code.
-func (s *Server) linkPhone(w http.ResponseWriter, r *http.Request, userID int, phone, code string) {
+func (s *Server) linkPhone(w http.ResponseWriter, r *http.Request, userID string, phone, code string) {
 	e164, ok := normalizePhone(phone)
 	if !ok {
 		writeBadRequest(w, "Invalid phone number")
@@ -1104,7 +1104,7 @@ func (s *Server) linkPhone(w http.ResponseWriter, r *http.Request, userID int, p
 	digits := strings.TrimPrefix(e164, "+1")
 
 	// Check if this phone is already linked to a DIFFERENT user
-	var existingUserID int
+	var existingUserID string
 	err = s.db.QueryRow(
 		"SELECT user_id FROM auth_methods WHERE provider = 'phone' AND provider_id = ?",
 		digits,
@@ -1133,7 +1133,7 @@ func (s *Server) linkPhone(w http.ResponseWriter, r *http.Request, userID int, p
 	// Update users.phone_number
 	s.db.Exec("UPDATE users SET phone_number = ? WHERE id = ? AND (phone_number IS NULL OR phone_number = '')", digits, userID)
 
-	log.Printf("[auth-link] user %d linked phone %s", userID, maskPhone(e164))
+	log.Printf("[auth-link] user %s linked phone %s", userID, maskPhone(e164))
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 

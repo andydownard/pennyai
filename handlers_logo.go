@@ -85,7 +85,8 @@ func (s *Server) handleLogoProxy(w http.ResponseWriter, r *http.Request) {
 		if brandID > 0 {
 			go func(id int, data []byte, ct string) {
 				s.db.Exec(
-					"INSERT OR REPLACE INTO brand_logos (brand_id, logo_data, content_type, fetched_at, source) VALUES (?, ?, ?, CURRENT_TIMESTAMP, 'logodev')",
+					`INSERT INTO brand_logos (brand_id, logo_data, content_type, fetched_at, source) VALUES (?, ?, ?, CURRENT_TIMESTAMP, 'logodev')
+					ON CONFLICT(brand_id) DO UPDATE SET logo_data = excluded.logo_data, content_type = excluded.content_type, fetched_at = excluded.fetched_at, source = excluded.source`,
 					id, data, ct,
 				)
 			}(brandID, logoData, contentType)
@@ -244,7 +245,8 @@ func (s *Server) warmLogoCache() {
 		data, ct := fetchBrandLogo(mb.domain, s.config.LogoDevSecret, s.config.LogoDevToken)
 		if data != nil {
 			s.db.Exec(
-				"INSERT OR REPLACE INTO brand_logos (brand_id, logo_data, content_type, fetched_at, source) VALUES (?, ?, ?, CURRENT_TIMESTAMP, 'logodev')",
+				`INSERT INTO brand_logos (brand_id, logo_data, content_type, fetched_at, source) VALUES (?, ?, ?, CURRENT_TIMESTAMP, 'logodev')
+					ON CONFLICT(brand_id) DO UPDATE SET logo_data = excluded.logo_data, content_type = excluded.content_type, fetched_at = excluded.fetched_at, source = excluded.source`,
 				mb.id, data, ct,
 			)
 			s.logoCache.Store(strings.ToLower(mb.domain), &cachedLogo{data: data, contentType: ct})

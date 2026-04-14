@@ -157,19 +157,15 @@ func TestNormalizePhone(t *testing.T) {
 // =============================================================================
 
 func TestUpsertUser_CreatesNewUser(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
+	_, pgdb := openTestDB(t)
 
-	user, err := upsertUser(db, "5551234567")
+	user, err := upsertUser(pgdb, "5551234567")
 	if err != nil {
 		t.Fatalf("upsertUser: %v", err)
 	}
 
-	if user.ID == 0 {
-		t.Error("Expected non-zero user ID")
+	if user.ID == "" {
+		t.Error("Expected non-empty user ID")
 	}
 	if user.PhoneNumber != "5551234567" {
 		t.Errorf("Phone: got %s, want 5551234567", user.PhoneNumber)
@@ -181,31 +177,23 @@ func TestUpsertUser_CreatesNewUser(t *testing.T) {
 
 
 func TestUpsertUser_SamePhoneTwice(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
+	_, pgdb := openTestDB(t)
 
-	first, _ := upsertUser(db, "5551234567")
-	second, _ := upsertUser(db, "5551234567")
+	first, _ := upsertUser(pgdb, "5551234567")
+	second, _ := upsertUser(pgdb, "5551234567")
 
 	// Same phone should return the same user — not create a duplicate
 	if first.ID != second.ID {
-		t.Errorf("Same phone created two users: ID %d and %d", first.ID, second.ID)
+		t.Errorf("Same phone created two users: ID %s and %s", first.ID, second.ID)
 	}
 }
 
 
 func TestUpsertUser_DifferentPhones(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
+	_, pgdb := openTestDB(t)
 
-	u1, _ := upsertUser(db, "5551111111")
-	u2, _ := upsertUser(db, "5552222222")
+	u1, _ := upsertUser(pgdb, "5551111111")
+	u2, _ := upsertUser(pgdb, "5552222222")
 
 	if u1.ID == u2.ID {
 		t.Error("Different phones got the same user ID")
@@ -214,15 +202,11 @@ func TestUpsertUser_DifferentPhones(t *testing.T) {
 
 
 func TestInitDB_CreatesTable(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
+	_, pgdb := openTestDB(t)
 
 	// Verify the users table exists by querying it
 	var count int
-	err = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	err := pgdb.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
 	if err != nil {
 		t.Fatalf("Users table doesn't exist: %v", err)
 	}
@@ -263,14 +247,10 @@ func TestWriteJSON_SetsContentType(t *testing.T) {
 
 
 func TestInitDB_CreatesListItemsTable(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
+	_, pgdb := openTestDB(t)
 
 	var count int
-	if err := db.QueryRow("SELECT COUNT(*) FROM list_items").Scan(&count); err != nil {
+	if err := pgdb.QueryRow("SELECT COUNT(*) FROM list_items").Scan(&count); err != nil {
 		t.Fatalf("list_items table doesn't exist: %v", err)
 	}
 }
@@ -415,23 +395,19 @@ func TestUpsertUser_UpdatesLastActive(t *testing.T) {
 
 func TestInitDB_MigrationCascade(t *testing.T) {
 	// Verify item_modifications has ON DELETE CASCADE
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
+	_, pgdb := openTestDB(t)
 
 	// Create a user + item + modification
-	db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	result, _ := db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (1, 'Milk', 'Dairy')")
+	pgdb.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	result, _ := pgdb.Exec("INSERT INTO list_items (user_id, name, department) VALUES ('user-1', 'Milk', 'Dairy')")
 	itemID, _ := result.LastInsertId()
-	db.Exec("INSERT INTO item_modifications (item_id, user_id, action, detail, source) VALUES (?, 1, 'added', '', 'app')", itemID)
+	pgdb.Exec("INSERT INTO item_modifications (item_id, user_id, action, detail, source) VALUES (?, 'user-1', 'added', '', 'app')", itemID)
 
 	// Delete the list item — modifications should cascade
-	db.Exec("DELETE FROM list_items WHERE id = ?", itemID)
+	pgdb.Exec("DELETE FROM list_items WHERE id = ?", itemID)
 
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM item_modifications WHERE item_id = ?", itemID).Scan(&count)
+	pgdb.QueryRow("SELECT COUNT(*) FROM item_modifications WHERE item_id = ?", itemID).Scan(&count)
 	if count != 0 {
 		t.Errorf("Expected 0 modifications after cascade delete, got %d", count)
 	}
@@ -439,112 +415,24 @@ func TestInitDB_MigrationCascade(t *testing.T) {
 
 
 func TestInitDB_MigrationPath(t *testing.T) {
-	// Test the migration path for item_modifications ON DELETE CASCADE
-	// First create a DB with the old schema (without CASCADE)
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	db.SetMaxOpenConns(1)
-	db.Exec("PRAGMA foreign_keys = ON")
-
-	// Create tables with old schema (no CASCADE on item_modifications)
-	db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, phone_number TEXT UNIQUE NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-	db.Exec("CREATE TABLE list_items (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, department TEXT NOT NULL DEFAULT 'Other', checked INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id))")
-	db.Exec("CREATE TABLE item_modifications (id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER NOT NULL, user_id INTEGER, action TEXT NOT NULL, detail TEXT, source TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (item_id) REFERENCES list_items(id), FOREIGN KEY (user_id) REFERENCES users(id))")
-
-	// Add some data
-	db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (1, 1, 'Milk', 'Dairy')")
-	db.Exec("INSERT INTO item_modifications (item_id, user_id, action, source) VALUES (1, 1, 'added', 'app')")
-
-	// Verify that the old schema does NOT have CASCADE
-	var createSQL string
-	db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='item_modifications'").Scan(&createSQL)
-	if strings.Contains(strings.ToUpper(createSQL), "ON DELETE CASCADE") {
-		t.Fatal("Old schema should not have CASCADE")
-	}
-
-	// Now run initDB again on this database — it should perform the migration
-	// We can't re-run initDB since it opens a new connection, but we can run the migration logic directly
-	db.Exec(`CREATE TABLE IF NOT EXISTS item_modifications_new (
-		id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER NOT NULL, user_id INTEGER,
-		action TEXT NOT NULL, detail TEXT, source TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		FOREIGN KEY (item_id) REFERENCES list_items(id) ON DELETE CASCADE, FOREIGN KEY (user_id) REFERENCES users(id))`)
-	db.Exec("INSERT INTO item_modifications_new SELECT * FROM item_modifications")
-	db.Exec("DROP TABLE item_modifications")
-	db.Exec("ALTER TABLE item_modifications_new RENAME TO item_modifications")
-
-	// Verify migration worked — deletion should cascade
-	db.Exec("DELETE FROM list_items WHERE id = 1")
-	var count int
-	db.QueryRow("SELECT COUNT(*) FROM item_modifications WHERE item_id = 1").Scan(&count)
-	if count != 0 {
-		t.Errorf("Expected 0 modifications after cascade delete, got %d", count)
-	}
+	t.Skip("SQLite-specific migration test — not applicable after PostgreSQL migration")
 }
 
 
 func TestInitDB_MigratesExistingDB(t *testing.T) {
-	// Test the actual initDB migration path with a temp file DB
-	tmpFile := t.TempDir() + "/test.db"
-
-	// First pass: create DB with initDB (creates new tables with CASCADE)
-	db1, err := initDB(tmpFile)
-	if err != nil {
-		t.Fatalf("first initDB: %v", err)
-	}
-	// Manually revert the item_modifications table to old schema (no CASCADE)
-	db1.Exec("DROP TABLE item_modifications")
-	db1.Exec(`CREATE TABLE item_modifications (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		item_id INTEGER NOT NULL,
-		user_id INTEGER,
-		action TEXT NOT NULL,
-		detail TEXT,
-		source TEXT,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		FOREIGN KEY (item_id) REFERENCES list_items(id),
-		FOREIGN KEY (user_id) REFERENCES users(id)
-	)`)
-	db1.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	db1.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (1, 1, 'Milk', 'Dairy')")
-	db1.Exec("INSERT INTO item_modifications (item_id, user_id, action, source) VALUES (1, 1, 'added', 'app')")
-	db1.Close()
-
-	// Second pass: re-open with initDB — should migrate
-	db2, err := initDB(tmpFile)
-	if err != nil {
-		t.Fatalf("second initDB: %v", err)
-	}
-	defer db2.Close()
-
-	// Verify CASCADE works now
-	db2.Exec("PRAGMA foreign_keys = ON")
-	db2.Exec("DELETE FROM list_items WHERE id = 1")
-
-	var count int
-	db2.QueryRow("SELECT COUNT(*) FROM item_modifications WHERE item_id = 1").Scan(&count)
-	if count != 0 {
-		t.Errorf("Expected 0 modifications after cascade delete, got %d", count)
-	}
+	t.Skip("SQLite-specific migration test — not applicable after PostgreSQL migration")
 }
 
 
 func TestInitDB_CreatesAllTables(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
+	_, pgdb := openTestDB(t)
 
-	// Verify key tables exist
+	// Verify key tables exist by querying each
 	tables := []string{"users", "list_items", "saved_lists", "saved_list_items", "households",
 		"household_members", "invites", "item_modifications", "referrals", "redemptions", "sessions"}
 	for _, table := range tables {
-		var name string
-		err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
+		var count int
+		err := pgdb.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count)
 		if err != nil {
 			t.Errorf("Table %s not found: %v", table, err)
 		}
@@ -727,7 +615,7 @@ func TestDietaryBrandDefault_PrefersDietaryMatch(t *testing.T) {
 	// Create 5 "vegan" users who all pick Oatly for milk
 	for i := 0; i < 5; i++ {
 		_, uid := loginUser(t, server, fmt.Sprintf("555700%04d", i))
-		server.db.Exec(`INSERT OR REPLACE INTO user_dietary_profiles (user_id, allergens, diets) VALUES (?, '[]', '["vegan"]')`, uid)
+		server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (?, '[]', '["vegan"]') ON CONFLICT(user_id) DO UPDATE SET allergens = excluded.allergens, diets = excluded.diets`, uid)
 		server.db.Exec("INSERT INTO brand_choices (user_id, product_category, brand) VALUES (?, 'milk', 'Oatly')", uid)
 	}
 	// Create 10 general users who all pick Horizon for milk (more popular overall)
@@ -797,7 +685,7 @@ func TestDietaryBrandDefault_MultipleDiets(t *testing.T) {
 	// Create users with organic diet who prefer Organic Valley
 	for i := 0; i < 4; i++ {
 		_, uid := loginUser(t, server, fmt.Sprintf("555740%04d", i))
-		server.db.Exec(`INSERT OR REPLACE INTO user_dietary_profiles (user_id, allergens, diets) VALUES (?, '[]', '["organic"]')`, uid)
+		server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (?, '[]', '["organic"]') ON CONFLICT(user_id) DO UPDATE SET allergens = excluded.allergens, diets = excluded.diets`, uid)
 		server.db.Exec("INSERT INTO brand_choices (user_id, product_category, brand) VALUES (?, 'eggs', 'Vital Farms')", uid)
 	}
 	// User with ["organic", "keto"] → should still match organic users
@@ -1498,7 +1386,7 @@ func TestAvatar_UploadJPEG(t *testing.T) {
 	}
 
 	// GET should serve it back
-	rr = doRequest(server.handleAvatar, "GET", fmt.Sprintf("/api/avatar/%d", userID), nil, nil)
+	rr = doRequest(server.handleAvatar, "GET", fmt.Sprintf("/api/avatar/%s", userID), nil, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("Expected 200, got %d", rr.Code)
 	}
@@ -1603,7 +1491,7 @@ func TestAvatar_Upsert(t *testing.T) {
 	}
 
 	// GET should return the PNG
-	rr = doRequest(server.handleAvatar, "GET", fmt.Sprintf("/api/avatar/%d", userID), nil, nil)
+	rr = doRequest(server.handleAvatar, "GET", fmt.Sprintf("/api/avatar/%s", userID), nil, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET failed: %d", rr.Code)
 	}
@@ -1631,7 +1519,7 @@ func TestAvatar_Delete(t *testing.T) {
 	}
 
 	// GET should 404
-	rr = doRequest(server.handleAvatar, "GET", fmt.Sprintf("/api/avatar/%d", userID), nil, nil)
+	rr = doRequest(server.handleAvatar, "GET", fmt.Sprintf("/api/avatar/%s", userID), nil, nil)
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("Expected 404 after delete, got %d", rr.Code)
 	}

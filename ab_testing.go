@@ -23,31 +23,31 @@ import (
 // when sample size is sufficient and statistical significance is reached.
 
 // initABTables creates the A/B testing tables. Call from initDB().
-func initABTables(db *sql.DB) error {
+func initABTables(db dbExecer) error {
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS ab_tests (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id SERIAL PRIMARY KEY,
 			name TEXT NOT NULL UNIQUE,
 			description TEXT,
-			variants TEXT NOT NULL DEFAULT '["control","variant"]',
+			variants JSONB NOT NULL DEFAULT '["control","variant"]'::jsonb,
 			key_metric TEXT NOT NULL,
 			min_sample_per_variant INTEGER NOT NULL DEFAULT 100,
 			measurement_days INTEGER NOT NULL DEFAULT 7,
 			traffic_pct INTEGER NOT NULL DEFAULT 50,
 			status TEXT NOT NULL DEFAULT 'active',
 			winner TEXT,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			resolved_at DATETIME
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			resolved_at TIMESTAMPTZ
 		);
 
 		CREATE TABLE IF NOT EXISTS ab_events (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id SERIAL PRIMARY KEY,
 			test_name TEXT NOT NULL,
-			user_id INTEGER NOT NULL,
+			user_id TEXT NOT NULL,
 			variant TEXT NOT NULL,
 			event TEXT NOT NULL,
-			value REAL DEFAULT 1.0,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			value DOUBLE PRECISION DEFAULT 1.0,
+			created_at TIMESTAMPTZ DEFAULT NOW()
 		);
 
 		CREATE INDEX IF NOT EXISTS idx_ab_events_test ON ab_events(test_name, event);
@@ -58,14 +58,16 @@ func initABTables(db *sql.DB) error {
 	}
 
 	// Seed the onboarding A/B test if it doesn't exist
-	db.Exec(`INSERT OR IGNORE INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct)
+	db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct)
 		VALUES ('onboarding_v2', 'New onboarding: brand defaults + item-based household invite',
-		'["control","brand_defaults"]', 'items_added_day1', 50, 14, 50)`)
+		'["control","brand_defaults"]'::jsonb, 'items_added_day1', 50, 14, 50)
+		ON CONFLICT DO NOTHING`)
 
-	// Seed the swap CTA copy A/B test — testing acceptance rate impact of CTA wording
-	db.Exec(`INSERT OR IGNORE INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct)
+	// Seed the swap CTA copy A/B test -- testing acceptance rate impact of CTA wording
+	db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct)
 		VALUES ('swap_cta_copy', 'Swap card CTA: try_it (control) vs save_amount vs swap',
-		'["try_it","save_amount","swap"]', 'swap_accepted', 100, 14, 100)`)
+		'["try_it","save_amount","swap"]'::jsonb, 'swap_accepted', 100, 14, 100)
+		ON CONFLICT DO NOTHING`)
 
 	return nil
 }
@@ -87,9 +89,9 @@ type ABTest struct {
 }
 
 // getVariant determines which variant a user sees for a given test.
-// Uses user_id % 100 for deterministic assignment.
+// Uses a hash of the user ID for deterministic assignment.
 // Returns empty string if test is not active or user is not in the test.
-func getVariant(db *sql.DB, testName string, userID int) (string, error) {
+func getVariant(db dbExecer, testName string, userID string) (string, error) {
 	var variantsJSON string
 	var trafficPct int
 	var status string
@@ -115,18 +117,26 @@ func getVariant(db *sql.DB, testName string, userID int) (string, error) {
 		return "", fmt.Errorf("test %s has fewer than 2 variants", testName)
 	}
 
-	bucket := userID % 100
+	// Hash user ID string to get deterministic bucket
+	h := 0
+	for _, c := range userID {
+		h = h*31 + int(c)
+	}
+	if h < 0 {
+		h = -h
+	}
+	bucket := h % 100
 	if bucket >= trafficPct {
 		return variants[0], nil // Control (outside traffic %)
 	}
 
 	// Deterministic variant assignment within traffic %
-	variantIdx := (userID / 100) % len(variants)
+	variantIdx := (h / 100) % len(variants)
 	return variants[variantIdx], nil
 }
 
 // trackABEvent records a metric event for an A/B test
-func trackABEvent(db *sql.DB, testName string, userID int, event string, value float64) error {
+func trackABEvent(db dbExecer, testName string, userID string, event string, value float64) error {
 	variant, err := getVariant(db, testName, userID)
 	if err != nil || variant == "" {
 		return err // Silently skip if test not active
@@ -160,7 +170,7 @@ type ABAnalysis struct {
 }
 
 // analyzeABTest runs statistical analysis on a test
-func analyzeABTest(db *sql.DB, testName string) (*ABAnalysis, error) {
+func analyzeABTest(db dbExecer, testName string) (*ABAnalysis, error) {
 	var test ABTest
 	var variantsJSON string
 	var winner sql.NullString

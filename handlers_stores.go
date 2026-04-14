@@ -496,7 +496,7 @@ func (s *Server) getStorePrice(storeID int, productName, brand string) (int, boo
 }
 
 // getUserActiveStoreID returns the most recent store associated with a user's shopping trips.
-func (s *Server) getUserActiveStoreID(userID int) int {
+func (s *Server) getUserActiveStoreID(userID string) int {
 	var storeID int
 	s.db.QueryRow(
 		"SELECT store_id FROM shopping_trips WHERE user_id = ? AND store_id IS NOT NULL ORDER BY created_at DESC LIMIT 1",

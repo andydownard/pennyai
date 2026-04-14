@@ -425,7 +425,7 @@ func (s *Server) handleBrandDealPerformance(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Verify the deal belongs to this brand user
-	var ownerID int
+	var ownerID string
 	err = s.db.QueryRow("SELECT COALESCE(brand_user_id, 0) FROM brand_deals WHERE id = ?", dealID).Scan(&ownerID)
 	if err != nil {
 		writeNotFound(w, "Deal not found")
@@ -488,7 +488,7 @@ func (s *Server) processChurnSignals() {
 
 	// --- Signal 1: days_inactive (days since last session activity) ---
 	type churnSignal struct {
-		userID      int
+		userID      string
 		signalType  string
 		signalValue float64
 		riskScore   float64
@@ -509,7 +509,7 @@ func (s *Server) processChurnSignals() {
 		log.Printf("[churn] failed to query days_inactive: %v", err)
 	} else {
 		for rows.Next() {
-			var userID int
+			var userID string
 			var daysInactive float64
 			if err := rows.Scan(&userID, &daysInactive); err != nil {
 				log.Printf("[churn] scan days_inactive: %v", err)
@@ -537,11 +537,11 @@ func (s *Server) processChurnSignals() {
 	if err != nil {
 		log.Printf("[churn] failed to query decline_streak: %v", err)
 	} else {
-		streakMap := map[int]int{}
-		currentUser := -1
+		streakMap := map[string]int{}
+		currentUser := ""
 		counting := true
 		for rows.Next() {
-			var userID int
+			var userID string
 			var action string
 			if err := rows.Scan(&userID, &action); err != nil {
 				continue
@@ -588,7 +588,8 @@ func (s *Server) processChurnSignals() {
 		log.Printf("[churn] failed to query swap_fatigue: %v", err)
 	} else {
 		for rows.Next() {
-			var userID, totalOffers, totalDeclines int
+			var userID string
+			var totalOffers, totalDeclines int
 			if err := rows.Scan(&userID, &totalOffers, &totalDeclines); err != nil {
 				continue
 			}
@@ -625,7 +626,7 @@ func (s *Server) processChurnSignals() {
 		log.Printf("[churn] failed to query list_abandonment: %v", err)
 	} else {
 		for rows.Next() {
-			var userID int
+			var userID string
 			var daysSinceAdd float64
 			if err := rows.Scan(&userID, &daysSinceAdd); err != nil {
 				continue
@@ -655,7 +656,7 @@ func (s *Server) processChurnSignals() {
 				computed_at = datetime('now')
 		`, sig.userID, sig.signalType, sig.signalValue, sig.riskScore)
 		if err != nil {
-			log.Printf("[churn] failed to upsert churn_signal for user %d type %s: %v", sig.userID, sig.signalType, err)
+			log.Printf("[churn] failed to upsert churn_signal for user %s type %s: %v", sig.userID, sig.signalType, err)
 		}
 	}
 
@@ -673,7 +674,7 @@ func (s *Server) processUserCohorts() {
 	start := time.Now()
 
 	type cohortRow struct {
-		userID          int
+		userID          string
 		cohortWeek      string
 		signupSource    string
 		firstSwapAt     sql.NullString
@@ -703,7 +704,7 @@ func (s *Server) processUserCohorts() {
 		return
 	}
 	type userBase struct {
-		userID       int
+		userID       string
 		cohortWeek   string
 		signupSource string
 	}
@@ -723,7 +724,7 @@ func (s *Server) processUserCohorts() {
 		firstSwapAt sql.NullString
 		totalSwaps  int
 	}
-	swapMap := map[int]swapStats{}
+	swapMap := map[string]swapStats{}
 	rows, err = s.db.Query(`
 		SELECT user_id, MIN(created_at) as first_swap, COUNT(*) as total
 		FROM swap_events
@@ -734,7 +735,7 @@ func (s *Server) processUserCohorts() {
 		log.Printf("[cohorts] failed to query swap stats: %v", err)
 	} else {
 		for rows.Next() {
-			var userID int
+			var userID string
 			var ss swapStats
 			if err := rows.Scan(&userID, &ss.firstSwapAt, &ss.totalSwaps); err != nil {
 				continue
@@ -745,7 +746,7 @@ func (s *Server) processUserCohorts() {
 	}
 
 	// Gather total savings per user from swap_rebates
-	savingsMap := map[int]int{}
+	savingsMap := map[string]int{}
 	rows, err = s.db.Query(`
 		SELECT user_id, COALESCE(SUM(amount_cents), 0) as total_savings
 		FROM swap_rebates
@@ -755,7 +756,8 @@ func (s *Server) processUserCohorts() {
 		log.Printf("[cohorts] failed to query savings: %v", err)
 	} else {
 		for rows.Next() {
-			var userID, savings int
+			var userID string
+			var savings int
 			if err := rows.Scan(&userID, &savings); err != nil {
 				continue
 			}
@@ -765,7 +767,7 @@ func (s *Server) processUserCohorts() {
 	}
 
 	// Gather last session activity per user
-	lastActiveMap := map[int]sql.NullString{}
+	lastActiveMap := map[string]sql.NullString{}
 	rows, err = s.db.Query(`
 		SELECT user_id, MAX(created_at) as last_active
 		FROM sessions
@@ -775,7 +777,7 @@ func (s *Server) processUserCohorts() {
 		log.Printf("[cohorts] failed to query last active: %v", err)
 	} else {
 		for rows.Next() {
-			var userID int
+			var userID string
 			var la sql.NullString
 			if err := rows.Scan(&userID, &la); err != nil {
 				continue
@@ -823,7 +825,7 @@ func (s *Server) processUserCohorts() {
 				is_churned = excluded.is_churned
 		`, cr.userID, cr.cohortWeek, cr.signupSource, cr.firstSwapAt, cr.totalSwaps, cr.totalSavings, cr.lastActive, cr.isChurned)
 		if err != nil {
-			log.Printf("[cohorts] failed to upsert user_cohort for user %d: %v", cr.userID, err)
+			log.Printf("[cohorts] failed to upsert user_cohort for user %s: %v", cr.userID, err)
 		}
 	}
 
@@ -853,7 +855,7 @@ func (s *Server) handleChurnRisk(w http.ResponseWriter, r *http.Request) {
 		ComputedAt  string  `json:"computed_at"`
 	}
 	type userRisk struct {
-		UserID         int          `json:"user_id"`
+		UserID         string       `json:"user_id"`
 		Name           string       `json:"name"`
 		Phone          string       `json:"phone"`
 		Email          string       `json:"email"`
@@ -874,10 +876,10 @@ func (s *Server) handleChurnRisk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userMap := map[int]*userRisk{}
-	var order []int
+	userMap := map[string]*userRisk{}
+	var order []string
 	for rows.Next() {
-		var userID int
+		var userID string
 		var name, phone, email string
 		var si signalInfo
 		if err := rows.Scan(&userID, &name, &phone, &email, &si.SignalType, &si.SignalValue, &si.RiskScore, &si.ComputedAt); err != nil {
@@ -1114,7 +1116,7 @@ func (s *Server) processSegmentAnalysis() {
 
 	// Step 1: Collect user->segment mapping from penny_learnings
 	type userSegment struct {
-		userID  int
+		userID  string
 		segment string
 	}
 	var userSegments []userSegment
@@ -1128,7 +1130,7 @@ func (s *Server) processSegmentAnalysis() {
 		log.Printf("[segment] failed to query penny_learnings: %v", err)
 		return
 	}
-	segmentUsers := map[string][]int{} // segment -> list of user IDs
+	segmentUsers := map[string][]string{} // segment -> list of user IDs
 	for rows.Next() {
 		var us userSegment
 		if err := rows.Scan(&us.userID, &us.segment); err != nil {
@@ -1152,7 +1154,7 @@ func (s *Server) processSegmentAnalysis() {
 		totalDisc    float64
 		acceptCount  int // for averaging discount
 	}
-	userStats := map[int]*userSwapStats{}
+	userStats := map[string]*userSwapStats{}
 
 	rows, err = s.db.Query(`
 		SELECT se.user_id,
@@ -1168,7 +1170,8 @@ func (s *Server) processSegmentAnalysis() {
 		return
 	}
 	for rows.Next() {
-		var userID, offers, accepts int
+		var userID string
+		var offers, accepts int
 		var avgDisc float64
 		if err := rows.Scan(&userID, &offers, &accepts, &avgDisc); err != nil {
 			log.Printf("[segment] scan swap stats: %v", err)
@@ -1521,7 +1524,7 @@ func (s *Server) handleCategoryAlerts(w http.ResponseWriter, r *http.Request) {
 
 	// Determine if admin or brand request
 	isBrandRequest := strings.HasPrefix(r.URL.Path, "/brand/")
-	var brandUserID int
+	var brandUserID string
 
 	if isBrandRequest {
 		bs, ok := s.requireBrandSession(w, r)
@@ -1544,7 +1547,7 @@ func (s *Server) handleCategoryAlerts(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN categories c ON c.id = ca.category_id
 	`
 
-	if isBrandRequest && brandUserID > 0 {
+	if isBrandRequest && brandUserID != "" {
 		// Filter to categories where this brand has deals
 		query += ` WHERE ca.category_id IN (SELECT DISTINCT category_id FROM brand_deals WHERE brand_user_id = ?)`
 		queryArgs = append(queryArgs, brandUserID)

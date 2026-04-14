@@ -54,7 +54,7 @@ func (s *Server) sendPendingBrandDigests() {
 	defer rows.Close()
 
 	type brandUser struct {
-		id          int
+		id          string
 		email       string
 		companyName string
 	}
@@ -67,7 +67,7 @@ func (s *Server) sendPendingBrandDigests() {
 
 	for _, u := range users {
 		if err := s.sendBrandDigest(u.id, u.email, u.companyName); err != nil {
-			log.Printf("[brand-digest] failed for brand_user %d (%s): %v", u.id, u.email, err)
+			log.Printf("[brand-digest] failed for brand_user %s (%s): %v", u.id, u.email, err)
 		} else {
 			log.Printf("[brand-digest] sent to %s (%s)", u.email, u.companyName)
 		}
@@ -75,7 +75,7 @@ func (s *Server) sendPendingBrandDigests() {
 }
 
 // sendBrandDigest composes and sends a weekly email digest for one brand user.
-func (s *Server) sendBrandDigest(brandUserID int, email, companyName string) error {
+func (s *Server) sendBrandDigest(brandUserID string, email, companyName string) error {
 	now := time.Now()
 	weekStart := now.Add(-7 * 24 * time.Hour).Format("2006-01-02")
 	weekEnd := now.Format("2006-01-02")
@@ -171,7 +171,7 @@ func (s *Server) sendBrandDigest(brandUserID int, email, companyName string) err
 	}
 
 	if err := s.sendTransactionalEmail(email, subject, html); err != nil {
-		log.Printf("[brand-digest] email failed for brand_user %d (dedup flag set, will retry next week): %v", brandUserID, err)
+		log.Printf("[brand-digest] email failed for brand_user %s (dedup flag set, will retry next week): %v", brandUserID, err)
 		return err
 	}
 
@@ -290,14 +290,14 @@ func escapeHTML(s string) string {
 // handleBrandUnsubscribe handles GET/POST /brand/unsubscribe — opt-out of weekly digests.
 func (s *Server) handleBrandUnsubscribe(w http.ResponseWriter, r *http.Request) {
 	// Check brand session without automatic 401 JSON response
-	var brandUserID int
+	var brandUserID string
 	if cookie, err := r.Cookie("brand_session"); err == nil {
 		if bs, ok := s.getBrandSession(cookie.Value); ok {
 			brandUserID = bs.BrandUserID
 		}
 	}
 
-	if brandUserID == 0 {
+	if brandUserID == "" {
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte(`<html><body style="font-family:sans-serif;text-align:center;padding:60px 20px;">
 		<h2>Unsubscribe from Groflo Weekly Recaps</h2>

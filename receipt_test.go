@@ -21,8 +21,8 @@ func TestReceipt_ProcessAndCheckOff(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Add items to list
@@ -74,8 +74,8 @@ func TestReceipt_DuplicateDedup(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (1, 1, 'Milk', 'Dairy & Eggs')")
@@ -430,18 +430,14 @@ func TestReceiptConfirm_FeedsAbbreviationDB(t *testing.T) {
 // =============================================================================
 
 func TestReceipts_StoreIDColumn(t *testing.T) {
-	db, err := initDB(":memory:")
-	if err != nil {
-		t.Fatalf("initDB: %v", err)
-	}
-	defer db.Close()
+	_, pgdb := openTestDB(t)
 
-	_, err = db.Exec("SELECT store_id FROM receipts LIMIT 0")
+	_, err := pgdb.Exec("SELECT store_id FROM receipts LIMIT 0")
 	if err != nil {
 		t.Errorf("receipts.store_id column missing: %v", err)
 	}
 
-	_, err = db.Exec("SELECT store_id FROM shopping_trips LIMIT 0")
+	_, err = pgdb.Exec("SELECT store_id FROM shopping_trips LIMIT 0")
 	if err != nil {
 		t.Errorf("shopping_trips.store_id column missing: %v", err)
 	}
@@ -662,7 +658,7 @@ func TestReceiptRateLimit_DailyLimit(t *testing.T) {
 	receiptDayLimiter = sync.Map{}
 	receiptWeekLimiter = sync.Map{}
 
-	userID := 99999 // Use a high ID to avoid collisions
+	userID := "user-99999" // Use a unique ID to avoid collisions
 
 	// First 3 should pass
 	for i := 0; i < 3; i++ {
@@ -683,11 +679,11 @@ func TestReceiptRateLimit_DifferentUsersIndependent(t *testing.T) {
 
 	// User A uses 3 (max daily)
 	for i := 0; i < 3; i++ {
-		checkReceiptRateLimit(88881)
+		checkReceiptRateLimit("user-88881")
 	}
 
 	// User B should still be allowed
-	if checkReceiptRateLimit(88882) {
+	if checkReceiptRateLimit("user-88882") {
 		t.Error("user B was rate-limited by user A's usage")
 	}
 }
@@ -728,8 +724,8 @@ func TestReceipt_ForgeryDetected_ReturnsRejection(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (1, '5551234567')")
-	token, _ := server.sessions.CreateSession(1, "5551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (1, 1, 'Milk', 'Dairy & Eggs')")
@@ -914,3 +910,168 @@ func writePNGChunk(buf *bytes.Buffer, chunkType string, data []byte) {
 // =============================================================================
 // Admin Analytics
 // =============================================================================
+
+// =============================================================================
+// handleReceiptItems TESTS
+// =============================================================================
+
+func TestReceiptItems_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Create a receipt
+	result, err := server.db.Exec(
+		"INSERT INTO receipts (user_id, image_hash, items_found, items_matched) VALUES (?, ?, ?, ?)",
+		userID, "abc123", 3, 1,
+	)
+	if err != nil {
+		t.Fatalf("create receipt: %v", err)
+	}
+	receiptID, _ := result.LastInsertId()
+
+	// Add line items
+	server.db.Exec(
+		"INSERT INTO receipt_line_items (receipt_id, raw_text, price_cents, quantity, matched_name, confidence) VALUES (?, ?, ?, ?, ?, ?)",
+		receiptID, "GV MLK 1GL", 349, 1, "Milk", "high",
+	)
+	server.db.Exec(
+		"INSERT INTO receipt_line_items (receipt_id, raw_text, price_cents, quantity, confidence) VALUES (?, ?, ?, ?, ?)",
+		receiptID, "UNKN ITEM", 199, 1, "low",
+	)
+
+	rr := doRequest(server.handleReceiptItems, "GET", fmt.Sprintf("/api/receipts/%d/items", receiptID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	var items []map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &items)
+	if len(items) != 2 {
+		t.Fatalf("Expected 2 line items, got %d", len(items))
+	}
+	if items[0]["raw_text"] != "GV MLK 1GL" {
+		t.Errorf("Expected raw_text 'GV MLK 1GL', got %v", items[0]["raw_text"])
+	}
+}
+
+func TestReceiptItems_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleReceiptItems, "GET", "/api/receipts/1/items", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestReceiptItems_NotOwned(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+	_, otherUserID := loginUser(t, server, "5559999999")
+
+	// Create receipt owned by another user
+	result, _ := server.db.Exec(
+		"INSERT INTO receipts (user_id, image_hash) VALUES (?, ?)", otherUserID, "xyz",
+	)
+	receiptID, _ := result.LastInsertId()
+
+	rr := doRequest(server.handleReceiptItems, "GET", fmt.Sprintf("/api/receipts/%d/items", receiptID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Status: got %d, want 404", rr.Code)
+	}
+}
+
+func TestReceiptItems_MethodNotAllowed_POST(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleReceiptItems, "POST", "/api/receipts/1/items", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status: got %d, want 405", rr.Code)
+	}
+}
+
+// =============================================================================
+// handleReceiptConfirm TESTS
+// =============================================================================
+
+func TestReceiptConfirm_Success(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Create receipt
+	result, _ := server.db.Exec(
+		"INSERT INTO receipts (user_id, image_hash, items_found) VALUES (?, ?, ?)",
+		userID, "hash1", 2,
+	)
+	receiptID, _ := result.LastInsertId()
+
+	// Add line items
+	liResult, _ := server.db.Exec(
+		"INSERT INTO receipt_line_items (receipt_id, raw_text, price_cents, matched_name, confidence) VALUES (?, ?, ?, ?, ?)",
+		receiptID, "GV MLK", 349, "Milk", "low",
+	)
+	lineItemID, _ := liResult.LastInsertId()
+
+	rr := doRequest(server.handleReceiptConfirm, "POST", fmt.Sprintf("/api/receipts/%d/confirm", receiptID),
+		map[string]interface{}{
+			"confirmations": []map[string]interface{}{
+				{"line_item_id": lineItemID, "confirmed": true, "matched_name": "Milk"},
+			},
+		}, []*http.Cookie{cookie})
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	resp := parseJSON(rr)
+	confirmed, _ := resp["confirmed"].(float64)
+	if confirmed != 1 {
+		t.Errorf("Expected 1 confirmed, got %v", confirmed)
+	}
+}
+
+func TestReceiptConfirm_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleReceiptConfirm, "POST", "/api/receipts/1/confirm",
+		map[string]interface{}{"confirmations": []interface{}{}}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+// =============================================================================
+// handleSwapClaims TESTS
+// =============================================================================
+
+func TestSwapClaims_EmptyList(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleReceiptRouting, "GET", "/api/receipts/claims", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	var claims []interface{}
+	json.Unmarshal(rr.Body.Bytes(), &claims)
+	if len(claims) != 0 {
+		t.Errorf("Expected 0 claims, got %d", len(claims))
+	}
+}
+
+func TestSwapClaims_RequiresAuth(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleReceiptRouting, "GET", "/api/receipts/claims", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestSwapClaims_MethodNotAllowed_POST(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleSwapClaims, "POST", "/api/receipts/claims", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status: got %d, want 405", rr.Code)
+	}
+}

@@ -580,8 +580,8 @@ func TestMilestoneCheck_Unauthenticated(t *testing.T) {
 
 func TestMilestoneCheck_MethodNotAllowed(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
-	token, _ := server.sessions.CreateSession(100, "+15551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-100', '+15551234567')")
+	token, _ := server.sessions.CreateSession("user-100", "+15551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	rr := doRequest(server.handleMilestoneCheck, "POST", "/api/milestones/check", nil, []*http.Cookie{cookie})
@@ -592,8 +592,8 @@ func TestMilestoneCheck_MethodNotAllowed(t *testing.T) {
 
 func TestMilestoneCheck_NoSavings(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
-	token, _ := server.sessions.CreateSession(100, "+15551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-100', '+15551234567')")
+	token, _ := server.sessions.CreateSession("user-100", "+15551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	rr := doRequest(server.handleMilestoneCheck, "GET", "/api/milestones/check", nil, []*http.Cookie{cookie})
@@ -610,7 +610,7 @@ func TestMilestoneCheck_NoSavings(t *testing.T) {
 func TestMilestoneCheck_WithSavings(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 	server.db.Exec("INSERT INTO users (id, phone_number, name) VALUES (100, '+15551234567', 'Test User')")
-	token, _ := server.sessions.CreateSession(100, "+15551234567", "phone")
+	token, _ := server.sessions.CreateSession("user-100", "+15551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	// Insert deal and rebates totaling $12 (1200 cents) — should trigger $10 milestone
@@ -639,8 +639,8 @@ func TestMilestoneCheck_WithSavings(t *testing.T) {
 
 func TestMilestoneAck_Success(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
-	token, _ := server.sessions.CreateSession(100, "+15551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-100', '+15551234567')")
+	token, _ := server.sessions.CreateSession("user-100", "+15551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	// Insert deal and rebates
@@ -681,8 +681,8 @@ func TestMilestoneAck_Unauthenticated(t *testing.T) {
 
 func TestMilestoneAck_InvalidBody(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
-	token, _ := server.sessions.CreateSession(100, "+15551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-100', '+15551234567')")
+	token, _ := server.sessions.CreateSession("user-100", "+15551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	rr := doRequest(server.handleMilestoneAck, "POST", "/api/milestones/ack", map[string]int{"cents": 0}, []*http.Cookie{cookie})
@@ -707,8 +707,8 @@ func TestPennyInsights_Unauthenticated(t *testing.T) {
 
 func TestPennyInsights_EmptyUser(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
-	token, _ := server.sessions.CreateSession(100, "+15551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-100', '+15551234567')")
+	token, _ := server.sessions.CreateSession("user-100", "+15551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	rr := doRequest(server.handlePennyInsights, "GET", "/api/penny/insights", nil, []*http.Cookie{cookie})
@@ -730,9 +730,9 @@ func TestPennyInsights_EmptyUser(t *testing.T) {
 
 func TestRecordSignal(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-100', '+15551234567')")
 
-	server.recordSignal(100, "item_added", "Dairy", "Organic Valley", map[string]interface{}{"name": "Whole Milk"})
+	server.recordSignal("user-100", "item_added", "Dairy", "Organic Valley", map[string]interface{}{"name": "Whole Milk"})
 
 	var count int
 	server.db.QueryRow("SELECT COUNT(*) FROM user_signals WHERE user_id = 100").Scan(&count)
@@ -775,17 +775,17 @@ func TestProcessLearnings(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	// Create user with some activity
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-100', '+15551234567')")
 	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status)
 		VALUES (900, 'heinz', 'Hunts', 'Ketchup', 200, 10000, 'active')`)
 
 	// Add swap events
-	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (100, 900, 'offered')")
-	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (100, 900, 'offered')")
-	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (100, 900, 'offered')")
-	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (100, 900, 'accepted')")
-	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (100, 900, 'accepted')")
-	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (100, 900, 'declined')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-100', 900, 'offered')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-100', 900, 'offered')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-100', 900, 'offered')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-100', 900, 'accepted')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-100', 900, 'accepted')")
+	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-100', 900, 'declined')")
 
 	// Add a list item so foreign key is satisfied, then add modifications
 	server.db.Exec("INSERT INTO list_items (id, user_id, name, checked) VALUES (1, 100, 'Milk', 0)")
@@ -813,8 +813,8 @@ func TestProcessLearnings(t *testing.T) {
 
 func TestPennyInsights_WithLearnings(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
-	token, _ := server.sessions.CreateSession(100, "+15551234567", "phone")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-100', '+15551234567')")
+	token, _ := server.sessions.CreateSession("user-100", "+15551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	// Pre-populate a learning
@@ -839,7 +839,7 @@ func TestPennyInsights_WithLearnings(t *testing.T) {
 func TestBuildLearningContext_AutotuneOff(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 	server.db.Exec("INSERT INTO users (id, phone_number, penny_autotune) VALUES (100, '+15551234567', 0)")
-	ctx := server.buildLearningContext(100)
+	ctx := server.buildLearningContext("user-100")
 	if ctx != "" {
 		t.Errorf("Expected empty context when autotune is off, got: %s", ctx)
 	}
@@ -857,7 +857,7 @@ func TestBuildLearningContext_WithLearnings(t *testing.T) {
 	// Add brand preference
 	server.db.Exec("INSERT INTO brand_preferences (user_id, product_category, brand, pick_count, streak) VALUES (100, 'yogurt', 'Fage', 5, 3)")
 
-	ctx := server.buildLearningContext(100)
+	ctx := server.buildLearningContext("user-100")
 	if ctx == "" {
 		t.Fatal("Expected non-empty learning context")
 	}
@@ -877,7 +877,7 @@ func TestBuildLearningContext_WithLearnings(t *testing.T) {
 
 func TestRepurchaseCycleDetection(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES (100, '+15551234567')")
+	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-100', '+15551234567')")
 	server.db.Exec("INSERT INTO list_items (id, user_id, name, checked) VALUES (1, 100, 'Milk', 0)")
 
 	// Add "Milk" additions with ~7 day intervals
@@ -905,7 +905,7 @@ func TestBuildLearningContext_LowConfidenceExcluded(t *testing.T) {
 	// Add low-confidence learning (below 0.3 threshold)
 	server.updateLearning("user", 100, "shopping_frequency", "daily", 0.1)
 
-	ctx := server.buildLearningContext(100)
+	ctx := server.buildLearningContext("user-100")
 	if strings.Contains(ctx, "daily") {
 		t.Error("Low-confidence learning should be excluded from context")
 	}
@@ -1013,7 +1013,7 @@ func TestRepurchaseNudges_InLearningContext(t *testing.T) {
 	server.db.Exec(`INSERT INTO item_modifications (item_id, user_id, action, created_at)
 		VALUES (1, 100, 'added', datetime('now', '-10 days'))`)
 
-	ctx := server.buildLearningContext(100)
+	ctx := server.buildLearningContext("user-100")
 	if !strings.Contains(ctx, "Items due for restock") {
 		t.Errorf("Expected 'Items due for restock' in learning context, got: %s", ctx)
 	}

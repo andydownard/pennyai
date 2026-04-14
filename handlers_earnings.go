@@ -61,7 +61,7 @@ func (s *Server) handleEarnings(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
-		log.Printf("[earnings] query error for user %d: %v", session.UserID, err)
+		log.Printf("[earnings] query error for user %s: %v", session.UserID, err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load earnings"})
 		return
 	}
@@ -144,7 +144,7 @@ func (s *Server) handleEarningsUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify ownership
-	var ownerID int
+	var ownerID string
 	err = s.db.QueryRow("SELECT user_id FROM swap_rebates WHERE id = ?", rebateID).Scan(&ownerID)
 	if err == sql.ErrNoRows {
 		writeNotFound(w, "Rebate not found")

@@ -33,17 +33,21 @@ func NewSessionStore(db *sql.DB) *SessionStore {
 }
 
 // CreateSession generates a random 64-char hex token, stores the session
-// in SQLite, and returns the token. Sessions expire after 30 days.
-func (s *SessionStore) CreateSession(userID int, phone string, authMethod string) (string, error) {
+// in the timpager shared sessions table, and returns the token.
+// Sessions expire after 30 days.
+func (s *SessionStore) CreateSession(userID string, phone string, authMethod string) (string, error) {
 	b := make([]byte, 32) // 32 bytes = 256 bits of randomness
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
 	token := hex.EncodeToString(b)
 
+	now := time.Now().UTC()
+	expiresAt := now.Add(sessionDuration)
+
 	_, err := s.db.Exec(
-		"INSERT INTO sessions (token, user_id, phone_number, auth_method, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
-		token, userID, phone, authMethod, time.Now().UTC(), time.Now().UTC().Add(sessionDuration),
+		"INSERT INTO sessions (token, phone, user_id, role, created_at, last_used, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		token, phone, userID, "user", now, now, expiresAt,
 	)
 	if err != nil {
 		return "", err
@@ -63,19 +67,32 @@ func (s *SessionStore) GetSession(token string) (Session, bool) {
 
 	var session Session
 	var phone sql.NullString
-	var authMethod sql.NullString
+	var userID sql.NullString
+	var displayName sql.NullString
+	var email sql.NullString
+	// Join with timpager users table to get display_name and email.
 	err := s.db.QueryRow(
-		"SELECT user_id, phone_number, auth_method, created_at FROM sessions WHERE token = ? AND expires_at > ?",
+		`SELECT s.user_id, s.phone, s.role, s.created_at, u.display_name, u.email
+		 FROM sessions s
+		 LEFT JOIN users u ON s.user_id = u.id
+		 WHERE s.token = ? AND s.expires_at > ?`,
 		token, time.Now().UTC(),
-	).Scan(&session.UserID, &phone, &authMethod, &session.CreatedAt)
+	).Scan(&userID, &phone, &session.AuthMethod, &session.CreatedAt, &displayName, &email)
 	if err != nil {
 		return Session{}, false
 	}
 	session.PhoneNumber = phone.String
-	session.AuthMethod = authMethod.String
+	session.UserID = userID.String
+	_ = displayName
+	_ = email
 	if session.AuthMethod == "" {
 		session.AuthMethod = "phone"
 	}
+
+	// Update last_used timestamp (fire-and-forget)
+	go func() {
+		_, _ = s.db.Exec("UPDATE sessions SET last_used = ? WHERE token = ?", time.Now().UTC(), token)
+	}()
 
 	// Cache the result
 	s.mu.Lock()
@@ -95,7 +112,7 @@ func (s *SessionStore) GetSession(token string) (Session, bool) {
 }
 
 // DeleteUserSessions removes all sessions for a user (e.g. after password reset).
-func (s *SessionStore) DeleteUserSessions(userID int) {
+func (s *SessionStore) DeleteUserSessions(userID string) {
 	// Clear cache entries for this user
 	s.mu.Lock()
 	for k, v := range s.cache {
@@ -105,7 +122,7 @@ func (s *SessionStore) DeleteUserSessions(userID int) {
 	}
 	s.mu.Unlock()
 	if _, err := s.db.Exec("DELETE FROM sessions WHERE user_id = ?", userID); err != nil {
-		log.Printf("[warn] failed to delete sessions for user %d: %v", userID, err)
+		log.Printf("[warn] failed to delete sessions for user %s: %v", userID, err)
 	}
 }
 

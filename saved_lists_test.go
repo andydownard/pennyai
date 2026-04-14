@@ -1918,3 +1918,139 @@ func TestParseAndAdd_LoadSavedListByStore_NoLists(t *testing.T) {
 // =============================================================================
 // TRIPS EDGE CASES
 // =============================================================================
+
+// =============================================================================
+// handleSavedListMerge TESTS
+// =============================================================================
+
+func TestSavedListMerge_Success_Items(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	// Create a saved list with one item
+	result, err := server.db.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, ?)", userID, "Weekly Groceries")
+	if err != nil {
+		t.Fatalf("create saved list: %v", err)
+	}
+	listID, _ := result.LastInsertId()
+	server.db.Exec("INSERT INTO saved_list_items (saved_list_id, name, department) VALUES (?, ?, ?)", listID, "Milk", "Dairy")
+
+	// Merge new items
+	rr := doRequest(server.handleSavedLists, "POST", fmt.Sprintf("/api/saved-lists/%d/merge", listID),
+		map[string]interface{}{
+			"items": []map[string]string{
+				{"name": "Eggs", "department": "Dairy"},
+				{"name": "Bread", "department": "Bakery"},
+			},
+		}, []*http.Cookie{cookie})
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	resp := parseJSON(rr)
+	added, _ := resp["added"].(float64)
+	if added != 2 {
+		t.Errorf("Expected 2 added, got %v", added)
+	}
+}
+
+func TestSavedListMerge_DeduplicatesExisting(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	result, _ := server.db.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, ?)", userID, "My List")
+	listID, _ := result.LastInsertId()
+	server.db.Exec("INSERT INTO saved_list_items (saved_list_id, name, department) VALUES (?, ?, ?)", listID, "Milk", "Dairy")
+
+	// Merge with duplicate item (case-insensitive)
+	rr := doRequest(server.handleSavedLists, "POST", fmt.Sprintf("/api/saved-lists/%d/merge", listID),
+		map[string]interface{}{
+			"items": []map[string]string{
+				{"name": "milk", "department": "Dairy"},
+				{"name": "Eggs", "department": "Dairy"},
+			},
+		}, []*http.Cookie{cookie})
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status: got %d, want 200", rr.Code)
+	}
+
+	resp := parseJSON(rr)
+	added, _ := resp["added"].(float64)
+	if added != 1 {
+		t.Errorf("Expected 1 added (milk deduplicated), got %v", added)
+	}
+}
+
+func TestSavedListMerge_RequiresAuth_Merge(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists/1/merge",
+		map[string]interface{}{"items": []map[string]string{}}, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestSavedListMerge_NotFound(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists/99999/merge",
+		map[string]interface{}{
+			"items": []map[string]string{{"name": "Bread"}},
+		}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Status: got %d, want 404", rr.Code)
+	}
+}
+
+// =============================================================================
+// handleSavedListShare TESTS
+// =============================================================================
+
+func TestSavedListShare_CreatesShareCode(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	result, _ := server.db.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, ?)", userID, "Share Test")
+	listID, _ := result.LastInsertId()
+
+	rr := doRequest(server.handleSavedLists, "POST", fmt.Sprintf("/api/saved-lists/%d/share", listID), nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("Status: got %d, want 201. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	resp := parseJSON(rr)
+	code, _ := resp["code"].(string)
+	if code == "" {
+		t.Error("Expected non-empty share code")
+	}
+	shareURL, _ := resp["url"].(string)
+	if !strings.Contains(shareURL, code) {
+		t.Errorf("Expected URL to contain code, got %q", shareURL)
+	}
+	expiresAt, _ := resp["expires_at"].(string)
+	if expiresAt == "" {
+		t.Error("Expected non-empty expires_at")
+	}
+}
+
+func TestSavedListShare_Unauthenticated(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists/1/share", nil, nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Status: got %d, want 401", rr.Code)
+	}
+}
+
+func TestSavedListShare_NonexistentList(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	cookie, _ := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists/99999/share", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Status: got %d, want 404", rr.Code)
+	}
+}
+

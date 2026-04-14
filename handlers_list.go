@@ -135,7 +135,7 @@ func (s *Server) handleParseAndAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Parsing grocery text for user %d: len=%d (images: %d)", session.UserID, len(req.Text), len(images))
+	log.Printf("Parsing grocery text for user %s: len=%d (images: %d)", session.UserID, len(req.Text), len(images))
 
 	// Cache household IDs once for this request to avoid repeated queries
 	hhIDs, _ := getHouseholdUserIDs(s.db, session.UserID)
@@ -330,7 +330,7 @@ func (s *Server) handleListToggle(w http.ResponseWriter, r *http.Request, id int
 
 	// F3: Record department order event when item is checked (fire-and-forget)
 	if item.Checked && item.Department != "" {
-		go func(db *sql.DB, userID int, department string) {
+		go func(db dbExecer, userID string, department string) {
 			// Determine store from active shopping trip (if any)
 			var storeName string
 			var storeID sql.NullInt64
@@ -348,7 +348,7 @@ func (s *Server) handleListToggle(w http.ResponseWriter, r *http.Request, id int
 				userID, storeName, department, tripDate,
 			)
 			if err != nil {
-				log.Printf("[dept-order] failed to record event for user %d: %v", userID, err)
+				log.Printf("[dept-order] failed to record event for user %s: %v", userID, err)
 			}
 		}(s.db, session.UserID, item.Department)
 	}
@@ -593,7 +593,7 @@ func (s *Server) handleListDelete(w http.ResponseWriter, r *http.Request, id int
 // at a specific store based on their check-off history. Returns the sorted
 // department list and true if enough data exists (>= 3 distinct trip dates),
 // otherwise returns nil and false.
-func getLearnedDepartmentOrder(db *sql.DB, userID int, storeName string) ([]string, int, bool) {
+func getLearnedDepartmentOrder(db dbExecer, userID string, storeName string) ([]string, int, bool) {
 	// Count distinct trip dates for this user+store
 	var tripCount int
 	err := db.QueryRow(
@@ -625,7 +625,7 @@ func getLearnedDepartmentOrder(db *sql.DB, userID int, storeName string) ([]stri
 		ORDER BY avg_pos
 	`, userID, storeName)
 	if err != nil {
-		log.Printf("[dept-order] query error for user %d store %q: %v", userID, storeName, err)
+		log.Printf("[dept-order] query error for user %s store %q: %v", userID, storeName, err)
 		return nil, tripCount, false
 	}
 	defer rows.Close()
@@ -670,7 +670,7 @@ func (s *Server) handleDepartmentOrder(w http.ResponseWriter, r *http.Request) {
 		"SELECT COALESCE(store_order_enabled, 1) FROM users WHERE id = ?",
 		session.UserID,
 	).Scan(&storeOrderEnabled); err != nil {
-		log.Printf("[dept-order] failed to read store_order_enabled for user %d: %v", session.UserID, err)
+		log.Printf("[dept-order] failed to read store_order_enabled for user %s: %v", session.UserID, err)
 		storeOrderEnabled = 1
 	}
 
@@ -708,7 +708,7 @@ func (s *Server) handleDepartmentOrder(w http.ResponseWriter, r *http.Request) {
 
 // getAlphabeticalDepartments returns distinct departments from the user's active
 // list items, sorted alphabetically. Used as fallback when learned order is unavailable.
-func (s *Server) getAlphabeticalDepartments(userID int) []string {
+func (s *Server) getAlphabeticalDepartments(userID string) []string {
 	whereClause, whereArgs := householdItemsWhereClause(s.db, userID)
 	rows, err := s.db.Query(
 		"SELECT DISTINCT department FROM list_items WHERE "+whereClause+" AND checked = 0 ORDER BY department",
@@ -859,7 +859,7 @@ func (s *Server) handleListRestore(w http.ResponseWriter, r *http.Request) {
 // broadcastListUpdate sends an SSE event to all connected clients in the given
 // household (or to all clients of a specific user if householdID is 0).
 // This is fire-and-forget — slow or disconnected clients are skipped.
-func (s *Server) broadcastListUpdate(householdID int64, userID int) {
+func (s *Server) broadcastListUpdate(householdID int64, userID string) {
 	msg := []byte("event: list-update\ndata: {}\n\n")
 	s.sseClients.Range(func(key, _ any) bool {
 		client := key.(*sseClient)
@@ -883,7 +883,7 @@ func (s *Server) broadcastListUpdate(householdID int64, userID int) {
 // broadcastCommandResult sends a command-result SSE event to a specific user.
 // Used for async command processing — the result of a slow Claude parse is pushed
 // to the client after the HTTP response has already been sent.
-func (s *Server) broadcastCommandResult(userID int, result interface{}) {
+func (s *Server) broadcastCommandResult(userID string, result interface{}) {
 	data, err := json.Marshal(result)
 	if err != nil {
 		log.Printf("[sse] failed to marshal command result: %v", err)
@@ -940,7 +940,7 @@ func (s *Server) handleListStream(w http.ResponseWriter, r *http.Request) {
 	s.sseClients.Store(client, struct{}{})
 	defer s.sseClients.Delete(client)
 
-	log.Printf("[sse] client connected: user=%d household=%d", session.UserID, householdID)
+	log.Printf("[sse] client connected: user=%s household=%d", session.UserID, householdID)
 
 	// Use request context to detect client disconnection
 	ctx := r.Context()
@@ -952,19 +952,19 @@ func (s *Server) handleListStream(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("[sse] client disconnected: user=%d", session.UserID)
+			log.Printf("[sse] client disconnected: user=%s", session.UserID)
 			return
 		case msg := <-client.ch:
 			_, err := w.Write(msg)
 			if err != nil {
-				log.Printf("[sse] write error for user=%d: %v", session.UserID, err)
+				log.Printf("[sse] write error for user=%s: %v", session.UserID, err)
 				return
 			}
 			flusher.Flush()
 		case <-heartbeat.C:
 			_, err := w.Write([]byte(": heartbeat\n\n"))
 			if err != nil {
-				log.Printf("[sse] heartbeat error for user=%d: %v", session.UserID, err)
+				log.Printf("[sse] heartbeat error for user=%s: %v", session.UserID, err)
 				return
 			}
 			flusher.Flush()
@@ -1080,29 +1080,37 @@ func (s *Server) handleShareList(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleSharedView handles GET /api/shared/{code} — returns read-only list data (no auth required).
+// handleSharedView handles requests under /api/shared/{code}:
+//
+//	GET  /api/shared/{code}             → view shared list or saved list (no auth required)
+//	POST /api/shared/{code}/copy        → copy a shared saved list (auth required)
+//	POST /api/shared/{code}/add-to-list → merge shared saved list into active list (auth required)
 func (s *Server) handleSharedView(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodGet) {
-		return
-	}
-
-	// Extract code from URL path
-	code := strings.TrimPrefix(r.URL.Path, "/api/shared/")
-	if code == "" {
+	// Extract code and optional action from URL path
+	tail := strings.TrimPrefix(r.URL.Path, "/api/shared/")
+	if tail == "" {
 		writeBadRequest(w, "Missing share code")
 		return
 	}
 
+	parts := strings.SplitN(tail, "/", 2)
+	code := parts[0]
+	action := ""
+	if len(parts) == 2 {
+		action = parts[1]
+	}
+
 	// Look up the shared link
-	var userID int
+	var userID string
 	var householdID sql.NullInt64
 	var inviteCode sql.NullString
+	var savedListID sql.NullInt64
 	var expiresAt string
 	var viewCount int
 	err := s.db.QueryRow(
-		"SELECT user_id, household_id, invite_code, expires_at, view_count FROM shared_links WHERE code = ?",
+		"SELECT user_id, household_id, invite_code, expires_at, view_count, saved_list_id FROM shared_links WHERE code = ?",
 		code,
-	).Scan(&userID, &householdID, &inviteCode, &expiresAt, &viewCount)
+	).Scan(&userID, &householdID, &inviteCode, &expiresAt, &viewCount, &savedListID)
 	if err != nil {
 		writeNotFound(w, "Share link not found")
 		return
@@ -1119,6 +1127,33 @@ func (s *Server) handleSharedView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Handle saved list actions (copy / add-to-list)
+	if action != "" {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
+			return
+		}
+		if !savedListID.Valid {
+			writeBadRequest(w, "This share link is not for a saved list")
+			return
+		}
+		switch action {
+		case "copy":
+			s.handleSharedSavedListCopy(w, r, int(savedListID.Int64), userID)
+		case "add-to-list":
+			s.handleSharedSavedListAddToList(w, r, int(savedListID.Int64))
+		default:
+			writeNotFound(w, "Not found")
+		}
+		return
+	}
+
+	// GET only for viewing
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
+		return
+	}
+
 	// Increment view count
 	s.db.Exec("UPDATE shared_links SET view_count = view_count + 1 WHERE code = ?", code)
 
@@ -1126,7 +1161,34 @@ func (s *Server) handleSharedView(w http.ResponseWriter, r *http.Request) {
 	var sharerName string
 	s.db.QueryRow("SELECT COALESCE(name, '') FROM users WHERE id = ?", userID).Scan(&sharerName)
 
-	// Get list items (name, brand, department, quantity, checked — no IDs or sensitive data)
+	// Saved list share: return saved list items
+	if savedListID.Valid {
+		slID := int(savedListID.Int64)
+		var listName, storeName string
+		s.db.QueryRow("SELECT COALESCE(name,''), COALESCE(store_name,'') FROM saved_lists WHERE id = ?", slID).Scan(&listName, &storeName)
+
+		items, err := getSavedListItems(s.db, slID)
+		if err != nil {
+			dbError(w, err, "Failed to load shared list")
+			return
+		}
+
+		resp := map[string]interface{}{
+			"type":          "saved_list",
+			"items":         items,
+			"sharer_name":   sharerName,
+			"list_name":     listName,
+			"saved_list_id": slID,
+			"expires_at":    expiry.Format(time.RFC3339),
+		}
+		if storeName != "" {
+			resp["store_name"] = storeName
+		}
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+
+	// Active list share (original behavior)
 	whereClause, whereArgs := householdItemsWhereClause(s.db, userID)
 	rows, err := s.db.Query(
 		"SELECT name, COALESCE(brand, ''), COALESCE(department, ''), COALESCE(quantity, 1), checked FROM list_items WHERE "+whereClause+" ORDER BY name",

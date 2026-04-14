@@ -48,7 +48,7 @@ func TestSMSWebhook_TextOnly(t *testing.T) {
 	}
 
 	// Verify items were added
-	var userID int
+	var userID string
 	server.db.QueryRow("SELECT id FROM users WHERE phone_number = '5551234567'").Scan(&userID)
 
 	var itemCount int
@@ -101,7 +101,7 @@ func TestSMSWebhook_MessageGrouping(t *testing.T) {
 	}
 
 	// Verify both items were added
-	var userID int
+	var userID string
 	server.db.QueryRow("SELECT id FROM users WHERE phone_number = '5559876543'").Scan(&userID)
 
 	var itemCount int
@@ -1038,10 +1038,10 @@ func TestSMSDupe_PreservesOriginalAdder(t *testing.T) {
 	upsertListItem(server.db, userID2, "Yogurt", "", "Dairy & Eggs", "", 2, "sms", "", "")
 
 	// Original adder should still be user 1
-	var ownerID int
+	var ownerID string
 	server.db.QueryRow("SELECT user_id FROM list_items WHERE id = ?", item.ID).Scan(&ownerID)
 	if ownerID != userID1 {
-		t.Errorf("Expected original adder %d, got %d", userID1, ownerID)
+		t.Errorf("Expected original adder %s, got %s", userID1, ownerID)
 	}
 }
 
@@ -1440,7 +1440,7 @@ func TestSMSWebhook_StopKeyword_ClearsConsent(t *testing.T) {
 	}
 
 	// Consent should be cleared
-	if server.canSendSMS(1) {
+	if server.canSendSMS("user-1") {
 		t.Error("canSendSMS should return false after STOP")
 	}
 
@@ -1468,7 +1468,7 @@ func TestSMSWebhook_StartKeyword_RestoresConsent(t *testing.T) {
 	}
 
 	// Consent should be restored
-	if !server.canSendSMS(1) {
+	if !server.canSendSMS("user-1") {
 		t.Error("canSendSMS should return true after START")
 	}
 

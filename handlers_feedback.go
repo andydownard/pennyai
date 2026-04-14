@@ -27,7 +27,7 @@ var githubHTTPClient = &http.Client{Timeout: 10 * time.Second}
 // isFeedbackUser returns true if the user's phone is in the approved FeedbackPhones list.
 // Checks both the session phone and the user's phone in the users table (covers Google/email logins).
 func (s *Server) isFeedbackUser(session Session) bool {
-	if session.UserID == 0 {
+	if session.UserID == "" {
 		return false
 	}
 	// If no FEEDBACK_PHONES configured, no one gets the widget
@@ -139,7 +139,7 @@ func (s *Server) handleFeedback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id, _ := result.LastInsertId()
-	log.Printf("[feedback] user %d submitted %s (%s): %.60s...", session.UserID, req.Type, req.Urgency, req.Body)
+	log.Printf("[feedback] user %s submitted %s (%s): %.60s...", session.UserID, req.Type, req.Urgency, req.Body)
 
 	// Create GitHub issue asynchronously
 	go s.createGitHubIssue(id, req.Type, req.Urgency, req.Body)
