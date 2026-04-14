@@ -1,12 +1,9 @@
 [build]
-builder = "nixpacks"
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-# Health check: Railway pings this endpoint after deploy to verify the service is up.
-# If it doesn't return 200 within the timeout, Railway rolls back the deploy.
 healthcheckPath = "/health"
-healthcheckTimeout = 30
-
-# Restart policy: always restart on crash (don't let the container stay dead)
+healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
