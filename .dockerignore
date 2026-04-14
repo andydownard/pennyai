@@ -1,0 +1,10 @@
+.git
+marketing/node_modules
+frontend/node_modules
+frontend-brand/node_modules
+*.db
+*.db-shm
+*.db-wal
+archive/
+docs/
+scripts/
