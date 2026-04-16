@@ -1034,8 +1034,10 @@ export function App() {
         )}
       </div>
 
-      {/* Feedback Widget */}
-      {user?.can_submit_feedback && (
+      {/* CRUFT FOR REMOVAL (2026-04-16) — local BrandFeedbackWidget disabled pending
+          adoption of unified autovibe widget (rallytasks.com/shared/feedback-fab@1.js).
+          See rallytasks board Need-column P0 task. */}
+      {false && user?.can_submit_feedback && (
         <BrandFeedbackWidget />
       )}
     </div>

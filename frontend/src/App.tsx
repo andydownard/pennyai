@@ -2229,11 +2229,15 @@ function AppInner() {
   // SHARED HELPERS — menu, toast, feedback FAB (extracted to avoid duplication)
   // =========================================================================
 
-  // Wrap any authenticated screen with the FeedbackWidget (position:fixed overlay)
+  // CRUFT FOR REMOVAL (2026-04-16) — local FeedbackWidget disabled pending
+  // adoption of the unified autovibe widget served from
+  // https://www.rallytasks.com/shared/feedback-fab@1.js (data-auth-mode="external").
+  // See the rallytasks board Need-column P0 task for install instructions.
+  // This product has NO functional feedback widget until the unified one ships.
   const withFeedbackFAB = (content: React.ReactNode) => (
     <>
       {content}
-      {canSubmitFeedback && <FeedbackWidget onSubmit={handleFeedbackSubmit} />}
+      {false && canSubmitFeedback && <FeedbackWidget onSubmit={handleFeedbackSubmit} />}
     </>
   )
 
