@@ -714,14 +714,14 @@ export default function Home() {
           <div className="penny-grid">
             <div className="penny-avatar-wrapper">
               <div className="penny-avatar-circle">
-                <img src="/penny.png" alt="Penny AI" className="penny-avatar-img" loading="lazy" />
+                <img src="/penny.png" alt="Penny" className="penny-avatar-img" loading="lazy" />
               </div>
             </div>
             <div className="penny-content">
               <p className="section-label">Meet Penny</p>
-              <h2>Your personal <span>AI shopping assistant</span></h2>
+              <h2>The <span>shopping list</span> that knows your household</h2>
               <p>
-                Penny is more than a list builder. She's an intelligent assistant that understands what you need, remembers what you like, and gets better every time you shop.
+                Text Penny what you need. She remembers what you like, infers brands and quantities, and keeps the whole household on the same list.
               </p>
               <div className="penny-features">
                 <div className="penny-feature">

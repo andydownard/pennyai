@@ -218,8 +218,8 @@ export default function ForBrands() {
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z" fill="white"/></svg>
                 </div>
                 <div>
-                  <h4>AI-powered fraud protection</h4>
-                  <p>Every receipt is verified with 11-point AI authenticity checks — pixel analysis, math verification, barcode validation, and AI-watermark detection. Your budget only pays for real purchases.</p>
+                  <h4>Receipt fraud protection</h4>
+                  <p>Every receipt runs an 11-point authenticity check — pixel analysis, math verification, barcode validation, and watermark detection. Your budget only pays for real purchases.</p>
                 </div>
               </div>
             </div>

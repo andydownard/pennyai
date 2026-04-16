@@ -214,10 +214,10 @@ describe('ForBrands page', () => {
       expect(screen.getByText(/skip the shelf and go straight to the shopping list/)).toBeInTheDocument()
     })
 
-    it('renders four benefit items total', () => {
+    it('renders five benefit items total', () => {
       renderForBrands()
       const benefitItems = document.querySelectorAll('.benefit-item')
-      expect(benefitItems.length).toBe(4)
+      expect(benefitItems.length).toBe(5)
     })
   })
 
@@ -451,7 +451,7 @@ describe('ForBrands page', () => {
     it('all benefit items have h4 headings', () => {
       renderForBrands()
       const benefitHeadings = document.querySelectorAll('.benefit-item h4')
-      expect(benefitHeadings.length).toBe(4)
+      expect(benefitHeadings.length).toBe(5)
     })
 
     it('CTA buttons use semantic link elements', () => {

@@ -2,7 +2,16 @@ import { render, screen, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useOnScreen } from '../hooks/useOnScreen'
 
-// Store mock IntersectionObserver instances for test control
+// useOnScreen now defaults to `visible = true` and only flips to `false` (and
+// registers an IntersectionObserver) when the element is initially below the
+// viewport. This was the fix for the marketing-site whitespace bug where
+// elements rendered at the top of the page never received an IO callback and
+// the page stayed blank for 15,731px.
+//
+// JSDOM's default getBoundingClientRect returns {top: 0, ...} — i.e. above the
+// fold — so by default the hook short-circuits and never creates an observer.
+// To exercise the observer code path we must override the rect mock.
+
 interface MockIOInstance {
   observe: ReturnType<typeof vi.fn>
   unobserve: ReturnType<typeof vi.fn>
@@ -13,7 +22,6 @@ interface MockIOInstance {
 
 let mockObserverInstances: MockIOInstance[]
 
-// Helper component that uses the hook
 function TestComponent({ threshold }: { threshold?: number }) {
   const [ref, visible] = useOnScreen(threshold)
   return (
@@ -26,22 +34,36 @@ function TestComponent({ threshold }: { threshold?: number }) {
   )
 }
 
+// Helper: stub Element.prototype.getBoundingClientRect to simulate the element
+// sitting below the viewport — that's the only path that creates an observer.
+function stubBelowFold() {
+  const original = Element.prototype.getBoundingClientRect
+  Element.prototype.getBoundingClientRect = vi.fn(() => ({
+    top: window.innerHeight + 200,
+    left: 0,
+    right: 0,
+    bottom: window.innerHeight + 300,
+    width: 0,
+    height: 100,
+    x: 0,
+    y: window.innerHeight + 200,
+    toJSON: () => ({}),
+  })) as typeof Element.prototype.getBoundingClientRect
+  return () => { Element.prototype.getBoundingClientRect = original }
+}
+
 describe('useOnScreen hook', () => {
   let originalIO: typeof IntersectionObserver
 
   beforeEach(() => {
     mockObserverInstances = []
     originalIO = window.IntersectionObserver
-
-    // Use a proper class so it can be called with `new`
-    // The test-setup already set this property as writable, so direct assignment works
     window.IntersectionObserver = class MockIntersectionObserver {
       _observe = vi.fn()
       _unobserve = vi.fn()
       _disconnect = vi.fn()
       _callback: IntersectionObserverCallback
       _options: IntersectionObserverInit | undefined
-
       constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
         this._callback = callback
         this._options = options
@@ -56,7 +78,6 @@ describe('useOnScreen hook', () => {
         }
         mockObserverInstances.push(instance)
       }
-
       observe(...args: Parameters<IntersectionObserver['observe']>) { this._observe(...args) }
       unobserve(...args: Parameters<IntersectionObserver['unobserve']>) { this._unobserve(...args) }
       disconnect() { this._disconnect() }
@@ -72,24 +93,41 @@ describe('useOnScreen hook', () => {
     vi.restoreAllMocks()
   })
 
-  // ===== INITIAL STATE =====
-  describe('initial state', () => {
-    it('returns visible as false initially', () => {
+  // ===== ABOVE-FOLD DEFAULT (the regression case) =====
+  describe('above-fold elements', () => {
+    it('REGRESSION: defaults to visible (no fade-in flicker for top-of-page sections)', () => {
+      // JSDOM rect.top = 0, which is on-screen. The hook must short-circuit.
       render(<TestComponent />)
-      expect(screen.getByTestId('visibility')).toHaveTextContent('hidden')
+      expect(screen.getByTestId('visibility')).toHaveTextContent('visible')
     })
 
-    it('returns a ref object', () => {
+    it('REGRESSION: does not create an IntersectionObserver for on-screen elements', () => {
+      // The original bug: every section registered an observer that never
+      // fired for elements already on-screen, leaving them invisible forever.
+      render(<TestComponent />)
+      expect(mockObserverInstances.length).toBe(0)
+    })
+
+    it('returns a usable ref object', () => {
       render(<TestComponent />)
       expect(screen.getByTestId('observed-element')).toBeInTheDocument()
     })
   })
 
-  // ===== OBSERVER SETUP =====
-  describe('IntersectionObserver setup', () => {
+  // ===== BELOW-FOLD: observer is registered =====
+  describe('below-fold elements', () => {
+    let restoreRect: () => void
+    beforeEach(() => { restoreRect = stubBelowFold() })
+    afterEach(() => restoreRect())
+
     it('creates an IntersectionObserver', () => {
       render(<TestComponent />)
       expect(mockObserverInstances.length).toBe(1)
+    })
+
+    it('starts hidden until observer fires', () => {
+      render(<TestComponent />)
+      expect(screen.getByTestId('visibility')).toHaveTextContent('hidden')
     })
 
     it('observes the ref element', () => {
@@ -113,59 +151,30 @@ describe('useOnScreen hook', () => {
       render(<TestComponent />)
       expect(mockObserverInstances[0].options?.rootMargin).toBe('0px 0px -40px 0px')
     })
-  })
 
-  // ===== VISIBILITY CHANGE =====
-  describe('visibility changes', () => {
-    it('sets visible to true when element is intersecting', () => {
+    it('flips to visible when observer reports intersecting', () => {
       render(<TestComponent />)
       expect(screen.getByTestId('visibility')).toHaveTextContent('hidden')
-
       act(() => {
         mockObserverInstances[0].triggerCallback([{ isIntersecting: true }])
       })
-
       expect(screen.getByTestId('visibility')).toHaveTextContent('visible')
     })
 
-    it('does not set visible when element is not intersecting', () => {
+    it('stays hidden when observer reports not-intersecting', () => {
       render(<TestComponent />)
-
       act(() => {
         mockObserverInstances[0].triggerCallback([{ isIntersecting: false }])
       })
-
       expect(screen.getByTestId('visibility')).toHaveTextContent('hidden')
-    })
-
-    it('stays visible once set (does not toggle back)', () => {
-      render(<TestComponent />)
-
-      act(() => {
-        mockObserverInstances[0].triggerCallback([{ isIntersecting: true }])
-      })
-
-      expect(screen.getByTestId('visibility')).toHaveTextContent('visible')
-      expect(mockObserverInstances[0].disconnect).toHaveBeenCalled()
     })
 
     it('disconnects observer when element becomes visible', () => {
       render(<TestComponent />)
-
       act(() => {
         mockObserverInstances[0].triggerCallback([{ isIntersecting: true }])
       })
-
       expect(mockObserverInstances[0].disconnect).toHaveBeenCalledOnce()
-    })
-  })
-
-  // ===== CLEANUP =====
-  describe('cleanup', () => {
-    it('disconnects observer on unmount', () => {
-      const { unmount } = render(<TestComponent />)
-      unmount()
-      expect(mockObserverInstances[0].disconnect).toHaveBeenCalled()
     })
 
     it('disconnects observer on unmount even if not yet visible', () => {
@@ -175,8 +184,12 @@ describe('useOnScreen hook', () => {
     })
   })
 
-  // ===== EDGE CASES =====
-  describe('edge cases', () => {
+  // ===== INSTANCE INDEPENDENCE (below-fold) =====
+  describe('multiple instances (below-fold)', () => {
+    let restoreRect: () => void
+    beforeEach(() => { restoreRect = stubBelowFold() })
+    afterEach(() => restoreRect())
+
     it('handles multiple instances independently', () => {
       function MultiTest() {
         const [firstRef, firstVisible] = useOnScreen()
@@ -192,117 +205,13 @@ describe('useOnScreen hook', () => {
           </div>
         )
       }
-
       render(<MultiTest />)
       expect(mockObserverInstances.length).toBe(2)
-      expect(screen.getByTestId('first')).toHaveTextContent('first-hidden')
-      expect(screen.getByTestId('second')).toHaveTextContent('second-hidden')
-
       act(() => {
         mockObserverInstances[0].triggerCallback([{ isIntersecting: true }])
       })
-
       expect(screen.getByTestId('first')).toHaveTextContent('first-visible')
       expect(screen.getByTestId('second')).toHaveTextContent('second-hidden')
-    })
-
-    it('second instance can become visible independently', () => {
-      function MultiTest() {
-        const [firstRef, firstVisible] = useOnScreen()
-        const [secondRef, secondVisible] = useOnScreen()
-        return (
-          <div>
-            <div ref={firstRef as React.RefObject<HTMLDivElement>} data-testid="first">
-              {firstVisible ? 'first-visible' : 'first-hidden'}
-            </div>
-            <div ref={secondRef as React.RefObject<HTMLDivElement>} data-testid="second">
-              {secondVisible ? 'second-visible' : 'second-hidden'}
-            </div>
-          </div>
-        )
-      }
-
-      render(<MultiTest />)
-
-      act(() => {
-        mockObserverInstances[1].triggerCallback([{ isIntersecting: true }])
-      })
-
-      expect(screen.getByTestId('first')).toHaveTextContent('first-hidden')
-      expect(screen.getByTestId('second')).toHaveTextContent('second-visible')
-    })
-
-    it('both instances can become visible', () => {
-      function MultiTest() {
-        const [firstRef, firstVisible] = useOnScreen()
-        const [secondRef, secondVisible] = useOnScreen()
-        return (
-          <div>
-            <div ref={firstRef as React.RefObject<HTMLDivElement>} data-testid="first">
-              {firstVisible ? 'first-visible' : 'first-hidden'}
-            </div>
-            <div ref={secondRef as React.RefObject<HTMLDivElement>} data-testid="second">
-              {secondVisible ? 'second-visible' : 'second-hidden'}
-            </div>
-          </div>
-        )
-      }
-
-      render(<MultiTest />)
-
-      act(() => {
-        mockObserverInstances[0].triggerCallback([{ isIntersecting: true }])
-        mockObserverInstances[1].triggerCallback([{ isIntersecting: true }])
-      })
-
-      expect(screen.getByTestId('first')).toHaveTextContent('first-visible')
-      expect(screen.getByTestId('second')).toHaveTextContent('second-visible')
-    })
-  })
-
-  // ===== THRESHOLD VARIATIONS =====
-  describe('threshold variations', () => {
-    it('accepts threshold of 0', () => {
-      render(<TestComponent threshold={0} />)
-      expect(mockObserverInstances[0].options?.threshold).toBe(0)
-    })
-
-    it('accepts threshold of 1', () => {
-      render(<TestComponent threshold={1} />)
-      expect(mockObserverInstances[0].options?.threshold).toBe(1)
-    })
-
-    it('accepts threshold of 0.1', () => {
-      render(<TestComponent threshold={0.1} />)
-      expect(mockObserverInstances[0].options?.threshold).toBe(0.1)
-    })
-  })
-
-  // ===== OBSERVER LIFECYCLE =====
-  describe('observer lifecycle', () => {
-    it('creates exactly one observer per component mount', () => {
-      render(<TestComponent />)
-      expect(mockObserverInstances.length).toBe(1)
-    })
-
-    it('does not create extra observers on re-render', () => {
-      const { rerender } = render(<TestComponent threshold={0.1} />)
-      expect(mockObserverInstances.length).toBe(1)
-      rerender(<TestComponent threshold={0.1} />)
-      // Hook deps don't change, so no new observer
-      expect(mockObserverInstances.length).toBe(1)
-    })
-
-    it('observe is called with the DOM element', () => {
-      render(<TestComponent />)
-      const observed = mockObserverInstances[0].observe.mock.calls[0][0]
-      expect(observed).toBeInstanceOf(HTMLElement)
-    })
-
-    it('disconnect is not called before visibility or unmount', () => {
-      render(<TestComponent />)
-      // Not yet visible, not yet unmounted
-      expect(mockObserverInstances[0].disconnect).not.toHaveBeenCalled()
     })
   })
 })

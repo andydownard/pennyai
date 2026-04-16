@@ -361,9 +361,9 @@ describe('Home page', () => {
       expect(screen.getByText('Meet Penny')).toBeInTheDocument()
     })
 
-    it('mentions Penny as an intelligent assistant', () => {
+    it('describes how Penny works for the household', () => {
       renderHome()
-      expect(screen.getByText(/intelligent assistant/)).toBeInTheDocument()
+      expect(screen.getByText(/keeps the whole household on the same list/)).toBeInTheDocument()
     })
 
     it('renders Penny avatar image', () => {
