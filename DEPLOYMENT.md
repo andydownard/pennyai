@@ -11,18 +11,21 @@ Step-by-step deployment flow for the PennyAI app. Follow this for every feature,
 | Branch | Purpose | Deploys To |
 |--------|---------|------------|
 | `feature/*` | New features or bug fixes | — (local only) |
-| `dev` | Integration branch, all features merge here first | Staging (if configured) |
-| `main` | Production-ready code | Production (Railway auto-deploy) |
+| `main` | Integration — all PRs land here first | — (local / preview only) |
+| `staging` | Merge-only from `main` after CI green | Staging environment |
+| `production` | Merge-only from `staging` after staging healthcheck green | Production (app.groflo.io) |
+
+**Hard rule:** `staging` and `production` are MERGE-ONLY. No direct commits, no force-push. Never promote `staging` → `production` without `groflo.io` green on staging.
 
 ---
 
 ## Deployment Flow
 
-### 1. Create a Feature Branch
+### 1. Create a Feature Branch from `main`
 
 ```bash
-git checkout dev
-git pull origin dev
+git checkout main
+git pull origin main
 git checkout -b feature/your-feature-name
 ```
 
@@ -39,51 +42,47 @@ cd frontend && npm run build
 cd frontend && npx playwright test
 ```
 
-### 3. Commit and Push
+### 3. Commit, Push, and Open PR → `main`
 
 ```bash
 git add <files>
 git commit -m "feat: description of change"
-git push origin feature/your-feature-name
+git push -u origin feature/your-feature-name
+gh pr create --base main --head feature/your-feature-name --title "Short description"
 ```
 
-### 4. Merge into `dev`
+### 4. Merge into `main`
+
+Review, then squash-merge via GitHub. CI (GitHub Actions) runs: Go tests, test-to-code ratio, `go vet`, frontend typecheck + build.
+
+### 5. Promote `main` → `staging`
 
 ```bash
-git checkout dev
-git pull origin dev
-git merge feature/your-feature-name
-git push origin dev
+git checkout staging
+git pull origin staging
+git merge --ff-only origin/main  # or non-ff merge commit if branches have diverged
+git push origin staging
 ```
 
-Or create a PR: `feature/your-feature-name` → `dev` and merge via GitHub.
-
-### 5. Verify on `dev`
-
-- Confirm CI passes (GitHub Actions: tests, type check, test-to-code ratio)
-- Test on staging if configured
-
-### 6. Create PR: `dev` → `main`
+Wait for Railway to finish deploying staging. Then:
 
 ```bash
-gh pr create --base main --head dev --title "Short description" --body "## Summary
-- Change 1
-- Change 2
-
-## Test plan
-- [ ] Verification step 1
-- [ ] Verification step 2"
+curl -s https://staging.groflo.io/health
+# Expected: {"status":"ok","frontend_ok":true,"db_ok":true}
 ```
 
-### 7. Merge and Deploy
+### 6. Promote `staging` → `production`
+
+**Only after staging healthcheck is green.** This gate is non-negotiable.
 
 ```bash
-gh pr merge <PR_NUMBER> --merge
+git checkout production
+git pull origin production
+git merge --ff-only origin/staging
+git push origin production
 ```
 
-Railway auto-deploys from `main`.
-
-### 8. Verify Production
+### 7. Verify Production
 
 ```bash
 curl -s https://app.groflo.io/health
@@ -98,7 +97,7 @@ curl -s https://app.groflo.io/health
 - **Frontend:** React 18 + Vite, built into `static/`
 - **Brand Portal:** Separate React app, built into `static-brand/`
 - **Container:** Multi-stage Docker (Node → Go → Alpine + Litestream)
-- **Platform:** Railway (auto-deploy from `main`)
+- **Platform:** Railway (auto-deploy from `staging` and `production` branches)
 - **Production URL:** `https://app.groflo.io`
 - **DNS:** CNAME in AWS Route 53 (groflo.io) → Railway custom domain
 
@@ -119,7 +118,7 @@ The build validates frontend output — checks for `index.html`, JS bundles, and
 
 ## CI Checks (GitHub Actions)
 
-Runs on push to `main` and PRs to `main`:
+Runs on push to `main`, `staging`, `production`, and PRs to any of them:
 
 | Check | Command | Requirement |
 |-------|---------|-------------|
@@ -195,7 +194,7 @@ POSTHOG_API_KEY=
 ## Setting Up a New Railway Service
 
 1. **Create service** in Railway, connect to GitHub repo
-2. **Set branch** to `main`
+2. **Set branch** — `staging` for the staging service, `production` for the production service
 3. **Add all environment variables** (copy from existing service or `.env.example`)
 4. **Deploy** — Litestream auto-restores DB from R2 on first boot
 5. **Add custom domain** in Railway Settings > Networking
@@ -213,3 +212,10 @@ POSTHOG_API_KEY=
 - [ ] No secrets in committed code
 - [ ] No breaking changes to API endpoints or DB schema
 - [ ] PR reviewed and approved
+
+## Checklist Before Promoting `staging` → `production`
+
+- [ ] Staging healthcheck green (`curl https://staging.groflo.io/health` returns `ok`)
+- [ ] Staging service log is clean (no panics / errors since last deploy)
+- [ ] Manual smoke test of core flows passed on staging
+- [ ] All CI checks green on the merge commit that landed on `staging`

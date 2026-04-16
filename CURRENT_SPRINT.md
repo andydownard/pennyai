@@ -59,7 +59,37 @@ Complete auth linking end-to-end so users can connect all their identity methods
 
 > **Claude: update this section at the end of every session.**
 
-_Last updated: March 8, 2026 (Sprint 10 session 2)_
+_Last updated: April 16, 2026 (post-PG-migration audit sweep)_
+
+### 2026-04-16 session — PG migration audit resolved
+
+Swept the uncommitted tree from prior session. 48 files of audit fixes committed. Tests green on both backends (Go + marketing vitest). Sprint 9/10 items are all shipped; this session closed out residual P0/P1 from the PG migration.
+
+**Resolved (see BACKLOG Shipped):**
+- Phone column rename `phone_number` → `phone` across handlers + tests
+- PG idempotency: `INSERT OR IGNORE` → explicit `ON CONFLICT (...) DO NOTHING`
+- PG case-sensitive search: 9 sites `LIKE` → `ILIKE` with `sqliteCompat()` rewriter
+- PG `Atoi` on UUID removed
+- Marketing whitespace bug (`useOnScreen` default `visible=true` for above-fold)
+- FeedbackWidget duplicate-render guard
+- Email template rebrand-direction fix + CAN-SPAM
+- Brand vocabulary drift sweep across 7 files
+- `INSERT OR REPLACE` panic guard in `pgcompat.go`
+- Regression test file `regression_pg_migration_test.go` (5 tests)
+- `TestSMSWebhook_Stop/StartKeyword` — fixed TEXT UUID seed mismatch
+- Broader test-seed sweep for int→TEXT `user_id` across swap_test, penny_test, digest_test, settings_test, admin_test
+
+**Still open — promoted to BACKLOG:**
+- G22 Marketing body copy + alt text PMM pass (P1)
+- G23 Twilio webhook redelivery dedup (P1) — `sendSMSReply` has no message-ID dedup
+- G24 pgcompat.go unit test coverage (P2)
+- G25 Visual regression suite (P2)
+- G26 Brand consistency lint (P2)
+- G27 Comprehensive idempotency audit (P2)
+
+**Branching gap:** CLAUDE.md mandates `main → staging → production`, but no staging/production branches exist locally or on origin. Recommend creating from current-green main and wiring Railway to branch-based deploys. Ops work — flagged, not executed.
+
+### Earlier — Sprint 10 session 2 (March 8, 2026)
 
 ### Sprint 10 Progress — ALL ITEMS COMPLETE
 
