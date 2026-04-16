@@ -44,11 +44,11 @@ func (s *Server) processDailyDigest() {
 
 	// Find all opted-in users with a phone number whose last digest was >20h ago (or never sent)
 	rows, err := s.db.Query(`
-		SELECT u.id, COALESCE(u.name, ''), u.phone_number, COALESCE(u.daily_digest_last_sent, '')
+		SELECT u.id, COALESCE(u.name, ''), u.phone, COALESCE(u.daily_digest_last_sent, '')
 		FROM users u
 		WHERE u.daily_digest_enabled = 1
-		  AND u.phone_number IS NOT NULL
-		  AND u.phone_number != ''
+		  AND u.phone IS NOT NULL
+		  AND u.phone != ''
 	`)
 	if err != nil {
 		log.Printf("[digest] query error: %v", err)

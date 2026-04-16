@@ -318,9 +318,9 @@ func TestInviteAutoCreatesHousehold(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	// Create a user directly (without household) to simulate legacy user
-	server.db.Exec("INSERT INTO users (phone_number) VALUES (?)", "5551234567")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-invite-1', ?)", "5551234567")
 	var userID string
-	server.db.QueryRow("SELECT id FROM users WHERE phone_number = '5551234567'").Scan(&userID)
+	server.db.QueryRow("SELECT id FROM users WHERE phone = '5551234567'").Scan(&userID)
 
 	token, _ := server.sessions.CreateSession(userID, "5551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -1341,7 +1341,7 @@ func TestCreateSoloHousehold_Success(t *testing.T) {
 
 	// Create user directly (no upsertUser which auto-creates household)
 	userID := "test-solo-user"
-	_, err := db.Exec("INSERT INTO users (id, phone_number) VALUES (?, '5559999999')", userID)
+	_, err := db.Exec("INSERT INTO users (id, phone) VALUES (?, '5559999999')", userID)
 	if err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
@@ -1671,9 +1671,9 @@ func TestCreateSoloHousehold_VerifyMembership(t *testing.T) {
 	_, db := openTestDB(t)
 
 	// Insert user without upsertUser (which auto-creates household)
-	db.Exec("INSERT INTO users (phone_number) VALUES ('5551234567')")
+	db.Exec("INSERT INTO users (id, phone) VALUES ('user-solo-1', '5551234567')")
 	var userID string
-	db.QueryRow("SELECT id FROM users WHERE phone_number = '5551234567'").Scan(&userID)
+	db.QueryRow("SELECT id FROM users WHERE phone = '5551234567'").Scan(&userID)
 
 	hID, err := createSoloHousehold(db, userID)
 	if err != nil {
@@ -2789,15 +2789,15 @@ func TestGetHouseholdAllergens_Union(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	// Create 2 users in the same household
-	server.db.Exec("INSERT INTO users (id, phone_number, name, household_id) VALUES (100, '+15551111111', 'Alice', 1)")
-	server.db.Exec("INSERT INTO users (id, phone_number, name, household_id) VALUES (101, '+15552222222', 'Bob', 1)")
+	server.db.Exec("INSERT INTO users (id, phone, name, household_id) VALUES ('user-100', '+15551111111', 'Alice', 1)")
+	server.db.Exec("INSERT INTO users (id, phone, name, household_id) VALUES ('user-101', '+15552222222', 'Bob', 1)")
 	server.db.Exec("INSERT INTO households (id, name) VALUES (1, 'Test Family')")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 100)")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 101)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 'user-100')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 'user-101')")
 
 	// Alice has peanut allergy, Bob has dairy allergy
-	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (100, '["peanuts"]', '[]')`)
-	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (101, '["dairy"]', '[]')`)
+	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES ('user-100', '["peanuts"]', '[]')`)
+	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES ('user-101', '["dairy"]', '[]')`)
 
 	// Alice's household allergens should include both peanuts and dairy
 	allergens := server.getHouseholdAllergens("user-100")
@@ -2815,8 +2815,8 @@ func TestGetHouseholdAllergens_Union(t *testing.T) {
 
 func TestGetHouseholdAllergens_NoHousehold(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-100', '+15551234567')")
-	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (100, '["gluten"]', '[]')`)
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-100', '+15551234567')")
+	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES ('user-100', '["gluten"]', '[]')`)
 
 	allergens := server.getHouseholdAllergens("user-100")
 	if len(allergens) != 1 || allergens[0] != "gluten" {
@@ -2828,12 +2828,12 @@ func TestHouseholdDietary_Endpoint(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	// Create household
-	server.db.Exec("INSERT INTO users (id, phone_number, name, household_id) VALUES (100, '+15551111111', 'Alice', 1)")
-	server.db.Exec("INSERT INTO users (id, phone_number, name, household_id) VALUES (101, '+15552222222', 'Bob', 1)")
+	server.db.Exec("INSERT INTO users (id, phone, name, household_id) VALUES ('user-100', '+15551111111', 'Alice', 1)")
+	server.db.Exec("INSERT INTO users (id, phone, name, household_id) VALUES ('user-101', '+15552222222', 'Bob', 1)")
 	server.db.Exec("INSERT INTO households (id, name) VALUES (1, 'Family')")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 100)")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 101)")
-	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (100, '["peanuts"]', '["vegan"]')`)
+	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 'user-100')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 'user-101')")
+	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES ('user-100', '["peanuts"]', '["vegan"]')`)
 
 	token, _ := server.sessions.CreateSession("user-100", "+15551111111", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -2864,15 +2864,15 @@ func TestHouseholdDuplicateDetection(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	// Create 2 users in the same household
-	server.db.Exec("INSERT INTO users (id, phone_number, name, household_id) VALUES (100, '+15551111111', 'Alice', 1)")
-	server.db.Exec("INSERT INTO users (id, phone_number, name, household_id) VALUES (101, '+15552222222', 'Bob', 1)")
+	server.db.Exec("INSERT INTO users (id, phone, name, household_id) VALUES ('user-100', '+15551111111', 'Alice', 1)")
+	server.db.Exec("INSERT INTO users (id, phone, name, household_id) VALUES ('user-101', '+15552222222', 'Bob', 1)")
 	server.db.Exec("INSERT INTO households (id, name) VALUES (1, 'Test Family')")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 100)")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 101)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 'user-100')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (1, 'user-101')")
 
 	// Alice adds milk
-	server.db.Exec("INSERT INTO list_items (id, user_id, name, checked) VALUES (1, 100, 'Milk', 0)")
-	server.db.Exec("INSERT INTO item_modifications (item_id, user_id, action, source, created_at) VALUES (1, 100, 'added', 'app', datetime('now', '-1 hour'))")
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, checked) VALUES (1, 'user-100', 'Milk', 0)")
+	server.db.Exec("INSERT INTO item_modifications (item_id, user_id, action, source, created_at) VALUES (1, 'user-100', 'added', 'app', datetime('now', '-1 hour'))")
 
 	// Bob adds milk — should trigger duplicate warning
 	bobItems := []ListItem{{ID: 2, Name: "Milk", Brand: "", Department: "Dairy & Eggs"}}
@@ -2885,7 +2885,7 @@ func TestHouseholdDuplicateDetection(t *testing.T) {
 	}
 
 	// No warning for non-household user
-	server.db.Exec("INSERT INTO users (id, phone_number, name) VALUES (102, '+15553333333', 'Charlie')")
+	server.db.Exec("INSERT INTO users (id, phone, name) VALUES ('user-102', '+15553333333', 'Charlie')")
 	noWarnings := server.checkHouseholdDuplicates("user-102", bobItems)
 	if len(noWarnings) != 0 {
 		t.Errorf("Expected no warnings for non-household user, got %d", len(noWarnings))
@@ -2901,10 +2901,10 @@ func TestShoppingRole_PrimaryShopper(t *testing.T) {
 
 	// Create a household with two users
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
-	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (100, '+15551111111', 1)")
-	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (101, '+15552222222', 1)")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 100, 'owner')")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 101, 'member')")
+	server.db.Exec("INSERT INTO users (id, phone, household_id) VALUES ('user-100', '+15551111111', 1)")
+	server.db.Exec("INSERT INTO users (id, phone, household_id) VALUES ('user-101', '+15552222222', 1)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 'user-100', 'owner')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 'user-101', 'member')")
 
 	// User 100: 20 items, 15 checked — check_ratio = 0.75 (> 0.5), total > median => primary_shopper
 	for i := 1; i <= 20; i++ {
@@ -2912,26 +2912,26 @@ func TestShoppingRole_PrimaryShopper(t *testing.T) {
 		if i <= 15 {
 			checked = 1
 		}
-		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (100, ?, ?)",
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES ('user-100', ?, ?)",
 			fmt.Sprintf("Item %d", i), checked)
 	}
 
 	// User 101: 3 items, 0 checked — total <= 5 => occasional
 	for i := 1; i <= 3; i++ {
-		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (101, ?, 0)",
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES ('user-101', ?, 0)",
 			fmt.Sprintf("Item %d", i))
 	}
 
 	server.processLearnings()
 
 	var role100 string
-	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 100 AND key = 'shopping_role'").Scan(&role100)
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 'user-100' AND key = 'shopping_role'").Scan(&role100)
 	if role100 != "primary_shopper" {
 		t.Errorf("User 100 role: got %q, want 'primary_shopper'", role100)
 	}
 
 	var role101 string
-	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 101 AND key = 'shopping_role'").Scan(&role101)
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 'user-101' AND key = 'shopping_role'").Scan(&role101)
 	if role101 != "occasional" {
 		t.Errorf("User 101 role: got %q, want 'occasional'", role101)
 	}
@@ -2942,10 +2942,10 @@ func TestShoppingRole_ListBuilder(t *testing.T) {
 
 	// Create a household with two users
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
-	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (200, '+15553333333', 1)")
-	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (201, '+15554444444', 1)")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 200, 'owner')")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 201, 'member')")
+	server.db.Exec("INSERT INTO users (id, phone, household_id) VALUES ('user-200', '+15553333333', 1)")
+	server.db.Exec("INSERT INTO users (id, phone, household_id) VALUES ('user-201', '+15554444444', 1)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 'user-200', 'owner')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 'user-201', 'member')")
 
 	// User 200: 15 items, 1 checked — check_ratio = 0.067 (< 0.3), total > 5 => list_builder
 	for i := 1; i <= 15; i++ {
@@ -2953,26 +2953,26 @@ func TestShoppingRole_ListBuilder(t *testing.T) {
 		if i == 1 {
 			checked = 1
 		}
-		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (200, ?, ?)",
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES ('user-200', ?, ?)",
 			fmt.Sprintf("Item %d", i), checked)
 	}
 
 	// User 201: 10 items, 0 checked — check_ratio = 0.0 (< 0.3), total > 5
 	for i := 1; i <= 10; i++ {
-		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (201, ?, 0)",
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES ('user-201', ?, 0)",
 			fmt.Sprintf("Item %d", i))
 	}
 
 	server.processLearnings()
 
 	var role200 string
-	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 200 AND key = 'shopping_role'").Scan(&role200)
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 'user-200' AND key = 'shopping_role'").Scan(&role200)
 	if role200 != "list_builder" {
 		t.Errorf("User 200 role: got %q, want 'list_builder'", role200)
 	}
 
 	var role201 string
-	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 201 AND key = 'shopping_role'").Scan(&role201)
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 'user-201' AND key = 'shopping_role'").Scan(&role201)
 	if role201 != "list_builder" {
 		t.Errorf("User 201 role: got %q, want 'list_builder'", role201)
 	}
@@ -2983,10 +2983,10 @@ func TestShoppingRole_Occasional(t *testing.T) {
 
 	// Create a household with two users
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
-	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (300, '+15555555555', 1)")
-	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (301, '+15556666666', 1)")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 300, 'owner')")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 301, 'member')")
+	server.db.Exec("INSERT INTO users (id, phone, household_id) VALUES ('user-300', '+15555555555', 1)")
+	server.db.Exec("INSERT INTO users (id, phone, household_id) VALUES ('user-301', '+15556666666', 1)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 'user-300', 'owner')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 'user-301', 'member')")
 
 	// User 300: 5 items, 3 checked — total <= 5 => occasional
 	for i := 1; i <= 5; i++ {
@@ -2994,26 +2994,26 @@ func TestShoppingRole_Occasional(t *testing.T) {
 		if i <= 3 {
 			checked = 1
 		}
-		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (300, ?, ?)",
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES ('user-300', ?, ?)",
 			fmt.Sprintf("Item %d", i), checked)
 	}
 
 	// User 301: 2 items, 0 checked — total <= 5 => occasional
 	for i := 1; i <= 2; i++ {
-		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (301, ?, 0)",
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES ('user-301', ?, 0)",
 			fmt.Sprintf("Item %d", i))
 	}
 
 	server.processLearnings()
 
 	var role300 string
-	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 300 AND key = 'shopping_role'").Scan(&role300)
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 'user-300' AND key = 'shopping_role'").Scan(&role300)
 	if role300 != "occasional" {
 		t.Errorf("User 300 role: got %q, want 'occasional'", role300)
 	}
 
 	var role301 string
-	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 301 AND key = 'shopping_role'").Scan(&role301)
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 'user-301' AND key = 'shopping_role'").Scan(&role301)
 	if role301 != "occasional" {
 		t.Errorf("User 301 role: got %q, want 'occasional'", role301)
 	}
@@ -3024,32 +3024,32 @@ func TestShoppingRole_Confidence(t *testing.T) {
 
 	// Create household
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
-	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (400, '+15557777777', 1)")
-	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (401, '+15558888888', 1)")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 400, 'owner')")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 401, 'member')")
+	server.db.Exec("INSERT INTO users (id, phone, household_id) VALUES ('user-400', '+15557777777', 1)")
+	server.db.Exec("INSERT INTO users (id, phone, household_id) VALUES ('user-401', '+15558888888', 1)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 'user-400', 'owner')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 'user-401', 'member')")
 
 	// User 400: 4 items => confidence = 4/20 = 0.2
 	for i := 1; i <= 4; i++ {
-		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (400, ?, 0)",
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES ('user-400', ?, 0)",
 			fmt.Sprintf("Item %d", i))
 	}
 	// User 401: 30 items => confidence = 30/20 = 1.5 clamped to 1.0
 	for i := 1; i <= 30; i++ {
-		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (401, ?, 1)",
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES ('user-401', ?, 1)",
 			fmt.Sprintf("Item %d", i))
 	}
 
 	server.processLearnings()
 
 	var conf400 float64
-	server.db.QueryRow("SELECT confidence FROM penny_learnings WHERE scope = 'user' AND scope_id = 400 AND key = 'shopping_role'").Scan(&conf400)
+	server.db.QueryRow("SELECT confidence FROM penny_learnings WHERE scope = 'user' AND scope_id = 'user-400' AND key = 'shopping_role'").Scan(&conf400)
 	if conf400 < 0.15 || conf400 > 0.25 {
 		t.Errorf("User 400 confidence: got %f, want ~0.2", conf400)
 	}
 
 	var conf401 float64
-	server.db.QueryRow("SELECT confidence FROM penny_learnings WHERE scope = 'user' AND scope_id = 401 AND key = 'shopping_role'").Scan(&conf401)
+	server.db.QueryRow("SELECT confidence FROM penny_learnings WHERE scope = 'user' AND scope_id = 'user-401' AND key = 'shopping_role'").Scan(&conf401)
 	if conf401 != 1.0 {
 		t.Errorf("User 401 confidence: got %f, want 1.0", conf401)
 	}
@@ -3059,16 +3059,16 @@ func TestShoppingRole_NoHousehold(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	// User without household — should NOT get a shopping role
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-500', '+15559999999')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-500', '+15559999999')")
 	for i := 1; i <= 10; i++ {
-		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (500, ?, 1)",
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES ('user-500', ?, 1)",
 			fmt.Sprintf("Item %d", i))
 	}
 
 	server.processLearnings()
 
 	var role string
-	err := server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 500 AND key = 'shopping_role'").Scan(&role)
+	err := server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 'user-500' AND key = 'shopping_role'").Scan(&role)
 	if err == nil && role != "" {
 		t.Errorf("User without household should not have shopping_role, got %q", role)
 	}
@@ -3078,12 +3078,12 @@ func TestShoppingRole_InLearningContext(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	// Create user with autotune enabled
-	server.db.Exec("INSERT INTO users (id, phone_number, penny_autotune, household_id) VALUES (600, '+15550001111', 1, 1)")
+	server.db.Exec("INSERT INTO users (id, phone, penny_autotune, household_id) VALUES ('user-600', '+15550001111', 1, 1)")
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 600, 'owner')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 'user-600', 'owner')")
 
 	// Set the shopping_role learning directly
-	server.updateLearning("user", 600, "shopping_role", "primary_shopper", 0.8)
+	server.updateLearning("user", "user-600", "shopping_role", "primary_shopper", 0.8)
 
 	ctx := server.buildLearningContext("user-600")
 	if !strings.Contains(ctx, "primary shopper") {
@@ -3097,11 +3097,11 @@ func TestShoppingRole_InLearningContext(t *testing.T) {
 func TestShoppingRole_ListBuilderInContext(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
-	server.db.Exec("INSERT INTO users (id, phone_number, penny_autotune, household_id) VALUES (700, '+15550002222', 1, 1)")
+	server.db.Exec("INSERT INTO users (id, phone, penny_autotune, household_id) VALUES ('user-700', '+15550002222', 1, 1)")
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 700, 'owner')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 'user-700', 'owner')")
 
-	server.updateLearning("user", 700, "shopping_role", "list_builder", 0.6)
+	server.updateLearning("user", "user-700", "shopping_role", "list_builder", 0.6)
 
 	ctx := server.buildLearningContext("user-700")
 	if !strings.Contains(ctx, "list builder") {
@@ -3112,11 +3112,11 @@ func TestShoppingRole_ListBuilderInContext(t *testing.T) {
 func TestShoppingRole_OccasionalInContext(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
-	server.db.Exec("INSERT INTO users (id, phone_number, penny_autotune, household_id) VALUES (800, '+15550003333', 1, 1)")
+	server.db.Exec("INSERT INTO users (id, phone, penny_autotune, household_id) VALUES ('user-800', '+15550003333', 1, 1)")
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 800, 'owner')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 'user-800', 'owner')")
 
-	server.updateLearning("user", 800, "shopping_role", "occasional", 0.4)
+	server.updateLearning("user", "user-800", "shopping_role", "occasional", 0.4)
 
 	ctx := server.buildLearningContext("user-800")
 	if !strings.Contains(ctx, "occasional contributor") {
@@ -3129,12 +3129,12 @@ func TestShoppingRole_ThreePersonHousehold(t *testing.T) {
 
 	// Create a 3-person household
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
-	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (900, '+15550004444', 1)")
-	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (901, '+15550005555', 1)")
-	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (902, '+15550006666', 1)")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 900, 'owner')")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 901, 'member')")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 902, 'member')")
+	server.db.Exec("INSERT INTO users (id, phone, household_id) VALUES ('user-900', '+15550004444', 1)")
+	server.db.Exec("INSERT INTO users (id, phone, household_id) VALUES ('user-901', '+15550005555', 1)")
+	server.db.Exec("INSERT INTO users (id, phone, household_id) VALUES ('user-902', '+15550006666', 1)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 'user-900', 'owner')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 'user-901', 'member')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 'user-902', 'member')")
 
 	// User 900: 30 items, 25 checked — heavy shopper, high check ratio => primary_shopper
 	for i := 1; i <= 30; i++ {
@@ -3142,7 +3142,7 @@ func TestShoppingRole_ThreePersonHousehold(t *testing.T) {
 		if i <= 25 {
 			checked = 1
 		}
-		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (900, ?, ?)",
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES ('user-900', ?, ?)",
 			fmt.Sprintf("Item %d", i), checked)
 	}
 
@@ -3152,22 +3152,22 @@ func TestShoppingRole_ThreePersonHousehold(t *testing.T) {
 		if i == 1 {
 			checked = 1
 		}
-		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (901, ?, ?)",
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES ('user-901', ?, ?)",
 			fmt.Sprintf("Item %d", i), checked)
 	}
 
 	// User 902: 3 items, 0 checked — <= 5 => occasional
 	for i := 1; i <= 3; i++ {
-		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (902, ?, 0)",
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES ('user-902', ?, 0)",
 			fmt.Sprintf("Item %d", i))
 	}
 
 	server.processLearnings()
 
 	var role900, role901, role902 string
-	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 900 AND key = 'shopping_role'").Scan(&role900)
-	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 901 AND key = 'shopping_role'").Scan(&role901)
-	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 902 AND key = 'shopping_role'").Scan(&role902)
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 'user-900' AND key = 'shopping_role'").Scan(&role900)
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 'user-901' AND key = 'shopping_role'").Scan(&role901)
+	server.db.QueryRow("SELECT value FROM penny_learnings WHERE scope = 'user' AND scope_id = 'user-902' AND key = 'shopping_role'").Scan(&role902)
 
 	if role900 != "primary_shopper" {
 		t.Errorf("User 900 (heavy shopper): got %q, want 'primary_shopper'", role900)
@@ -3184,17 +3184,17 @@ func TestShoppingRole_Idempotent(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
-	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (1000, '+15550007777', 1)")
-	server.db.Exec("INSERT INTO users (id, phone_number, household_id) VALUES (1001, '+15550008888', 1)")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 1000, 'owner')")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 1001, 'member')")
+	server.db.Exec("INSERT INTO users (id, phone, household_id) VALUES ('user-1000', '+15550007777', 1)")
+	server.db.Exec("INSERT INTO users (id, phone, household_id) VALUES ('user-1001', '+15550008888', 1)")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 'user-1000', 'owner')")
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, 'user-1001', 'member')")
 
 	for i := 1; i <= 10; i++ {
-		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (1000, ?, 1)",
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES ('user-1000', ?, 1)",
 			fmt.Sprintf("Item %d", i))
 	}
 	for i := 1; i <= 2; i++ {
-		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES (1001, ?, 0)",
+		server.db.Exec("INSERT INTO list_items (user_id, name, checked) VALUES ('user-1001', ?, 0)",
 			fmt.Sprintf("Item %d", i))
 	}
 
@@ -3203,7 +3203,7 @@ func TestShoppingRole_Idempotent(t *testing.T) {
 	server.processLearnings()
 
 	var count int
-	server.db.QueryRow("SELECT COUNT(*) FROM penny_learnings WHERE scope = 'user' AND scope_id = 1000 AND key = 'shopping_role'").Scan(&count)
+	server.db.QueryRow("SELECT COUNT(*) FROM penny_learnings WHERE scope = 'user' AND scope_id = 'user-1000' AND key = 'shopping_role'").Scan(&count)
 	if count != 1 {
 		t.Errorf("Expected exactly 1 shopping_role row for user 1000, got %d", count)
 	}
@@ -3626,10 +3626,10 @@ func TestAvatarGet_NotFound(t *testing.T) {
 	}
 }
 
-func TestAvatarGet_InvalidID(t *testing.T) {
+func TestAvatarGet_EmptyID(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
-	rr := doRequest(server.handleAvatarGet, "GET", "/api/avatar/abc", nil, nil)
+	rr := doRequest(server.handleAvatarGet, "GET", "/api/avatar/", nil, nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("Status: got %d, want 400", rr.Code)
 	}

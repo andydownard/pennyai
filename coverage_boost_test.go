@@ -375,7 +375,7 @@ func TestNewTests_AdminPayouts_PostNoNeedingRebates(t *testing.T) {
 
 	// POST for a user with no pending rebates — should succeed with 0 updated
 	rr := doRequest(server.handleAdminPayouts, "POST", "/api/admin/payouts",
-		map[string]interface{}{"user_id": 99999}, []*http.Cookie{cookie})
+		map[string]interface{}{"user_id": "user-99999"}, []*http.Cookie{cookie})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("POST for non-existing user: got %d, want 200", rr.Code)
 	}
@@ -616,7 +616,7 @@ func TestNewTests_TrackABEvent_SuccessfulInsert(t *testing.T) {
 	// Verify event was inserted
 	var count int
 	var value float64
-	server.db.QueryRow("SELECT COUNT(*), COALESCE(SUM(value),0) FROM ab_events WHERE test_name = 'active_track' AND user_id = 42").Scan(&count, &value)
+	server.db.QueryRow("SELECT COUNT(*), COALESCE(SUM(value),0) FROM ab_events WHERE test_name = 'active_track' AND user_id = 'user-42'").Scan(&count, &value)
 	if count != 1 {
 		t.Errorf("Expected 1 event, got %d", count)
 	}
@@ -640,7 +640,7 @@ func TestNewTests_TrackABEvent_MultipleEvents(t *testing.T) {
 	}
 
 	var count int
-	server.db.QueryRow("SELECT COUNT(*) FROM ab_events WHERE test_name = 'multi_track' AND user_id = 10").Scan(&count)
+	server.db.QueryRow("SELECT COUNT(*) FROM ab_events WHERE test_name = 'multi_track' AND user_id = 'user-10'").Scan(&count)
 	if count != 5 {
 		t.Errorf("Expected 5 events, got %d", count)
 	}
@@ -692,7 +692,7 @@ func TestNewTests_GetVariant_TrafficPercentage(t *testing.T) {
 	// Create user — loginUser creates with upsertUser which auto-assigns IDs
 	// We need a user whose ID % 100 >= 10
 	// Insert directly to control the ID
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-50', '5559999050')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-50', '5559999050')")
 	token, _ := server.sessions.CreateSession("user-50", "5559999050", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
@@ -2562,7 +2562,7 @@ func TestCov2_RegionalSwapPerformance_UnknownRegion(t *testing.T) {
 	cookie := &http.Cookie{Name: "session", Value: token}
 
 	// Create swap events with no store link (should appear as "Unknown" region)
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-999', '5559999999')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-999', '5559999999')")
 	server.db.Exec("INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status) VALUES (1, 'X', 'Y', 'Z', 100, 10000, 'active')")
 	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-999', 1, 'offered')")
 	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-999', 1, 'declined')")
@@ -3456,7 +3456,7 @@ func TestCov3_LeaveHousehold_ExpiredSession(t *testing.T) {
 
 	// Create an expired session
 	server.db.Exec(
-		"INSERT INTO sessions (token, user_id, phone_number, auth_method, created_at, expires_at) VALUES ('expired_leave_tok', ?, '5558880006', 'phone', datetime('now', '-2 days'), datetime('now', '-1 day'))",
+		"INSERT INTO sessions (token, user_id, phone, role, created_at, expires_at) VALUES ('expired_leave_tok', ?, '5558880006', 'user', datetime('now', '-2 days'), datetime('now', '-1 day'))",
 		userID,
 	)
 
@@ -3858,7 +3858,7 @@ func TestCov3_CleanExpired_MultipleExpiredSessions(t *testing.T) {
 	// Insert multiple expired sessions
 	for i := 0; i < 5; i++ {
 		server.db.Exec(
-			"INSERT INTO sessions (token, user_id, phone_number, auth_method, created_at, expires_at) VALUES (?, ?, '5558910001', 'phone', datetime('now', '-3 days'), datetime('now', '-1 day'))",
+			"INSERT INTO sessions (token, user_id, phone, role, created_at, expires_at) VALUES (?, ?, '5558910001', 'user', datetime('now', '-3 days'), datetime('now', '-1 day'))",
 			fmt.Sprintf("expired_multi_%d", i), userID,
 		)
 	}
@@ -3886,11 +3886,11 @@ func TestCov3_CleanExpired_MixedUsers(t *testing.T) {
 
 	// Add expired sessions for both users
 	server.db.Exec(
-		"INSERT INTO sessions (token, user_id, phone_number, auth_method, created_at, expires_at) VALUES ('exp_u1', ?, '5558910002', 'phone', datetime('now', '-2 days'), datetime('now', '-1 day'))",
+		"INSERT INTO sessions (token, user_id, phone, role, created_at, expires_at) VALUES ('exp_u1', ?, '5558910002', 'user', datetime('now', '-2 days'), datetime('now', '-1 day'))",
 		userID1,
 	)
 	server.db.Exec(
-		"INSERT INTO sessions (token, user_id, phone_number, auth_method, created_at, expires_at) VALUES ('exp_u2', ?, '5558910003', 'phone', datetime('now', '-2 days'), datetime('now', '-1 day'))",
+		"INSERT INTO sessions (token, user_id, phone, role, created_at, expires_at) VALUES ('exp_u2', ?, '5558910003', 'user', datetime('now', '-2 days'), datetime('now', '-1 day'))",
 		userID2,
 	)
 
@@ -3914,7 +3914,7 @@ func TestCov3_CleanExpired_JustExpiredSession(t *testing.T) {
 
 	// Insert a session that expired 1 second ago (boundary case)
 	server.db.Exec(
-		"INSERT INTO sessions (token, user_id, phone_number, auth_method, created_at, expires_at) VALUES ('just_expired', ?, '5558910004', 'phone', datetime('now', '-31 days'), datetime('now', '-1 second'))",
+		"INSERT INTO sessions (token, user_id, phone, role, created_at, expires_at) VALUES ('just_expired', ?, '5558910004', 'user', datetime('now', '-31 days'), datetime('now', '-1 second'))",
 		userID,
 	)
 
@@ -3934,7 +3934,7 @@ func TestCov3_CleanExpired_DoesNotRemoveFutureSessions(t *testing.T) {
 
 	// Insert a session that expires far in the future
 	server.db.Exec(
-		"INSERT INTO sessions (token, user_id, phone_number, auth_method, created_at, expires_at) VALUES ('future_tok', ?, '5558910005', 'phone', datetime('now'), datetime('now', '+60 days'))",
+		"INSERT INTO sessions (token, user_id, phone, role, created_at, expires_at) VALUES ('future_tok', ?, '5558910005', 'user', datetime('now'), datetime('now', '+60 days'))",
 		userID,
 	)
 
@@ -3955,13 +3955,13 @@ func TestCov3_DeleteUserSessions_NoSessions(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	// Create a user without any sessions
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-9999', '5558920001')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-9999', '5558920001')")
 
 	// Should not panic or error
 	server.sessions.DeleteUserSessions("user-9999")
 
 	var count int
-	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = 9999").Scan(&count)
+	server.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = 'user-9999'").Scan(&count)
 	if count != 0 {
 		t.Errorf("Expected 0 sessions, got %d", count)
 	}

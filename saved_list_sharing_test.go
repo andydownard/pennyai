@@ -416,7 +416,7 @@ func TestSchema_SharedLinks_HasSavedListIDColumn(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	// Create a user for FK constraint
-	server.db.Exec("INSERT OR IGNORE INTO users (id, phone_number) VALUES ('schema-test-user', '5550000000')")
+	server.db.Exec("INSERT OR IGNORE INTO users (id, phone) VALUES ('schema-test-user', '5550000000')")
 
 	// Should be able to insert with saved_list_id
 	_, err := server.db.Exec(

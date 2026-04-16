@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -297,7 +298,7 @@ func (s *Server) handleEmailLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch user phone for session
 	var phone sql.NullString
-	s.db.QueryRow("SELECT phone_number FROM users WHERE id = ?", userID).Scan(&phone)
+	s.db.QueryRow("SELECT phone FROM users WHERE id = ?", userID).Scan(&phone)
 
 	token, err := s.sessions.CreateSession(userID, phone.String, "email")
 	if err != nil {
@@ -485,7 +486,7 @@ func (s *Server) handleMagicLinkVerify(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch user phone for session
 	var phone sql.NullString
-	s.db.QueryRow("SELECT phone_number FROM users WHERE id = ?", userID).Scan(&phone)
+	s.db.QueryRow("SELECT phone FROM users WHERE id = ?", userID).Scan(&phone)
 
 	token, err := s.sessions.CreateSession(userID, phone.String, "email")
 	if err != nil {
@@ -715,14 +716,16 @@ func (s *Server) handleSendCode(w http.ResponseWriter, r *http.Request) {
 	if len(userAgent) > 500 {
 		userAgent = userAgent[:500]
 	}
+	// Store 10-digit phone to match timpager's normalization and upsertUser.
+	consentDigits := strings.TrimPrefix(e164, "+1")
 	if _, err := s.db.Exec(
-		`INSERT INTO users (phone_number, sms_consent_at, sms_consent_ip, sms_consent_user_agent)
-		 VALUES (?, CURRENT_TIMESTAMP, ?, ?)
-		 ON CONFLICT(phone_number) DO UPDATE SET
+		`INSERT INTO users (id, phone, sms_consent_at, sms_consent_ip, sms_consent_user_agent)
+		 VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?)
+		 ON CONFLICT(phone) DO UPDATE SET
 		   sms_consent_at = CURRENT_TIMESTAMP,
 		   sms_consent_ip = excluded.sms_consent_ip,
 		   sms_consent_user_agent = excluded.sms_consent_user_agent`,
-		e164, clientIP, userAgent,
+		uuid.New().String(), consentDigits, clientIP, userAgent,
 	); err != nil {
 		log.Printf("[sms-consent] failed to record consent for %s: %v", maskPhone(e164), err)
 		// Do NOT fail the request — SMS consent is best-effort logged.
@@ -883,7 +886,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	var smsConsentAt sql.NullString
 	var phoneNumber sql.NullString
 	s.db.QueryRow(
-		"SELECT login_count, name, sms_consent_at, phone_number FROM users WHERE id = ?",
+		"SELECT login_count, name, sms_consent_at, phone FROM users WHERE id = ?",
 		session.UserID,
 	).Scan(&loginCount, &userName, &smsConsentAt, &phoneNumber)
 	resp["login_count"] = loginCount
@@ -1054,7 +1057,7 @@ func (s *Server) linkEmail(w http.ResponseWriter, userID string, email string) {
 
 	// Insert auth method
 	_, err = s.db.Exec(
-		"INSERT OR IGNORE INTO auth_methods (user_id, provider, provider_id) VALUES (?, 'email', ?)",
+		"INSERT INTO auth_methods (user_id, provider, provider_id) VALUES (?, 'email', ?) ON CONFLICT (provider, provider_id) DO NOTHING",
 		userID, email,
 	)
 	if err != nil {
@@ -1122,7 +1125,7 @@ func (s *Server) linkPhone(w http.ResponseWriter, r *http.Request, userID string
 
 	// Insert auth method
 	_, err = s.db.Exec(
-		"INSERT OR IGNORE INTO auth_methods (user_id, provider, provider_id) VALUES (?, 'phone', ?)",
+		"INSERT INTO auth_methods (user_id, provider, provider_id) VALUES (?, 'phone', ?) ON CONFLICT (provider, provider_id) DO NOTHING",
 		userID, digits,
 	)
 	if err != nil {
@@ -1130,15 +1133,15 @@ func (s *Server) linkPhone(w http.ResponseWriter, r *http.Request, userID string
 		return
 	}
 
-	// Update users.phone_number
-	s.db.Exec("UPDATE users SET phone_number = ? WHERE id = ? AND (phone_number IS NULL OR phone_number = '')", digits, userID)
+	// Update users.phone
+	s.db.Exec("UPDATE users SET phone = ? WHERE id = ? AND (phone IS NULL OR phone = '')", digits, userID)
 
 	log.Printf("[auth-link] user %s linked phone %s", userID, maskPhone(e164))
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
 // listItemColumns is the shared SELECT column list for list_items queries.
-const listItemColumns = "li.id, li.name, li.brand, li.department, li.quantity, li.size, li.notes, li.source, li.checked, li.urgent, li.created_at, COALESCE(u.name,''), COALESCE(u.phone_number,''), li.claimed_by, COALESCE(cu.name,''), li.swap_savings_cents, li.emoji"
+const listItemColumns = "li.id, li.name, li.brand, li.department, li.quantity, li.size, li.notes, li.source, li.checked, li.urgent, li.created_at, COALESCE(u.name,''), COALESCE(u.phone,''), li.claimed_by, COALESCE(cu.name,''), li.swap_savings_cents, li.emoji"
 
 // listItemJoins is the shared FROM/JOIN clause for list_items queries.
 const listItemJoins = "list_items li JOIN users u ON u.id = li.user_id LEFT JOIN users cu ON cu.id = li.claimed_by"

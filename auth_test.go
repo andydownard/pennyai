@@ -116,8 +116,8 @@ func TestSendCode_Success(t *testing.T) {
 	var consentAt sql.NullString
 	var consentIP, consentUA string
 	err := server.db.QueryRow(
-		`SELECT sms_consent_at, sms_consent_ip, sms_consent_user_agent FROM users WHERE phone_number = ?`,
-		"+15551234567",
+		`SELECT sms_consent_at, sms_consent_ip, sms_consent_user_agent FROM users WHERE phone = ?`,
+		"5551234567",
 	).Scan(&consentAt, &consentIP, &consentUA)
 	if err != nil {
 		t.Fatalf("query consent record: %v", err)
@@ -373,9 +373,37 @@ func TestVerifyCode_CreatesUser(t *testing.T) {
 
 	// Verify a user row exists in the database
 	var count int
-	server.db.QueryRow("SELECT COUNT(*) FROM users WHERE phone_number = '5551234567'").Scan(&count)
+	server.db.QueryRow("SELECT COUNT(*) FROM users WHERE phone = '5551234567'").Scan(&count)
 	if count != 1 {
 		t.Errorf("Expected 1 user row, got %d", count)
+	}
+}
+
+// Regression: the shared timpager users table has column `phone`, not
+// `phone_number`. If any penny SQL queries a nonexistent `phone_number`
+// column on users, staging /verify breaks with "We couldn't set up your
+// account." Catch that column-drift in tests.
+func TestUsersSchema_HasPhoneNotPhoneNumber(t *testing.T) {
+	_, pgdb := openTestDB(t)
+
+	rows, err := pgdb.Query("SELECT name FROM pragma_table_info('users')")
+	if err != nil {
+		t.Fatalf("pragma_table_info: %v", err)
+	}
+	defer rows.Close()
+
+	cols := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err == nil {
+			cols[name] = true
+		}
+	}
+	if !cols["phone"] {
+		t.Error("users table must have `phone` column (matches timpager schema)")
+	}
+	if cols["phone_number"] {
+		t.Error("users table must NOT have `phone_number` column — production uses `phone`; the dual column masked staging /verify failures")
 	}
 }
 
@@ -391,7 +419,7 @@ func TestVerifyCode_SamePhoneTwiceDoesNotDuplicate(t *testing.T) {
 
 	// Should still be exactly one user row
 	var count int
-	server.db.QueryRow("SELECT COUNT(*) FROM users WHERE phone_number = '5551234567'").Scan(&count)
+	server.db.QueryRow("SELECT COUNT(*) FROM users WHERE phone = '5551234567'").Scan(&count)
 	if count != 1 {
 		t.Errorf("Expected 1 user row after two logins, got %d", count)
 	}
@@ -602,7 +630,7 @@ func TestFullLoginFlow(t *testing.T) {
 
 	// Step 4: Verify user exists in database
 	var count int
-	server.db.QueryRow("SELECT COUNT(*) FROM users WHERE phone_number = '5559876543'").Scan(&count)
+	server.db.QueryRow("SELECT COUNT(*) FROM users WHERE phone = '5559876543'").Scan(&count)
 	if count != 1 {
 		t.Errorf("Step 4: expected 1 user row, got %d", count)
 	}
@@ -715,7 +743,7 @@ func TestSessionStore_CleanExpired(t *testing.T) {
 	store := NewSessionStore(rawDB)
 
 	// Create user for FK
-	rawDB.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	rawDB.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
 
 	// Insert an already-expired session directly
 	rawDB.Exec("INSERT INTO sessions (token, user_id, phone, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
@@ -742,7 +770,7 @@ func TestSessionStore_ExpiredSessionNotReturned(t *testing.T) {
 	store := NewSessionStore(rawDB)
 
 	// Create user for FK
-	rawDB.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	rawDB.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
 
 	// Insert expired session
 	rawDB.Exec("INSERT INTO sessions (token, user_id, phone, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
@@ -1617,7 +1645,7 @@ func TestOnboarding_MeReturnsLoginCountAfterLogins(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
 
 	// Simulate a phone login which increments login_count
-	server.db.Exec("INSERT INTO users (id, phone_number, login_count) VALUES ('user-1', '5551234567', 0)")
+	server.db.Exec("INSERT INTO users (id, phone, login_count) VALUES ('user-1', '5551234567', 0)")
 	server.db.Exec("INSERT INTO auth_methods (user_id, provider, provider_id) VALUES ('user-1', 'phone', '5551234567')")
 
 	// Manually increment login_count as would happen during auth
@@ -1637,7 +1665,7 @@ func TestOnboarding_MeReturnsLoginCountAfterLogins(t *testing.T) {
 func TestOnboarding_MeReturnsName(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
-	server.db.Exec("INSERT INTO users (id, phone_number, name) VALUES ('user-1', '5551234567', 'Andy')")
+	server.db.Exec("INSERT INTO users (id, phone, name) VALUES ('user-1', '5551234567', 'Andy')")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
@@ -1661,7 +1689,7 @@ func TestOnboarding_OnboardingFlagsColumnExists(t *testing.T) {
 	}
 
 	// Insert a user and verify default
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-99', '5559999999')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-99', '5559999999')")
 	err = server.db.QueryRow("SELECT onboarding_flags FROM users WHERE id = 'user-99'").Scan(&flags)
 	if err != nil {
 		t.Fatalf("failed to read onboarding_flags: %v", err)
@@ -1674,7 +1702,7 @@ func TestOnboarding_OnboardingFlagsColumnExists(t *testing.T) {
 func TestOnboarding_NameSavedViaSettings(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
@@ -1975,11 +2003,11 @@ func TestAuthLink_PhoneHappyPath(t *testing.T) {
 		t.Errorf("auth_methods phone row count: got %d, want 1", count)
 	}
 
-	// Verify users.phone_number was updated
+	// Verify users.phone was updated
 	var phone sql.NullString
-	server.db.QueryRow("SELECT phone_number FROM users WHERE id = ?", emailUser.ID).Scan(&phone)
+	server.db.QueryRow("SELECT phone FROM users WHERE id = ?", emailUser.ID).Scan(&phone)
 	if !phone.Valid || phone.String != "5559876543" {
-		t.Errorf("users.phone_number: got %q, want '5559876543'", phone.String)
+		t.Errorf("users.phone: got %q, want '5559876543'", phone.String)
 	}
 }
 
@@ -2660,7 +2688,7 @@ func TestCleanExpired_RemovesExpiredSessions(t *testing.T) {
 
 	// Insert an expired session directly with SQLite datetime format
 	server.db.Exec(
-		"INSERT INTO sessions (token, user_id, phone_number, auth_method, created_at, expires_at) VALUES ('expired_token', ?, '5554470001', 'phone', datetime('now', '-2 days'), datetime('now', '-1 day'))",
+		"INSERT INTO sessions (token, user_id, phone, role, created_at, expires_at) VALUES ('expired_token', ?, '5554470001', 'user', datetime('now', '-2 days'), datetime('now', '-1 day'))",
 		userID,
 	)
 
@@ -2857,7 +2885,7 @@ func TestGoogleAuth_MergedAccount(t *testing.T) {
 	server.googleTokenInfoURL = tokenServer.URL
 
 	// Pre-create user with same email (via email/password)
-	server.db.Exec("INSERT INTO users (phone_number, email) VALUES ('', 'merged@example.com')")
+	server.db.Exec("INSERT INTO users (id, phone, email) VALUES ('merge-pre', '', 'merged@example.com')")
 
 	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
 		map[string]string{"credential": "merge-token"}, nil)

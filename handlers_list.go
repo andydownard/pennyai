@@ -447,7 +447,7 @@ func (s *Server) handleItemHistory(w http.ResponseWriter, r *http.Request, id in
 	}
 
 	rows, err := s.db.Query(
-		"SELECT m.action, m.detail, m.source, m.created_at, COALESCE(u.name, u.phone_number, '') FROM item_modifications m LEFT JOIN users u ON u.id = m.user_id WHERE m.item_id = ? ORDER BY m.created_at DESC",
+		"SELECT m.action, m.detail, m.source, m.created_at, COALESCE(u.name, u.phone, '') FROM item_modifications m LEFT JOIN users u ON u.id = m.user_id WHERE m.item_id = ? ORDER BY m.created_at DESC",
 		id,
 	)
 	if err != nil {

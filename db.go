@@ -126,7 +126,7 @@ func getDietaryBrandDefault(db dbExecer, category string, diets []string) (strin
 	args = append(args, category)
 	likes := make([]string, len(diets))
 	for i, diet := range diets {
-		likes[i] = "dp.diets LIKE ?"
+		likes[i] = "dp.diets ILIKE ?"
 		args = append(args, "%"+strings.ToLower(diet)+"%")
 	}
 
@@ -332,7 +332,7 @@ func upsertUser(db *PGDB, phone string) (User, error) {
 
 	newID := uuid.New().String()
 	_, err = tx.Exec(
-		"INSERT OR IGNORE INTO users (id, phone_number) VALUES (?, ?)",
+		"INSERT OR IGNORE INTO users (id, phone) VALUES (?, ?)",
 		newID, phone,
 	)
 	if err != nil {
@@ -343,7 +343,7 @@ func upsertUser(db *PGDB, phone string) (User, error) {
 	var householdID sql.NullInt64
 	var name, email sql.NullString
 	err = tx.QueryRow(
-		"SELECT id, phone_number, COALESCE(name,''), COALESCE(email,''), household_id, created_at FROM users WHERE phone_number = ?",
+		"SELECT id, COALESCE(phone,''), COALESCE(name,''), COALESCE(email,''), household_id, created_at FROM users WHERE phone = ?",
 		phone,
 	).Scan(&user.ID, &user.PhoneNumber, &name, &email, &householdID, &user.CreatedAt)
 	if err != nil {
@@ -587,7 +587,7 @@ func mergeUserData(tx dbExecer, survivingID, orphanedID string) map[string]strin
 	actions["household"] = hhAction
 
 	// 11. Soft-delete the orphaned user
-	tx.Exec("UPDATE users SET email = '', phone_number = NULL, name = ? WHERE id = ?",
+	tx.Exec("UPDATE users SET email = '', phone = NULL, name = ? WHERE id = ?",
 		fmt.Sprintf("[merged into user %s]", survivingID), orphanedID)
 	actions["orphaned_user"] = fmt.Sprintf("user %s soft-deleted", orphanedID)
 
@@ -617,7 +617,7 @@ func resolveOrCreateUser(db *PGDB, provider, providerID, email, name string) (Us
 		var householdID sql.NullInt64
 		var uName, uEmail, uPhone sql.NullString
 		err = tx.QueryRow(
-			"SELECT id, phone_number, COALESCE(name,''), COALESCE(email,''), household_id, created_at FROM users WHERE id = ?",
+			"SELECT id, COALESCE(phone,''), COALESCE(name,''), COALESCE(email,''), household_id, created_at FROM users WHERE id = ?",
 			userID,
 		).Scan(&user.ID, &uPhone, &uName, &uEmail, &householdID, &user.CreatedAt)
 		if err != nil {
@@ -697,7 +697,7 @@ func resolveOrCreateUser(db *PGDB, provider, providerID, email, name string) (Us
 			var householdID sql.NullInt64
 			var uName, uEmail, uPhone sql.NullString
 			err = tx.QueryRow(
-				"SELECT id, phone_number, COALESCE(name,''), COALESCE(email,''), household_id, created_at FROM users WHERE id = ?",
+				"SELECT id, COALESCE(phone,''), COALESCE(name,''), COALESCE(email,''), household_id, created_at FROM users WHERE id = ?",
 				existingID,
 			).Scan(&user.ID, &uPhone, &uName, &uEmail, &householdID, &user.CreatedAt)
 			if err != nil {
@@ -724,7 +724,7 @@ func resolveOrCreateUser(db *PGDB, provider, providerID, email, name string) (Us
 	// 3. Create new user
 	newID := uuid.New().String()
 	_, err = tx.Exec(
-		"INSERT INTO users (id, phone_number, name, email) VALUES (?, NULL, ?, ?)",
+		"INSERT INTO users (id, phone, name, email) VALUES (?, NULL, ?, ?)",
 		newID, name, email,
 	)
 	if err != nil {

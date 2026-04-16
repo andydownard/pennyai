@@ -185,7 +185,7 @@ func TestAdminDashboard_ActiveUsersCount(t *testing.T) {
 	upsertUser(server.db, "5552222222")
 
 	// Create a user without last_active (simulating old user)
-	server.db.Exec("INSERT OR IGNORE INTO users (phone_number) VALUES ('5553333333')")
+	server.db.Exec("INSERT OR IGNORE INTO users (phone) VALUES ('5553333333')")
 
 	rr := doRequest(server.handleAdminDashboard, "GET", "/api/admin/dashboard?days=30", nil, []*http.Cookie{cookie})
 	body := parseJSON(rr)
@@ -244,7 +244,7 @@ func TestAdminDashboard_IncludesSwapStats(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '3104861833')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '3104861833')")
 	token, _ := server.sessions.CreateSession("user-1", "3104861833", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
@@ -271,7 +271,7 @@ func TestAdminDashboard_IncludesRebateStats(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '3104861833')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '3104861833')")
 	token, _ := server.sessions.CreateSession("user-1", "3104861833", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
@@ -630,7 +630,7 @@ func TestProcessChurnSignals(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	// Create user with old session (inactive)
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-100', '+15551234567')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-100', '+15551234567')")
 	server.db.Exec("INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES ('tok1', 'user-100', datetime('now', '-20 days'), datetime('now', '+10 days'))")
 
 	server.processChurnSignals()
@@ -650,12 +650,12 @@ func TestProcessChurnSignals(t *testing.T) {
 func TestProcessUserCohorts(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
-	server.db.Exec("INSERT INTO users (id, phone_number, created_at) VALUES (100, '+15551234567', '2026-03-01 10:00:00')")
+	server.db.Exec("INSERT INTO users (id, phone, created_at) VALUES ('user-100', '+15551234567', '2026-03-01 10:00:00')")
 
 	server.processUserCohorts()
 
 	var cohortWeek string
-	err := server.db.QueryRow("SELECT cohort_week FROM user_cohorts WHERE user_id = 100").Scan(&cohortWeek)
+	err := server.db.QueryRow("SELECT cohort_week FROM user_cohorts WHERE user_id = 'user-100'").Scan(&cohortWeek)
 	if err != nil {
 		t.Fatalf("Expected cohort entry, got error: %v", err)
 	}
@@ -692,8 +692,8 @@ func TestProcessMarketplaceHealth(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	// Seed some deals and sessions to produce non-zero scores
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-100', '+15551234567')")
-	server.db.Exec("INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES ('tok1', 100, datetime('now'), datetime('now', '+30 days'))")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-100', '+15551234567')")
+	server.db.Exec("INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES ('tok1', 'user-100', datetime('now'), datetime('now', '+30 days'))")
 	server.db.Exec(`INSERT INTO brand_deals (competitor_item, offer_brand, offer_product, discount_cents, budget_cents, status,
 		offer_price_cents, competitor_price_cents, offer_size, competitor_size, offer_unit_price, competitor_unit_price, unit_label, why_bullets)
 		VALUES ('test', 'TestBrand', 'TestProduct', 50, 500, 'active', 100, 150, '1 lb', '1 lb', '$1/lb', '$1.50/lb', 'lb', '[]')`)
@@ -799,9 +799,9 @@ func TestProcessSegmentAnalysis(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 
 	// Create users with different price sensitivities
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-100', '+15551000001')")
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-101', '+15551000002')")
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-102', '+15551000003')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-100', '+15551000001')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-101', '+15551000002')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-102', '+15551000003')")
 
 	// Set price_sensitivity learnings
 	server.updateLearning("user", "user-100", "price_sensitivity", "high", 0.8)
@@ -1355,7 +1355,7 @@ func TestProcessCategoryAlerts_DetectsRisingStar(t *testing.T) {
 
 func TestGetUserActiveStoreID_NoTrips(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
 
 	storeID := server.getUserActiveStoreID("user-1")
 	if storeID != 0 {
@@ -1365,7 +1365,7 @@ func TestGetUserActiveStoreID_NoTrips(t *testing.T) {
 
 func TestStoreSubroute_InvalidPath(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 

@@ -195,7 +195,7 @@ func (s *Server) checkDealsForItems(userID string, addedItems []ListItem) *Pendi
 				// Verified identity required
 				if deal.RequireVerifiedIdentity == 1 {
 					var phoneNumber string
-					s.db.QueryRow("SELECT COALESCE(phone_number,'') FROM users WHERE id = ?", userID).Scan(&phoneNumber)
+					s.db.QueryRow("SELECT COALESCE(phone,'') FROM users WHERE id = ?", userID).Scan(&phoneNumber)
 					if phoneNumber == "" {
 						continue
 					}

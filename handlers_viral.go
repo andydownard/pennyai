@@ -191,7 +191,7 @@ func (s *Server) handleMilestoneCheck(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		// Insert if not exists (reached but never recorded)
-		s.db.Exec(`INSERT OR IGNORE INTO savings_milestones (user_id, cents) VALUES (?, ?)`,
+		s.db.Exec(`INSERT INTO savings_milestones (user_id, cents) VALUES (?, ?) ON CONFLICT (user_id, cents) DO NOTHING`,
 			session.UserID, threshold)
 
 		// Check if unacked
@@ -257,7 +257,7 @@ func (s *Server) handleMilestoneAck(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Ensure the milestone record exists and mark acked
-	s.db.Exec(`INSERT OR IGNORE INTO savings_milestones (user_id, cents) VALUES (?, ?)`,
+	s.db.Exec(`INSERT INTO savings_milestones (user_id, cents) VALUES (?, ?) ON CONFLICT (user_id, cents) DO NOTHING`,
 		session.UserID, body.Cents)
 	s.db.Exec(`UPDATE savings_milestones SET acked_at = datetime('now') WHERE user_id = ? AND cents = ?`,
 		session.UserID, body.Cents)

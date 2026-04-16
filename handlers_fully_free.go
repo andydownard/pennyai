@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -223,12 +224,16 @@ func (s *Server) handleFullyFreeRebates(w http.ResponseWriter, r *http.Request) 
 	rebates := []fullyFreeRebate{}
 	for rows.Next() {
 		var r fullyFreeRebate
+		var verifiedAt sql.NullString
 		if err := rows.Scan(&r.ID, &r.AmountCents, &r.Status, &r.CreatedAt,
-			&r.VerifiedAmountCents, &r.VerifiedAt,
+			&r.VerifiedAmountCents, &verifiedAt,
 			&r.OfferBrand, &r.OfferProduct, &r.UPC,
 			&r.ReceiptGraceDays, &r.MaxRebateCents); err != nil {
 			log.Printf("[fully_free] scan error: %v", err)
 			continue
+		}
+		if verifiedAt.Valid {
+			r.VerifiedAt = verifiedAt.String
 		}
 		rebates = append(rebates, r)
 	}

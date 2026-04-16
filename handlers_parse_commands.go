@@ -359,7 +359,7 @@ func (s *Server) buildSlowPathResponse(session Session, text string, hhIDs []str
 				s.db.Exec("UPDATE brand_preferences SET streak = 3 WHERE user_id = ? AND product_category = ?",
 					session.UserID, category)
 				updateArgs := append(append([]interface{}{item.Brand}, whereArgs...), "%"+category+"%")
-				s.db.Exec("UPDATE list_items SET brand = ? WHERE "+whereClause+" AND checked = 0 AND LOWER(name) LIKE ?",
+				s.db.Exec("UPDATE list_items SET brand = ? WHERE "+whereClause+" AND checked = 0 AND name ILIKE ?",
 					updateArgs...)
 			}
 		}

@@ -90,7 +90,7 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := db.Query(`
-		SELECT COALESCE(u.phone_number,''), COALESCE(u.name,''), COALESCE(u.referral_points,0), COUNT(r.id) as ref_count
+		SELECT COALESCE(u.phone,''), COALESCE(u.name,''), COALESCE(u.referral_points,0), COUNT(r.id) as ref_count
 		FROM users u
 		JOIN referrals r ON r.referrer_id = u.id
 		GROUP BY u.id
@@ -139,7 +139,7 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	npsRows, err := db.Query(`
-		SELECT n.score, n.comment, COALESCE(u.name,''), COALESCE(u.phone_number,''), n.created_at
+		SELECT n.score, n.comment, COALESCE(u.name,''), COALESCE(u.phone,''), n.created_at
 		FROM nps_responses n
 		JOIN users u ON u.id = n.user_id
 		WHERE n.created_at >= datetime('now', ?)
@@ -553,7 +553,7 @@ func (s *Server) handleAdminPayouts(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		rows, err := s.db.Query(`
-			SELECT u.id, COALESCE(u.name,''), COALESCE(u.email,''), COALESCE(u.phone_number,''),
+			SELECT u.id, COALESCE(u.name,''), COALESCE(u.email,''), COALESCE(u.phone,''),
 			       SUM(sr.amount_cents) as total_cents, COUNT(sr.id) as swap_count,
 			       MIN(sr.created_at) as oldest
 			FROM swap_rebates sr

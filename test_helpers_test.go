@@ -88,12 +88,13 @@ func (m *MockTwilioClient) GetLastSMS() (string, string) {
 func initTestDB(db *sql.DB) error {
 	db.Exec("PRAGMA foreign_keys = ON")
 
-	// Users table (in production, timpager creates this)
+	// Users table (in production, timpager creates this).
+	// Column set mirrors timpager/lib/schema-postgres.js so tests catch any
+	// drift between penny's SQL and the real shared schema.
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
 			id          TEXT PRIMARY KEY,
-			phone_number TEXT UNIQUE,
-			phone       TEXT DEFAULT '',
+			phone       TEXT UNIQUE,
 			email       TEXT DEFAULT '',
 			display_name TEXT DEFAULT '',
 			name        TEXT DEFAULT '',
@@ -131,14 +132,13 @@ func initTestDB(db *sql.DB) error {
 		return fmt.Errorf("creating users table: %w", err)
 	}
 
-	// Sessions table (in production, timpager creates this)
+	// Sessions table (in production, timpager creates this).
+	// Mirrors timpager/lib/schema-postgres.js — penny reads `role` as auth_method.
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS sessions (
 			token      TEXT PRIMARY KEY,
 			phone      TEXT DEFAULT '',
-			phone_number TEXT DEFAULT '',
 			user_id    TEXT,
-			auth_method TEXT NOT NULL DEFAULT 'phone',
 			role       TEXT NOT NULL DEFAULT 'user',
 			created_at DATETIME NOT NULL,
 			last_used  DATETIME,
@@ -1179,6 +1179,7 @@ func seedTestBrands(db *sql.DB) {
 }
 
 // seedTestDeals inserts seed deals matching production seedDeals.
+// Mirrors the rich price metadata in schema.go so swap tests have expected values.
 func seedTestDeals(db *sql.DB) {
 	var count int
 	db.QueryRow("SELECT COUNT(*) FROM brand_deals").Scan(&count)
@@ -1188,24 +1189,56 @@ func seedTestDeals(db *sql.DB) {
 	deals := []struct {
 		competitor, offerBrand, offerProduct string
 		discountCents, budgetCents           int
+		offerPriceCents, competitorPriceCents int
+		offerSize, competitorSize             string
+		offerUnitPrice, competitorUnitPrice   string
+		whyBullets, allergenNotes             string
 	}{
-		{"skippy", "Jif", "Creamy Peanut Butter", 125, 400},
-		{"lacroix", "Waterloo", "Sparkling Water Variety Pack", 50, 400},
-		{"tide", "All Free Clear", "Liquid Laundry Detergent", 100, 400},
-		{"ragu", "Rao's", "Marinara Sauce", 50, 400},
-		{"archer", "Chomps", "Beef Sticks", 75, 400},
+		{
+			"skippy", "Jif", "Creamy Peanut Butter", 125, 400,
+			348, 473, "16 oz", "16.3 oz", "$0.22/oz", "$0.29/oz",
+			`["No palm oil","4.6★ avg rating","24% less per ounce"]`, "",
+		},
+		{
+			"lacroix", "Waterloo", "Sparkling Water Variety Pack", 50, 400,
+			498, 548, "12-pack", "12-pack", "$0.42/can", "$0.46/can",
+			`["Bolder natural flavors","4.5★ avg rating","No artificial sweeteners"]`, "",
+		},
+		{
+			"tide", "All Free Clear", "Liquid Laundry Detergent", 100, 400,
+			897, 1197, "88 oz", "92 oz", "$0.10/oz", "$0.13/oz",
+			`["Hypoallergenic","Dermatologist recommended","23% less per load"]`,
+			"Free of dyes and perfumes.",
+		},
+		{
+			"ragu", "Rao's", "Marinara Sauce", 50, 400,
+			498, 548, "24 oz", "24 oz", "$0.21/oz", "$0.23/oz",
+			`["All-natural ingredients","No added sugar","Slow-simmered recipe"]`, "",
+		},
+		{
+			"archer", "Chomps", "Beef Sticks", 75, 400,
+			199, 274, "1.15 oz", "1 oz", "$1.73/oz", "$2.74/oz",
+			`["100% grass-fed beef","Whole30 approved","37% less per ounce"]`,
+			"Contains: beef. Free of top 8 allergens.",
+		},
 	}
 	for _, d := range deals {
-		db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status)
-			VALUES (?, ?, ?, ?, ?, 'active')`, d.competitor, d.offerBrand, d.offerProduct, d.discountCents, d.budgetCents)
+		db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product,
+			discount_cents, total_budget_cents, status,
+			offer_price_cents, competitor_price_cents, offer_size, competitor_size,
+			offer_unit_price, competitor_unit_price, why_bullets, allergen_notes)
+			VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)`,
+			d.competitor, d.offerBrand, d.offerProduct, d.discountCents, d.budgetCents,
+			d.offerPriceCents, d.competitorPriceCents, d.offerSize, d.competitorSize,
+			d.offerUnitPrice, d.competitorUnitPrice, d.whyBullets, d.allergenNotes)
 	}
 	// New type deals
 	db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status, deal_type, quantity_offered)
 		VALUES ('cheerios', 'Magic Spoon', 'Cereal', 150, 400, 'active', 'bogo', 2)`)
 	db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status, deal_type, trial_product_name, trial_size)
 		VALUES ('folgers', 'Counter Culture', 'Coffee Sample', 100, 400, 'active', 'trial', 'Counter Culture Coffee Sample', '2 oz')`)
-	db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status, deal_type, campaign_tag)
-		VALUES ('oreo', 'Partake', 'Holiday Cookie Box', 200, 400, 'active', 'seasonal', 'holiday_2026')`)
+	db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status, deal_type, campaign_tag, ends_at)
+		VALUES ('oreo', 'Partake', 'Holiday Cookie Box', 200, 400, 'active', 'seasonal', 'holiday_2026', datetime('now', '+30 days'))`)
 }
 
 // seedTestCategories inserts a minimal set of categories for tests.
@@ -1394,7 +1427,7 @@ func newTestSessionStore(t *testing.T) *SessionStore {
 	t.Helper()
 	rawDB, _ := openTestDB(t)
 	// Create users so FK constraints are satisfied
-	rawDB.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567'), ('user-2', '5552222222')")
+	rawDB.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567'), ('user-2', '5552222222')")
 	return NewSessionStore(rawDB)
 }
 

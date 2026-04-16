@@ -864,7 +864,7 @@ func (s *Server) handleChurnRisk(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := s.db.Query(`
-		SELECT cs.user_id, COALESCE(u.name, ''), COALESCE(u.phone_number, ''), COALESCE(u.email, ''),
+		SELECT cs.user_id, COALESCE(u.name, ''), COALESCE(u.phone, ''), COALESCE(u.email, ''),
 			cs.signal_type, cs.signal_value, cs.risk_score, cs.computed_at
 		FROM churn_signals cs
 		JOIN users u ON u.id = cs.user_id

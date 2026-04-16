@@ -21,14 +21,14 @@ func TestReceipt_ProcessAndCheckOff(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
 	// Add items to list
-	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (1, 1, 'Whole Milk', 'Dairy & Eggs')")
-	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (2, 1, 'Eggs', 'Dairy & Eggs')")
-	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (3, 1, 'Bread', 'Bakery & Deli')")
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (1, 'user-1', 'Whole Milk', 'Dairy & Eggs')")
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (2, 'user-1', 'Eggs', 'Dairy & Eggs')")
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (3, 'user-1', 'Bread', 'Bakery & Deli')")
 
 	// Mock receipt parser to return matched items
 	server.parseReceipt = func(apiKey string, images []string, currentItems []ListItem) ([]string, error) {
@@ -64,7 +64,7 @@ func TestReceipt_ProcessAndCheckOff(t *testing.T) {
 
 	// Verify receipt record created
 	var receiptCount int
-	server.db.QueryRow("SELECT COUNT(*) FROM receipts WHERE user_id = 1").Scan(&receiptCount)
+	server.db.QueryRow("SELECT COUNT(*) FROM receipts WHERE user_id = 'user-1'").Scan(&receiptCount)
 	if receiptCount != 1 {
 		t.Errorf("expected 1 receipt record, got %d", receiptCount)
 	}
@@ -74,11 +74,11 @@ func TestReceipt_DuplicateDedup(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
-	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (1, 1, 'Milk', 'Dairy & Eggs')")
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (1, 'user-1', 'Milk', 'Dairy & Eggs')")
 
 	server.parseReceipt = func(apiKey string, images []string, currentItems []ListItem) ([]string, error) {
 		return []string{"Milk"}, nil
@@ -724,11 +724,11 @@ func TestReceipt_ForgeryDetected_ReturnsRejection(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
 
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
-	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (1, 1, 'Milk', 'Dairy & Eggs')")
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (1, 'user-1', 'Milk', 'Dairy & Eggs')")
 
 	// Mock receipt parser to return forgery error
 	server.parseReceipt = func(apiKey string, images []string, currentItems []ListItem) ([]string, error) {

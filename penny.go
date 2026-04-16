@@ -174,13 +174,23 @@ var allowedDepartments = map[string]bool{
 }
 
 // isValidEmoji checks if a string is a single emoji or empty.
+// Rejects plain ASCII/alphabetic text.
 func isValidEmoji(s string) bool {
 	if s == "" {
 		return true
 	}
-	// Allow 1-8 runes (some emoji are multi-rune like flags, skin tones, ZWJ sequences)
 	count := utf8.RuneCountInString(s)
-	return count >= 1 && count <= 8 && len(s) <= 32
+	if count < 1 || count > 8 || len(s) > 32 {
+		return false
+	}
+	// Must contain at least one non-ASCII rune (emoji codepoints are outside the ASCII range).
+	// ZWJ, variation selectors, and skin-tone modifiers are all non-ASCII.
+	for _, r := range s {
+		if r > 0x7F {
+			return true
+		}
+	}
+	return false
 }
 
 // sanitizeParsedItems validates and sanitizes a slice of parsed items from AI output.

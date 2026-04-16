@@ -512,7 +512,7 @@ func (s *Server) handleCategoryIntel(w http.ResponseWriter, r *http.Request) {
 			   COUNT(CASE WHEN se.action = 'offered' THEN 1 END) as offered
 		FROM brand_deals bd
 		LEFT JOIN swap_events se ON se.deal_id = bd.id
-		WHERE LOWER(bd.competitor_product) LIKE ? AND bd.status != 'deleted'
+		WHERE bd.competitor_product ILIKE ? AND bd.status != 'deleted'
 		GROUP BY bd.id
 		ORDER BY accepted DESC`, "%"+strings.ToLower(category)+"%")
 	if err != nil {

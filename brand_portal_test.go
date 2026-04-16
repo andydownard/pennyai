@@ -323,7 +323,7 @@ func TestBrandPortal_DashboardDaysFilter(t *testing.T) {
 	server.db.QueryRow("SELECT id FROM brand_deals WHERE brand_user_id = ?", brandUserID).Scan(&dealID)
 
 	// Insert swap events: 1 recent (today) and 1 old (60 days ago)
-	server.db.Exec("INSERT INTO users (id, phone_number) VALUES ('user-999', '5559999999')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-999', '5559999999')")
 	server.db.Exec("INSERT INTO list_items (id, user_id, name) VALUES (999, 'user-999', 'Test Item')")
 	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action, created_at)
 		VALUES ('user-999', ?, 999, 'offered', datetime('now'))`, dealID)
@@ -1421,7 +1421,7 @@ func TestCompetitiveIntel_ReturnsData(t *testing.T) {
 	server.db.QueryRow("SELECT id FROM brand_deals WHERE brand_user_id = 99999 ORDER BY id DESC LIMIT 1").Scan(&competitorDealID)
 
 	// Create a test user so swap_events have valid user_id
-	server.db.Exec("INSERT OR IGNORE INTO users (id, name) VALUES (1, 'TestUser')")
+	server.db.Exec("INSERT OR IGNORE INTO users (id, name) VALUES ('user-1', 'TestUser')")
 
 	// Insert swap events for our deal: 10 offered, 4 accepted
 	for i := 0; i < 10; i++ {
@@ -1603,10 +1603,10 @@ func TestCategoryReport_PremiumTier(t *testing.T) {
 		VALUES ('Competitor Yogurt', 'TestBrand', 'TestBrand Yogurt', 200, 5000, ?, 'active')`, catID)
 
 	// Create some swap events
-	server.db.Exec(`INSERT INTO users (id, phone_number) VALUES ('user-9990', '+15559990000')`)
-	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, action, decline_reason, time_to_action_ms) VALUES (9990, ?, 'accepted', '', 2500)`, dealID1)
-	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, action, decline_reason, time_to_action_ms) VALUES (9990, ?, 'declined', 'price', 4000)`, dealID1)
-	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, action, decline_reason, time_to_action_ms) VALUES (9990, ?, 'declined', 'brand_loyal', 3500)`, dealID1)
+	server.db.Exec(`INSERT INTO users (id, phone) VALUES ('user-9990', '+15559990000')`)
+	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, action, decline_reason, time_to_action_ms) VALUES ('user-9990', ?, 'accepted', '', 2500)`, dealID1)
+	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, action, decline_reason, time_to_action_ms) VALUES ('user-9990', ?, 'declined', 'price', 4000)`, dealID1)
+	server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, action, decline_reason, time_to_action_ms) VALUES ('user-9990', ?, 'declined', 'brand_loyal', 3500)`, dealID1)
 
 	rr := doRequest(server.handleCategoryReport, "GET", "/brand/category-report/Dairy", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusOK {
@@ -2375,7 +2375,7 @@ func TestResolveBrandAlternatives_GlobalDefaults(t *testing.T) {
 	// Seed global brand choices for "ketchup" from multiple users
 	for i := 0; i < 5; i++ {
 		otherUserID := 1000 + i
-		server.db.Exec("INSERT OR IGNORE INTO users (id, phone_number) VALUES (?, ?)", otherUserID, fmt.Sprintf("555000%04d", i))
+		server.db.Exec("INSERT OR IGNORE INTO users (id, phone) VALUES (?, ?)", otherUserID, fmt.Sprintf("555000%04d", i))
 		server.db.Exec(
 			"INSERT INTO brand_choices (user_id, product_category, brand, source) VALUES (?, ?, ?, ?)",
 			otherUserID, "ketchup", "Heinz", "manual",

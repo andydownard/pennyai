@@ -42,7 +42,7 @@ func (s *Server) isFeedbackUser(session Session) bool {
 	}
 	// Also check the users table — session may not have phone if logged in via Google/email
 	var userPhone sql.NullString
-	if err := s.db.QueryRow("SELECT phone_number FROM users WHERE id = ?", session.UserID).Scan(&userPhone); err == nil && userPhone.Valid && userPhone.String != "" {
+	if err := s.db.QueryRow("SELECT phone FROM users WHERE id = ?", session.UserID).Scan(&userPhone); err == nil && userPhone.Valid && userPhone.String != "" {
 		phones = append(phones, userPhone.String)
 	}
 
@@ -384,7 +384,7 @@ func (s *Server) handleAdminFeedback(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 		SELECT f.id, f.user_id, f.body, f.type, f.urgency, f.status, f.admin_notes, f.github_issue_url, f.created_at, COALESCE(f.updated_at, ''),
-			COALESCE(u.name, ''), COALESCE(u.phone_number, '')
+			COALESCE(u.name, ''), COALESCE(u.phone, '')
 		FROM feedback_requests f
 		LEFT JOIN users u ON u.id = f.user_id
 		WHERE 1=1

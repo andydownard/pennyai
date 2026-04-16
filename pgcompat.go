@@ -39,9 +39,16 @@ func WrapPG(db *sql.DB) *PGDB {
 	return &PGDB{DB: db}
 }
 
+// sqliteCompat rewrites Postgres-only syntax to SQLite-compatible equivalents
+// when running under skipConversion (in-memory SQLite tests). SQLite's LIKE is
+// case-insensitive by default, matching Postgres ILIKE semantics.
+func sqliteCompat(query string) string {
+	return strings.ReplaceAll(query, "ILIKE", "LIKE")
+}
+
 func (db *PGDB) Exec(query string, args ...interface{}) (sql.Result, error) {
 	if db.skipConversion {
-		return db.DB.Exec(query, args...)
+		return db.DB.Exec(sqliteCompat(query), args...)
 	}
 	converted := convertSQL(query)
 	return pgExecWithReturning(db.DB, converted, args...)
@@ -49,14 +56,14 @@ func (db *PGDB) Exec(query string, args ...interface{}) (sql.Result, error) {
 
 func (db *PGDB) Query(query string, args ...interface{}) (*sql.Rows, error) {
 	if db.skipConversion {
-		return db.DB.Query(query, args...)
+		return db.DB.Query(sqliteCompat(query), args...)
 	}
 	return db.DB.Query(convertSQL(query), args...)
 }
 
 func (db *PGDB) QueryRow(query string, args ...interface{}) *sql.Row {
 	if db.skipConversion {
-		return db.DB.QueryRow(query, args...)
+		return db.DB.QueryRow(sqliteCompat(query), args...)
 	}
 	return db.DB.QueryRow(convertSQL(query), args...)
 }
@@ -77,7 +84,7 @@ type PGTx struct {
 
 func (tx *PGTx) Exec(query string, args ...interface{}) (sql.Result, error) {
 	if tx.skipConversion {
-		return tx.Tx.Exec(query, args...)
+		return tx.Tx.Exec(sqliteCompat(query), args...)
 	}
 	converted := convertSQL(query)
 	return pgExecWithReturning(tx.Tx, converted, args...)
@@ -85,14 +92,14 @@ func (tx *PGTx) Exec(query string, args ...interface{}) (sql.Result, error) {
 
 func (tx *PGTx) Query(query string, args ...interface{}) (*sql.Rows, error) {
 	if tx.skipConversion {
-		return tx.Tx.Query(query, args...)
+		return tx.Tx.Query(sqliteCompat(query), args...)
 	}
 	return tx.Tx.Query(convertSQL(query), args...)
 }
 
 func (tx *PGTx) QueryRow(query string, args ...interface{}) *sql.Row {
 	if tx.skipConversion {
-		return tx.Tx.QueryRow(query, args...)
+		return tx.Tx.QueryRow(sqliteCompat(query), args...)
 	}
 	return tx.Tx.QueryRow(convertSQL(query), args...)
 }
@@ -122,9 +129,15 @@ func convertSQL(query string) string {
 	// INSERT OR IGNORE INTO → INSERT INTO ... ON CONFLICT DO NOTHING
 	q = convertInsertOrIgnore(q)
 
-	// INSERT OR REPLACE INTO → INSERT INTO ... ON CONFLICT DO UPDATE
-	// (handled at statement level where needed — wrapper adds basic support)
-	q = strings.ReplaceAll(q, "INSERT OR REPLACE INTO", "INSERT INTO")
+	// INSERT OR REPLACE INTO → panic loudly. Silently stripping the OR REPLACE
+	// qualifier would turn an upsert into a plain INSERT that crashes on
+	// duplicate-key. A real conversion requires per-table ON CONFLICT knowledge
+	// the wrapper doesn't have. No active callers as of 2026-04-16; if one is
+	// added, the panic fires at first use instead of in production. Rewrite the
+	// caller to use explicit ON CONFLICT (...) DO UPDATE SET ... instead.
+	if strings.Contains(strings.ToUpper(q), "INSERT OR REPLACE INTO") {
+		panic("pgcompat: INSERT OR REPLACE INTO is not supported; rewrite to explicit ON CONFLICT (...) DO UPDATE SET ... — offending query: " + q)
+	}
 
 	// IFNULL → COALESCE
 	q = strings.ReplaceAll(q, "IFNULL(", "COALESCE(")
@@ -238,6 +251,7 @@ func convertDatetimeIntervals(q string) string {
 }
 
 // convertInsertOrIgnore converts INSERT OR IGNORE INTO → INSERT INTO ... ON CONFLICT DO NOTHING
+// Handles both INSERT ... VALUES (...) and INSERT ... SELECT ... forms.
 func convertInsertOrIgnore(q string) string {
 	upper := strings.ToUpper(q)
 	idx := strings.Index(upper, "INSERT OR IGNORE INTO")
@@ -247,34 +261,37 @@ func convertInsertOrIgnore(q string) string {
 	// Replace the INSERT OR IGNORE INTO with INSERT INTO
 	result := q[:idx] + "INSERT INTO" + q[idx+len("INSERT OR IGNORE INTO"):]
 
-	// We need to add ON CONFLICT DO NOTHING before any RETURNING clause or at the end
-	// Find the end of the VALUES clause
 	upperResult := strings.ToUpper(result)
-	// Look for the end of the statement (before any ; or end of string)
-	// Insert ON CONFLICT DO NOTHING at the right place
-	// Simple approach: append at end if not already there
-	if !strings.Contains(upperResult, "ON CONFLICT") {
-		// Find the closing paren of VALUES(...)
-		valIdx := strings.Index(upperResult, "VALUES")
-		if valIdx != -1 {
-			// Find the last closing paren
-			depth := 0
-			endIdx := -1
-			for i := valIdx; i < len(result); i++ {
-				if result[i] == '(' {
-					depth++
-				} else if result[i] == ')' {
-					depth--
-					if depth == 0 {
-						endIdx = i + 1
-						break
-					}
-				}
-			}
-			if endIdx != -1 {
-				result = result[:endIdx] + " ON CONFLICT DO NOTHING" + result[endIdx:]
-			}
+	if strings.Contains(upperResult, "ON CONFLICT") {
+		return result
+	}
+
+	// Find insertion point: before RETURNING if present, before trailing ;, or at end.
+	insertAt := len(result)
+	// Strip trailing whitespace for stable placement
+	for insertAt > 0 && (result[insertAt-1] == ' ' || result[insertAt-1] == '\n' || result[insertAt-1] == '\t') {
+		insertAt--
+	}
+	// Strip trailing semicolon — we'll re-add it after ON CONFLICT
+	hadSemi := false
+	if insertAt > 0 && result[insertAt-1] == ';' {
+		hadSemi = true
+		insertAt--
+		for insertAt > 0 && (result[insertAt-1] == ' ' || result[insertAt-1] == '\n' || result[insertAt-1] == '\t') {
+			insertAt--
 		}
+	}
+	if retIdx := strings.LastIndex(upperResult[:insertAt], "RETURNING"); retIdx != -1 {
+		insertAt = retIdx
+		for insertAt > 0 && (result[insertAt-1] == ' ' || result[insertAt-1] == '\n' || result[insertAt-1] == '\t') {
+			insertAt--
+		}
+	}
+	conflict := " ON CONFLICT DO NOTHING"
+	if hadSemi {
+		result = result[:insertAt] + conflict + " " + result[insertAt:]
+	} else {
+		result = result[:insertAt] + conflict + result[insertAt:]
 	}
 	return result
 }

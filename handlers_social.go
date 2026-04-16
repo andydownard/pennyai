@@ -299,7 +299,7 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 	if s.config.TwilioPhoneNumber != "" {
 		var inviterPhone sql.NullString
 		var inviterName string
-		s.db.QueryRow("SELECT COALESCE(u.phone_number,''), COALESCE(u.name,'') FROM users u WHERE u.id = ?", createdBy).Scan(&inviterPhone, &inviterName)
+		s.db.QueryRow("SELECT COALESCE(u.phone,''), COALESCE(u.name,'') FROM users u WHERE u.id = ?", createdBy).Scan(&inviterPhone, &inviterName)
 		var joinerName string
 		s.db.QueryRow("SELECT COALESCE(name,'') FROM users WHERE id = ?", session.UserID).Scan(&joinerName)
 		if inviterPhone.Valid && inviterPhone.String != "" {

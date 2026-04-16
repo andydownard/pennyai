@@ -178,7 +178,7 @@ func (s *Server) handleSwapPredictions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type predRow struct {
-		UserID     int     `json:"user_id"`
+		UserID     string  `json:"user_id"`
 		CategoryID int     `json:"category_id"`
 		Brand      string  `json:"brand"`
 		Rate       float64 `json:"acceptance_rate"`

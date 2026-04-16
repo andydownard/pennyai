@@ -87,7 +87,7 @@ func (s *Server) handleStores(w http.ResponseWriter, r *http.Request) {
 		searchTerm := "%" + strings.ToLower(query) + "%"
 		rows, err = s.db.Query(
 			`SELECT id, name, chain, address, city, state, zip, place_id, latitude, longitude
-			 FROM stores WHERE LOWER(name) LIKE ? OR LOWER(chain) LIKE ? OR LOWER(address) LIKE ?
+			 FROM stores WHERE name ILIKE ? OR chain ILIKE ? OR address ILIKE ?
 			 ORDER BY name LIMIT ?`,
 			searchTerm, searchTerm, searchTerm, limit,
 		)
@@ -294,11 +294,11 @@ func (s *Server) handleStorePriceAverages(w http.ResponseWriter, r *http.Request
 	args = append(args, storeID)
 
 	if product != "" {
-		baseQuery += " AND LOWER(product_name) LIKE ?"
+		baseQuery += " AND product_name ILIKE ?"
 		args = append(args, "%"+strings.ToLower(product)+"%")
 	}
 	if brand != "" {
-		baseQuery += " AND LOWER(brand) LIKE ?"
+		baseQuery += " AND brand ILIKE ?"
 		args = append(args, "%"+strings.ToLower(brand)+"%")
 	}
 	queryStr = baseQuery + " GROUP BY product_name, brand ORDER BY obs DESC LIMIT 100"
@@ -360,11 +360,11 @@ func (s *Server) handlePriceComparison(w http.ResponseWriter, r *http.Request) {
 		COUNT(sp.id) as obs
 		FROM stores s
 		JOIN store_prices sp ON sp.store_id = s.id
-		WHERE LOWER(sp.product_name) LIKE ?`
+		WHERE sp.product_name ILIKE ?`
 	args := []interface{}{"%" + strings.ToLower(product) + "%"}
 
 	if brand != "" {
-		queryStr += " AND LOWER(sp.brand) LIKE ?"
+		queryStr += " AND sp.brand ILIKE ?"
 		args = append(args, "%"+strings.ToLower(brand)+"%")
 	}
 
@@ -485,7 +485,7 @@ func (s *Server) getStorePrice(storeID int, productName, brand string) (int, boo
 	var priceCents int
 	err := s.db.QueryRow(
 		`SELECT price_cents FROM store_prices
-		 WHERE store_id = ? AND LOWER(product_name) LIKE ? AND LOWER(brand) LIKE ?
+		 WHERE store_id = ? AND product_name ILIKE ? AND brand ILIKE ?
 		 ORDER BY observed_at DESC LIMIT 1`,
 		storeID, "%"+strings.ToLower(productName)+"%", "%"+strings.ToLower(brand)+"%",
 	).Scan(&priceCents)

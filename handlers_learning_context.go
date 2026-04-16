@@ -507,8 +507,9 @@ func (s *Server) processSwapPropagations() {
 	inserted := 0
 	for _, p := range props {
 		result, err := s.db.Exec(`
-			INSERT OR IGNORE INTO swap_propagations (deal_id, source_user_id, adopter_user_id, household_id, item_name, brand)
+			INSERT INTO swap_propagations (deal_id, source_user_id, adopter_user_id, household_id, item_name, brand)
 			VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT (deal_id, adopter_user_id) DO NOTHING
 		`, p.dealID, p.sourceUID, p.adopterUID, p.hhID, p.itemName, p.brand)
 		if err == nil {
 			if n, _ := result.RowsAffected(); n > 0 {

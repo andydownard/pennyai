@@ -362,7 +362,7 @@ func TestUpsertUser_SetsLastActive(t *testing.T) {
 	upsertUser(server.db, "5551234567")
 
 	var lastActive sql.NullString
-	server.db.QueryRow("SELECT last_active FROM users WHERE phone_number = '5551234567'").Scan(&lastActive)
+	server.db.QueryRow("SELECT last_active FROM users WHERE phone = '5551234567'").Scan(&lastActive)
 	if !lastActive.Valid {
 		t.Error("Expected last_active to be set after upsertUser")
 	}
@@ -375,13 +375,13 @@ func TestUpsertUser_UpdatesLastActive(t *testing.T) {
 	upsertUser(server.db, "5551234567")
 
 	var first sql.NullString
-	server.db.QueryRow("SELECT last_active FROM users WHERE phone_number = '5551234567'").Scan(&first)
+	server.db.QueryRow("SELECT last_active FROM users WHERE phone = '5551234567'").Scan(&first)
 
 	// Second login should update last_active
 	upsertUser(server.db, "5551234567")
 
 	var second sql.NullString
-	server.db.QueryRow("SELECT last_active FROM users WHERE phone_number = '5551234567'").Scan(&second)
+	server.db.QueryRow("SELECT last_active FROM users WHERE phone = '5551234567'").Scan(&second)
 
 	if !second.Valid {
 		t.Error("Expected last_active to be set on second login")
@@ -398,7 +398,7 @@ func TestInitDB_MigrationCascade(t *testing.T) {
 	_, pgdb := openTestDB(t)
 
 	// Create a user + item + modification
-	pgdb.Exec("INSERT INTO users (id, phone_number) VALUES ('user-1', '5551234567')")
+	pgdb.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
 	result, _ := pgdb.Exec("INSERT INTO list_items (user_id, name, department) VALUES ('user-1', 'Milk', 'Dairy')")
 	itemID, _ := result.LastInsertId()
 	pgdb.Exec("INSERT INTO item_modifications (item_id, user_id, action, detail, source) VALUES (?, 'user-1', 'added', '', 'app')", itemID)

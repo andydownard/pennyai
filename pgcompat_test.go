@@ -126,12 +126,23 @@ func TestConvertInsertOrIgnore(t *testing.T) {
 	}
 }
 
-func TestConvertInsertOrReplace(t *testing.T) {
-	got := convertSQL("INSERT OR REPLACE INTO brand_logos (brand_id, logo_data) VALUES (?, ?)")
-	expect := "INSERT INTO brand_logos (brand_id, logo_data) VALUES ($1, $2)"
-	if got != expect {
-		t.Errorf("convertSQL INSERT OR REPLACE\n  got:  %q\n  want: %q", got, expect)
-	}
+func TestConvertInsertOrReplace_PanicsLoudly(t *testing.T) {
+	// INSERT OR REPLACE was previously silently stripped to plain INSERT,
+	// which would have turned an upsert into a duplicate-key crash in prod
+	// on first use. There are no active callers as of 2026-04-16; if one is
+	// ever re-introduced we want a loud panic at first use, not a silent
+	// wrong behavior. Rewrite any such caller to explicit ON CONFLICT ... DO UPDATE.
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic on INSERT OR REPLACE, got none")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "INSERT OR REPLACE") {
+			t.Errorf("panic message should mention INSERT OR REPLACE, got: %v", r)
+		}
+	}()
+	convertSQL("INSERT OR REPLACE INTO brand_logos (brand_id, logo_data) VALUES (?, ?)")
 }
 
 func TestConvertIFNULL(t *testing.T) {

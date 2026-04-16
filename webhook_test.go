@@ -42,14 +42,14 @@ func TestSMSWebhook_TextOnly(t *testing.T) {
 
 	// Verify user was created
 	var count int
-	server.db.QueryRow("SELECT COUNT(*) FROM users WHERE phone_number = '5551234567'").Scan(&count)
+	server.db.QueryRow("SELECT COUNT(*) FROM users WHERE phone = '5551234567'").Scan(&count)
 	if count != 1 {
 		t.Errorf("Expected 1 user, got %d", count)
 	}
 
 	// Verify items were added
 	var userID string
-	server.db.QueryRow("SELECT id FROM users WHERE phone_number = '5551234567'").Scan(&userID)
+	server.db.QueryRow("SELECT id FROM users WHERE phone = '5551234567'").Scan(&userID)
 
 	var itemCount int
 	server.db.QueryRow("SELECT COUNT(*) FROM list_items WHERE user_id = ?", userID).Scan(&itemCount)
@@ -102,7 +102,7 @@ func TestSMSWebhook_MessageGrouping(t *testing.T) {
 
 	// Verify both items were added
 	var userID string
-	server.db.QueryRow("SELECT id FROM users WHERE phone_number = '5559876543'").Scan(&userID)
+	server.db.QueryRow("SELECT id FROM users WHERE phone = '5559876543'").Scan(&userID)
 
 	var itemCount int
 	server.db.QueryRow("SELECT COUNT(*) FROM list_items WHERE user_id = ?", userID).Scan(&itemCount)
@@ -379,7 +379,7 @@ func TestEmailWebhook_EmptyBody(t *testing.T) {
 	_ = cookie
 
 	// Set up a user with email
-	server.db.Exec("UPDATE users SET email = 'alice@example.com' WHERE phone_number = '5551234567'")
+	server.db.Exec("UPDATE users SET email = 'alice@example.com' WHERE phone = '5551234567'")
 
 	// Send email with empty body
 	form := url.Values{}
@@ -1431,8 +1431,8 @@ func TestSMSWebhook_StopKeyword_ClearsConsent(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	// Pre-create user with consent
-	server.db.Exec(`INSERT INTO users (id, phone_number, sms_consent_at)
-		VALUES (1, '5551234567', CURRENT_TIMESTAMP)`)
+	server.db.Exec(`INSERT INTO users (id, phone, sms_consent_at)
+		VALUES ('user-1', '5551234567', CURRENT_TIMESTAMP)`)
 
 	rr := doSMSRequest(server.handleSMSWebhook, "+15551234567", "STOP", 0)
 	if rr.Code != http.StatusOK {
@@ -1459,8 +1459,8 @@ func TestSMSWebhook_StartKeyword_RestoresConsent(t *testing.T) {
 	server := newTestServer(t, mock)
 
 	// Pre-create user without consent (previously opted out)
-	server.db.Exec(`INSERT INTO users (id, phone_number, sms_consent_at)
-		VALUES (1, '5551234567', NULL)`)
+	server.db.Exec(`INSERT INTO users (id, phone, sms_consent_at)
+		VALUES ('user-1', '5551234567', NULL)`)
 
 	rr := doSMSRequest(server.handleSMSWebhook, "+15551234567", "START", 0)
 	if rr.Code != http.StatusOK {

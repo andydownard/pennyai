@@ -116,7 +116,7 @@ func (s *Server) handleEmailWebhook(w http.ResponseWriter, r *http.Request) {
 	var userID string
 	var userPhoneNull sql.NullString
 	err := s.db.QueryRow(
-		"SELECT id, phone_number FROM users WHERE LOWER(email) = LOWER(?)",
+		"SELECT id, phone FROM users WHERE LOWER(email) = LOWER(?)",
 		from,
 	).Scan(&userID, &userPhoneNull)
 	_ = userPhoneNull // phone may be null for non-phone users
@@ -462,7 +462,7 @@ func (s *Server) handleSMSKeyword(from, kind string) {
 		// the carrier-level STOP at the platform; this branded reply is
 		// the application-level confirmation Penny owes the user.
 		if _, err := s.db.Exec(
-			`UPDATE users SET sms_consent_at = NULL WHERE phone_number = ?`, digits,
+			`UPDATE users SET sms_consent_at = NULL WHERE phone = ?`, digits,
 		); err != nil {
 			log.Printf("[sms-keyword] STOP consent clear failed for %s: %v", maskPhone(from), err)
 		}
@@ -486,7 +486,7 @@ func (s *Server) handleSMSKeyword(from, kind string) {
 			`UPDATE users SET sms_consent_at = CURRENT_TIMESTAMP,
 			   sms_consent_ip = 'sms-keyword',
 			   sms_consent_user_agent = 'twilio-inbound'
-			 WHERE phone_number = ?`, digits,
+			 WHERE phone = ?`, digits,
 		); err != nil {
 			log.Printf("[sms-keyword] START consent set failed for %s: %v", maskPhone(from), err)
 		}

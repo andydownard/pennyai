@@ -256,7 +256,7 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 	var name, email, phone, address, pennyBrandMode, onboardingFlags sql.NullString
 	var pennySlider, pennyAutotune, pennyDeals, swapCreditsCents, storeOrderEnabled, dailyDigestEnabled int
 	err := s.db.QueryRow(
-		"SELECT COALESCE(name,''), COALESCE(email,''), phone_number, COALESCE(address,''), COALESCE(penny_brand_mode,'ask'), COALESCE(penny_slider,35), COALESCE(penny_autotune,1), COALESCE(penny_deals,0), COALESCE(swap_credits_cents,0), COALESCE(onboarding_flags,'{}'), COALESCE(store_order_enabled,1), COALESCE(daily_digest_enabled,0) FROM users WHERE id = ?",
+		"SELECT COALESCE(name,''), COALESCE(email,''), phone, COALESCE(address,''), COALESCE(penny_brand_mode,'ask'), COALESCE(penny_slider,35), COALESCE(penny_autotune,1), COALESCE(penny_deals,0), COALESCE(swap_credits_cents,0), COALESCE(onboarding_flags,'{}'), COALESCE(store_order_enabled,1), COALESCE(daily_digest_enabled,0) FROM users WHERE id = ?",
 		session.UserID,
 	).Scan(&name, &email, &phone, &address, &pennyBrandMode, &pennySlider, &pennyAutotune, &pennyDeals, &swapCreditsCents, &onboardingFlags, &storeOrderEnabled, &dailyDigestEnabled)
 	if err != nil {
@@ -271,7 +271,7 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 	}
 	var members []memberInfo
 	memberRows, err := s.db.Query(
-		`SELECT COALESCE(u.name,''), u.phone_number FROM users u
+		`SELECT COALESCE(u.name,''), u.phone FROM users u
 		 JOIN household_members hm ON hm.user_id = u.id
 		 WHERE hm.household_id = (SELECT household_id FROM users WHERE id = ?)
 		 AND u.id != ?`,
@@ -365,7 +365,7 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 				writeBadRequest(w, "Invalid email format")
 				return
 			}
-			var existingID int
+			var existingID string
 			err := s.db.QueryRow("SELECT id FROM users WHERE email = ? AND id != ?", email, session.UserID).Scan(&existingID)
 			if err == nil {
 				writeConflict(w, "Email already in use")
@@ -403,7 +403,7 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		addSetClause(&setClauses, &args, "phone_number", phone)
+		addSetClause(&setClauses, &args, "phone", phone)
 	}
 	if req.Address != nil {
 		addSetClause(&setClauses, &args, "address", strings.TrimSpace(*req.Address))
@@ -494,23 +494,22 @@ func (s *Server) handleAvatar(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAvatarGet serves GET /api/avatar/{id} — public (no auth), serves stored photo.
+// User IDs are TEXT UUIDs (post-PG-migration), not integers.
 func (s *Server) handleAvatarGet(w http.ResponseWriter, r *http.Request) {
-	// Extract user ID from path: /api/avatar/123
 	parts := strings.Split(strings.TrimSuffix(r.URL.Path, "/"), "/")
 	if len(parts) < 4 {
 		writeBadRequest(w, "User ID required")
 		return
 	}
-	idStr := parts[len(parts)-1]
-	userID, err := strconv.Atoi(idStr)
-	if err != nil || userID <= 0 {
+	userID := parts[len(parts)-1]
+	if userID == "" {
 		writeBadRequest(w, "Invalid user ID")
 		return
 	}
 
 	var photoData []byte
 	var contentType string
-	err = s.db.QueryRow("SELECT photo_data, content_type FROM profile_photos WHERE user_id = ?", userID).Scan(&photoData, &contentType)
+	err := s.db.QueryRow("SELECT photo_data, content_type FROM profile_photos WHERE user_id = ?", userID).Scan(&photoData, &contentType)
 	if err != nil {
 		writeNotFound(w, "No profile photo")
 		return
