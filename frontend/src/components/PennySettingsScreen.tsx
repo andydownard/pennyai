@@ -60,7 +60,7 @@ export function PennySettingsScreen({
             <PennyAvatar size={52} />
             <div>
               <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600, color: 'var(--text)' }}>Penny</div>
-              <div style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)', marginTop: '2px' }}>Your household's AI shopping assistant</div>
+              <div style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)', marginTop: '2px' }}>Your household's shopping list</div>
             </div>
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
               {pennyPhoneFormatted && (

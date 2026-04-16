@@ -1,5 +1,6 @@
-// Thriftly Service Worker — app shell caching for offline support and fast loads
-const CACHE_NAME = 'thriftly-v6'
+// Groflo Service Worker — app shell caching for offline support and fast loads
+// CACHE_NAME bumped from 'thriftly-v6' to 'groflo-v7' to invalidate old cache after rebrand
+const CACHE_NAME = 'groflo-v7'
 
 // App shell: cache on install
 // NOTE: '/' is intentionally NOT cached in APP_SHELL because index.html

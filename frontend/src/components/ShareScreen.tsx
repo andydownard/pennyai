@@ -67,14 +67,14 @@ export function ShareScreen({
     ctx.textAlign = 'center'
     ctx.fillText('Groflo', w / 2, 62)
 
-    // "Scan to try Penny AI" subtitle
+    // "Scan to try Penny" subtitle
     ctx.fillStyle = '#2A2A2A'
     ctx.font = 'bold 32px -apple-system, "Segoe UI", sans-serif'
-    ctx.fillText('Scan to try Penny AI', w / 2, 170)
+    ctx.fillText('Scan to try Penny', w / 2, 170)
 
     ctx.fillStyle = '#525252'
     ctx.font = '22px -apple-system, "Segoe UI", sans-serif'
-    ctx.fillText('Your AI-powered grocery list assistant', w / 2, 210)
+    ctx.fillText('The household shopping list', w / 2, 210)
 
     // Draw QR code from the on-screen canvas
     const qrCanvas = qrCanvasRef.current?.querySelector('canvas')
@@ -129,9 +129,9 @@ export function ShareScreen({
   }, [referralCode, onShowToast])
 
   const handleEmailInvite = useCallback(() => {
-    const subject = encodeURIComponent('Try Penny AI — your AI grocery list assistant')
+    const subject = encodeURIComponent('Try Penny — the household shopping list')
     const body = encodeURIComponent(
-      `Hey!\n\nI've been using Penny AI to manage my grocery list — she organizes everything, suggests brands, and keeps the whole family in sync.\n\nTry it out: https://app.groflo.io/r/${referralCode}\n\nJust text, email, or type your list — Penny handles the rest!`
+      `Hey!\n\nI've been using Penny to manage my grocery list. She organizes everything, suggests brands, and keeps the whole family in sync.\n\nTry it: https://app.groflo.io/r/${referralCode}\n\nText, email, or type your list — Penny handles the rest.`
     )
     window.open(`mailto:?subject=${subject}&body=${body}`, '_self')
   }, [referralCode])

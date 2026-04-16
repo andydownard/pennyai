@@ -3555,8 +3555,9 @@ function AppInner() {
         <OnboardingOverlay onDismiss={() => { setShowOnboarding(false); localStorage.setItem('onboarding_complete', '1') }} />
       )}
 
-      {/* Feedback FAB — approved phone numbers only, visible on every page */}
-      {canSubmitFeedback && screen !== 'shared-list' && (
+      {/* CRUFT FOR REMOVAL (2026-04-16) — local FeedbackWidget disabled pending
+          unified autovibe widget. Mirror of withFeedbackFAB() block above (line ~2237). */}
+      {false && canSubmitFeedback && screen !== 'shared-list' && (
         <FeedbackWidget onSubmit={handleFeedbackSubmit} />
       )}
     </div>

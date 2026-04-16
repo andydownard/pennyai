@@ -39,12 +39,12 @@ export interface UseAuthStateOptions {
 
 // Login page typewriter messages
 const LOGIN_MESSAGES = [
-  "Hi, I'm Penny — your household's AI shopping assistant.",
-  "Tell me what you need and I'll organize your list by aisle.",
+  "Hi, I'm Penny. I keep your household's shopping list.",
+  "Tell me what you need. I'll sort by aisle.",
   "I learn your brand preferences over time.",
   "Share your list with your whole household.",
-  "Text or email me items anytime — I'll add them for you.",
-  "Snap a photo of your fridge and I'll spot what's missing.",
+  "Text or email me anytime. I'll add it.",
+  "Snap a photo of your fridge. I'll spot what's missing.",
 ]
 
 export function useAuthState(options: UseAuthStateOptions) {
