@@ -20,11 +20,27 @@ func addColumnIfNotExists(db dbExecer, table, column, definition string) {
 
 func initDB(db *sql.DB) error {
 	// =========================================================================
-	// SHARED USERS TABLE — owned by timpager, extended by penny
+	// USERS TABLE — owned by pennyai
 	// =========================================================================
-	// The `users` and `sessions` tables are created by timpager.
-	// DO NOT CREATE them here. We add penny-specific columns to the shared
-	// users table via ALTER TABLE ADD COLUMN.
+	// Pennyai owns its own users table. Identity federation with Rally/timpager
+	// happens via a server-to-server API call at verify time (PR 3), not via a
+	// shared database.
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS users (
+			id           TEXT PRIMARY KEY,
+			phone        TEXT UNIQUE,
+			email        TEXT NOT NULL DEFAULT '',
+			display_name TEXT NOT NULL DEFAULT '',
+			name         TEXT NOT NULL DEFAULT '',
+			created_at   TIMESTAMPTZ DEFAULT NOW()
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("creating users table: %w", err)
+	}
+
+	// Penny-specific columns added via ALTER so existing databases (prod users
+	// table predates this migration) pick them up without recreation.
 	for _, c := range []struct{ col, def string }{
 		{"household_id", "INTEGER"},
 		{"referral_code", "TEXT"},
@@ -57,9 +73,31 @@ func initDB(db *sql.DB) error {
 	}
 
 	// =========================================================================
+	// SESSIONS TABLE — owned by pennyai
+	// =========================================================================
+	// Session cookies live on .groflo.io only. No cross-domain handoff.
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS sessions (
+			token      TEXT PRIMARY KEY,
+			phone      TEXT NOT NULL DEFAULT '',
+			user_id    TEXT,
+			role       TEXT NOT NULL DEFAULT 'user',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			last_used  TIMESTAMPTZ,
+			expires_at TIMESTAMPTZ NOT NULL,
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("creating sessions table: %w", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)")
+
+	// =========================================================================
 	// LIST ITEMS
 	// =========================================================================
-	_, err := db.Exec(`
+	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS list_items (
 			id         SERIAL PRIMARY KEY,
 			user_id    TEXT NOT NULL,

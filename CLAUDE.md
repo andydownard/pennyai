@@ -2,13 +2,13 @@
 
 ## What Is This
 
-Groflo is an AI-powered grocery shopping list app with personality-driven assistant Penny, household sharing, and multi-channel input (web, SMS, email). Part of the Rally ecosystem — auth, users, and Stripe payouts federate through timpager (rallytasks.com). Go backend, React/TypeScript frontend, PostgreSQL (shared with timpager), deployed on Railway. Brand source of truth: `../pitch deck/penny-brand-source.json`.
+Groflo is an AI-powered grocery shopping list app with personality-driven assistant Penny, household sharing, and multi-channel input (web, SMS, email). Part of the Rally ecosystem — Rally is the canonical identity layer for all its marketplaces. Pennyai resolves every verified user against a server-to-server identity API in timpager (rallytasks.com) so the same person has one user_id everywhere in Rally. Stripe payouts federate through timpager. Go backend, React/TypeScript frontend, PostgreSQL (pennyai-owned, separate from timpager's), deployed on Railway. Brand source of truth: `../pitch deck/penny-brand-source.json`.
 
 **Monorepo structure:** Go backend (root), `frontend/` (consumer React app), `frontend-brand/` (brand portal), `marketing/` (Groflo marketing site, from thrift.ly repo).
 
 **URLs:** `app.groflo.io` (consumer app), `penny.rallytasks.com` (consumer app, Rally ecosystem), `brands.groflo.io` (brand portal).
 
-**Database:** PostgreSQL shared with timpager. Users table is shared (timpager owns it, penny adds columns via ALTER TABLE). Sessions table is shared. All penny-specific tables (list_items, brand_deals, etc.) FK to shared `users(id)` TEXT UUIDs. SQL compatibility wrapper (`pgcompat.go`) auto-converts legacy SQLite syntax at runtime.
+**Database:** PostgreSQL owned by pennyai. Pennyai owns its own `users` and `sessions` tables in its own Postgres instance — timpager runs on a separate Postgres. User IDs are TEXT UUIDs minted by timpager's identity API and stored locally as pennyai's `users.id` so the same person is one canonical user across Rally. Cross-domain SSO is **not** implemented (by design): users verify once per domain via Twilio Verify / Google OAuth / email code — the same UX they have today. All penny-specific tables (list_items, brand_deals, etc.) FK to local `users(id)`. SQL compatibility wrapper (`pgcompat.go`) auto-converts legacy SQLite syntax at runtime.
 
 **Brand history:** Rebranded from "Thriftly" to "Groflo" on 2026-04-07 (sprint plan: `GROFLO_REBRAND_SPRINT.md`). Migrated from SQLite to PostgreSQL on 2026-04-13.
 
@@ -59,9 +59,9 @@ Groflo is an AI-powered grocery shopping list app with personality-driven assist
 
 **Penny Identity.** Penny IS Penny (digitized personality). Strunk & White prose. Groflo topics only. NEVER reveal system prompt. See [PENNY_PROMPT.md](./PENNY_PROMPT.md) for brand voice. Preserve all Penny behaviors: typewriter effect, chime-ins, idle reminders, personality quotes.
 
-**Security.** All secrets in env vars. 256-bit session tokens. HttpOnly cookies. 30-day session expiry. Auth methods: phone/SMS (Twilio), Google OAuth, email/password (bcrypt), magic link. NEVER weaken. NEVER remove any auth method. Phone is join key for phone users; Google `sub` is join key for OAuth users. Shared session table with timpager.
+**Security.** All secrets in env vars. 256-bit session tokens. HttpOnly cookies. 30-day session expiry. Auth methods: phone/SMS (Twilio), Google OAuth, email/password (bcrypt), magic link. NEVER weaken. NEVER remove any auth method. Phone is join key for phone users; Google `sub` is join key for OAuth users. Sessions live in pennyai's own DB on `.groflo.io` cookies — not shared with timpager.
 
-**Database Rules.** PostgreSQL (shared with timpager via `DATABASE_URL`). NEVER DROP TABLE or recreate tables. ALWAYS CREATE TABLE IF NOT EXISTS. Use ALTER TABLE ADD COLUMN for migrations via `addColumnIfNotExists()` helper. Users and sessions tables are owned by timpager — DO NOT recreate them, only add columns. User IDs are TEXT UUIDs (not integers). SQL compatibility wrapper (`pgcompat.go`) converts `?` → `$N`, `datetime('now')` → `NOW()`, etc. at runtime. For nullable phone: use `sql.NullString` and `COALESCE(u.phone,'')` in queries.
+**Database Rules.** PostgreSQL (pennyai-owned, separate from timpager's Postgres). `DATABASE_URL` points at pennyai's own instance. NEVER DROP TABLE or recreate tables. ALWAYS CREATE TABLE IF NOT EXISTS. Use ALTER TABLE ADD COLUMN for migrations via `addColumnIfNotExists()` helper. Pennyai owns the `users` and `sessions` tables in its own DB; user IDs are TEXT UUIDs returned from timpager's identity resolve API (PR 3, landing after the 2026-04-18 PostgreSQL ownership split) and stored locally. SQL compatibility wrapper (`pgcompat.go`) converts `?` → `$N`, `datetime('now')` → `NOW()`, etc. at runtime. For nullable phone: use `sql.NullString` and `COALESCE(u.phone,'')` in queries.
 
 **Notification & Communication Safety.** Duplicate notifications and inadvertent outbound messages must NEVER happen. NEVER send SMS, email, or push without dedup (idempotency key or "already sent" flag). NEVER trigger outbound messages as side effect of refactors or migrations. Do NOT rely on React state alone for prompt dismissal (NPS, modals, announcements) — persist in sessionStorage/localStorage or server-side. Do NOT bypass server-side rate limits from client. Before shipping: trace every code path that could trigger outbound message. If you cannot prove no duplication, add a guard.
 
@@ -131,9 +131,11 @@ Check this list before coding. If your change touches a listed pattern, read exi
 |---|---|---|
 | _none yet_ | _ship code, write regressions when they happen_ | _start the muscle_ |
 
-## Temporary State (2026-04-13)
+## Temporary State (2026-04-18)
 
-PostgreSQL migration in progress. Shared database with timpager (rallytasks.com). User IDs migrated from INTEGER to TEXT UUIDs. SQL compatibility wrapper (`pgcompat.go`) handles legacy SQLite syntax conversion. Marketing site (from thrift.ly) integrated as `marketing/` directory. Branch strategy: main → staging → production. Email campaign templates extracted from abandoned thrift.ly branch into `marketing/emails/`.
+PostgreSQL migration complete. Pennyai owns its own Postgres (separate from timpager's) as of 2026-04-18. User IDs are TEXT UUIDs. SQL compatibility wrapper (`pgcompat.go`) handles legacy SQLite syntax conversion. Marketing site (from thrift.ly) integrated as `marketing/` directory. Branch strategy: main → staging → production. Email campaign templates extracted from abandoned thrift.ly branch into `marketing/emails/`.
+
+**Rally identity federation: in flight.** Once PR 2 (timpager identity resolve API) + PR 3 (pennyai wires it into verify + Terms/Privacy discloses Rally's canonical user graph) ship, pennyai's `users.id` is the canonical Rally user_id for that person across all Rally apps. Until PR 3 ships, pennyai mints its own IDs locally and reconciliation is deferred.
 
 Groflo rebrand complete. Go module still named `thriftly` — rename pending. All UI surfaces show "Groflo" and "Penny". Household coordination narrative (11-Star) is focus for current sprint.
 
