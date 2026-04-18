@@ -21,6 +21,13 @@
         "1440x900",
         "--isolated"
       ]
+    },
+    "railway": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@railway/mcp-server"
+      ]
     }
   }
 }
