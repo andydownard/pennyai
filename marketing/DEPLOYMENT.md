@@ -105,7 +105,7 @@ curl -sI https://groflo.io | head -5
 npm run build    # tsc -b && vite build → outputs to dist/
 ```
 
-Railway serves with: `npx serve dist -s -l $PORT`
+Railway serves static + API routes from a single Node process: `npm start` (aka `tsx server.ts`).
 
 ---
 
@@ -113,11 +113,11 @@ Railway serves with: `npx serve dist -s -l $PORT`
 
 ```toml
 [build]
-watchPatterns = ["src/**", "public/**", "index.html", "package.json", "vite.config.ts"]
+watchPatterns = ["src/**", "public/**", "index.html", "package.json", "vite.config.ts", "tsconfig*.json", "server.ts"]
 
 [deploy]
-startCommand = "npx serve dist -s -l $PORT"
-healthcheckPath = "/"
+startCommand = "npm start"
+healthcheckPath = "/health"
 restartPolicyType = "ON_FAILURE"
 ```
 
@@ -129,14 +129,13 @@ restartPolicyType = "ON_FAILURE"
 VITE_APP_URL=https://app.groflo.io
 VITE_BRAND_PORTAL_URL=https://brands.groflo.io
 BRAND_PORTAL_URL=https://brands.groflo.io
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=...
+DATABASE_URL=postgresql://...     # Rally Postgres-mpxU (shared with pennyai)
 IP_HASH_SALT=<random secret>
 ```
 
-`VITE_APP_URL` controls where "Try Free" CTAs link. `VITE_BRAND_PORTAL_URL` controls where the campaign-signup confirmation hands off. Both are baked in at build time by Vite (defaults: `app.groflo.io` / `brands.groflo.io`). `BRAND_PORTAL_URL` (no `VITE_` prefix) is read at runtime by the `campaign-lead` Netlify function for the redirect URL it returns. `IP_HASH_SALT` is used by `campaign-lead` to hash client IPs for rate-limit bookkeeping; rotating it resets per-IP buckets.
+`VITE_APP_URL` controls where "Try Free" CTAs link. `VITE_BRAND_PORTAL_URL` controls where the campaign-signup confirmation hands off. Both are baked in at build time by Vite (defaults: `app.groflo.io` / `brands.groflo.io`). `BRAND_PORTAL_URL` (no `VITE_` prefix) is read at runtime by the `campaign-lead` API route for the redirect URL it returns. `IP_HASH_SALT` is used by `campaign-lead` to hash client IPs for rate-limit bookkeeping; rotating it resets per-IP buckets. `DATABASE_URL` points at the Rally `Postgres-mpxU` service (pennyai-owned, shared with the main app); the server creates `campaign_leads` and `marketing_feedback_requests` tables on startup via `CREATE TABLE IF NOT EXISTS` if they do not exist.
 
-Stripe is **not** used on the marketing site. Brand campaign signups submit a brief to Supabase via the `campaign-lead` Netlify function and then hand off to the brand portal (`brands.groflo.io`), which handles account creation, deposits, and Stripe payments. The `@stripe/*` npm packages are intentionally not in this repo's `package.json`.
+Stripe is **not** used on the marketing site. Brand campaign signups submit a brief to Postgres via the `campaign-lead` route and then hand off to the brand portal (`brands.groflo.io`), which handles account creation, deposits, and Stripe payments. The `@stripe/*` npm packages are intentionally not in this repo's `package.json`.
 
 ---
 
