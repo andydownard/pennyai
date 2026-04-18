@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "chrome-mobile": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest",
+        "--headless",
+        "--viewport",
+        "412x915",
+        "--isolated"
+      ]
+    },
+    "chrome-desktop": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest",
+        "--headless",
+        "--viewport",
+        "1440x900",
+        "--isolated"
+      ]
+    }
+  }
+}
