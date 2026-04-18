@@ -88,9 +88,9 @@ func (m *MockTwilioClient) GetLastSMS() (string, string) {
 func initTestDB(db *sql.DB) error {
 	db.Exec("PRAGMA foreign_keys = ON")
 
-	// Users table (in production, timpager creates this).
-	// Column set mirrors timpager/lib/schema-postgres.js so tests catch any
-	// drift between penny's SQL and the real shared schema.
+	// Users table (pennyai-owned — see schema.go initDB).
+	// SQLite DDL here mirrors the PostgreSQL CREATE in schema.go so tests catch
+	// drift between the two. When schema.go adds a column, add it here too.
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
 			id          TEXT PRIMARY KEY,
@@ -132,8 +132,9 @@ func initTestDB(db *sql.DB) error {
 		return fmt.Errorf("creating users table: %w", err)
 	}
 
-	// Sessions table (in production, timpager creates this).
-	// Mirrors timpager/lib/schema-postgres.js — penny reads `role` as auth_method.
+	// Sessions table (pennyai-owned — see schema.go initDB).
+	// Session cookies live on .groflo.io only; no cross-domain handoff with
+	// timpager. `role` is read by penny as auth_method for reporting.
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS sessions (
 			token      TEXT PRIMARY KEY,
