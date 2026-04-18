@@ -1,6 +1,6 @@
 # Groflo Marketing Site (thrift.ly repo)
 
-This repo (`groflo-site` per `package.json`, retained git URL `andydownard/thrift.ly`) is the canonical Netlify-deployed marketing site for **Groflo** (formerly Thriftly), an AI shopping list app where users text **Penny**, the in-app assistant. Groflo is a marketplace inside the Rally ecosystem (auth and Stripe federate through `timpager` / rallytasks.com).
+This repo (`groflo-site` per `package.json`, retained git URL `andydownard/thrift.ly`) is the canonical Railway-deployed marketing site for **Groflo** (formerly Thriftly), an AI shopping list app where users text **Penny**, the in-app assistant. Groflo is a marketplace inside the Rally ecosystem (auth and Stripe federate through `timpager` / rallytasks.com).
 
 > **Work tracking:** new items land in [INBOX.md](./INBOX.md). Triage moves them to [BACKLOG.md](./BACKLOG.md) (`Backlog` P0–P3, `Bugs (Open)`, `Shipped`, `Not In Scope`). Pattern mirrors `pennyai/ROADMAP.md`. Read [INBOX.md](./INBOX.md) first when picking up unfinished work.
 
@@ -10,7 +10,7 @@ The repo also contains the investor deck and timpager AI slide generator as sibl
 
 ## Architecture
 
-- **Marketing site** (`src/`): React 19 + TypeScript + Vite SPA, React Router DOM 7, Stripe Elements for campaign signup, vanilla CSS with custom properties (no Tailwind). Deploys to Netlify from `main`. Component CTAs route through `import.meta.env.VITE_APP_URL` (fallback `https://app.groflo.io`).
+- **Marketing site** (`src/`): React 19 + TypeScript + Vite SPA, React Router DOM 7, Stripe Elements for campaign signup, vanilla CSS with custom properties (no Tailwind). Deploys to Railway service `marketing` from `production`. Component CTAs route through `import.meta.env.VITE_APP_URL` (fallback `https://app.groflo.io`). The Railway container runs `server.ts` — a Node/Express server that serves the built `dist/` bundle AND the two API routes (`/.netlify/functions/campaign-lead`, `/.netlify/functions/feedback`). The legacy Netlify function paths are preserved so the React callsites continue to work unchanged; persistence is Postgres (`Postgres-mpxU`).
 - **Investor deck** (`deck/`): Node.js server + SQLite (WAL mode), Twilio Verify SMS auth, feedback widget with GitHub issue creation, slide view analytics, deployed on Railway. Internal package names (`@thriftly/*`) and asset filenames retain the legacy "thriftly" — Phase 5 cleanup, no user impact.
 - **Timpager** (`timpager/`): Node.js server, AI-driven slide generation/update (`ai-generate.js`, `ai-update.js`), slide type renderer (`slide-types.js`), Claude API integration.
 - **Brand source of truth**: `../pitch deck/penny-brand-bible.json` — v3.0 with the Groflo identity block (company: Groflo, Inc., app: Groflo, domain: groflo.io, ecosystem: Rally, footer: "Penny by Groflo"). Canonical copy lives at `/Users/andydownard/projects/pennyai/penny-brand-bible.json`. Brand color `#35644F` and Inter typeface are unchanged across the rebrand.

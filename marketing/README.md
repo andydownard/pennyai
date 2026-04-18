@@ -1,6 +1,6 @@
 # Groflo Marketing Site
 
-Canonical Netlify-deployed marketing site for **Groflo** (formerly Thriftly), an AI shopping list app where users text **Penny**, the in-app assistant. Groflo is a marketplace inside the Rally ecosystem.
+Canonical Railway-deployed marketing site for **Groflo** (formerly Thriftly), an AI shopping list app where users text **Penny**, the in-app assistant. Groflo is a marketplace inside the Rally ecosystem.
 
 > Repo name: `groflo-site` (per `package.json`). Git URL: `andydownard/thrift.ly` (legacy, retained for backup chain integrity).
 
@@ -8,9 +8,8 @@ Canonical Netlify-deployed marketing site for **Groflo** (formerly Thriftly), an
 
 | Path | Purpose | Deploys to |
 |---|---|---|
-| `src/` | React 19 + TypeScript + Vite SPA — pages, components, hooks, styles | `groflo.io` (Netlify) |
-| `netlify/functions/` | Serverless functions (`feedback.mts`, `campaign-lead.mts`) | Netlify Functions |
-| `supabase/migrations/` | SQL migrations for the Supabase tables the functions write to | Supabase project |
+| `src/` | React 19 + TypeScript + Vite SPA — pages, components, hooks, styles | `groflo.io` (Railway service `marketing`) |
+| `server.ts` | Node/Express server — serves static `dist/` + two API routes (`campaign-lead`, `feedback`) | same Railway container |
 | `deck/` | Investor deck — Node.js + SQLite, Twilio Verify SMS auth | Railway (separate service) |
 | `archive/` | Historical panel reviews + marketing decisions | — |
 
