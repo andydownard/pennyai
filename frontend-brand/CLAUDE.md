@@ -1,13 +1,13 @@
-# Thriftly Brand Portal (frontend-brand)
+# Groflo Brand Portal (frontend-brand)
 
-> The B2B dashboard at `brands.thrift.ly` where CPG brand managers create deals, view competitive intel, and fund their accounts.
+> The B2B dashboard at `brands.groflo.io` where CPG brand managers create deals, view competitive intel, and fund their accounts.
 
 ## Architecture
 
 - **Frontend**: React/TypeScript single-page app (`App.tsx` + components), Vite build
 - **Backend**: Same Go server as consumer app, routes prefixed with `/brand/`
 - **Auth**: Email/password with `brand_users` table (separate from consumer `users`)
-- **Build output**: `../static-brand/` (served by Go at `brands.thrift.ly` subdomain)
+- **Build output**: `../static-brand/` (served by Go at `brands.groflo.io` subdomain)
 - **Dev server**: `http://localhost:5174`, proxies `/brand/*` to Go backend at `:8080`
 
 ## Relationship to Consumer App (`frontend/`)

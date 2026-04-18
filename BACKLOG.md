@@ -1,6 +1,6 @@
 # Groflo Backlog
 
-**Last updated:** 2026-04-16
+**Last updated:** 2026-04-18
 
 ---
 
@@ -20,6 +20,10 @@
 | G7 | Email campaign CRM integration | 13 templates ready in marketing/emails/. Need Klaviyo/SendGrid wiring. | M |
 | G22 | Marketing Home.tsx body copy + alt text sweep | Hero h2 fixed; body copy at line ~724 still reads as B2B SaaS. PMM/Brand PM pass. | S |
 | G23 | Twilio webhook redelivery dedup | `sendSMSReply` in handlers_webhook.go:371,377,408,470,476,494 fires without message-ID dedup. Twilio retries on timeout → duplicate SMS. Store `twilio_message_id` with UNIQUE before reply. | M |
+| G28 | Swipe-delete undo toast | `ItemRow.tsx` deletes on swipe >80px with no recovery. Add 5-second undo toast rather than confirm modal (preserves one-handed flow for Tamika). | S |
+| G29 | Swap accept in-flight state | `SwapCard.tsx` submit button has no loading/disabled state; network lag → double-tap → duplicate swap_events. Add submitting guard + 409-aware error toast. | S |
+| G30 | Penny dietary capture in onboarding | Priya dealbreaker: allergen field absent from OnboardingOverlay, so Penny has nothing to remember. Needs panel convene + `user_dietary_profiles` pre-pop. | M |
+| G32 | fully_free concurrent-budget race | `handlers_parse.go:62–84` skips debit for fully_free; two concurrent accepts can both pass. Move select + budget check into atomic conditional UPDATE. | S |
 
 ## P2 — Next Sprint
 
@@ -38,6 +42,9 @@
 | G25 | Visual regression suite | Playwright `toHaveScreenshot()` baselines for 3 marketing pages + 5 consumer screens. Catches silent layout regressions like the whitespace bug. | M |
 | G26 | Brand consistency lint | `pre-commit` hook or `npm run lint:vocab` that fails on user-facing strings containing forbidden vocabulary (`AI assistant`, `chatbot`, `bot`, `Thriftly`, `thrift.ly`) outside test files. | S |
 | G27 | Comprehensive idempotency audit | Top-5-Damage-Risks #1. Every state-mutating handler needs dedup guard verified with negative-path test. PG-migration audit only covered the regression surface. | L |
+| G31 | Household "who claimed what" indicator | James persona: no `claimed_by` badge on ItemRow. Duplicate-prevention narrative weakened. Show faint name badge when `claimed_by_user_id ≠ NULL`. | S |
+| G33 | Deal detail partial-fetch error state | Brand portal shows perpetual "Loading performance data…" when `/brand/deal-performance` or `/brand/optimize` fails silently. Show recoverable error banner instead. | S |
+| G34 | Deal save success toast | Budget/discount edits silently refresh with no confirmation feedback. Tamika: "Did I save that?" Add 2s success toast before refetch. | S |
 
 ## P3 — Future
 
@@ -79,6 +86,13 @@ _None currently open._
 | — | Brand vocabulary drift sweep (useAuthState, PennyBar, PennySettingsScreen, ShareScreen, marketing Home + ForBrands) | 2026-04-16 |
 | — | `INSERT OR REPLACE` panic guard in `pgcompat.go` (silent strip previously could turn upserts into duplicate-key crashes) | 2026-04-16 |
 | — | Regression test file `regression_pg_migration_test.go` (5 tests: idempotency x3, ILIKE, avatar UUID) | 2026-04-16 |
+| — | Brand portal seed crash: `ends_at` text→TIMESTAMPTZ cast (`schema.go:1641`) — was silently failing `bogo` deal seed on every cold start | 2026-04-18 |
+| — | Brand portal `frontend-brand/CLAUDE.md` rebrand (Thriftly→Groflo, `brands.thrift.ly`→`brands.groflo.io`) | 2026-04-18 |
+| — | Brand portal `smallBtn` tap target 4px→8px padding to clear 44px WCAG target (Pause/Resume/Delete/Details buttons) | 2026-04-18 |
+| — | Brand portal CreateDealForm `min` validation on discount / budget / offer price / competitor price inputs | 2026-04-18 |
+| — | Brand portal logo upload `reader.onerror` handler + ref reset for retry | 2026-04-18 |
+| — | Brand portal empty state copy warmed up (names Groflo shoppers) | 2026-04-18 |
+| — | Consumer vocab drift: "group" → "household" in leave-confirm dialog (App.tsx:2502, ShareScreen.tsx:267) | 2026-04-18 |
 
 ## Not In Scope
 

@@ -1638,7 +1638,7 @@ func seedDeals(db dbExecer) error {
 			 offer_price_cents, competitor_price_cents, offer_size, competitor_size,
 			 offer_unit_price, competitor_unit_price, unit_label, why_bullets, allergen_notes,
 			 deal_type, quantity_offered, trial_product_name, trial_size, campaign_tag, ends_at)
-			 VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NULLIF($20, ''))`,
+			 VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NULLIF($20, '')::timestamptz)`,
 			d.competitor, d.offerBrand, d.offerProduct, d.discountCents, d.budgetCents,
 			d.offerPriceCents, d.competitorPriceCents, d.offerSize, d.competitorSize,
 			d.offerUnitPrice, d.competitorUnitPrice, d.unitLabel, d.whyBullets, d.allergenNotes,

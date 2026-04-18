@@ -187,6 +187,10 @@ export function App() {
         setError('Failed to upload logo')
       }
     }
+    reader.onerror = () => {
+      setError('Failed to read logo file — try again')
+      if (logoInputRef.current) logoInputRef.current.value = ''
+    }
     reader.readAsDataURL(file)
     e.target.value = ''
   }
@@ -654,7 +658,7 @@ export function App() {
             )}
             {deals.length === 0 && (
               <div style={{ ...cardStyle, marginTop: '16px', textAlign: 'center', padding: '48px 24px' }}>
-                <div style={{ fontFamily: FONT, fontSize: '16px', color: TEXT_SEC }}>No deals yet. Create your first deal to start reaching shoppers.</div>
+                <div style={{ fontFamily: FONT, fontSize: '16px', color: TEXT_SEC }}>You haven't created any deals yet. Create your first to reach Groflo shoppers.</div>
                 <button onClick={() => setScreen('create-deal')} style={{ ...primaryBtn, marginTop: '16px' }}>Create First Deal</button>
               </div>
             )}
@@ -1178,19 +1182,19 @@ function CreateDealForm({ onCreated, onCancel }: { onCreated: () => void; onCanc
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
           <div>
             <label style={labelStyle}>Discount per swap ($)</label>
-            <input type="number" step="0.01" value={(form.discount_cents / 100).toFixed(2)} onChange={e => set('discount_cents', Math.round(parseFloat(e.target.value || '0') * 100))} style={inputStyle} />
+            <input type="number" step="0.01" min="0.01" value={(form.discount_cents / 100).toFixed(2)} onChange={e => set('discount_cents', Math.round(parseFloat(e.target.value || '0') * 100))} style={inputStyle} />
           </div>
           <div>
             <label style={labelStyle}>Total Budget ($)</label>
-            <input type="number" step="1" value={(form.daily_budget_cents / 100).toFixed(0)} onChange={e => set('daily_budget_cents', Math.round(parseFloat(e.target.value || '0') * 100))} style={inputStyle} />
+            <input type="number" step="1" min="50" value={(form.daily_budget_cents / 100).toFixed(0)} onChange={e => set('daily_budget_cents', Math.round(parseFloat(e.target.value || '0') * 100))} style={inputStyle} />
           </div>
           <div>
             <label style={labelStyle}>Your Price ($)</label>
-            <input type="number" step="0.01" value={(form.offer_price_cents / 100).toFixed(2)} onChange={e => set('offer_price_cents', Math.round(parseFloat(e.target.value || '0') * 100))} style={inputStyle} />
+            <input type="number" step="0.01" min="0" value={(form.offer_price_cents / 100).toFixed(2)} onChange={e => set('offer_price_cents', Math.round(parseFloat(e.target.value || '0') * 100))} style={inputStyle} />
           </div>
           <div>
             <label style={labelStyle}>Competitor Price ($)</label>
-            <input type="number" step="0.01" value={(form.competitor_price_cents / 100).toFixed(2)} onChange={e => set('competitor_price_cents', Math.round(parseFloat(e.target.value || '0') * 100))} style={inputStyle} />
+            <input type="number" step="0.01" min="0" value={(form.competitor_price_cents / 100).toFixed(2)} onChange={e => set('competitor_price_cents', Math.round(parseFloat(e.target.value || '0') * 100))} style={inputStyle} />
           </div>
           </div>
           <div style={{ fontFamily: FONT, fontSize: '12px', color: TEXT_SEC, marginTop: '8px', lineHeight: 1.4 }}>
@@ -1589,7 +1593,7 @@ const linkBtn: React.CSSProperties = {
 
 const smallBtn: React.CSSProperties = {
   background: 'none', border: `1px solid ${BORDER}`, borderRadius: '6px',
-  fontFamily: FONT, fontSize: '12px', fontWeight: 500, cursor: 'pointer', padding: '4px 10px', color: TEXT_SEC,
+  fontFamily: FONT, fontSize: '12px', fontWeight: 500, cursor: 'pointer', padding: '8px 14px', color: TEXT_SEC,
 }
 
 const cardStyle: React.CSSProperties = {

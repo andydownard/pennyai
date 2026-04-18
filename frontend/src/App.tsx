@@ -2499,7 +2499,7 @@ function AppInner() {
         onInvite={handleOpenInviteSheet}
         onLeaveHousehold={() => openConfirmModal({
           title: 'Leave shared list?',
-          message: "You'll keep your own list but will no longer share with this group.",
+          message: "You'll keep your own list but will no longer share with your household.",
           confirmLabel: 'Leave',
           destructive: true,
           onConfirm: () => {

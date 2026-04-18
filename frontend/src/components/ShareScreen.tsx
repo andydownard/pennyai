@@ -264,7 +264,7 @@ export function ShareScreen({
                   textAlign: 'left' as const,
                 }}
               >Leave shared list</button>
-              <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '4px' }}>You'll still have your own list — you'll just stop sharing with this group.</div>
+              <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '4px' }}>You'll still have your own list — you'll just stop sharing with your household.</div>
             </>)}
           </div>
 
