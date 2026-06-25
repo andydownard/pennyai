@@ -4,19 +4,20 @@
 
 **Goal:** Serve a Groflo-branded, gate-free copy of the existing web deck at `https://groflo.io/deck` as an unlisted (noindex), ungated page.
 
-**Architecture:** Add a static, self-contained copy of the deck under `marketing/public/deck/` and mount it from the marketing Express server (`server.ts`) at `/deck` with a `noindex` header, before the SPA catch-all. No proxy, no new service. The standalone gated `marketing/deck/` app is left untouched.
+**Architecture:** `main`'s marketing site is a **Netlify-deployed Vite SPA** (`netlify.toml` with a `/* → /index.html` catch-all, `public/_headers`, Netlify Functions — there is no Express `server.ts` on `main`). Add a static, self-contained copy of the deck under `marketing/public/deck/` (Vite copies `public/` into `dist/`, which Netlify serves), and route it with a `netlify.toml` redirect (`/deck → /deck/deck.html`, status 200, placed **before** the SPA catch-all) plus a `/deck/*` `X-Robots-Tag: noindex` header. The standalone gated `marketing/deck/` app is left untouched.
 
-**Tech Stack:** Node/Express (`marketing/server.ts`), Vite static `public/`, vitest + supertest tests.
+**Tech Stack:** Vite static `public/`, Netlify config (`netlify.toml`, `public/_headers`, `public/robots.txt`), vitest (fs-based config/content tests — no Express/supertest on `main`).
 
 ## Global Constraints
 
 - Work in `marketing/` only. Do NOT modify the standalone `marketing/deck/` app.
-- Spec: `docs/superpowers/specs/2026-06-25-groflo-deck-hosting-design.md`.
+- Spec: `docs/superpowers/specs/2026-06-25-groflo-deck-hosting-design.md` (spec describes the Express variant; this plan targets the `main`/Netlify architecture per the chosen base branch).
 - Brand: user-visible text must say **Groflo** / **Penny**, never **Thriftly** / **thrift.ly**. App links use `https://app.groflo.io`.
 - Test-to-code ratio ≥ 1.3×. TDD: write the failing test first, watch it fail, implement, watch it pass, commit.
 - The `/deck` copy is **ungated** (no SMS auth) and **noindex** — it must contain no `/api/` calls, no `sendCode`/`verifyCode`, and no `localStorage` access.
 - Vitest test files live in `marketing/__tests__/`. Run tests with `npm test` (from `marketing/`).
-- Implement on a dedicated branch off `main` (e.g. `feat-deck-hosting`), NOT on `feat-clerk-phase2b`.
+- Base branch is `feat-deck-hosting`, branched off `main` (Netlify marketing). The orchestrator has created an isolated worktree at `/Users/andydownard/projects/pennyai-worktrees/feat-deck-hosting`; all implementation happens there. Do NOT touch `feat-clerk-phase2b`.
+- The clean URL `/deck` resolves via Netlify in production; locally (`npm start` → `serve dist -s`) only `/deck/deck.html` and `/deck/` files resolve directly. Verify via the built `dist/deck/` output, not a clean-URL request to the local static server.
 
 ## File Structure
 
@@ -24,9 +25,10 @@
 - Create: `marketing/public/deck/penny-avatar.png` — copy of `marketing/deck/penny-avatar.png`.
 - Create: `marketing/public/deck/handwritten-list.png` — copy of `marketing/deck/handwritten-list.png`.
 - Create: `marketing/public/deck/logo.svg` — copy of `marketing/public/logo.svg` (Groflo logo for footer).
-- Create: `marketing/__tests__/deck-content.test.ts` — fs-based content invariants for the deck file + assets + robots/sitemap.
-- Create: `marketing/__tests__/deck-route.test.ts` — supertest route behavior (`/deck`, asset, `X-Robots-Tag`).
-- Modify: `marketing/server.ts` — add `/deck` static mount before the SPA catch-all (server.ts:635).
+- Create: `marketing/__tests__/deck-content.test.ts` — fs-based content invariants for the deck file + assets.
+- Create: `marketing/__tests__/deck-config.test.ts` — fs-based assertions on `netlify.toml`, `public/_headers`, `public/robots.txt`, `public/sitemap.xml`.
+- Modify: `marketing/netlify.toml` — add `/deck` redirect (before SPA catch-all) + `/deck/*` noindex header.
+- Modify: `marketing/public/_headers` — add `/deck/*` noindex header.
 - Modify: `marketing/public/robots.txt` — add `Disallow: /deck`.
 
 ---
@@ -201,90 +203,104 @@ git commit -m "feat(marketing): add gate-free Groflo deck under public/deck"
 
 ---
 
-### Task 2: Mount `/deck` from the server and mark it unlisted
+### Task 2: Route `/deck` via Netlify config and mark it unlisted
 
 **Files:**
-- Modify: `marketing/server.ts` (add mount before the SPA catch-all at server.ts:635)
+- Modify: `marketing/netlify.toml`
+- Modify: `marketing/public/_headers`
 - Modify: `marketing/public/robots.txt`
-- Test: `marketing/__tests__/deck-route.test.ts`
+- Test: `marketing/__tests__/deck-config.test.ts`
 
 **Interfaces:**
 - Consumes: `marketing/public/deck/deck.html` + assets from Task 1.
-- Consumes: `createApp()` exported from `../server` (used by existing `__tests__/server.test.ts`).
 
-- [ ] **Step 1: Write the failing route test**
+- [ ] **Step 1: Write the failing config test**
 
-Create `marketing/__tests__/deck-route.test.ts`:
+Create `marketing/__tests__/deck-config.test.ts`:
 ```ts
 import { describe, it, expect } from 'vitest'
-import { vi } from 'vitest'
-vi.mock('pg', () => import('./_pg-mock'))
-process.env.DATABASE_URL ||= 'postgres://test'
-import request from 'supertest'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-// eslint-disable-next-line import/first
-import { createApp } from '../server'
 
-const app = createApp()
 const ROOT = path.resolve(__dirname, '..')
+const read = (rel: string) => readFileSync(path.join(ROOT, rel), 'utf8')
 
-describe('GET /deck', () => {
-  it('serves the deck HTML', async () => {
-    const res = await request(app).get('/deck/')
-    expect(res.status).toBe(200)
-    expect(res.headers['content-type']).toMatch(/text\/html/)
-    expect(res.text).toContain('id="deck"')
+describe('netlify.toml — deck routing', () => {
+  const toml = () => read('netlify.toml')
+  it('redirects the clean /deck URL to the deck file', () => {
+    expect(toml()).toMatch(/from\s*=\s*"\/deck"/)
+    expect(toml()).toMatch(/to\s*=\s*"\/deck\/deck\.html"/)
   })
-  it('marks the deck noindex via header', async () => {
-    const res = await request(app).get('/deck/')
-    expect(res.headers['x-robots-tag']).toMatch(/noindex/)
+  it('puts the /deck redirect before the SPA catch-all', () => {
+    const t = toml()
+    expect(t.indexOf('"/deck"')).toBeGreaterThan(-1)
+    expect(t.indexOf('"/deck"')).toBeLessThan(t.indexOf('"/*"'))
   })
-  it('serves deck image assets', async () => {
-    const res = await request(app).get('/deck/penny-avatar.png')
-    expect(res.status).toBe(200)
-    expect(res.headers['content-type']).toMatch(/image\/png/)
+  it('sets a noindex X-Robots-Tag header for /deck/*', () => {
+    expect(toml()).toMatch(/for\s*=\s*"\/deck\/\*"/)
+    expect(toml()).toMatch(/X-Robots-Tag\s*=\s*"noindex/)
+  })
+})
+
+describe('public/_headers — deck noindex', () => {
+  it('adds an X-Robots-Tag noindex rule for /deck/*', () => {
+    const h = read('public/_headers')
+    expect(h).toMatch(/\/deck\/\*/)
+    expect(h).toMatch(/X-Robots-Tag:\s*noindex/)
   })
 })
 
 describe('deck is unlisted', () => {
   it('robots.txt disallows /deck', () => {
-    const robots = readFileSync(path.join(ROOT, 'public', 'robots.txt'), 'utf8')
-    expect(robots).toMatch(/Disallow:\s*\/deck/)
+    expect(read('public/robots.txt')).toMatch(/Disallow:\s*\/deck/)
   })
   it('sitemap.xml does not list /deck', () => {
-    const sitemap = readFileSync(path.join(ROOT, 'public', 'sitemap.xml'), 'utf8')
-    expect(sitemap).not.toContain('/deck')
+    expect(read('public/sitemap.xml')).not.toContain('/deck')
   })
 })
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `npm test -- deck-route`
-Expected: FAIL — `GET /deck/` returns 404 (no route yet); `robots.txt` has no `Disallow: /deck`.
+Run: `npm test -- deck-config`
+Expected: FAIL — no `/deck` redirect or `/deck/*` header exists yet; `robots.txt` has no `Disallow: /deck`.
 
-- [ ] **Step 3: Add the `/deck` mount in `server.ts`**
+- [ ] **Step 3: Add the `/deck` redirect + noindex header to `netlify.toml`**
 
-In `marketing/server.ts`, locate the static + SPA-fallback block (the `if (fs.existsSync(DIST_DIR)) {` section ending with the catch-all `app.get(/.*/, ...)` near line 635). Immediately BEFORE that `if (fs.existsSync(DIST_DIR))` block, insert:
-
-```ts
-  // ── Unlisted deck (groflo.io/deck) ──
-  // Served from committed public/deck so it works without a Vite build.
-  // noindex header keeps it out of search; no auth (unlisted, not gated).
-  app.use(
-    '/deck',
-    (_req: Request, res: Response, next: NextFunction) => {
-      res.setHeader('X-Robots-Tag', 'noindex, nofollow')
-      next()
-    },
-    express.static(path.join(__dirname, 'public', 'deck'), { index: 'deck.html' })
-  )
+In `marketing/netlify.toml`, the existing functions redirect block ends at:
+```toml
+[[redirects]]
+  from = "/.netlify/functions/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+```
+Immediately AFTER that block and BEFORE the `# SPA client-side routing:` catch-all (`from = "/*"`), insert:
+```toml
+# Unlisted deck: clean URL → deck file (must be before the SPA catch-all)
+[[redirects]]
+  from = "/deck"
+  to = "/deck/deck.html"
+  status = 200
+```
+Then, after the existing `[[headers]]` blocks (at the end of the file), append:
+```toml
+# Keep the unlisted deck out of search indexes
+[[headers]]
+  for = "/deck/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
 ```
 
-(`express`, `path`, `__dirname`, and the `Request`/`Response`/`NextFunction` types are already imported at the top of `server.ts`.)
+- [ ] **Step 4: Add the noindex rule to `public/_headers`**
 
-- [ ] **Step 4: Add the robots.txt disallow**
+Append to `marketing/public/_headers`:
+```
+# Unlisted deck — keep out of search indexes
+/deck/*
+  X-Robots-Tag: noindex, nofollow
+```
+
+- [ ] **Step 5: Add the robots.txt disallow**
 
 Edit `marketing/public/robots.txt` from:
 ```
@@ -300,21 +316,21 @@ Disallow: /deck
 Sitemap: https://groflo.io/sitemap.xml
 ```
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [ ] **Step 6: Run the test to verify it passes**
 
-Run: `npm test -- deck-route`
+Run: `npm test -- deck-config`
 Expected: PASS.
 
-- [ ] **Step 6: Run the full marketing suite**
+- [ ] **Step 7: Run the full marketing suite**
 
 Run: `npm test`
-Expected: PASS with zero failures (existing `server.test.ts` plus the two new files).
+Expected: PASS with zero failures (existing suites plus the two new deck test files).
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add marketing/server.ts marketing/public/robots.txt marketing/__tests__/deck-route.test.ts
-git commit -m "feat(marketing): serve unlisted deck at /deck with noindex"
+git add marketing/netlify.toml marketing/public/_headers marketing/public/robots.txt marketing/__tests__/deck-config.test.ts
+git commit -m "feat(marketing): route unlisted deck at /deck with noindex"
 ```
 
 ---
@@ -329,21 +345,18 @@ git commit -m "feat(marketing): serve unlisted deck at /deck with noindex"
 Run (from `marketing/`):
 ```bash
 npm run build
-ls dist/deck/deck.html dist/deck/penny-avatar.png
+ls dist/deck/deck.html dist/deck/penny-avatar.png dist/deck/handwritten-list.png dist/deck/logo.svg
 ```
-Expected: both files exist (Vite copies `public/` into `dist/`).
+Expected: all four files exist (Vite copies `public/` into `dist/`).
 
-- [ ] **Step 2: Smoke-test the running server**
+- [ ] **Step 2: Verify the built deck is gate-free and noindex**
 
 Run:
 ```bash
-npm start &
-sleep 2
-curl -s -o /dev/null -w "%{http_code}\n" http://localhost:${PORT:-3000}/deck/
-curl -s -D - -o /dev/null http://localhost:${PORT:-3000}/deck/ | grep -i x-robots-tag
-kill %1
+grep -ciE "thriftly|/api/|localStorage|sendCode" dist/deck/deck.html   # expect 0
+grep -c "noindex" dist/deck/deck.html                                   # expect >= 1
 ```
-Expected: `200`, and an `X-Robots-Tag: noindex, nofollow` header.
+Expected: first command prints `0`, second prints `1` or more.
 
 - [ ] **Step 3: Commit any doc updates**
 
@@ -361,12 +374,12 @@ git commit -m "docs(marketing): mark deck hosting shipped"
 - Static gate-free copy under `public/deck/` → Task 1. ✓
 - Rebrand Thriftly→Groflo + namespaced asset paths → Task 1 steps 2, 6, 12. ✓
 - Strip auth gate / `/api/` / analytics / feedback → Task 1 steps 3, 5, 7, 9, 10. ✓
-- noindex meta + `X-Robots-Tag` header → Task 1 step 1, Task 2 step 3. ✓
-- `/deck` mount before SPA catch-all → Task 2 step 3. ✓
-- robots.txt Disallow, sitemap unchanged, no nav link → Task 2 steps 4, tests; no nav edit anywhere. ✓
-- Tests with ≥1.3× ratio (two test files, small code delta) → Tasks 1–2. ✓
+- noindex meta (in HTML) + `X-Robots-Tag` header (Netlify) → Task 1 step 1, Task 2 steps 3–4. ✓
+- `/deck` clean-URL redirect before SPA catch-all → Task 2 step 3 (+ ordering test). ✓
+- robots.txt Disallow, sitemap unchanged, no nav link → Task 2 step 5 + tests; no nav edit anywhere. ✓
+- Tests with ≥1.3× ratio (two fs-based test files, small config/content delta) → Tasks 1–2. ✓
 - Original `deck/` app untouched → not modified by any task. ✓
 
 **Placeholder scan:** No TBD/TODO; every code/test block is complete; removal targets are anchored on exact unique strings.
 
-**Type consistency:** Route uses `express.static` + `path.join(__dirname, 'public', 'deck')`, matching existing `server.ts` imports (`express`, `path`, `__dirname`, `Request/Response/NextFunction`). Tests use `createApp()` exactly as `server.test.ts` does, with the same `pg` mock + `DATABASE_URL` guard.
+**Type consistency:** Netlify config keys match the existing `netlify.toml` shape (`[[redirects]]` with `from`/`to`/`status`; `[[headers]]` with `for` + `[headers.values]`) and the `public/_headers` two-line path/rule format. Tests are pure fs reads via vitest (present on `main`), needing no Express/supertest harness.
