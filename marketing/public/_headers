@@ -9,3 +9,7 @@
 # Same for root
 /
   Cache-Control: public, max-age=0, must-revalidate
+
+# Unlisted deck — keep out of search indexes
+/deck/*
+  X-Robots-Tag: noindex, nofollow
