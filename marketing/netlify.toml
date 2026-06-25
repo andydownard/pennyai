@@ -46,3 +46,8 @@
   for = "/deck/*"
   [headers.values]
     X-Robots-Tag = "noindex, nofollow"
+
+[[headers]]
+  for = "/deck"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"

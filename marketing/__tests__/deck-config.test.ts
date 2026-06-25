@@ -20,6 +20,14 @@ describe('netlify.toml — deck routing', () => {
     expect(toml()).toMatch(/for\s*=\s*"\/deck\/\*"/)
     expect(toml()).toMatch(/X-Robots-Tag\s*=\s*"noindex/)
   })
+  it('sets noindex header for the bare /deck path', () => {
+    const t = toml()
+    expect(t).toContain('for = "/deck"')
+    expect(t).toContain('X-Robots-Tag = "noindex, nofollow"')
+    // Verify there are two separate [[headers]] blocks for /deck and /deck/*
+    const matches = t.match(/for\s*=\s*"\/deck/g)
+    expect(matches).toHaveLength(2)
+  })
 })
 
 describe('public/_headers — deck noindex', () => {
@@ -27,6 +35,10 @@ describe('public/_headers — deck noindex', () => {
     const h = read('public/_headers')
     expect(h).toMatch(/\/deck\/\*/)
     expect(h).toMatch(/X-Robots-Tag:\s*noindex/)
+  })
+  it('covers the bare /deck path with noindex', () => {
+    const h = read('public/_headers')
+    expect(h).toMatch(/^\/deck\s*\n\s*X-Robots-Tag:\s*noindex/m)
   })
 })
 
