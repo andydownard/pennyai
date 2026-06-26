@@ -3,7 +3,9 @@ import { readFileSync, existsSync } from 'node:fs'
 import path from 'node:path'
 
 const ROOT = path.resolve(__dirname, '..')
-const deckPath = path.join(ROOT, 'public', 'deck', 'deck.html')
+// Served at the clean URL /deck via serve.json; the file must be named
+// index.html so `serve` resolves /deck/ to it natively.
+const deckPath = path.join(ROOT, 'public', 'deck', 'index.html')
 const html = () => readFileSync(deckPath, 'utf8')
 
 describe('public/deck/deck.html — assets present', () => {
