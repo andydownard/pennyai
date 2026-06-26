@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Penny — Your Family's Smart Shopping List</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/png" href="/deck/penny-avatar.png" />
+<link rel="apple-touch-icon" href="/deck/penny-avatar.png" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --bg-dark: #0F1A14; --bg-card: #111C16; --primary: #1A3A28;
+  --brand: #35644F; --accent: #A8D5B5; --text-light: #F0EDE5;
+  --text-muted: #7AA88A; --border: #2D4A35;
+  --font: 'Inter', system-ui, -apple-system, sans-serif;
+  --shadow-card: 0 4px 20px rgba(0,0,0,0.3);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg-dark);color:var(--text-light);font-family:var(--font);-webkit-font-smoothing:antialiased;overscroll-behavior:none}
+.deck{width:100%;height:100%;position:relative;overflow:hidden}
+.slide-container{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .5s cubic-bezier(.16,1,.3,1),transform .5s cubic-bezier(.16,1,.3,1);transform:translateX(40px) scale(.97)}
+.slide-container.active{opacity:1;pointer-events:auto;transform:translateX(0) scale(1);z-index:1}
+.slide{width:min(92vw,720px);max-height:90vh;overflow-y:auto;padding:clamp(16px,3vw,32px) clamp(16px,3vw,36px);scrollbar-width:none}
+.slide::-webkit-scrollbar{display:none}
+.slide h1{font-size:clamp(1.15rem,3.2vw,1.8rem);font-weight:800;color:var(--text-light);text-align:center;margin-bottom:8px;letter-spacing:-.02em;line-height:1.2}
+.sub{font-size:clamp(.62rem,1.8vw,.76rem);color:var(--text-muted);text-align:center;line-height:1.5}
+.muted{color:var(--text-muted);opacity:.6}
+.hero-stat{font-size:clamp(2rem,6vw,3.2rem);font-weight:900;color:var(--accent);line-height:1;font-variant-numeric:tabular-nums}
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:10px 14px;box-shadow:var(--shadow-card)}
+.nav-arrow{position:absolute;top:50%;transform:translateY(-50%);background:rgba(17,28,22,.7);border:1px solid var(--border);color:var(--accent);font-size:1.8rem;width:44px;height:44px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:10;transition:background .2s,transform .2s;backdrop-filter:blur(8px)}
+.nav-arrow:hover{background:rgba(45,74,53,.5);transform:translateY(-50%) scale(1.08)}
+.nav-arrow.left{left:12px}.nav-arrow.right{right:12px}
+.arc{position:fixed;top:0;left:0;right:0;display:flex;height:3px;z-index:20;gap:2px;padding:0 2px}
+.arc-s{flex:1;height:100%;background:rgba(45,74,53,.3);border:none;cursor:pointer;transition:background .3s;padding:0}
+.arc-s.active{background:var(--accent)}.arc-s.visited{background:var(--brand)}
+.foot{position:fixed;bottom:0;left:0;right:0;display:flex;align-items:center;justify-content:center;padding:6px 16px;z-index:10}
+.foot span{font-size:.55rem;color:var(--text-muted);opacity:.5;letter-spacing:.04em}
+.cite{font-size:.5rem;color:var(--text-muted);opacity:.55;margin-top:2px}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;background:var(--border);border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent);cursor:pointer;border:2px solid var(--bg-dark)}
+input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--accent);cursor:pointer;border:2px solid var(--bg-dark)}
+@keyframes pulse{0%,100%{opacity:.6;transform:translate(-50%,-50%) scale(1)}50%{opacity:1;transform:translate(-50%,-50%) scale(1.05)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeLeft{from{opacity:0;transform:translateX(-16px)}to{opacity:1;transform:translateX(0)}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes typeIn{from{width:0}to{width:100%}}
+@media(max-width:600px){.nav-arrow{display:none}.slide{width:96vw;padding:12px 14px}}
+.comp-logo{display:flex;flex-direction:column;align-items:center;gap:2px;position:absolute;transform:translate(-50%,-50%)}
+.comp-logo img,.comp-logo svg{border-radius:8px}
+.comp-logo .lbl{font-size:.58rem;font-weight:700;white-space:nowrap}
+.comp-logo .rev{font-size:.42rem;color:var(--text-muted)}
+/* Penny avatar */
+.penny-avatar{width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#35644F,#A8D5B5);display:flex;align-items:center;justify-content:center;font-size:1.8rem;box-shadow:0 4px 24px rgba(168,213,181,.3)}
+/* Typewriter */
+.typewriter{overflow:hidden;white-space:nowrap;border-right:2px solid var(--accent);display:inline-block;max-width:100%}
+</style>
+</head>
+<body>
+
+<!-- ═══ DECK ═══ -->
+<div class="deck" id="deck">
+<div class="arc" id="arc"></div>
+
+<!-- ═══ SLIDE 1: Title — Penny AI with typewriter ═══ -->
+<div class="slide-container" data-slide="0">
+<div class="slide" style="text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:70vh">
+  <div style="position:absolute;width:min(500px,80vw);height:min(500px,80vw);border-radius:50%;top:30%;left:50%;transform:translate(-50%,-50%);background:radial-gradient(circle,rgba(53,100,79,.15)0%,transparent 70%);animation:pulse 6s ease-in-out infinite;pointer-events:none"></div>
+  <!-- Penny avatar -->
+  <img src="/deck/penny-avatar.png" alt="Penny" style="width:160px;height:160px;border-radius:50%;border:2px solid var(--accent);box-shadow:0 4px 24px rgba(168,213,181,.3);object-fit:cover;margin-bottom:16px"/>
+  <div style="font-size:clamp(1.6rem,4vw,2.2rem);font-weight:900;color:var(--text-light);margin-bottom:16px">Penny</div>
+  <!-- Typewriter -->
+  <div style="font-size:clamp(.85rem,2.8vw,1.2rem);color:var(--accent);font-weight:500;height:1.6em;display:flex;align-items:center;justify-content:center">
+    <span class="typewriter" id="typewriter"></span>
+  </div>
+  <div style="margin-top:24px;display:flex;gap:16px;font-size:clamp(.65rem,2vw,.8rem);color:var(--text-muted);font-weight:600">
+    <span>Shared shopping list</span><span style="opacity:.3">|</span>
+    <span>Sponsored deals</span>
+  </div>
+  <div style="margin-top:28px;font-size:.65rem;color:var(--text-muted);opacity:.6">andy@groflo.io</div>
+</div>
+</div>
+
+<!-- ═══ SLIDE 2: Problem ═══ -->
+<div class="slide-container" data-slide="1">
+<div class="slide" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:70vh">
+  <h1 style="animation:fadeUp .8s ease .1s both;font-size:clamp(1.1rem,3vw,1.5rem);max-width:520px">"How did we end up with 3 loaves of bread and no cheese!?"</h1>
+  <!-- Big handwritten list image -->
+  <div style="margin:16px 0;animation:fadeUp .8s ease .3s both">
+    <img src="/deck/handwritten-list.png" alt="A messy handwritten grocery list" style="width:clamp(180px,40vw,280px);border-radius:14px;border:1px solid var(--border);box-shadow:0 8px 32px rgba(0,0,0,.5);transform:rotate(-2deg)"/>
+  </div>
+  <p style="font-size:clamp(.78rem,2.2vw,.92rem);color:var(--text-light);line-height:1.6;text-align:center;max-width:480px;margin-bottom:16px;animation:fadeUp .8s ease .5s both">
+    Families spend <strong style="color:#FFB74D">$700/mo</strong> on groceries. CPG brands spend <strong style="color:#E57373">$140</strong> of that on marketing to get them to pick their brand. Penny redirects that to the family.
+  </p>
+  <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:0;align-items:center;max-width:520px;width:100%;animation:fadeUp .8s ease .7s both">
+    <div style="padding:12px 16px;border-radius:10px 0 0 10px;background:rgba(168,213,181,.08);border:1px solid rgba(168,213,181,.2);border-right:none;text-align:center">
+      <div style="font-size:clamp(1.2rem,3vw,1.7rem);font-weight:900;color:var(--accent)">$1.2B/yr</div>
+      <div style="font-size:clamp(.58rem,1.6vw,.7rem);color:var(--text-muted);font-weight:600;margin-top:2px">Instacart Carrot Ads<br/><span style="opacity:.7">just 12% delivery</span></div>
+    </div>
+    <div style="font-size:1.2rem;color:var(--accent);padding:0 6px">→</div>
+    <div style="padding:12px 16px;border-radius:0 10px 10px 0;background:rgba(255,183,77,.08);border:1px solid rgba(255,183,77,.2);border-left:none;text-align:center">
+      <div style="font-size:clamp(1.2rem,3vw,1.7rem);font-weight:900;color:#FFB74D">$8.4B+</div>
+      <div style="font-size:clamp(.58rem,1.6vw,.7rem);color:var(--text-muted);font-weight:600;margin-top:2px">In-store is 7× delivery<br/><strong style="color:#FFB74D">no one owns this</strong></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══ SLIDE 3: Solution ═══ -->
+<div class="slide-container" data-slide="2">
+<div class="slide">
+  <h1 style="margin-bottom:4px">Just text Penny.</h1>
+  <p class="sub" style="max-width:480px;margin:0 auto 14px">She learns your family. She finds the deals. She keeps everyone in sync.</p>
+  <div style="display:flex;gap:16px;justify-content:center;align-items:flex-start;flex-wrap:wrap;max-width:640px;margin:0 auto">
+    <!-- iMessage conversation -->
+    <div style="flex:1;min-width:240px;max-width:320px;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;justify-content:flex-end;animation:fadeUp .5s ease .2s both">
+        <div style="max-width:85%;padding:10px 14px;border-radius:16px 16px 4px 16px;background:#1A7CF7;color:white;font-size:clamp(.68rem,1.8vw,.8rem);line-height:1.5">Cat food is running low. Add it and schedule my trip for tomorrow evening.</div>
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:6px;animation:fadeUp .5s ease .6s both">
+        <img src="/deck/penny-avatar.png" alt="Penny" style="width:24px;height:24px;border-radius:50%;flex-shrink:0;object-fit:cover"/>
+        <div style="max-width:88%;padding:10px 14px;border-radius:16px 16px 16px 4px;background:var(--bg-card);border:1px solid var(--border);font-size:clamp(.68rem,1.8vw,.8rem);color:var(--text-light);line-height:1.5">
+          Got it! I added a <strong style="color:var(--accent)">free sample</strong> of a new Purina flavor worth a try.<br/>Trip: tomorrow 6pm 🛒
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;animation:fadeUp .5s ease 1s both">
+        <div style="max-width:85%;padding:10px 14px;border-radius:16px 16px 4px 16px;background:#1A7CF7;color:white;font-size:clamp(.68rem,1.8vw,.8rem);line-height:1.5">Did James add anything?</div>
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:6px;animation:fadeUp .5s ease 1.4s both">
+        <img src="/deck/penny-avatar.png" alt="Penny" style="width:24px;height:24px;border-radius:50%;flex-shrink:0;object-fit:cover"/>
+        <div style="max-width:88%;padding:10px 14px;border-radius:16px 16px 16px 4px;background:var(--bg-card);border:1px solid var(--border);font-size:clamp(.68rem,1.8vw,.8rem);color:var(--text-light);line-height:1.5">
+          Yep — bread and eggs. No double-buys. You're set.
+        </div>
+      </div>
+    </div>
+    <!-- Phone mockup with list -->
+    <div style="flex:0 0 auto;animation:fadeUp .5s ease .4s both">
+      <div style="width:180px;border-radius:24px;background:#1a1a2e;border:2px solid #333;padding:8px 0;box-shadow:0 8px 32px rgba(0,0,0,.5);overflow:hidden">
+        <!-- Phone notch -->
+        <div style="width:60px;height:6px;background:#333;border-radius:3px;margin:0 auto 8px"></div>
+        <!-- App header -->
+        <div style="padding:4px 12px 6px;display:flex;align-items:center;gap:6px;border-bottom:1px solid #2a2a3e">
+          <img src="/deck/penny-avatar.png" alt="" style="width:20px;height:20px;border-radius:50%;object-fit:cover"/>
+          <span style="font-size:.6rem;font-weight:700;color:#e0e0e0">My List</span>
+          <span style="margin-left:auto;font-size:.45rem;color:#7AA88A;font-weight:600">Trip: Tomorrow 6pm</span>
+        </div>
+        <!-- List items -->
+        <div style="padding:6px 10px;display:flex;flex-direction:column;gap:4px">
+          <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:8px;background:rgba(168,213,181,.08);border:1px solid rgba(168,213,181,.15)">
+            <div style="width:14px;height:14px;border-radius:4px;border:1.5px solid var(--accent);flex-shrink:0"></div>
+            <div><div style="font-size:.55rem;font-weight:600;color:#e0e0e0">Cat food</div><div style="font-size:.4rem;color:#7AA88A">Sarah · just now</div></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:8px;background:rgba(129,199,132,.08);border:1px solid rgba(129,199,132,.15)">
+            <div style="width:14px;height:14px;border-radius:4px;border:1.5px solid #81C784;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:.45rem;color:#81C784">★</div>
+            <div><div style="font-size:.55rem;font-weight:600;color:#e0e0e0">Purina Flavor Mix <span style="color:#81C784;font-size:.4rem">FREE</span></div><div style="font-size:.4rem;color:#81C784">Penny · deal</div></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:8px;background:rgba(255,183,77,.06)">
+            <div style="width:14px;height:14px;border-radius:4px;border:1.5px solid #FFB74D;flex-shrink:0"></div>
+            <div><div style="font-size:.55rem;font-weight:600;color:#e0e0e0">Bread</div><div style="font-size:.4rem;color:#FFB74D">James · 2h ago</div></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:8px;background:rgba(255,183,77,.06)">
+            <div style="width:14px;height:14px;border-radius:4px;border:1.5px solid #FFB74D;flex-shrink:0"></div>
+            <div><div style="font-size:.55rem;font-weight:600;color:#e0e0e0">Eggs</div><div style="font-size:.4rem;color:#FFB74D">James · 2h ago</div></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:8px;background:rgba(168,213,181,.04)">
+            <div style="width:14px;height:14px;border-radius:4px;border:1.5px solid #555;flex-shrink:0"></div>
+            <div><div style="font-size:.55rem;font-weight:600;color:#e0e0e0">Milk <span style="color:var(--accent);font-size:.4rem">$1.50 off</span></div><div style="font-size:.4rem;color:var(--text-muted)">Sarah · yesterday</div></div>
+          </div>
+        </div>
+        <!-- Home indicator -->
+        <div style="width:40px;height:4px;background:#555;border-radius:2px;margin:8px auto 2px"></div>
+      </div>
+    </div>
+  </div>
+  <!-- Takeaway -->
+  <div style="margin-top:24px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;animation:fadeUp .5s ease 1.8s both">
+    <div style="padding:5px 14px;border-radius:100px;background:rgba(168,213,181,.1);border:1px solid rgba(168,213,181,.2);font-size:clamp(.6rem,1.7vw,.72rem);font-weight:600;color:var(--accent)">Learns your habits</div>
+    <div style="padding:5px 14px;border-radius:100px;background:rgba(129,199,132,.1);border:1px solid rgba(129,199,132,.2);font-size:clamp(.6rem,1.7vw,.72rem);font-weight:600;color:#81C784">Surfaces free products</div>
+    <div style="padding:5px 14px;border-radius:100px;background:rgba(255,183,77,.1);border:1px solid rgba(255,183,77,.2);font-size:clamp(.6rem,1.7vw,.72rem);font-weight:600;color:#FFB74D">Coordinates the family</div>
+  </div>
+  <div style="margin-top:12px;text-align:center;animation:fadeUp .5s ease 2s both">
+    <a href="https://app.groflo.io/" target="_blank" style="display:inline-block;padding:8px 24px;border-radius:100px;background:var(--brand);color:white;font-size:clamp(.7rem,1.8vw,.85rem);font-weight:700;text-decoration:none;letter-spacing:.02em;box-shadow:0 2px 12px rgba(53,100,79,.4)">Try Penny →</a>
+  </div>
+</div>
+</div>
+
+<!-- ═══ SLIDE 4: The Moat ═══ -->
+<div class="slide-container" data-slide="3">
+<div class="slide" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:70vh">
+  <h1 style="margin-bottom:6px">The moat</h1>
+  <p class="sub" style="margin-bottom:20px;max-width:440px">In-person shoppers deserve the same magic as Instacart. You can't text Alexa. You can't get deals from Google Keep.</p>
+  <!-- Flywheel SVG — broken circle with 3 nodes -->
+  <div style="position:relative;width:clamp(260px,55vw,360px);aspect-ratio:1;margin:0 auto">
+    <svg viewBox="-10 -20 420 420" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%">
+      <defs>
+        <clipPath id="pennyClip"><circle cx="200" cy="200" r="42"/></clipPath>
+        <marker id="arrowG" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0,0 10,3.5 0,7" fill="#A8D5B5"/></marker>
+        <marker id="arrowO" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0,0 10,3.5 0,7" fill="#FFB74D"/></marker>
+        <marker id="arrowP" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0,0 10,3.5 0,7" fill="#CE93D8"/></marker>
+      </defs>
+      <!-- Circle arcs: r=150, center=(200,200), nodes at 270°/30°/150° with 36° gaps -->
+      <!-- Arc: Top→BR (288° to 12° clockwise) -->
+      <path d="M246,57 A150,150 0 0,1 347,231" stroke="var(--accent)" stroke-width="2.5" fill="none" opacity=".35" marker-end="url(#arrowO)"/>
+      <!-- Arc: BR→BL (48° to 132° clockwise) -->
+      <path d="M300,311 A150,150 0 0,1 100,311" stroke="var(--accent)" stroke-width="2.5" fill="none" opacity=".35" marker-end="url(#arrowP)"/>
+      <!-- Arc: BL→Top (168° to 252° clockwise) -->
+      <path d="M53,231 A150,150 0 0,1 154,57" stroke="var(--accent)" stroke-width="2.5" fill="none" opacity=".35" marker-end="url(#arrowG)"/>
+      <!-- Center: Penny -->
+      <circle cx="200" cy="200" r="46" fill="#111C16" stroke="#35644F" stroke-width="2.5"/>
+      <image href="/deck/penny-avatar.png" x="158" y="158" width="84" height="84" clip-path="url(#pennyClip)"/>
+      <!-- Node: Smarter Suggestions (top, 270°) -->
+      <circle cx="200" cy="50" r="56" fill="#111C16" stroke="#A8D5B5" stroke-width="2.5"/>
+      <text x="200" y="43" text-anchor="middle" fill="#A8D5B5" font-family="Inter,sans-serif" font-weight="800" font-size="14">Smarter</text>
+      <text x="200" y="61" text-anchor="middle" fill="#A8D5B5" font-family="Inter,sans-serif" font-weight="800" font-size="14">Suggestions</text>
+      <!-- Node: Higher Retention (bottom-right, 30°) -->
+      <circle cx="330" cy="275" r="56" fill="#111C16" stroke="#FFB74D" stroke-width="2.5"/>
+      <text x="330" y="268" text-anchor="middle" fill="#FFB74D" font-family="Inter,sans-serif" font-weight="800" font-size="14">Higher</text>
+      <text x="330" y="286" text-anchor="middle" fill="#FFB74D" font-family="Inter,sans-serif" font-weight="800" font-size="14">Retention</text>
+      <!-- Node: More Data (bottom-left, 150°) -->
+      <circle cx="70" cy="275" r="56" fill="#111C16" stroke="#CE93D8" stroke-width="2.5"/>
+      <text x="70" y="268" text-anchor="middle" fill="#CE93D8" font-family="Inter,sans-serif" font-weight="800" font-size="14">More</text>
+      <text x="70" y="286" text-anchor="middle" fill="#CE93D8" font-family="Inter,sans-serif" font-weight="800" font-size="14">Data</text>
+    </svg>
+  </div>
+</div>
+</div>
+
+<!-- ═══ SLIDE 5: Why Now ═══ -->
+<div class="slide-container" data-slide="4">
+<div class="slide" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:70vh">
+  <h1 style="margin-bottom:6px">Why now?</h1>
+  <p class="sub" style="max-width:440px;margin:0 auto 24px">LLMs just made this possible — and affordable.</p>
+  <!-- Before / After visual -->
+  <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:0;align-items:center;max-width:520px;width:100%;margin-bottom:20px">
+    <!-- Before -->
+    <div style="text-align:center;padding:16px 12px;border-radius:12px;background:rgba(229,115,115,.06);border:1px solid rgba(229,115,115,.2)">
+      <div style="font-size:clamp(.6rem,1.6vw,.7rem);font-weight:700;color:#E57373;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Before</div>
+      <div style="font-size:clamp(1.6rem,4vw,2.2rem);margin-bottom:6px">😩</div>
+      <div style="font-size:clamp(.72rem,2vw,.85rem);font-weight:700;color:var(--text-light);margin-bottom:4px">Miserable</div>
+      <div style="font-size:clamp(.55rem,1.5vw,.65rem);color:var(--text-muted);line-height:1.5">Scribbled lists<br/>Duplicate trips<br/>Missed deals<br/>Family arguments</div>
+    </div>
+    <!-- Arrow -->
+    <div style="padding:0 12px;font-size:1.6rem;color:var(--accent)">→</div>
+    <!-- After -->
+    <div style="text-align:center;padding:16px 12px;border-radius:12px;background:rgba(168,213,181,.06);border:1px solid rgba(168,213,181,.2)">
+      <div style="font-size:clamp(.6rem,1.6vw,.7rem);font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">With Penny</div>
+      <div style="font-size:clamp(1.6rem,4vw,2.2rem);margin-bottom:6px">✨</div>
+      <div style="font-size:clamp(.72rem,2vw,.85rem);font-weight:700;color:var(--text-light);margin-bottom:4px">Magical</div>
+      <div style="font-size:clamp(.55rem,1.5vw,.65rem);color:var(--text-muted);line-height:1.5">Text a photo<br/>Penny coordinates<br/>Deals found for you<br/>Family in sync</div>
+    </div>
+  </div>
+  <!-- Why it takes a 3rd party -->
+  <div style="max-width:480px;display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:32px;height:32px;border-radius:8px;background:rgba(168,213,181,.1);display:flex;align-items:center;justify-content:center;font-size:.85rem;flex-shrink:0">🧠</div>
+      <div style="font-size:clamp(.68rem,1.9vw,.8rem);color:var(--text-muted)"><strong style="color:var(--text-light)">LLMs are 100x cheaper</strong> than 2 years ago — an AI agent per family is now viable</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:32px;height:32px;border-radius:8px;background:rgba(168,213,181,.1);display:flex;align-items:center;justify-content:center;font-size:.85rem;flex-shrink:0">🔗</div>
+      <div style="font-size:clamp(.68rem,1.9vw,.8rem);color:var(--text-muted)"><strong style="color:var(--text-light)">No retailer can do this alone</strong> — it takes a 3rd-party aggregator across brands and stores</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:32px;height:32px;border-radius:8px;background:rgba(168,213,181,.1);display:flex;align-items:center;justify-content:center;font-size:.85rem;flex-shrink:0">📱</div>
+      <div style="font-size:clamp(.68rem,1.9vw,.8rem);color:var(--text-muted)"><strong style="color:var(--text-light)">SMS means zero friction</strong> — no app download, works on any phone, every family member can text</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══ SLIDE 6: Competition ═══ -->
+<div class="slide-container" data-slide="5">
+<div class="slide" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:70vh">
+  <h1 style="margin-bottom:12px">The in-store Instacart</h1>
+  <p class="sub" style="max-width:480px;margin:0 auto 12px">Instacart proved data-driven targeting works for delivery. Penny does the same for the 85% of groceries still bought in-store — and adds the shared list.</p>
+  <!-- Magic Quadrant -->
+  <div style="position:relative;width:min(90vw,520px);aspect-ratio:1.15;margin:0 auto">
+    <!-- X-axis labels (centered under each half) -->
+    <div style="position:absolute;left:50px;right:0;bottom:-4px;display:flex">
+      <div style="flex:1;text-align:center;font-size:clamp(.55rem,1.4vw,.65rem);font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Delivery</div>
+      <div style="flex:1;text-align:center;font-size:clamp(.55rem,1.4vw,.65rem);font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">In-store</div>
+    </div>
+    <!-- Y-axis labels (vertically centered in each half) -->
+    <div style="position:absolute;left:0;top:0;bottom:20px;width:44px;display:flex;flex-direction:column">
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;font-size:clamp(.52rem,1.3vw,.62rem);font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;line-height:1.2;text-align:center">Shared<br/>list</div>
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;font-size:clamp(.52rem,1.3vw,.62rem);font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;line-height:1.2;text-align:center">No<br/>list</div>
+    </div>
+    <!-- Grid -->
+    <div style="position:absolute;left:50px;right:0;top:0;bottom:20px">
+      <!-- Crosshair -->
+      <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--border)"></div>
+      <div style="position:absolute;top:50%;left:0;right:0;height:1px;background:var(--border)"></div>
+      <!-- Upper-right: Penny (shared list + in-store) -->
+      <div style="position:absolute;right:8%;top:10%;text-align:center">
+        <img src="/deck/penny-avatar.png" alt="Penny" style="width:64px;height:64px;border-radius:50%;border:3px solid var(--accent);object-fit:cover;box-shadow:0 0 24px rgba(168,213,181,.4)"/>
+        <div style="font-size:clamp(.85rem,2.2vw,1rem);font-weight:800;color:var(--accent);margin-top:4px">Penny</div>
+        <div style="font-size:clamp(.5rem,1.4vw,.58rem);color:var(--accent);font-weight:600">List + data-driven deals</div>
+      </div>
+      <!-- Upper-left: Instacart (shared list + delivery) -->
+      <div style="position:absolute;left:6%;top:14%;text-align:center">
+        <div style="width:48px;height:48px;border-radius:12px;background:#FFF;display:flex;align-items:center;justify-content:center;margin:0 auto;box-shadow:0 2px 8px rgba(0,0,0,.2)">
+          <svg width="28" height="28" viewBox="0 0 24 24"><circle cx="12" cy="12" r="12" fill="#43B02A"/><path d="M12 4c-1.5 0-2.7.8-3.2 2H7.5C6.1 6 5 7.1 5 8.5v.7C5 10.8 6.1 12 7.5 12h.3l.7 5.2c.2 1 1 1.8 2 1.8h3c1 0 1.8-.8 2-1.8l.7-5.2h.3c1.4 0 2.5-1.2 2.5-2.8v-.7C19 7.1 17.9 6 16.5 6h-1.3c-.5-1.2-1.7-2-3.2-2z" fill="#FFF"/></svg>
+        </div>
+        <div style="font-size:clamp(.7rem,1.8vw,.8rem);font-weight:700;color:#43B02A;margin-top:4px">Instacart</div>
+        <div style="font-size:clamp(.48rem,1.3vw,.55rem);color:var(--text-muted)">$1.2B/yr ads · delivery</div>
+      </div>
+      <!-- Lower-right: Ibotta (no list + in-store) -->
+      <div style="position:absolute;right:12%;bottom:12%;text-align:center">
+        <div style="width:48px;height:48px;border-radius:12px;background:#E91E63;display:flex;align-items:center;justify-content:center;margin:0 auto;box-shadow:0 2px 8px rgba(0,0,0,.2)">
+          <span style="font-size:18px;font-weight:900;color:#FFF">ib</span>
+        </div>
+        <div style="font-size:clamp(.7rem,1.8vw,.8rem);font-weight:700;color:#E91E63;margin-top:4px">Ibotta</div>
+        <div style="font-size:clamp(.48rem,1.3vw,.55rem);color:var(--text-muted)">Post-purchase cashback</div>
+      </div>
+      <!-- Lower-left: DoorDash (no list + delivery) -->
+      <div style="position:absolute;left:8%;bottom:10%;text-align:center">
+        <div style="width:48px;height:48px;border-radius:12px;background:#FF3008;display:flex;align-items:center;justify-content:center;margin:0 auto;box-shadow:0 2px 8px rgba(0,0,0,.2)">
+          <span style="font-size:16px;font-weight:900;color:#FFF">DD</span>
+        </div>
+        <div style="font-size:clamp(.7rem,1.8vw,.8rem);font-weight:700;color:#FF3008;margin-top:4px">DoorDash</div>
+        <div style="font-size:clamp(.48rem,1.3vw,.55rem);color:var(--text-muted)">$1B+ ads · delivery</div>
+      </div>
+    </div>
+  </div>
+  <div style="margin-top:36px;padding:6px 16px;border-radius:8px;background:rgba(168,213,181,.06);border:1px solid rgba(168,213,181,.15);text-align:center;max-width:480px">
+    <div style="font-size:clamp(.68rem,1.8vw,.78rem);font-weight:700;color:var(--accent)">Penny solves the list and the deal — data-driven targeting for in-store, like Instacart does online.</div>
+  </div>
+</div>
+</div>
+
+<!-- ═══ SLIDE 7: Unit Economics ═══ -->
+<div class="slide-container" data-slide="6">
+<div class="slide">
+  <h1>Where the money comes from</h1>
+  <p class="sub" style="max-width:500px;margin:0 auto 12px">Families spend $700/mo on groceries. CPG brands spend $140 of that on marketing. Penny helps brands give that money directly to consumers instead.</p>
+  <div style="display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+    <div style="text-align:center">
+      <div style="font-size:.55rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Brand marketing spend</div>
+      <div style="font-size:clamp(1.4rem,3.5vw,2rem);font-weight:900;color:#FFB74D">$140</div>
+      <div style="font-size:.5rem;color:var(--text-muted)">per household / mo</div>
+    </div>
+    <div style="font-size:clamp(1.2rem,3vw,1.6rem);font-weight:900;color:var(--border)">=</div>
+    <div style="text-align:center">
+      <div style="font-size:.55rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Family saves</div>
+      <div style="font-size:clamp(1.4rem,3.5vw,2rem);font-weight:900;color:#81C784">$100</div>
+      <div style="font-size:.5rem;color:var(--text-muted)">direct to consumer</div>
+    </div>
+    <div style="font-size:clamp(1.2rem,3vw,1.6rem);font-weight:900;color:var(--border)">+</div>
+    <div style="text-align:center">
+      <div style="font-size:.55rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Penny keeps</div>
+      <div style="font-size:clamp(1.4rem,3.5vw,2rem);font-weight:900;color:var(--accent)">$40</div>
+      <div style="font-size:.5rem;color:var(--text-muted)">per household / mo</div>
+    </div>
+  </div>
+  <div style="padding:6px 16px;border-radius:8px;background:rgba(168,213,181,.06);border:1px solid rgba(168,213,181,.15);text-align:center;max-width:480px;margin:0 auto">
+    <div style="font-size:clamp(.62rem,1.7vw,.72rem);font-weight:700;color:var(--accent)">Penny shares 30% with consumers who introduce friends — $0 CAC growth.</div>
+  </div>
+</div>
+</div>
+
+<!-- ═══ SLIDE 8: Growth Engines ═══ -->
+<div class="slide-container" data-slide="7">
+<div class="slide" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:70vh">
+  <h1 style="margin-bottom:6px">The growth loop</h1>
+  <p class="sub" style="max-width:440px;margin:0 auto 16px">Both sides of the marketplace fuel each other. No paid acquisition required.</p>
+  <!-- Loop visual -->
+  <div style="position:relative;width:clamp(280px,60vw,400px);aspect-ratio:1;margin:0 auto">
+    <svg viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%">
+      <defs>
+        <marker id="loopArr" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0,0 10,3.5 0,7" fill="#A8D5B5"/></marker>
+      </defs>
+      <!-- Circular arc arrows connecting 4 nodes at 0°, 90°, 180°, 270° (top, right, bottom, left) -->
+      <!-- r=140, center=200,200 -->
+      <!-- Top→Right arc -->
+      <path d="M 230 64 A 140 140 0 0 1 332 170" stroke="#A8D5B5" stroke-width="2.5" marker-end="url(#loopArr)"/>
+      <!-- Right→Bottom arc -->
+      <path d="M 332 230 A 140 140 0 0 1 230 336" stroke="#A8D5B5" stroke-width="2.5" marker-end="url(#loopArr)"/>
+      <!-- Bottom→Left arc -->
+      <path d="M 170 336 A 140 140 0 0 1 68 230" stroke="#A8D5B5" stroke-width="2.5" marker-end="url(#loopArr)"/>
+      <!-- Left→Top arc -->
+      <path d="M 68 170 A 140 140 0 0 1 170 64" stroke="#A8D5B5" stroke-width="2.5" marker-end="url(#loopArr)"/>
+    </svg>
+    <!-- Node: Top — Consumers add items -->
+    <div style="position:absolute;top:0;left:50%;transform:translateX(-50%);text-align:center;width:140px">
+      <div style="width:52px;height:52px;border-radius:50%;background:rgba(168,213,181,.15);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;margin:0 auto;font-size:1.2rem">🛒</div>
+      <div style="font-size:clamp(.6rem,1.6vw,.72rem);font-weight:700;color:var(--text-light);margin-top:4px">Consumers add items</div>
+    </div>
+    <!-- Node: Right — Penny finds deals -->
+    <div style="position:absolute;right:-10px;top:50%;transform:translateY(-50%);text-align:center;width:140px">
+      <div style="width:52px;height:52px;border-radius:50%;background:rgba(168,213,181,.15);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;margin:0 auto;overflow:hidden">
+        <img src="/deck/penny-avatar.png" alt="Penny" style="width:48px;height:48px;object-fit:cover;border-radius:50%"/>
+      </div>
+      <div style="font-size:clamp(.6rem,1.6vw,.72rem);font-weight:700;color:var(--text-light);margin-top:4px">Penny gets them deals</div>
+    </div>
+    <!-- Node: Bottom — Brands share deals -->
+    <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);text-align:center;width:150px">
+      <div style="font-size:clamp(.6rem,1.6vw,.72rem);font-weight:700;color:var(--text-light);margin-bottom:4px">Brands share Penny deals via CRM &amp; marketing</div>
+      <div style="width:52px;height:52px;border-radius:50%;background:rgba(255,183,77,.15);border:2px solid #FFB74D;display:flex;align-items:center;justify-content:center;margin:0 auto;font-size:1.2rem">🏷️</div>
+    </div>
+    <!-- Node: Left — New consumers join -->
+    <div style="position:absolute;left:-10px;top:50%;transform:translateY(-50%);text-align:center;width:140px">
+      <div style="width:52px;height:52px;border-radius:50%;background:rgba(129,199,132,.15);border:2px solid #81C784;display:flex;align-items:center;justify-content:center;margin:0 auto;font-size:1.2rem">👥</div>
+      <div style="font-size:clamp(.6rem,1.6vw,.72rem);font-weight:700;color:var(--text-light);margin-top:4px">New consumers join</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══ SLIDE 9: Projections ═══ -->
+<div class="slide-container" data-slide="8">
+<div class="slide">
+  <h1 id="projTitle">Traction</h1>
+  <p class="sub" style="max-width:480px;margin:0 auto 6px">The growth loop in action. Drag sliders to model scenarios.</p>
+  <div class="card" style="padding:8px 12px;margin-bottom:6px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 14px">
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:2px"><label style="font-size:.5rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">Starting HH</label><span id="sHHv" style="font-size:.65rem;font-weight:800;color:var(--accent)">50K</span></div><input type="range" id="sHH" min="5000" max="50000" step="1000" value="50000" oninput="recalc()"></div>
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:2px"><label style="font-size:.5rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">Monthly Growth</label><span id="sGv" style="font-size:.65rem;font-weight:800;color:var(--accent)">25%</span></div><input type="range" id="sG" min="5" max="25" step="1" value="25" oninput="recalc()"></div>
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:2px"><label style="font-size:.5rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">Revenue / HH / mo</label><span id="sOv" style="font-size:.65rem;font-weight:800;color:var(--accent)">$80</span></div><input type="range" id="sO" min="10" max="80" step="5" value="80" oninput="recalc()"></div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px">
+    <div class="card" style="padding:7px 9px;text-align:center"><div style="font-size:.5rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Year 1</div><div id="y1h" style="font-size:clamp(.9rem,2.4vw,1.1rem);font-weight:900;color:var(--text-light)">—</div><div style="font-size:.5rem;color:var(--text-muted);margin-bottom:3px">households</div><div id="y1r" style="font-size:clamp(.8rem,1.8vw,.95rem);font-weight:800;color:#81C784">—</div><div style="font-size:.45rem;color:var(--text-muted)">monthly revenue</div></div>
+    <div class="card" style="padding:7px 9px;text-align:center"><div style="font-size:.5rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Year 2</div><div id="y2h" style="font-size:clamp(.9rem,2.4vw,1.1rem);font-weight:900;color:var(--text-light)">—</div><div style="font-size:.5rem;color:var(--text-muted);margin-bottom:3px">households</div><div id="y2r" style="font-size:clamp(.8rem,1.8vw,.95rem);font-weight:800;color:#81C784">—</div><div style="font-size:.45rem;color:var(--text-muted)">monthly revenue</div></div>
+    <div style="background:rgba(168,213,181,.08);border:1px solid var(--accent);border-radius:10px;padding:7px 9px;text-align:center"><div style="font-size:.5rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Year 3</div><div id="y3h" style="font-size:clamp(.9rem,2.4vw,1.1rem);font-weight:900;color:var(--accent)">—</div><div style="font-size:.5rem;color:var(--text-muted);margin-bottom:3px">households</div><div id="y3r" style="font-size:clamp(.8rem,1.8vw,.95rem);font-weight:800;color:var(--accent)">—</div><div style="font-size:.45rem;color:var(--text-muted)">monthly revenue</div></div>
+  </div>
+  <!-- K-factor & platform metrics -->
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-top:6px">
+    <div class="card" style="padding:6px 8px;text-align:center">
+      <div style="font-size:.45rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Consumers on platform</div>
+      <div id="kConsumers" style="font-size:clamp(.8rem,2vw,1rem);font-weight:900;color:var(--accent)">—</div>
+    </div>
+    <div class="card" style="padding:6px 8px;text-align:center">
+      <div style="font-size:.45rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Brands on platform</div>
+      <div id="kBrands" style="font-size:clamp(.8rem,2vw,1rem);font-weight:900;color:#FFB74D">—</div>
+    </div>
+    <div class="card" style="padding:6px 8px;text-align:center">
+      <div style="font-size:.45rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">K-factor</div>
+      <div id="kFactor" style="font-size:clamp(.8rem,2vw,1rem);font-weight:900;color:#81C784">—</div>
+      <div style="font-size:.4rem;color:var(--text-muted)">consumer → consumer</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══ SLIDE 10: Financing ═══ -->
+<div class="slide-container" data-slide="9">
+<div class="slide" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:70vh">
+  <h1 style="margin-bottom:12px">No financing needed.</h1>
+  <p style="font-size:clamp(.85rem,2.4vw,1.1rem);color:var(--text-light);line-height:1.7;text-align:center;max-width:460px;margin-bottom:24px">
+    We're profitable from day one. Every coupon redeemed generates revenue.<br/><br/>
+    <span style="color:var(--accent);font-weight:700">You can share in the profits</span> by using Penny and sharing with your friends.
+  </p>
+  <a href="https://app.groflo.io/" target="_blank" style="display:inline-block;padding:12px 32px;border-radius:100px;background:var(--brand);color:white;font-size:clamp(.8rem,2vw,1rem);font-weight:700;text-decoration:none;letter-spacing:.02em;box-shadow:0 4px 20px rgba(53,100,79,.4)">Start saving with Penny →</a>
+</div>
+</div>
+
+<!-- Nav -->
+<button class="nav-arrow left" id="pBtn" onclick="prev()">&#8249;</button>
+<button class="nav-arrow right" id="nBtn" onclick="next()">&#8250;</button>
+</div>
+
+<!-- Footer (always visible) -->
+<div class="foot"><span style="display:inline-flex;align-items:center;gap:4px">powered by <img src="/deck/logo.svg" alt="Groflo" style="height:12px;opacity:.6;vertical-align:middle"/></span></div>
+
+
+<script>
+// ─── Slide Navigation ───
+const T=10;let c=0;
+const TITLES=['Title','Problem','Solution','Data Flywheel','Why Now','Competition','Unit Economics','Growth Loop','Traction','Financing'];
+
+function render(){
+  document.querySelectorAll('.slide-container').forEach((e,i)=>e.classList.toggle('active',i===c));
+  document.getElementById('pBtn').style.display=c>0?'':'none';
+  document.getElementById('nBtn').style.display=c<T-1?'':'none';
+  const a=document.getElementById('arc');a.innerHTML='';
+  for(let i=0;i<T;i++){const s=document.createElement('button');s.className='arc-s'+(i===c?' active':'')+(i<c?' visited':'');s.onclick=()=>goTo(i);a.appendChild(s)}
+  if(c===8)recalc();
+}
+function goTo(i,fromPop){if(i>=0&&i<T){c=i;if(!fromPop)history.pushState({slide:c},'','#'+(c+1));render()}}
+function next(){goTo(c+1)}function prev(){goTo(c-1)}
+window.addEventListener('popstate',e=>{if(e.state&&typeof e.state.slide==='number')goTo(e.state.slide,true);else{const h=parseInt(location.hash.replace('#',''));if(h>=1&&h<=T)goTo(h-1,true)}});
+(function(){const h=parseInt(location.hash.replace('#',''));if(h>=1&&h<=T){c=h-1}history.replaceState({slide:c},'','#'+(c+1))})();
+document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();next()}if(e.key==='ArrowLeft'){e.preventDefault();prev()}});
+let sx=0,sy=0;
+document.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY},{passive:true});
+document.addEventListener('touchend',e=>{const dx=sx-e.changedTouches[0].clientX,dy=sy-e.changedTouches[0].clientY;if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)*1.5){dx>0?next():prev()}},{passive:true});
+
+// ─── Typewriter (types once, then stays) ───
+function typewriter(){
+  const phrase="Saving families $100/month on groceries.";
+  let ci=0;
+  const el=document.getElementById('typewriter');
+  if(!el)return;
+  function tick(){
+    ci++;el.textContent=phrase.slice(0,ci);
+    if(ci===phrase.length){el.style.borderRight='none';return}
+    setTimeout(tick,60);
+  }
+  setTimeout(tick,800);
+}
+
+// ─── Projection Calculator ───
+function fmt(n){return n>=1e6?'$'+(n/1e6).toFixed(1)+'M':n>=1e3?'$'+Math.round(n/1e3)+'K':'$'+n}
+function fN(n){return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?Math.round(n/1e3)+'K':''+n}
+
+function recalc(){
+  const hh0=+document.getElementById('sHH').value,g=+document.getElementById('sG').value,
+        o=+document.getElementById('sO').value;
+  document.getElementById('sHHv').textContent=fN(hh0);
+  document.getElementById('sGv').textContent=g+'%';
+  document.getElementById('sOv').textContent='$'+o;
+  const d=[];let hh=hh0;const ms={};
+  for(let m=1;m<=36;m++){
+    if(m>1)hh=Math.round(hh*(1+g/100));
+    const rev=Math.round(hh*o);d.push(rev);
+    if(m===12)ms.y1={hh,rev};if(m===24)ms.y2={hh,rev};if(m===36)ms.y3={hh,rev};
+  }
+  document.getElementById('y1h').textContent=fN(ms.y1.hh);document.getElementById('y1r').textContent=fmt(ms.y1.rev)+'/mo';
+  document.getElementById('y2h').textContent=fN(ms.y2.hh);document.getElementById('y2r').textContent=fmt(ms.y2.rev)+'/mo';
+  document.getElementById('y3h').textContent=fN(ms.y3.hh);document.getElementById('y3r').textContent=fmt(ms.y3.rev)+'/mo';
+  document.getElementById('projTitle').textContent=fN(hh0)+' households → '+fN(ms.y3.hh)+' in 3 years';
+  // Platform metrics: ~2.5 consumers per HH, brands scale with log of consumers
+  const consumers=Math.round(ms.y3.hh*2.5);
+  const brands=Math.min(5000,Math.round(50+ms.y3.hh/200));
+  // K-factor: consumer→consumer viral coefficient from growth rate
+  const kC2C=Math.max(0,(1+g/100)-1).toFixed(2);
+  document.getElementById('kConsumers').textContent=fN(consumers);
+  document.getElementById('kBrands').textContent=fN(brands);
+  document.getElementById('kFactor').textContent=kC2C>1?kC2C+'x':kC2C+'x';
+}
+
+render();typewriter();
+setTimeout(recalc,100);window.addEventListener('resize',recalc);
+</script>
+</body>
+</html>

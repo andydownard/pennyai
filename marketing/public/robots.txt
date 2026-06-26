@@ -1,3 +1,4 @@
 User-agent: *
 Allow: /
+Disallow: /deck
 Sitemap: https://groflo.io/sitemap.xml

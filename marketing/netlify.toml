@@ -11,6 +11,12 @@
   to = "/.netlify/functions/:splat"
   status = 200
 
+# Unlisted deck: clean URL → deck file (must be before the SPA catch-all)
+[[redirects]]
+  from = "/deck"
+  to = "/deck/deck.html"
+  status = 200
+
 # SPA client-side routing: serve index.html for all routes
 [[redirects]]
   from = "/*"
@@ -34,3 +40,14 @@
   for = "/"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
+
+# Keep the unlisted deck out of search indexes
+[[headers]]
+  for = "/deck/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+
+[[headers]]
+  for = "/deck"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
