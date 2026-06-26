@@ -5,40 +5,57 @@ import path from 'node:path'
 const ROOT = path.resolve(__dirname, '..')
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), 'utf8')
 
-describe('netlify.toml — deck routing', () => {
-  const toml = () => read('netlify.toml')
-  it('redirects the clean /deck URL to the deck file', () => {
-    expect(toml()).toMatch(/from\s*=\s*"\/deck"/)
-    expect(toml()).toMatch(/to\s*=\s*"\/deck\/deck\.html"/)
+// The marketing site is served on Railway by `serve` (the `serve` npm package),
+// NOT Netlify. `serve --single` rewrites EVERY non-file path to the SPA
+// index.html, and a `**` catch-all rewrite re-catches the rewritten /deck. So
+// the deck is routed by enumerating the known SPA routes in public/serve.json
+// (no catch-all) plus an explicit /deck carve-out, and dropping `-s` from the
+// start command. These tests lock that contract in.
+
+type Rewrite = { source: string; destination: string }
+type HeaderRule = { source: string; headers: { key: string; value: string }[] }
+
+describe('public/serve.json — deck routing under `serve`', () => {
+  const cfg = () => JSON.parse(read('public/serve.json')) as { rewrites: Rewrite[]; headers: HeaderRule[] }
+
+  it('rewrites the clean /deck URL to the deck file', () => {
+    const r = cfg().rewrites.find((x) => x.source === '/deck')
+    expect(r?.destination).toBe('/deck/index.html')
   })
-  it('puts the /deck redirect before the SPA catch-all', () => {
-    const t = toml()
-    expect(t.indexOf('"/deck"')).toBeGreaterThan(-1)
-    expect(t.indexOf('"/deck"')).toBeLessThan(t.indexOf('"/*"'))
+
+  it('rewrites /deck/ to the deck file too', () => {
+    const r = cfg().rewrites.find((x) => x.source === '/deck/')
+    expect(r?.destination).toBe('/deck/index.html')
   })
-  it('sets a noindex X-Robots-Tag header for /deck/*', () => {
-    expect(toml()).toMatch(/for\s*=\s*"\/deck\/\*"/)
-    expect(toml()).toMatch(/X-Robots-Tag\s*=\s*"noindex/)
+
+  it('routes every known SPA path to index.html so client-side routing works', () => {
+    const rewrites = cfg().rewrites
+    for (const p of ['/for-brands', '/pricing', '/campaign/signup', '/about', '/privacy', '/terms']) {
+      expect(rewrites.find((x) => x.source === p)?.destination).toBe('/index.html')
+    }
   })
-  it('sets noindex header for the bare /deck path', () => {
-    const t = toml()
-    expect(t).toContain('for = "/deck"')
-    expect(t).toContain('X-Robots-Tag = "noindex, nofollow"')
-    // Verify there are two separate [[headers]] blocks for /deck and /deck/*
-    const matches = t.match(/for\s*=\s*"\/deck/g)
-    expect(matches).toHaveLength(2)
+
+  it('has NO catch-all rewrite (a ** rule would cumulatively re-catch /deck and break it)', () => {
+    const sources = cfg().rewrites.map((x) => x.source)
+    expect(sources).not.toContain('**')
+    expect(sources).not.toContain('/**')
+    expect(sources).not.toContain('/*')
+  })
+
+  it('sets a noindex X-Robots-Tag header for the deck', () => {
+    const hdr = cfg().headers.find((h) => h.source.includes('deck'))
+    expect(hdr).toBeTruthy()
+    const flat = JSON.stringify(hdr!.headers).toLowerCase()
+    expect(flat).toContain('x-robots-tag')
+    expect(flat).toContain('noindex')
   })
 })
 
-describe('public/_headers — deck noindex', () => {
-  it('adds an X-Robots-Tag noindex rule for /deck/*', () => {
-    const h = read('public/_headers')
-    expect(h).toMatch(/\/deck\/\*/)
-    expect(h).toMatch(/X-Robots-Tag:\s*noindex/)
-  })
-  it('covers the bare /deck path with noindex', () => {
-    const h = read('public/_headers')
-    expect(h).toMatch(/^\/deck\s*\n\s*X-Robots-Tag:\s*noindex/m)
+describe('railway.toml — marketing start command', () => {
+  it('serves without single-page mode so /deck is not rewritten to the SPA', () => {
+    const toml = read('railway.toml')
+    expect(toml).toMatch(/startCommand\s*=\s*"npx serve dist -l \$PORT"/)
+    expect(toml).not.toMatch(/serve dist -s/)
   })
 })
 

@@ -1,0 +1,15 @@
+{
+  "rewrites": [
+    { "source": "/deck", "destination": "/deck/index.html" },
+    { "source": "/deck/", "destination": "/deck/index.html" },
+    { "source": "/for-brands", "destination": "/index.html" },
+    { "source": "/pricing", "destination": "/index.html" },
+    { "source": "/campaign/signup", "destination": "/index.html" },
+    { "source": "/about", "destination": "/index.html" },
+    { "source": "/privacy", "destination": "/index.html" },
+    { "source": "/terms", "destination": "/index.html" }
+  ],
+  "headers": [
+    { "source": "deck/**", "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }] }
+  ]
+}
