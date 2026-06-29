@@ -1,7 +1,8 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { fetchAPI, fetchAction } from '../api'
 import { track } from '../analytics'
 import { trackEvent } from '../ab'
+import { tokenizeAddInput } from '../parse-utils'
 import type { ListItem } from '../components/ItemRow'
 import type { SwapOffer } from '../components/SwapCard'
 import type { DisambigItem, SkippedItem } from './useSwapState'
@@ -80,6 +81,12 @@ export function useChatState(options: UseChatStateOptions) {
   // --- Chat input state ---
   const [chatText, setChatText] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
+  // Optimistic "item arriving" rows: the typed items shown as shimmer ghosts
+  // while the server parses. Render-only — never added to `items`, never
+  // persisted or deduped client-side. Cleared when the result arrives (in
+  // processParseResult) and, as a backstop, whenever loading ends.
+  const [pendingAdds, setPendingAdds] = useState<string[]>([])
+  useEffect(() => { if (!chatLoading) setPendingAdds([]) }, [chatLoading])
   const chatInputRef = useRef<HTMLTextAreaElement>(null)
 
   // --- Penny home bar state ---
@@ -143,6 +150,8 @@ export function useChatState(options: UseChatStateOptions) {
   // --- Process parse result (shared by HTTP response and SSE command-result) ---
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const processParseResult = (data: any) => {
+    // Server result is here — clear the optimistic ghosts; real items follow.
+    setPendingAdds([])
     const action: string = data.action || 'add'
     const addedItems: ListItem[] = data.items || []
     const skippedItems = data.skipped || []
@@ -556,6 +565,9 @@ export function useChatState(options: UseChatStateOptions) {
     optRef.current.setPendingImages([])
     if (chatInputRef.current) chatInputRef.current.style.height = 'auto'
     setChatLoading(true)
+    // Optimistic rows for text adds (not photo/receipt adds). Shows the items
+    // "arriving" instead of freezing the list; replaced by the server result.
+    setPendingAdds(chatPayloadImages.length === 0 ? tokenizeAddInput(chatPayloadText) : [])
     optRef.current.setLastAdded([])
     optRef.current.setLastSkipped([])
     optRef.current.hasReviewedRef.current = false
@@ -649,6 +661,7 @@ export function useChatState(options: UseChatStateOptions) {
     // Chat state
     chatText, setChatText,
     chatLoading, setChatLoading,
+    pendingAdds,
     chatInputRef,
     // Penny home bar
     homePennyText, setHomePennyText,

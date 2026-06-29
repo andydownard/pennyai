@@ -632,6 +632,7 @@ function AppInner() {
   const {
     chatText, setChatText,
     chatLoading, setChatLoading,
+    pendingAdds,
     chatInputRef,
     homePennyText,
     homePennyTyping,
@@ -3135,14 +3136,37 @@ function AppInner() {
             {pullRefreshing ? 'Refreshing...' : pullDistance >= 50 ? 'Release to refresh' : 'Pull to refresh'}
           </div>
         )}
-        {chatLoading && (
+        {/* Non-blocking loading wash for commands (not adds). Adds show their
+            own shimmer rows below, so no wash is needed and the list stays
+            scrollable (pointerEvents: none). */}
+        {chatLoading && pendingAdds.length === 0 && (
           <div style={{
             position: 'absolute',
             inset: 0,
             backgroundColor: 'rgba(0,0,0,0.04)',
             zIndex: 10,
-            pointerEvents: 'auto',
+            pointerEvents: 'none',
           }} />
+        )}
+        {/* Optimistic "item arriving" rows: the typed items shown as shimmer
+            ghosts while Penny parses. Render-only; replaced by server result. */}
+        {pendingAdds.length > 0 && (
+          <div style={{ padding: '4px 0' }} aria-live="polite" aria-label="Adding items">
+            {pendingAdds.map((name, i) => (
+              <div key={`pending-${i}`} style={{
+                display: 'flex', alignItems: 'center', padding: '12px 20px',
+                borderBottom: '1px solid var(--border)', opacity: 0.75,
+              }}>
+                <div className="skeleton-shimmer" style={{
+                  width: '22px', height: '22px', borderRadius: '50%',
+                  backgroundColor: 'var(--skeleton)', marginRight: '12px', flexShrink: 0,
+                }} />
+                <span style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                  {name}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
         {listLoading && items.length === 0 ? (
           <div style={{ padding: '8px 0' }}>
