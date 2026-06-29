@@ -28,8 +28,10 @@ export default defineConfig({
         manualChunks: {
           // Separate React into its own cacheable vendor chunk
           vendor: ['react', 'react-dom'],
-          // Split observability libraries — not needed for initial render
-          observability: ['@sentry/react', 'posthog-js'],
+          // Sentry + posthog are no longer force-chunked here: they are now
+          // imported dynamically (main.tsx on idle, analytics.ts on first
+          // event, ErrorBoundary on catch), so Rollup splits them into async
+          // chunks that load off the critical path instead of being preloaded.
         },
       },
     },
@@ -50,5 +52,9 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
+    // Only run unit/component tests under src/. The e2e/ specs use the
+    // Playwright test runner (npm run test:e2e); without this, vitest's
+    // default glob picks up e2e/*.spec.ts and crashes on Playwright's API.
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },
 })

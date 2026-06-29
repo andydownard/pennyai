@@ -35,6 +35,7 @@ import React, { useState, useRef, useEffect, useCallback, Suspense, lazy } from 
 
 import { QRCodeCanvas } from 'qrcode.react'
 import { fetchAPI, fetchAction, setSessionExpiredHandler } from './api'
+import { haptic } from './haptics'
 import { useToast } from './hooks/useToast'
 import { useConfirmModal } from './hooks/useConfirmModal'
 import { useKeyboardOpen } from './hooks/useKeyboardOpen'
@@ -65,7 +66,6 @@ import { PhoneScreen } from './components/PhoneScreen'
 import { CodeScreen } from './components/CodeScreen'
 import { FeedbackWidget } from './components/FeedbackWidget'
 import { DoneSummaryModal } from './components/DoneSummaryModal'
-import { OnboardingOverlay } from './components/OnboardingOverlay'
 import { JoinPrompt } from './components/JoinPrompt'
 import { PostSwapShareCard } from './components/PostSwapShareCard'
 import { SmsConsentModal } from './components/SmsConsentModal'
@@ -287,19 +287,7 @@ function QuantityControl({ value, onChange }: {
 
 // LegalLinks extracted to ./components/LegalLinks.tsx
 
-// =============================================================================
-// HAPTIC FEEDBACK
-// =============================================================================
-
-const haptic = {
-  light:   () => navigator.vibrate?.([5]),
-  tap:     () => navigator.vibrate?.([10]),
-  medium:  () => navigator.vibrate?.([15]),
-  heavy:   () => navigator.vibrate?.([20]),
-  success: () => navigator.vibrate?.([10, 50, 5, 50, 15]),
-  error:   () => navigator.vibrate?.([20, 40, 20]),
-  double:  () => navigator.vibrate?.([5, 30, 5]),
-}
+// Haptic feedback patterns live in ./haptics (single source of truth).
 
 // =============================================================================
 // MAIN APP COMPONENT
@@ -449,7 +437,6 @@ function AppInner() {
   const [showNPS, setShowNPS] = useState(false)
 
   // --- Onboarding overlay state ---
-  const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem('onboarding_complete'))
 
   // SMS opt-in, email/Google auth state — extracted to useAuthState hook
 
@@ -467,6 +454,20 @@ function AppInner() {
   // --- Earnings state ---
   const [earningsTotalCents, setEarningsTotalCents] = useState(0)
   const keyboardOpen = useKeyboardOpen()
+
+  // --- "Start from your usual" shortcut state ---
+  // (the lookup effect lives after useListState, where `items` is in scope)
+  const [usualListId, setUsualListId] = useState<number | null>(null)
+  const usualCheckedRef = useRef(false)
+
+  // --- Earn-loop "snap your receipt" pending nudge ---
+  // Accepting a swap bumps earnings, but the money is only real after a receipt
+  // is verified. Surface a standing nudge on home. Dismissal persists the
+  // amount dismissed-at, so the nudge returns when NEW pending appears.
+  const [earningsPendingCents, setEarningsPendingCents] = useState(0)
+  const [pendingNudgeDismissedAt, setPendingNudgeDismissedAt] = useState<number>(() => {
+    try { return Number(localStorage.getItem('groflo_pending_nudge_dismissed_cents') || '0') } catch { return 0 }
+  })
 
   // --- Settings state (extracted to useSettingsState hook) ---
   const {
@@ -568,6 +569,29 @@ function AppInner() {
     },
   })
 
+  // "Start from your usual" lookup: once per session, when the list is empty on
+  // home, find the auto-built "My Groceries" saved list so the empty state can
+  // offer a one-tap reorder. Returns null (chip hidden) if the user has none.
+  useEffect(() => {
+    if (screen !== 'home' || items.length !== 0 || usualCheckedRef.current) return
+    usualCheckedRef.current = true
+    fetchAPI('/api/saved-lists').then(data => {
+      if (!Array.isArray(data)) return
+      const master = (data as Array<{ id: number; name: string }>).find(l => l.name === 'My Groceries')
+      if (master) setUsualListId(master.id)
+    }).catch(() => { usualCheckedRef.current = false })
+  }, [screen, items.length])
+
+  // Refresh pending earnings whenever we land on home, so the receipt nudge
+  // reflects server truth (pending drops to 0 once receipts are verified).
+  useEffect(() => {
+    if (screen !== 'home') return
+    fetchAPI('/api/earnings').then(data => {
+      const p = (data as { pending_cents?: number } | null)?.pending_cents
+      if (typeof p === 'number') setEarningsPendingCents(p)
+    }).catch(() => {})
+  }, [screen])
+
   // --- Swap, review, and disambiguation state (extracted) ---
   const {
     swapsByItemId, setSwapsByItemId,
@@ -608,6 +632,7 @@ function AppInner() {
   const {
     chatText, setChatText,
     chatLoading, setChatLoading,
+    pendingAdds,
     chatInputRef,
     homePennyText,
     homePennyTyping,
@@ -2350,23 +2375,23 @@ function AppInner() {
               lineHeight: 1,
               backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)',
               borderRadius: '12px',
-              padding: '4px 10px',
+              padding: '6px 12px',
             }}
             onClick={() => setScreen('earnings')}
             aria-label="View savings"
           >
             {potentialSavingsCents > 0 ? (
               <>
-                <span style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                <span style={{ fontFamily: FONT, fontSize: FONT_XL, fontWeight: 700, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
                   ${(potentialSavingsCents / 100).toFixed(2)}
                 </span>
                 <span style={{ fontFamily: FONT, fontSize: '0.625rem', color: 'var(--text-secondary)', marginTop: '1px' }}>save</span>
               </>
             ) : earningsTotalCents > 0 ? (
               <>
-                <span style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--brand)', opacity: 0.6, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                <span style={{ fontFamily: FONT, fontSize: FONT_XL, fontWeight: 700, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
                   ${(earningsTotalCents / 100).toFixed(2)}
                 </span>
                 <span style={{ fontFamily: FONT, fontSize: '0.625rem', color: 'var(--text-secondary)', marginTop: '1px' }}>saved</span>
@@ -2794,23 +2819,23 @@ function AppInner() {
               lineHeight: 1,
               backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)',
               borderRadius: '12px',
-              padding: '4px 10px',
+              padding: '6px 12px',
             }}
             onClick={() => setScreen('earnings')}
             aria-label="View savings"
           >
             {potentialSavingsCents > 0 ? (
               <>
-                <span style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                <span style={{ fontFamily: FONT, fontSize: FONT_XL, fontWeight: 700, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
                   ${(potentialSavingsCents / 100).toFixed(2)}
                 </span>
                 <span style={{ fontFamily: FONT, fontSize: '0.625rem', color: 'var(--text-secondary)', marginTop: '1px' }}>save</span>
               </>
             ) : earningsTotalCents > 0 ? (
               <>
-                <span style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--brand)', opacity: 0.6, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                <span style={{ fontFamily: FONT, fontSize: FONT_XL, fontWeight: 700, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
                   ${(earningsTotalCents / 100).toFixed(2)}
                 </span>
                 <span style={{ fontFamily: FONT, fontSize: '0.625rem', color: 'var(--text-secondary)', marginTop: '1px' }}>saved</span>
@@ -2921,6 +2946,34 @@ function AppInner() {
               setShowRebrandBanner(false)
               try { localStorage.setItem('groflo_rebrand_banner_dismissed', '1') } catch {}
               track('rebrand_banner_dismissed')
+            }}
+            style={{ ...buttons.reset, color: 'var(--text-secondary)', fontSize: FONT_SM, padding: '4px 8px' }}
+          >×</button>
+        </div>
+      )}
+
+      {/* Earn-loop nudge: pending swap money is only paid after a receipt is
+          verified. In-app only (no SMS/push). Re-shows when pending grows. */}
+      {screen === 'home' && earningsPendingCents > 0 && earningsPendingCents > pendingNudgeDismissedAt && (
+        <div role="status" style={{
+          ...layout.row, flexShrink: 0, padding: '10px 16px', gap: '12px',
+          backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)',
+          borderBottom: '1px solid var(--border)',
+        }}>
+          <button
+            onClick={() => setScreen('receipts')}
+            style={{ ...buttons.reset, flex: 1, textAlign: 'left' as const, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+            <span style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text)', lineHeight: 1.45 }}>
+              <strong>${(earningsPendingCents / 100).toFixed(2)} pending.</strong> Snap your receipt to get paid.
+            </span>
+          </button>
+          <button
+            aria-label="Dismiss receipt reminder"
+            onClick={() => {
+              setPendingNudgeDismissedAt(earningsPendingCents)
+              try { localStorage.setItem('groflo_pending_nudge_dismissed_cents', String(earningsPendingCents)) } catch {}
             }}
             style={{ ...buttons.reset, color: 'var(--text-secondary)', fontSize: FONT_SM, padding: '4px 8px' }}
           >×</button>
@@ -3044,6 +3097,18 @@ function AppInner() {
                   </button>
                 </div>
               )}
+              {!trip.is_mine && isTripInProgress(trip) && (
+                <button
+                  onClick={() => { chatInputRef.current?.focus() }}
+                  aria-label={`Add an item for ${trip.user_name || 'them'} to grab`}
+                  style={{
+                    fontFamily: FONT, fontSize: FONT_2XS, fontWeight: 600, color: 'var(--brand)',
+                    backgroundColor: 'color-mix(in srgb, var(--brand) 10%, transparent)',
+                    border: '1px solid color-mix(in srgb, var(--brand) 25%, transparent)', borderRadius: '12px',
+                    padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap' as const, flexShrink: 0,
+                  }}
+                >+ Add for them</button>
+              )}
             </div>
           ))}
         </div>
@@ -3071,14 +3136,37 @@ function AppInner() {
             {pullRefreshing ? 'Refreshing...' : pullDistance >= 50 ? 'Release to refresh' : 'Pull to refresh'}
           </div>
         )}
-        {chatLoading && (
+        {/* Non-blocking loading wash for commands (not adds). Adds show their
+            own shimmer rows below, so no wash is needed and the list stays
+            scrollable (pointerEvents: none). */}
+        {chatLoading && pendingAdds.length === 0 && (
           <div style={{
             position: 'absolute',
             inset: 0,
             backgroundColor: 'rgba(0,0,0,0.04)',
             zIndex: 10,
-            pointerEvents: 'auto',
+            pointerEvents: 'none',
           }} />
+        )}
+        {/* Optimistic "item arriving" rows: the typed items shown as shimmer
+            ghosts while Penny parses. Render-only; replaced by server result. */}
+        {pendingAdds.length > 0 && (
+          <div style={{ padding: '4px 0' }} aria-live="polite" aria-label="Adding items">
+            {pendingAdds.map((name, i) => (
+              <div key={`pending-${i}`} style={{
+                display: 'flex', alignItems: 'center', padding: '12px 20px',
+                borderBottom: '1px solid var(--border)', opacity: 0.75,
+              }}>
+                <div className="skeleton-shimmer" style={{
+                  width: '22px', height: '22px', borderRadius: '50%',
+                  backgroundColor: 'var(--skeleton)', marginRight: '12px', flexShrink: 0,
+                }} />
+                <span style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                  {name}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
         {listLoading && items.length === 0 ? (
           <div style={{ padding: '8px 0' }}>
@@ -3134,6 +3222,21 @@ function AppInner() {
                 <PennyAvatar size={56} />
                 <p style={{ ...listStyles.emptyText, marginTop: '12px' }}>What can I add to your list?</p>
                 <p style={listStyles.emptySubtext}>Type, paste a list, or snap a photo</p>
+                {usualListId !== null && (
+                  <button
+                    onClick={() => handleLoadSavedList(usualListId, 'merge')}
+                    style={{
+                      fontFamily: FONT, fontSize: FONT_SM, fontWeight: 600,
+                      color: 'var(--brand)', backgroundColor: 'color-mix(in srgb, var(--brand) 10%, transparent)',
+                      border: '1px solid color-mix(in srgb, var(--brand) 30%, transparent)',
+                      borderRadius: '22px', padding: '11px 20px', marginTop: '18px', cursor: 'pointer',
+                      minHeight: '44px', display: 'inline-flex', alignItems: 'center', gap: '8px',
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                    Start from your usual
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -3550,10 +3653,11 @@ function AppInner() {
         </ActionSheet>
       )}
 
-      {/* Onboarding walkthrough — new users with empty list */}
-      {showOnboarding && screen === 'home' && items.filter(i => !i.checked).length === 0 && (
-        <OnboardingOverlay onDismiss={() => { setShowOnboarding(false); localStorage.setItem('onboarding_complete', '1') }} />
-      )}
+      {/* Onboarding: no blocking walkthrough. New users land straight on the
+          empty state (which teaches "type what you need — I'll organize it by
+          aisle" with example chips) so they can type immediately. The household
+          "shop together" story is delivered as a Penny chime-in after the 3rd
+          item (useChatState: onboardingShareMentioned), not a modal. */}
 
       {/* CRUFT FOR REMOVAL (2026-04-16) — local FeedbackWidget disabled pending
           unified autovibe widget. Mirror of withFeedbackFAB() block above (line ~2237). */}
