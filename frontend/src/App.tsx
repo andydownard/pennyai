@@ -3096,6 +3096,18 @@ function AppInner() {
                   </button>
                 </div>
               )}
+              {!trip.is_mine && isTripInProgress(trip) && (
+                <button
+                  onClick={() => { chatInputRef.current?.focus() }}
+                  aria-label={`Add an item for ${trip.user_name || 'them'} to grab`}
+                  style={{
+                    fontFamily: FONT, fontSize: FONT_2XS, fontWeight: 600, color: 'var(--brand)',
+                    backgroundColor: 'color-mix(in srgb, var(--brand) 10%, transparent)',
+                    border: '1px solid color-mix(in srgb, var(--brand) 25%, transparent)', borderRadius: '12px',
+                    padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap' as const, flexShrink: 0,
+                  }}
+                >+ Add for them</button>
+              )}
             </div>
           ))}
         </div>
