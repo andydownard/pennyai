@@ -9,7 +9,7 @@ All must pass before code reaches main.
 - [ ] **Go tests pass.** `go test -count=1 ./...` exits 0. All new/modified tests pass. No skipped tests.
 - [ ] **Frontend tests pass.** `cd frontend && npx playwright test` exits 0. All new/modified tests pass.
 - [ ] **No secrets in code.** Grep for API keys, tokens, phone numbers. Check .env, logs, comments, URLs. Secrets only in env vars.
-- [ ] **No DROP TABLE or table recreation.** Use ALTER TABLE ADD COLUMN only. All migrations backward-compatible. SQLite WAL mode preserved.
+- [ ] **No DROP TABLE or table recreation.** Use ALTER TABLE ADD COLUMN only. All migrations backward-compatible.
 - [ ] **No breaking API changes.** Endpoint paths, HTTP methods, JSON request/response shapes unchanged. If shape changes, add backward-compatibility test.
 - [ ] **Feature branch only.** Code on feature branch, never pushed to main/staging/production directly.
 - [ ] **Idempotency guards in place.** Every mutation handler (INSERT/UPDATE list, record item, process shopping trip) has dedup logic. Calling twice with same input = same result, no duplicates. Check before INSERT: "have we already created this record?"
@@ -58,6 +58,5 @@ For each item below, write a test or runbook.
 | Claude API down | Penny cannot infer item details (quantity, brand). New-user experience breaks. | Fall back to empty defaults. Trigger re-inference later. Never block list creation. | Mock Claude 500; verify list created, Penny suggests defaults, re-inference queued. |
 | Cross-user data leak | User A sees User B's lists, shopping trips, household members. | Every SELECT filters by user_id or household_id. Negative test: "Other user 403 on GET /lists/other_id." Query audit before merge. | Write: `GET /api/lists/{OTHER_USER_LIST_ID}` → 403 Forbidden. |
 | Duplicate notification on refactor | Code refactor accidentally triggers SMS twice (e.g., added logging that calls send twice). | Before merge: trace every code path that touches SMS, email, push. If you cannot prove no duplication, add a guard flag. Test: refactor → trigger notification → verify only one sent. | Grep code for all `SendGridManager.Send()` and `Twilio.SMS()` calls. Verify each in separate test: calling twice = once. |
-| SQLite WAL corruption | Database locks up or loses data on crash. App becomes inaccessible. | NEVER change WAL mode. Litestream backup enabled. Recovery runbook: restore from R2 backup. Monitoring: check `sqlite3 status` on each health check. | Test: simulate SQLite lock, verify recovery timeout, verify backup restore works. |
-| Litestream backup failure | Backup falls silent; on crash, no recovery point. Weeks of user data lost. | Prometheus alert when backup hasn't run in 1 hour. Fallback: if backup down, reduce feature scope (read-only mode). Recovery: restore from last good backup. | Mock Litestream failure; verify Prometheus alert fires, app logs error, fallback activates. |
+| Postgres data loss or corruption | Database loses data or becomes inaccessible on failure. App goes down. | Railway-managed PostgreSQL with automated backups and point-in-time recovery. Migrations additive only (ALTER TABLE ADD COLUMN). Recovery runbook: restore from Railway backup. Monitoring: `db_ok` on each health check. | Test: verify `/health` reports `db_ok`, verify migrations are additive, verify the restore runbook. |
 

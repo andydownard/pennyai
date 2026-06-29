@@ -93,10 +93,10 @@ curl -s https://app.groflo.io/health
 
 ## Architecture
 
-- **Backend:** Go 1.24, SQLite (WAL mode), single binary `thriftly`
+- **Backend:** Go 1.24, PostgreSQL (Railway-managed), single binary `thriftly`
 - **Frontend:** React 18 + Vite, built into `static/`
 - **Brand Portal:** Separate React app, built into `static-brand/`
-- **Container:** Multi-stage Docker (Node → Go → Alpine + Litestream)
+- **Container:** Multi-stage Docker (Node → Go → Alpine)
 - **Platform:** Railway (auto-deploy from `staging` and `production` branches)
 - **Production URL:** `https://app.groflo.io`
 - **DNS:** CNAME in AWS Route 53 (groflo.io) → Railway custom domain
@@ -109,7 +109,7 @@ curl -s https://app.groflo.io/health
 Stage 1:  Node 20 → npm ci → npm run build → /app/static (consumer frontend)
 Stage 1b: Node 20 → npm ci → npm run build → /app/static-brand (brand portal)
 Stage 2:  Go 1.24 → go build -o thriftly
-Stage 3:  Alpine 3.20 + Litestream v0.3.13 → run.sh
+Stage 3:  Alpine 3.20 → runs the server binary directly
 ```
 
 The build validates frontend output — checks for `index.html`, JS bundles, and all asset references.
@@ -130,19 +130,9 @@ Runs on push to `main`, `staging`, `production`, and PRs to any of them:
 
 ---
 
-## Database — SQLite + Litestream
+## Database — PostgreSQL (Railway)
 
-**Runtime behavior (`run.sh`):**
-
-1. On startup, checks if `LITESTREAM_REPLICA_BUCKET` is set
-2. If set and no local DB exists → restores from S3/R2 replica
-3. Starts server wrapped in Litestream for continuous replication (10s sync, 72h retention)
-4. If `LITESTREAM_REPLICA_BUCKET` not set → starts server directly (no backup)
-
-**Manual restore (emergency):**
-```bash
-litestream restore -config /etc/litestream.yml thriftly.db
-```
+pennyai owns its own Railway-managed PostgreSQL instance (`DATABASE_URL`), separate from timpager's. Backups, durability, and point-in-time recovery are handled by Railway; no application-level backup wrapper is required. The container starts the server binary directly.
 
 ---
 
@@ -164,11 +154,8 @@ TWILIO_PHONE_NUMBER=
 # AI
 ANTHROPIC_API_KEY=
 
-# Database backup (Litestream → S3/R2)
-LITESTREAM_REPLICA_BUCKET=
-LITESTREAM_REPLICA_ENDPOINT=
-LITESTREAM_ACCESS_KEY_ID=
-LITESTREAM_SECRET_ACCESS_KEY=
+# Database (Railway-managed PostgreSQL)
+DATABASE_URL=
 
 # Optional
 ADMIN_PHONE=
@@ -196,7 +183,7 @@ POSTHOG_API_KEY=
 1. **Create service** in Railway, connect to GitHub repo
 2. **Set branch** — `staging` for the staging service, `production` for the production service
 3. **Add all environment variables** (copy from existing service or `.env.example`)
-4. **Deploy** — Litestream auto-restores DB from R2 on first boot
+4. **Deploy** — Railway builds the image and starts the service
 5. **Add custom domain** in Railway Settings > Networking
 6. **Update DNS** — create CNAME record in AWS Route 53 pointing to Railway's target
 7. **Verify:** `curl https://your-domain/health`
