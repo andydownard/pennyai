@@ -66,7 +66,6 @@ import { PhoneScreen } from './components/PhoneScreen'
 import { CodeScreen } from './components/CodeScreen'
 import { FeedbackWidget } from './components/FeedbackWidget'
 import { DoneSummaryModal } from './components/DoneSummaryModal'
-import { OnboardingOverlay } from './components/OnboardingOverlay'
 import { JoinPrompt } from './components/JoinPrompt'
 import { PostSwapShareCard } from './components/PostSwapShareCard'
 import { SmsConsentModal } from './components/SmsConsentModal'
@@ -438,7 +437,6 @@ function AppInner() {
   const [showNPS, setShowNPS] = useState(false)
 
   // --- Onboarding overlay state ---
-  const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem('onboarding_complete'))
 
   // SMS opt-in, email/Google auth state — extracted to useAuthState hook
 
@@ -456,6 +454,11 @@ function AppInner() {
   // --- Earnings state ---
   const [earningsTotalCents, setEarningsTotalCents] = useState(0)
   const keyboardOpen = useKeyboardOpen()
+
+  // --- "Start from your usual" shortcut state ---
+  // (the lookup effect lives after useListState, where `items` is in scope)
+  const [usualListId, setUsualListId] = useState<number | null>(null)
+  const usualCheckedRef = useRef(false)
 
   // --- Settings state (extracted to useSettingsState hook) ---
   const {
@@ -556,6 +559,19 @@ function AppInner() {
       if (window.history.state?.modal) window.history.back()
     },
   })
+
+  // "Start from your usual" lookup: once per session, when the list is empty on
+  // home, find the auto-built "My Groceries" saved list so the empty state can
+  // offer a one-tap reorder. Returns null (chip hidden) if the user has none.
+  useEffect(() => {
+    if (screen !== 'home' || items.length !== 0 || usualCheckedRef.current) return
+    usualCheckedRef.current = true
+    fetchAPI('/api/saved-lists').then(data => {
+      if (!Array.isArray(data)) return
+      const master = (data as Array<{ id: number; name: string }>).find(l => l.name === 'My Groceries')
+      if (master) setUsualListId(master.id)
+    }).catch(() => { usualCheckedRef.current = false })
+  }, [screen, items.length])
 
   // --- Swap, review, and disambiguation state (extracted) ---
   const {
@@ -3123,6 +3139,21 @@ function AppInner() {
                 <PennyAvatar size={56} />
                 <p style={{ ...listStyles.emptyText, marginTop: '12px' }}>What can I add to your list?</p>
                 <p style={listStyles.emptySubtext}>Type, paste a list, or snap a photo</p>
+                {usualListId !== null && (
+                  <button
+                    onClick={() => handleLoadSavedList(usualListId, 'merge')}
+                    style={{
+                      fontFamily: FONT, fontSize: FONT_SM, fontWeight: 600,
+                      color: 'var(--brand)', backgroundColor: 'color-mix(in srgb, var(--brand) 10%, transparent)',
+                      border: '1px solid color-mix(in srgb, var(--brand) 30%, transparent)',
+                      borderRadius: '22px', padding: '11px 20px', marginTop: '18px', cursor: 'pointer',
+                      minHeight: '44px', display: 'inline-flex', alignItems: 'center', gap: '8px',
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                    Start from your usual
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -3539,10 +3570,11 @@ function AppInner() {
         </ActionSheet>
       )}
 
-      {/* Onboarding walkthrough — new users with empty list */}
-      {showOnboarding && screen === 'home' && items.filter(i => !i.checked).length === 0 && (
-        <OnboardingOverlay onDismiss={() => { setShowOnboarding(false); localStorage.setItem('onboarding_complete', '1') }} />
-      )}
+      {/* Onboarding: no blocking walkthrough. New users land straight on the
+          empty state (which teaches "type what you need — I'll organize it by
+          aisle" with example chips) so they can type immediately. The household
+          "shop together" story is delivered as a Penny chime-in after the 3rd
+          item (useChatState: onboardingShareMentioned), not a modal. */}
 
       {/* CRUFT FOR REMOVAL (2026-04-16) — local FeedbackWidget disabled pending
           unified autovibe widget. Mirror of withFeedbackFAB() block above (line ~2237). */}
