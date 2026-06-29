@@ -186,7 +186,7 @@ export function EarningsScreen({ onViewReceipts, onGoToList, onEarningsLoaded }:
             Try a deal and get paid. No one else does this.
           </div>
           <div style={{ ...text.secondary, textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
-            Brands pay to reach you. When you try a deal, I share that revenue with you — real money, every time.
+            Brands pay me to reach you. In addition to a rebate, 30% of what they pay me comes back to you — real cash.
           </div>
           {onGoToList && (
             <button
@@ -278,7 +278,7 @@ export function EarningsScreen({ onViewReceipts, onGoToList, onEarningsLoaded }:
           ...text.caption, textAlign: 'center',
           padding: '16px 0 8px', lineHeight: '1.5',
         }}>
-          Brands pay to reach you — I share the savings with you. No other grocery app does this. Payouts sent monthly via Venmo.
+          Brands pay me to reach you. In addition to a rebate, 30% of what they pay me comes back to you — real cash. No other grocery app does this. Payouts sent monthly via Venmo.
         </div>
       )}
 
