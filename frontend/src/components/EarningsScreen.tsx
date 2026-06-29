@@ -3,7 +3,7 @@ import { PennyAvatar } from './PennyAvatar'
 import { BrandLogo } from './BrandLogo'
 import { StatusBadge } from './StatusBadge'
 import { fetchAPI } from '../api'
-import { FONT, FONT_XS, FONT_BASE, FONT_MD, layout, text } from '../styles'
+import { FONT, FONT_2XS, FONT_XS, FONT_BASE, FONT_MD, FONT_3XL, layout, text } from '../styles'
 
 interface EarningTransaction {
   id: number
@@ -136,25 +136,37 @@ export function EarningsScreen({ onViewReceipts, onGoToList, onEarningsLoaded }:
         aria-label="Upload receipt image or PDF"
       />
 
-      {/* Summary cards */}
-      <div style={{ ...layout.rowGap, margin: '16px 0' }}>
-        {[
-          { label: 'Total', cents: data?.total_cents || 0, color: 'var(--text)' },
-          { label: 'Pending', cents: data?.pending_cents || 0, color: 'var(--warning)' },
-          { label: 'Paid', cents: data?.paid_cents || 0, color: 'var(--success)' },
-        ].map(card => (
-          <div key={card.label} style={{
-            flex: 1, padding: '14px 8px', borderRadius: '10px', backgroundColor: 'var(--surface)',
-            textAlign: 'center' as const, border: '1px solid var(--border)',
-          }}>
-            <div style={{ fontFamily: FONT, fontSize: '1.25rem', fontWeight: 700, color: card.color }}>
-              ${(card.cents / 100).toFixed(2)}
-            </div>
-            <div style={{ fontFamily: FONT, fontSize: '0.6875rem', color: 'var(--text-secondary)', marginTop: '3px' }}>
-              {card.label}
-            </div>
+      {/* Summary — Total is the hero; Pending and Paid are quiet context */}
+      <div style={{ margin: '16px 0' }}>
+        <div style={{
+          padding: '20px 16px', borderRadius: '12px', backgroundColor: 'var(--surface)',
+          textAlign: 'center' as const, border: '1px solid var(--border)',
+        }}>
+          <div style={{ fontFamily: FONT, fontSize: FONT_3XL, fontWeight: 800, color: 'var(--text)', lineHeight: 1.1 }}>
+            ${((data?.total_cents || 0) / 100).toFixed(2)}
           </div>
-        ))}
+          <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '4px' }}>
+            Total earned
+          </div>
+        </div>
+        <div style={{ ...layout.rowGap, marginTop: '8px' }}>
+          {[
+            { label: 'Pending', cents: data?.pending_cents || 0, color: 'var(--warning)' },
+            { label: 'Paid', cents: data?.paid_cents || 0, color: 'var(--success)' },
+          ].map(card => (
+            <div key={card.label} style={{
+              flex: 1, padding: '10px 8px', borderRadius: '10px', backgroundColor: 'var(--surface)',
+              textAlign: 'center' as const, border: '1px solid var(--border)',
+            }}>
+              <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600, color: card.color }}>
+                ${(card.cents / 100).toFixed(2)}
+              </div>
+              <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '2px' }}>
+                {card.label}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Time filter pills */}

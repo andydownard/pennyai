@@ -2339,23 +2339,23 @@ function AppInner() {
               lineHeight: 1,
               backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)',
               borderRadius: '12px',
-              padding: '4px 10px',
+              padding: '6px 12px',
             }}
             onClick={() => setScreen('earnings')}
             aria-label="View savings"
           >
             {potentialSavingsCents > 0 ? (
               <>
-                <span style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                <span style={{ fontFamily: FONT, fontSize: FONT_XL, fontWeight: 700, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
                   ${(potentialSavingsCents / 100).toFixed(2)}
                 </span>
                 <span style={{ fontFamily: FONT, fontSize: '0.625rem', color: 'var(--text-secondary)', marginTop: '1px' }}>save</span>
               </>
             ) : earningsTotalCents > 0 ? (
               <>
-                <span style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--brand)', opacity: 0.6, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                <span style={{ fontFamily: FONT, fontSize: FONT_XL, fontWeight: 700, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
                   ${(earningsTotalCents / 100).toFixed(2)}
                 </span>
                 <span style={{ fontFamily: FONT, fontSize: '0.625rem', color: 'var(--text-secondary)', marginTop: '1px' }}>saved</span>
@@ -2783,23 +2783,23 @@ function AppInner() {
               lineHeight: 1,
               backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)',
               borderRadius: '12px',
-              padding: '4px 10px',
+              padding: '6px 12px',
             }}
             onClick={() => setScreen('earnings')}
             aria-label="View savings"
           >
             {potentialSavingsCents > 0 ? (
               <>
-                <span style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                <span style={{ fontFamily: FONT, fontSize: FONT_XL, fontWeight: 700, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
                   ${(potentialSavingsCents / 100).toFixed(2)}
                 </span>
                 <span style={{ fontFamily: FONT, fontSize: '0.625rem', color: 'var(--text-secondary)', marginTop: '1px' }}>save</span>
               </>
             ) : earningsTotalCents > 0 ? (
               <>
-                <span style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--brand)', opacity: 0.6, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                <span style={{ fontFamily: FONT, fontSize: FONT_XL, fontWeight: 700, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
                   ${(earningsTotalCents / 100).toFixed(2)}
                 </span>
                 <span style={{ fontFamily: FONT, fontSize: '0.625rem', color: 'var(--text-secondary)', marginTop: '1px' }}>saved</span>
