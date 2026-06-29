@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { fetchAPI, fetchAction } from '../api'
+import { haptic } from '../haptics'
 import type { ListItem } from '../components/ItemRow'
 import type { SwapOffer } from '../components/SwapCard'
 import type { ItemModification } from '../types'
@@ -8,14 +9,6 @@ import type { SkippedItem } from './useSwapState'
 // --- Offline toggle queue types ---
 interface QueuedToggle {
   itemId: number
-}
-
-// Haptic feedback (matches App.tsx)
-const haptic = {
-  tap:     () => navigator.vibrate?.([10]),
-  heavy:   () => navigator.vibrate?.([20]),
-  success: () => navigator.vibrate?.([10, 50, 5, 50, 15]),
-  double:  () => navigator.vibrate?.([5, 30, 5]),
 }
 
 interface UseListStateOptions {

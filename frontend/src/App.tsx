@@ -35,6 +35,7 @@ import React, { useState, useRef, useEffect, useCallback, Suspense, lazy } from 
 
 import { QRCodeCanvas } from 'qrcode.react'
 import { fetchAPI, fetchAction, setSessionExpiredHandler } from './api'
+import { haptic } from './haptics'
 import { useToast } from './hooks/useToast'
 import { useConfirmModal } from './hooks/useConfirmModal'
 import { useKeyboardOpen } from './hooks/useKeyboardOpen'
@@ -287,19 +288,7 @@ function QuantityControl({ value, onChange }: {
 
 // LegalLinks extracted to ./components/LegalLinks.tsx
 
-// =============================================================================
-// HAPTIC FEEDBACK
-// =============================================================================
-
-const haptic = {
-  light:   () => navigator.vibrate?.([5]),
-  tap:     () => navigator.vibrate?.([10]),
-  medium:  () => navigator.vibrate?.([15]),
-  heavy:   () => navigator.vibrate?.([20]),
-  success: () => navigator.vibrate?.([10, 50, 5, 50, 15]),
-  error:   () => navigator.vibrate?.([20, 40, 20]),
-  double:  () => navigator.vibrate?.([5, 30, 5]),
-}
+// Haptic feedback patterns live in ./haptics (single source of truth).
 
 // =============================================================================
 // MAIN APP COMPONENT

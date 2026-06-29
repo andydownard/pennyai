@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { PennyAvatar } from './PennyAvatar'
 import { FONT, FONT_2XS, FONT_XS, FONT_MD, layout, buttons as btnUtils } from '../styles'
+import { haptic } from '../haptics'
 
 // Auto-submit debounce delay in ms
 const AUTO_SUBMIT_DELAY = 1500
@@ -182,6 +183,9 @@ export function PennyBar({
       autoSubmitTimer.current = setTimeout(() => {
         autoSubmitTimer.current = null
         setAutoSubmitProgress(false)
+        // Confirm the hands-free auto-add with a soft pulse synced to the ring
+        // completing, so the "Penny added it for you" moment is felt, not silent.
+        haptic.tap()
         onSendRef.current()
       }, AUTO_SUBMIT_DELAY)
     }

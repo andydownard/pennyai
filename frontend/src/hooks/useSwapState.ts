@@ -2,14 +2,9 @@ import { useState, useRef, useEffect } from 'react'
 import { fetchAction } from '../api'
 import { track } from '../analytics'
 import { trackEvent } from '../ab'
+import { haptic } from '../haptics'
 import type { ListItem } from '../components/ItemRow'
 import type { SwapOffer } from '../components/SwapCard'
-
-// Haptic feedback (matches App.tsx)
-const haptic = {
-  success: () => navigator.vibrate?.([10, 50, 5, 50, 15]),
-  double:  () => navigator.vibrate?.([5, 30, 5]),
-}
 
 export type DisambigItem = {
   item_id: number

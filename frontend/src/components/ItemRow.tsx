@@ -3,6 +3,7 @@ import { BrandLogo } from './BrandLogo'
 import { StatusBadge } from './StatusBadge'
 import { SwapCard, type SwapOffer } from './SwapCard'
 import { FONT, FONT_2XS, FONT_XS, FONT_BASE, layout, buttons, text } from '../styles'
+import { haptic } from '../haptics'
 
 export type ListItem = {
   id: number
@@ -106,10 +107,15 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onD
   const touchRef = useRef<{ startX: number; startY: number; swiping: boolean } | null>(null)
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const longPressFired = useRef(false)
+  // Tracks whether the current swipe has already buzzed for each commit
+  // threshold, so we fire one pulse on crossing (and again if the user
+  // backs off and re-crosses) rather than on every touchmove frame.
+  const crossed = useRef({ check: false, delete: false })
 
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     const t = e.touches[0]
     touchRef.current = { startX: t.clientX, startY: t.clientY, swiping: false }
+    crossed.current = { check: false, delete: false }
     longPressFired.current = false
     longPressTimer.current = setTimeout(() => {
       longPressFired.current = true
@@ -138,6 +144,17 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onD
 
     // Allow left swipe (delete) and right swipe (check/uncheck)
     const clamped = Math.max(Math.min(dx, CHECK_THRESHOLD * 1.3), -DELETE_THRESHOLD * 1.3)
+
+    // Fire one haptic pulse the frame the swipe crosses each commit threshold,
+    // so the user can feel when the action will trigger. Reset on backing off
+    // so a re-cross buzzes again.
+    if (clamped >= CHECK_THRESHOLD) {
+      if (!crossed.current.check) { haptic.tap(); crossed.current.check = true }
+    } else { crossed.current.check = false }
+    if (clamped <= -DELETE_THRESHOLD) {
+      if (!crossed.current.delete) { haptic.medium(); crossed.current.delete = true }
+    } else { crossed.current.delete = false }
+
     setSwipeX(clamped)
   }, [])
 
@@ -147,6 +164,7 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onD
     if (!touchRef.current?.swiping) { touchRef.current = null; return }
     touchRef.current = null
     if (swipeX <= -DELETE_THRESHOLD) {
+      haptic.heavy()
       onDelete(item.id)
     } else if (swipeX >= CHECK_THRESHOLD) {
       onToggle(item.id)
