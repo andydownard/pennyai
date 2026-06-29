@@ -13,11 +13,24 @@ import (
 // preferences for a given user, suitable for injection into Penny's system prompt.
 // Returns "" if no learnings exist or "Learn from my choices" is off.
 func (s *Server) buildLearningContext(userID string) string {
-	// Check if user has autotune enabled (learn from my choices)
-	var autotune int
-	s.db.QueryRow("SELECT COALESCE(penny_autotune, 0) FROM users WHERE id = ?", userID).Scan(&autotune)
+	// Single user lookup for the three settings used below: the autotune gate
+	// (learn from my choices), the Penny slider, and the household id. Collapsed
+	// from three separate "SELECT ... FROM users WHERE id = ?" round trips.
+	var autotune, slider, hhID int
+	s.db.QueryRow(`SELECT COALESCE(penny_autotune, 0), COALESCE(penny_slider, 15), COALESCE(household_id, 0)
+		FROM users WHERE id = ?`, userID).Scan(&autotune, &slider, &hhID)
 	if autotune == 0 {
 		return ""
+	}
+
+	// Fast path: the background learning job precomputes this exact context
+	// string into penny_context_cache. On a hit, skip the ~7-query rebuild.
+	// On a miss (or read error), fall back to the rebuild below, unchanged.
+	var cached string
+	if err := s.db.QueryRow(
+		"SELECT context_json FROM penny_context_cache WHERE user_id = ?", userID,
+	).Scan(&cached); err == nil && cached != "" {
+		return cached
 	}
 
 	var parts []string
@@ -91,18 +104,14 @@ func (s *Server) buildLearningContext(userID string) string {
 		parts = append(parts, fmt.Sprintf("- Dietary preferences: %s", diets))
 	}
 
-	// Penny slider position
-	var slider int
-	s.db.QueryRow("SELECT COALESCE(penny_slider, 15) FROM users WHERE id = ?", userID).Scan(&slider)
+	// Penny slider position (fetched in the combined user lookup above)
 	if slider <= 8 {
 		parts = append(parts, "- Strongly prefers savings over convenience — suggest budget options")
 	} else if slider >= 22 {
 		parts = append(parts, "- Strongly prefers convenience over savings — suggest premium/quality options")
 	}
 
-	// Household context
-	var hhID int
-	s.db.QueryRow("SELECT COALESCE(household_id, 0) FROM users WHERE id = ?", userID).Scan(&hhID)
+	// Household context (household id fetched in the combined user lookup above)
 	if hhID > 0 {
 		var memberCount int
 		s.db.QueryRow("SELECT COUNT(*) FROM household_members WHERE household_id = ?", hhID).Scan(&memberCount)
