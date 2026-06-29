@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, memo } from 'react'
 import { BrandLogo } from './BrandLogo'
 import { StatusBadge } from './StatusBadge'
 import { SwapCard, type SwapOffer } from './SwapCard'
@@ -101,7 +101,7 @@ const DELETE_THRESHOLD = 80
 const CHECK_THRESHOLD = 60
 const REDUCED_MOTION = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
-export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onDelete, onLongPress, onSwapAccept, onSwapDecline }: ItemRowProps) {
+function ItemRowBase({ item, isNew, currentUserId, swap, onToggle, onTap, onDelete, onLongPress, onSwapAccept, onSwapDecline }: ItemRowProps) {
   const ts = relativeTimestamp(item.created_at)
   const [swipeX, setSwipeX] = useState(0)
   const touchRef = useRef<{ startX: number; startY: number; swiping: boolean } | null>(null)
@@ -293,3 +293,8 @@ export function ItemRow({ item, isNew, currentUserId, swap, onToggle, onTap, onD
     </div>
   )
 }
+
+// Memoized so a list of many rows doesn't all re-render on every parent update
+// (e.g. Penny's typewriter ticking). Effective when the handler props are
+// stable; harmless otherwise.
+export const ItemRow = memo(ItemRowBase)

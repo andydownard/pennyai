@@ -103,7 +103,13 @@ export function useListState(options: UseListStateOptions) {
 
   // --- Reload list from server ---
   const reloadList = async () => {
-    const data = await fetchAPI('/api/list')
+    // The list and its pending swaps are independent reads — fetch them in
+    // parallel so list load (initial load and every SSE refresh) is one round
+    // trip, not two. Swaps are optional, so a swaps failure never blocks items.
+    const [data, swaps] = await Promise.all([
+      fetchAPI('/api/list'),
+      fetchAPI('/api/list/swaps').catch(() => null),
+    ])
     if (data) {
       const loaded = sortItems(Array.isArray(data) ? data as ListItem[] : [])
       setItems(loaded)
@@ -114,14 +120,11 @@ export function useListState(options: UseListStateOptions) {
       })
     }
     // Restore pending swaps from server
-    try {
-      const swaps = await fetchAPI('/api/list/swaps')
-      if (Array.isArray(swaps) && swaps.length > 0) {
-        const byItem: Record<number, SwapOffer> = {}
-        for (const s of swaps) byItem[(s as SwapOffer).item_id] = s as SwapOffer
-        optRef.current.setSwapsByItemId(prev => ({ ...prev, ...byItem }))
-      }
-    } catch { /* swaps are optional */ }
+    if (Array.isArray(swaps) && swaps.length > 0) {
+      const byItem: Record<number, SwapOffer> = {}
+      for (const s of swaps) byItem[(s as SwapOffer).item_id] = s as SwapOffer
+      optRef.current.setSwapsByItemId(prev => ({ ...prev, ...byItem }))
+    }
     setListLoading(false)
   }
 
