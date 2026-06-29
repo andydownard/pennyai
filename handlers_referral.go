@@ -24,7 +24,7 @@ func (s *Server) handleReferral(w http.ResponseWriter, r *http.Request) {
 	var points int
 	err := s.db.QueryRow("SELECT referral_code, COALESCE(referral_points, 0) FROM users WHERE id = ?", session.UserID).Scan(&referralCode, &points)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "We couldn't load your referral info. Please try again."})
+		dbError(w, err, "We couldn't load your referral info. Please try again.")
 		return
 	}
 
@@ -33,8 +33,7 @@ func (s *Server) handleReferral(w http.ResponseWriter, r *http.Request) {
 		// Generate a new referral code
 		codeBytes := make([]byte, 16)
 		if _, err := rand.Read(codeBytes); err != nil {
-			log.Printf("[referral] failed to generate code: %v", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to generate referral code"})
+			dbError(w, err, "Failed to generate referral code")
 			return
 		}
 		code = hex.EncodeToString(codeBytes)
@@ -94,7 +93,7 @@ func (s *Server) handleReferralRedeem(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := s.db.Begin()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "We couldn't process your redemption. Please try again."})
+		dbError(w, err, "We couldn't process your redemption. Please try again.")
 		return
 	}
 	defer tx.Rollback()
@@ -102,7 +101,7 @@ func (s *Server) handleReferralRedeem(w http.ResponseWriter, r *http.Request) {
 	// Atomic check-and-deduct to prevent TOCTOU race on point balance
 	result, err := tx.Exec("UPDATE users SET referral_points = referral_points - ? WHERE id = ? AND COALESCE(referral_points, 0) >= ?", referralRedeemThreshold, session.UserID, referralRedeemThreshold)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "We couldn't process your redemption. Please try again."})
+		dbError(w, err, "We couldn't process your redemption. Please try again.")
 		return
 	}
 	if rows, _ := result.RowsAffected(); rows == 0 {
@@ -114,7 +113,7 @@ func (s *Server) handleReferralRedeem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := tx.Commit(); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "We couldn't process your redemption. Please try again."})
+		dbError(w, err, "We couldn't process your redemption. Please try again.")
 		return
 	}
 
@@ -168,7 +167,7 @@ func (s *Server) handleReferralClaim(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := s.db.Begin()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "We couldn't process your referral. Please try again."})
+		dbError(w, err, "We couldn't process your referral. Please try again.")
 		return
 	}
 	defer tx.Rollback()
@@ -183,7 +182,7 @@ func (s *Server) handleReferralClaim(w http.ResponseWriter, r *http.Request) {
 	tx.Exec("UPDATE users SET referral_source = 'referral' WHERE id = ? AND referral_source = ''", session.UserID)
 
 	if err := tx.Commit(); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "We couldn't process your referral. Please try again."})
+		dbError(w, err, "We couldn't process your referral. Please try again.")
 		return
 	}
 
@@ -223,8 +222,7 @@ func (s *Server) handleRebates(w http.ResponseWriter, r *http.Request) {
 		LIMIT 100
 	`, session.UserID)
 	if err != nil {
-		log.Printf("[rebates] query error for user %s: %v", session.UserID, err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load rebates"})
+		dbError(w, err, "Failed to load rebates")
 		return
 	}
 	defer rows.Close()

@@ -61,8 +61,7 @@ func (s *Server) handleEarnings(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
-		log.Printf("[earnings] query error for user %s: %v", session.UserID, err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load earnings"})
+		dbError(w, err, "Failed to load earnings")
 		return
 	}
 	defer rows.Close()
@@ -151,8 +150,7 @@ func (s *Server) handleEarningsUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("[earnings] ownership query error: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to verify rebate"})
+		dbError(w, err, "Failed to verify rebate")
 		return
 	}
 	if ownerID != session.UserID {
@@ -209,8 +207,7 @@ func (s *Server) handleEarningsUpload(w http.ResponseWriter, r *http.Request) {
 	// Determine upload directory
 	uploadDir := filepath.Join("data", "earnings-attachments")
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		log.Printf("[earnings] failed to create upload dir: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Upload failed"})
+		dbError(w, err, "Upload failed")
 		return
 	}
 
@@ -235,22 +232,19 @@ func (s *Server) handleEarningsUpload(w http.ResponseWriter, r *http.Request) {
 
 	dst, err := os.Create(savePath)
 	if err != nil {
-		log.Printf("[earnings] failed to create file: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Upload failed"})
+		dbError(w, err, "Upload failed")
 		return
 	}
 	defer dst.Close()
 
 	if _, err := io.Copy(dst, file); err != nil {
-		log.Printf("[earnings] failed to write file: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Upload failed"})
+		dbError(w, err, "Upload failed")
 		return
 	}
 
 	// Update attachment_path in database
 	if _, err := s.db.Exec("UPDATE swap_rebates SET attachment_path = ? WHERE id = ?", savePath, rebateID); err != nil {
-		log.Printf("[earnings] failed to update attachment_path: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Upload saved but DB update failed"})
+		dbError(w, err, "Upload saved but DB update failed")
 		return
 	}
 
