@@ -55,6 +55,40 @@ func TestSchema_InitDB_CreatesUsersAndSessionsBeforeAnyAlter(t *testing.T) {
 	}
 }
 
+func TestSchema_InitDB_DeclaresSwapAndModIndexes(t *testing.T) {
+	src, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatalf("read schema.go: %v", err)
+	}
+	body := string(src)
+
+	// initDB is PostgreSQL-only (SERIAL, TIMESTAMPTZ); the rest of the suite
+	// runs on SQLite via initTestDB, which does not build indexes. So this
+	// mirrors the file's other index assertions and checks schema.go's source
+	// for the CREATE INDEX statements. Both must live inside the index block
+	// (after all CREATE TABLE statements).
+	indexHeader := strings.Index(body, "INDEXES (placed after all table creation)")
+	if indexHeader < 0 {
+		t.Fatalf("schema.go missing the index block header — test stale?")
+	}
+
+	swapDealIdx := strings.Index(body, "CREATE INDEX IF NOT EXISTS idx_swap_events_deal_id ON swap_events(deal_id)")
+	if swapDealIdx < 0 {
+		t.Fatalf("schema.go missing idx_swap_events_deal_id on swap_events(deal_id)")
+	}
+	if swapDealIdx < indexHeader {
+		t.Fatalf("idx_swap_events_deal_id at %d appears before the index block at %d", swapDealIdx, indexHeader)
+	}
+
+	modUserIdx := strings.Index(body, "CREATE INDEX IF NOT EXISTS idx_item_modifications_user_id ON item_modifications(user_id)")
+	if modUserIdx < 0 {
+		t.Fatalf("schema.go missing idx_item_modifications_user_id on item_modifications(user_id)")
+	}
+	if modUserIdx < indexHeader {
+		t.Fatalf("idx_item_modifications_user_id at %d appears before the index block at %d", modUserIdx, indexHeader)
+	}
+}
+
 func TestSchema_InitDB_DeclaresUsersAsOwnedByPennyai(t *testing.T) {
 	src, err := os.ReadFile("schema.go")
 	if err != nil {
