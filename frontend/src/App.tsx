@@ -460,6 +460,15 @@ function AppInner() {
   const [usualListId, setUsualListId] = useState<number | null>(null)
   const usualCheckedRef = useRef(false)
 
+  // --- Earn-loop "snap your receipt" pending nudge ---
+  // Accepting a swap bumps earnings, but the money is only real after a receipt
+  // is verified. Surface a standing nudge on home. Dismissal persists the
+  // amount dismissed-at, so the nudge returns when NEW pending appears.
+  const [earningsPendingCents, setEarningsPendingCents] = useState(0)
+  const [pendingNudgeDismissedAt, setPendingNudgeDismissedAt] = useState<number>(() => {
+    try { return Number(localStorage.getItem('groflo_pending_nudge_dismissed_cents') || '0') } catch { return 0 }
+  })
+
   // --- Settings state (extracted to useSettingsState hook) ---
   const {
     settingsFirstName, setSettingsFirstName,
@@ -572,6 +581,16 @@ function AppInner() {
       if (master) setUsualListId(master.id)
     }).catch(() => { usualCheckedRef.current = false })
   }, [screen, items.length])
+
+  // Refresh pending earnings whenever we land on home, so the receipt nudge
+  // reflects server truth (pending drops to 0 once receipts are verified).
+  useEffect(() => {
+    if (screen !== 'home') return
+    fetchAPI('/api/earnings').then(data => {
+      const p = (data as { pending_cents?: number } | null)?.pending_cents
+      if (typeof p === 'number') setEarningsPendingCents(p)
+    }).catch(() => {})
+  }, [screen])
 
   // --- Swap, review, and disambiguation state (extracted) ---
   const {
@@ -2926,6 +2945,34 @@ function AppInner() {
               setShowRebrandBanner(false)
               try { localStorage.setItem('groflo_rebrand_banner_dismissed', '1') } catch {}
               track('rebrand_banner_dismissed')
+            }}
+            style={{ ...buttons.reset, color: 'var(--text-secondary)', fontSize: FONT_SM, padding: '4px 8px' }}
+          >×</button>
+        </div>
+      )}
+
+      {/* Earn-loop nudge: pending swap money is only paid after a receipt is
+          verified. In-app only (no SMS/push). Re-shows when pending grows. */}
+      {screen === 'home' && earningsPendingCents > 0 && earningsPendingCents > pendingNudgeDismissedAt && (
+        <div role="status" style={{
+          ...layout.row, flexShrink: 0, padding: '10px 16px', gap: '12px',
+          backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)',
+          borderBottom: '1px solid var(--border)',
+        }}>
+          <button
+            onClick={() => setScreen('receipts')}
+            style={{ ...buttons.reset, flex: 1, textAlign: 'left' as const, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+            <span style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text)', lineHeight: 1.45 }}>
+              <strong>${(earningsPendingCents / 100).toFixed(2)} pending.</strong> Snap your receipt to get paid.
+            </span>
+          </button>
+          <button
+            aria-label="Dismiss receipt reminder"
+            onClick={() => {
+              setPendingNudgeDismissedAt(earningsPendingCents)
+              try { localStorage.setItem('groflo_pending_nudge_dismissed_cents', String(earningsPendingCents)) } catch {}
             }}
             style={{ ...buttons.reset, color: 'var(--text-secondary)', fontSize: FONT_SM, padding: '4px 8px' }}
           >×</button>
