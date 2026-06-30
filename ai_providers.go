@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -51,85 +50,6 @@ var openaiModels = map[Complexity]string{
 
 // aiHTTPClient is shared across all AI provider calls.
 var aiHTTPClient = &http.Client{Timeout: 60 * time.Second}
-
-// AIProvider represents a configured AI backend.
-type AIProvider struct {
-	Name   string
-	APIKey string
-	call   func(apiKey, model, system string, content interface{}, maxTokens int) (string, error)
-}
-
-// callAI calls the best available AI provider with automatic fallback.
-// It tries providers in order: Anthropic → Gemini → OpenAI, skipping any
-// that don't have an API key configured.
-func (s *Server) callAI(complexity Complexity, system string, content interface{}, maxTokens int) (string, error) {
-	providers := s.getProviderChain(complexity)
-	if len(providers) == 0 {
-		return "", fmt.Errorf("no AI providers configured")
-	}
-
-	var lastErr error
-	for _, p := range providers {
-		model := p.model
-		result, err := p.callFn(p.apiKey, model, system, content, maxTokens)
-		if err == nil {
-			if len(providers) > 1 && p.name != providers[0].name {
-				log.Printf("[ai] %s succeeded (fallback from %s)", p.name, providers[0].name)
-			}
-			return result, nil
-		}
-		lastErr = err
-		log.Printf("[ai] %s (%s) failed: %v — trying next provider", p.name, model, err)
-	}
-	return "", fmt.Errorf("all AI providers failed, last error: %w", lastErr)
-}
-
-// callAIWithSearch calls AI with web search capability (Anthropic-only feature).
-// Falls back to regular callAI if search fails.
-func (s *Server) callAIWithSearch(complexity Complexity, system string, content interface{}, maxTokens int) (string, error) {
-	// Web search is Anthropic-only — try it first
-	if s.config.AnthropicAPIKey != "" {
-		model := anthropicModels[complexity]
-		result, err := callAnthropicWithSearch(s.config.AnthropicAPIKey, model, system, content, maxTokens)
-		if err == nil {
-			return result, nil
-		}
-		log.Printf("[ai] Anthropic web search failed: %v — falling back to regular AI", err)
-	}
-	// Fall back to regular call (no search)
-	return s.callAI(complexity, system, content, maxTokens)
-}
-
-type providerEntry struct {
-	name   string
-	apiKey string
-	model  string
-	callFn func(apiKey, model, system string, content interface{}, maxTokens int) (string, error)
-}
-
-// getProviderChain returns available providers for the given complexity, in priority order.
-func (s *Server) getProviderChain(complexity Complexity) []providerEntry {
-	var chain []providerEntry
-	if s.config.AnthropicAPIKey != "" {
-		chain = append(chain, providerEntry{
-			name: "anthropic", apiKey: s.config.AnthropicAPIKey,
-			model: anthropicModels[complexity], callFn: callAnthropic,
-		})
-	}
-	if s.config.GeminiAPIKey != "" {
-		chain = append(chain, providerEntry{
-			name: "gemini", apiKey: s.config.GeminiAPIKey,
-			model: geminiModels[complexity], callFn: callGemini,
-		})
-	}
-	if s.config.OpenAIAPIKey != "" {
-		chain = append(chain, providerEntry{
-			name: "openai", apiKey: s.config.OpenAIAPIKey,
-			model: openaiModels[complexity], callFn: callOpenAI,
-		})
-	}
-	return chain
-}
 
 // =============================================================================
 // ANTHROPIC (Claude)

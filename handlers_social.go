@@ -83,7 +83,7 @@ func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 	if invHID == 0 {
 		hID, err := createSoloHousehold(s.db, session.UserID)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create household"})
+			dbError(w, err, "Failed to create household")
 			return
 		}
 		invHID = int64(hID)
@@ -92,7 +92,7 @@ func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 	// Generate random invite code
 	codeBytes := make([]byte, 16)
 	if _, err := rand.Read(codeBytes); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to generate code"})
+		dbError(w, err, "Failed to generate code")
 		return
 	}
 	code := hex.EncodeToString(codeBytes)
@@ -104,7 +104,7 @@ func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 		invHID, code, session.UserID, expiresAt,
 	)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create invite"})
+		dbError(w, err, "Failed to create invite")
 		return
 	}
 
@@ -150,28 +150,28 @@ func (s *Server) handleLeaveHousehold(w http.ResponseWriter, r *http.Request) {
 	// Remove from current household and create a new solo one
 	tx, err := s.db.Begin()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to start transaction"})
+		dbError(w, err, "Failed to start transaction")
 		return
 	}
 	defer tx.Rollback()
 
 	if _, err := tx.Exec("DELETE FROM household_members WHERE user_id = ?", session.UserID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to leave household"})
+		dbError(w, err, "Failed to leave household")
 		return
 	}
 	if _, err := tx.Exec("UPDATE users SET household_id = NULL WHERE id = ?", session.UserID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to leave household"})
+		dbError(w, err, "Failed to leave household")
 		return
 	}
 
 	// Create new solo household atomically within the same transaction
 	if _, err := createSoloHouseholdTx(tx, session.UserID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create household"})
+		dbError(w, err, "Failed to create household")
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to leave household"})
+		dbError(w, err, "Failed to leave household")
 		return
 	}
 
@@ -245,7 +245,7 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 	// Move user to the inviter's household — all in one transaction
 	tx, err := s.db.Begin()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "We couldn't join you to this household. Please try again."})
+		dbError(w, err, "We couldn't join you to this household. Please try again.")
 		return
 	}
 	defer tx.Rollback()
@@ -256,7 +256,7 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		session.UserID, inviteID, time.Now(),
 	)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "We couldn't join you to this household. Please try again."})
+		dbError(w, err, "We couldn't join you to this household. Please try again.")
 		return
 	}
 	if rows, _ := claimResult.RowsAffected(); rows == 0 {
@@ -266,7 +266,7 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 
 	_, err = tx.Exec("UPDATE users SET household_id = ? WHERE id = ?", householdID, session.UserID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "We couldn't join you to this household. Please try again."})
+		dbError(w, err, "We couldn't join you to this household. Please try again.")
 		return
 	}
 
@@ -278,12 +278,12 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		householdID, session.UserID, createdBy,
 	)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "We couldn't join you to this household. Please try again."})
+		dbError(w, err, "We couldn't join you to this household. Please try again.")
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "We couldn't join you to this household. Please try again."})
+		dbError(w, err, "We couldn't join you to this household. Please try again.")
 		return
 	}
 

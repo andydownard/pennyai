@@ -142,8 +142,7 @@ Swept the uncommitted tree from prior session. 48 files of audit fixes committed
 - Both frontends build clean (tsc + vite build)
 
 ### Remaining Setup
-- Set Litestream env vars in Railway to activate continuous backup:
-  `LITESTREAM_REPLICA_BUCKET`, `LITESTREAM_REPLICA_ENDPOINT`, `LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY`
+- ~~Set Litestream env vars in Railway to activate continuous backup.~~ Superseded: durability is now handled by Railway-managed PostgreSQL. Litestream and its SQLite-era backup setup were removed in the Postgres cutover.
 
 ### Previous Sprint Work (Sprints 8-9)
 - Auth linking backend + frontend, screen transitions, 12 screen extractions from App.tsx, 14 new E2E tests
