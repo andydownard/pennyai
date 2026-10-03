@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -385,8 +388,8 @@ func TestConvertSQL_OnConflictDoUpdate(t *testing.T) {
 					ON CONFLICT(brand_id) DO UPDATE SET logo_data = excluded.logo_data, content_type = excluded.content_type, fetched_at = excluded.fetched_at, source = excluded.source`,
 		},
 		{
-			name: "upsert dietary profiles",
-			input: `INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (?, '[]', '["vegan"]') ON CONFLICT(user_id) DO UPDATE SET allergens = excluded.allergens, diets = excluded.diets`,
+			name:   "upsert dietary profiles",
+			input:  `INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (?, '[]', '["vegan"]') ON CONFLICT(user_id) DO UPDATE SET allergens = excluded.allergens, diets = excluded.diets`,
 			expect: `INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES ($1, '[]', '["vegan"]') ON CONFLICT(user_id) DO UPDATE SET allergens = excluded.allergens, diets = excluded.diets`,
 		},
 		{
@@ -562,57 +565,57 @@ func TestConvertSQL_InsertReturningNoDouble(t *testing.T) {
 
 func TestPgExecWithReturning_QueryClassification(t *testing.T) {
 	tests := []struct {
-		name           string
-		query          string
-		expectInsert   bool
+		name            string
+		query           string
+		expectInsert    bool
 		expectReturning bool
 	}{
 		{
-			name:           "plain INSERT",
-			query:          "INSERT INTO users (name) VALUES ($1)",
-			expectInsert:   true,
+			name:            "plain INSERT",
+			query:           "INSERT INTO users (name) VALUES ($1)",
+			expectInsert:    true,
 			expectReturning: false,
 		},
 		{
-			name:           "INSERT with RETURNING",
-			query:          "INSERT INTO users (name) VALUES ($1) RETURNING id",
-			expectInsert:   true,
+			name:            "INSERT with RETURNING",
+			query:           "INSERT INTO users (name) VALUES ($1) RETURNING id",
+			expectInsert:    true,
 			expectReturning: true,
 		},
 		{
-			name:           "UPDATE query",
-			query:          "UPDATE users SET name = $1 WHERE id = $2",
-			expectInsert:   false,
+			name:            "UPDATE query",
+			query:           "UPDATE users SET name = $1 WHERE id = $2",
+			expectInsert:    false,
 			expectReturning: false,
 		},
 		{
-			name:           "DELETE query",
-			query:          "DELETE FROM users WHERE id = $1",
-			expectInsert:   false,
+			name:            "DELETE query",
+			query:           "DELETE FROM users WHERE id = $1",
+			expectInsert:    false,
 			expectReturning: false,
 		},
 		{
-			name:           "SELECT query",
-			query:          "SELECT * FROM users WHERE id = $1",
-			expectInsert:   false,
+			name:            "SELECT query",
+			query:           "SELECT * FROM users WHERE id = $1",
+			expectInsert:    false,
 			expectReturning: false,
 		},
 		{
-			name:           "INSERT with ON CONFLICT DO NOTHING",
-			query:          "INSERT INTO users (phone) VALUES ($1) ON CONFLICT DO NOTHING",
-			expectInsert:   true,
+			name:            "INSERT with ON CONFLICT DO NOTHING",
+			query:           "INSERT INTO users (phone) VALUES ($1) ON CONFLICT DO NOTHING",
+			expectInsert:    true,
 			expectReturning: false,
 		},
 		{
-			name:           "INSERT with leading whitespace",
-			query:          "  INSERT INTO users (name) VALUES ($1)",
-			expectInsert:   true,
+			name:            "INSERT with leading whitespace",
+			query:           "  INSERT INTO users (name) VALUES ($1)",
+			expectInsert:    true,
 			expectReturning: false,
 		},
 		{
-			name:           "INSERT with RETURNING in mixed case",
-			query:          "INSERT INTO users (name) VALUES ($1) returning id",
-			expectInsert:   true,
+			name:            "INSERT with RETURNING in mixed case",
+			query:           "INSERT INTO users (name) VALUES ($1) returning id",
+			expectInsert:    true,
 			expectReturning: true,
 		},
 	}
@@ -905,4 +908,95 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// =============================================================================
+// strftime CONVERSION COVERAGE
+// =============================================================================
+
+// strftimeSupportedFormats lists every strftime format literal convertStrftime
+// knows how to translate, paired with the Postgres expression it must produce
+// for the column `c`.
+var strftimeSupportedFormats = map[string]string{
+	"'%w'":       "EXTRACT(DOW FROM c)",
+	"'%Y'":       "EXTRACT(YEAR FROM c)",
+	"'%W'":       "EXTRACT(WEEK FROM c)",
+	"'%H'":       "EXTRACT(HOUR FROM c)",
+	"'%Y-%m-%d'": "TO_CHAR(c, 'YYYY-MM-DD')",
+	"'%Y-%m'":    "TO_CHAR(c, 'YYYY-MM')",
+}
+
+// TestConvertStrftime_SupportedFormats pins each supported format's exact
+// Postgres output, so a refactor cannot quietly change one.
+func TestConvertStrftime_SupportedFormats(t *testing.T) {
+	for format, want := range strftimeSupportedFormats {
+		got := convertStrftime("SELECT strftime(" + format + ", c) FROM t")
+		if !strings.Contains(got, want) {
+			t.Errorf("strftime(%s, c) → %q, want it to contain %q", format, got, want)
+		}
+		if strings.Contains(got, "TODO") {
+			t.Errorf("strftime(%s, c) hit the unsupported fallback: %q", format, got)
+		}
+	}
+}
+
+// TestConvertStrftime_EveryFormatInSourceIsSupported scans every non-test .go
+// file for strftime format literals and fails if any one is not supported.
+//
+// This is the guard that matters. An unrecognised format used to become
+// "/* TODO */ TO_CHAR(col, '%x')", which Postgres executes without error and
+// which returns the literal format string instead of a date part — silently
+// corrupt analytics, with nothing in the logs. Introducing a new strftime format
+// without teaching convertStrftime about it now fails here instead.
+func TestConvertStrftime_EveryFormatInSourceIsSupported(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatalf("globbing source files: %v", err)
+	}
+
+	found := map[string][]string{} // format literal -> files using it
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") || f == "pgcompat.go" {
+			continue
+		}
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("reading %s: %v", f, err)
+		}
+		// strftime( may be spelled with any case, as handlers_learning.go does.
+		re := regexp.MustCompile(`(?i)strftime\(\s*('[^']*')`)
+		for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+			found[m[1]] = append(found[m[1]], f)
+		}
+	}
+
+	if len(found) == 0 {
+		t.Log("no strftime usages in non-test sources; the guard still stands for new ones")
+	}
+	for format, usedIn := range found {
+		if _, ok := strftimeSupportedFormats[format]; !ok {
+			t.Errorf("strftime format %s is used in %v but convertStrftime does not support it — "+
+				"it would silently emit wrong SQL that Postgres runs without error. "+
+				"Add a case to convertStrftime and an entry to strftimeSupportedFormats.",
+				format, usedIn)
+		}
+	}
+}
+
+// TestConvertStrftime_UnsupportedFormatLogsLoudly: the fallback must be
+// impossible to miss. It used to emit a TODO comment into live SQL and say
+// nothing.
+func TestConvertStrftime_UnsupportedFormatLogsLoudly(t *testing.T) {
+	out := captureLog(func() {
+		convertStrftime("SELECT strftime('%j', created_at) FROM users")
+	})
+	if !strings.Contains(out, "pgcompat") {
+		t.Errorf("unsupported strftime format must log under the pgcompat tag, got: %q", out)
+	}
+	if !strings.Contains(out, "%j") {
+		t.Errorf("the log must name the offending format, got: %q", out)
+	}
+	if !strings.Contains(strings.ToUpper(out), "UNSUPPORTED") {
+		t.Errorf("the log must say the format is unsupported, got: %q", out)
+	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 )
 
@@ -455,8 +456,16 @@ func convertStrftime(q string) string {
 		case "'%H'":
 			replacement = fmt.Sprintf("EXTRACT(HOUR FROM %s)", col)
 		default:
-			// Fallback: leave as-is but mark for manual review
-			replacement = fmt.Sprintf("/* TODO: strftime conversion */ TO_CHAR(%s, %s)", col, format)
+			// An unrecognised format used to become a TODO comment plus
+			// TO_CHAR(col, '%x'), which Postgres executes without error and which
+			// yields the literal format string instead of a date part — silently
+			// wrong analytics, with nothing in the logs. The conversion stays
+			// best-effort (refusing here would break the query outright), but it
+			// is now loud, and pgcompat_test.go fails if any format literal in
+			// non-test sources reaches this branch at all.
+			log.Printf("[pgcompat] UNSUPPORTED strftime format %q — emitting TO_CHAR(%s, %s), which will NOT "+
+				"produce a date part. Add a case to convertStrftime.", format, col, format)
+			replacement = fmt.Sprintf("TO_CHAR(%s, %s)", col, format)
 		}
 		q = q[:start] + replacement + q[end:]
 	}
