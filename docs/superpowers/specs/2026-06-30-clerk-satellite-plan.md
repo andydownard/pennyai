@@ -1,7 +1,7 @@
 # Groflo / pennyai — Clerk auth: satellite daughter plan (FINAL)
 
 **Date:** 2026-06-30
-**Status:** Plan for Andy's review. Supersedes the 2026-06-29 draft. Grounded in: the ratified rally-wide Clerk authority architecture (timpager memory, 2026-06-17), the working `projections.thriftly.com` satellite (a real cross-apex Clerk satellite with no secret), timpager's shipped daughter verifier + resolve API, and Clerk's official skills (`clerk-react-patterns`, `clerk-setup`, `clerk-backend-api`).
+**Status:** **Implemented dark** on branch `feat/clerk-sso-satellite`: DB column + partial unique index, the no-secret JWKS verifier, boot-refuse on Clerk secrets, the timpager resolve client, `POST /auth/clerk/exchange`, the `requireSession` Bearer fallback, enable-aware CSP, and the frontend provider + "Continue with Rally" button. All of it is off behind `CLERK_ENABLED` (backend, default `0`) and `VITE_CLERK_PUBLISHABLE_KEY` (frontend, unset). Deferred: legacy `users.id` → `rally_user_id` re-keying (logged under `[clerk-reconcile]`, not fixed), and `frontend-brand`. Plan for Andy's review; supersedes the 2026-06-29 draft. Grounded in: the ratified rally-wide Clerk authority architecture (timpager memory, 2026-06-17), the working `projections.thriftly.com` satellite (a real cross-apex Clerk satellite with no secret), timpager's shipped daughter verifier + resolve API, and Clerk's official skills (`clerk-react-patterns`, `clerk-setup`, `clerk-backend-api`).
 
 Andy's direction: "plan whatever Clerk says is best practice." This plan follows Clerk's documented patterns for the Clerk-owned parts (SPA provider, `getToken()`→Bearer, networkless JWT verify) and the ratified rally architecture for how Clerk meshes with pennyai's existing identity.
 

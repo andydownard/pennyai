@@ -125,11 +125,18 @@ func initTestDB(db *sql.DB) error {
 			daily_digest_enabled INTEGER NOT NULL DEFAULT 0,
 			daily_digest_opted_in_at DATETIME,
 			daily_digest_last_sent DATETIME,
-			merged INTEGER NOT NULL DEFAULT 0
+			merged INTEGER NOT NULL DEFAULT 0,
+			clerk_user_id TEXT
 		)
 	`)
 	if err != nil {
 		return fmt.Errorf("creating users table: %w", err)
+	}
+
+	// Mirrors the partial unique index schema.go creates on Postgres. Without
+	// it the Clerk tests would exercise a schema production does not have.
+	if _, err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_clerk_user_id ON users(clerk_user_id) WHERE clerk_user_id IS NOT NULL"); err != nil {
+		return fmt.Errorf("creating idx_users_clerk_user_id: %w", err)
 	}
 
 	// Sessions table (pennyai-owned — see schema.go initDB).

@@ -7,9 +7,11 @@
 //   - Login typewriter effect
 //   - Google config fetch
 //   - Online/offline tracking
+//   - Rally sign-in (Clerk) flag, exchange callback, and sign-out
 // =============================================================================
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { clerkActive, clerkSignOut, setClerkExchangeHandler } from '../auth/clerkToken'
 
 // Auth success data shape — passed to the parent when authentication succeeds
 export interface AuthSuccessData {
@@ -65,6 +67,9 @@ export function useAuthState(options: UseAuthStateOptions) {
   const [nameInput, setNameInput] = useState('')
   const [lastNameInput, setLastNameInput] = useState('')
   const [googleClientId, setGoogleClientId] = useState('')
+  // Server-side Rally sign-in flag. False until /api/config says otherwise, so
+  // the login screens look exactly as they do today while the feature is dark.
+  const [clerkEnabled, setClerkEnabled] = useState(false)
   const [resetToken, setResetToken] = useState('')
   const [resetSent, setResetSent] = useState(false)
   const [magicLinkSent, setMagicLinkSent] = useState(false)
@@ -98,8 +103,9 @@ export function useAuthState(options: UseAuthStateOptions) {
   // =========================================================================
 
   useEffect(() => {
-    fetch('/api/config').then(r => r.json()).then((data: { google_client_id?: string }) => {
+    fetch('/api/config').then(r => r.json()).then((data: { google_client_id?: string; clerk_enabled?: boolean }) => {
       if (data.google_client_id) setGoogleClientId(data.google_client_id)
+      setClerkEnabled(Boolean(data.clerk_enabled))
     }).catch(() => {})
 
     // Extract reset token from URL if present
@@ -108,6 +114,41 @@ export function useAuthState(options: UseAuthStateOptions) {
     if (token && window.location.pathname === '/reset-password') {
       setResetToken(token)
     }
+  }, [])
+
+  // =========================================================================
+  // RALLY SIGN-IN (CLERK) EXCHANGE CALLBACK
+  //
+  // ClerkSessionExchange posts to /auth/clerk/exchange on its own, outside the
+  // React tree this hook lives in. This is how the result gets back here: on
+  // success re-check /auth/me (the session cookie is now set) and land the user
+  // on home; on failure show the server's message, which is written for them.
+  // =========================================================================
+
+  useEffect(() => {
+    setClerkExchangeHandler((error?: string) => {
+      if (error) {
+        showToastRef.current(error, 'error')
+        return
+      }
+      fetch('/auth/me')
+        .then(r => (r.ok ? r.json() : null))
+        .then((data: Record<string, unknown> | null) => {
+          if (!data || data.logged_in !== true) return
+          onAuthSuccessRef.current({
+            is_admin: data.is_admin as boolean | undefined,
+            user_id: data.user_id as number | undefined,
+            auth_methods: data.auth_methods as string[] | undefined,
+            name: data.name as string | undefined,
+            login_count: data.login_count as number | undefined,
+            can_submit_feedback: data.can_submit_feedback as boolean | undefined,
+          })
+          tryJoinCodeRef.current()
+          setScreenRef.current('home', true)
+        })
+        .catch(() => {})
+    })
+    return () => setClerkExchangeHandler(null)
   }, [])
 
   // =========================================================================
@@ -427,6 +468,10 @@ export function useAuthState(options: UseAuthStateOptions) {
 
   const handleLogout = async () => {
     await fetch('/auth/logout', { method: 'POST' })
+    // End the Clerk session too. Without this a live Clerk session would keep
+    // re-authenticating the next request via the Bearer header, and the user
+    // could not actually log out.
+    if (clerkActive()) await clerkSignOut()
     setScreenRef.current('phone', true)
     setPhone('')
     setCode(['', '', '', '', '', ''])
@@ -467,6 +512,7 @@ export function useAuthState(options: UseAuthStateOptions) {
     nameInput, setNameInput,
     lastNameInput, setLastNameInput,
     googleClientId, setGoogleClientId,
+    clerkEnabled, setClerkEnabled,
     resetToken, setResetToken,
     resetSent, setResetSent,
     magicLinkSent, setMagicLinkSent,

@@ -1,7 +1,13 @@
+import { Suspense, lazy } from 'react'
 import { PennyAvatar } from './PennyAvatar'
 import { FloatingLabelField } from './FloatingLabelField'
 import { LegalLinks } from './LegalLinks'
 import { FONT, formatPhone, authStyles, pageStyles, layout, text } from '../styles'
+import { clerkActive } from '../auth/clerkToken'
+
+// Lazy so @clerk/clerk-react stays out of this screen's chunk when the server
+// has Rally sign-in off or this build has no publishable key.
+const ClerkSignInButton = lazy(() => import('../auth/ClerkSignInButton'))
 
 interface PhoneScreenProps {
   phone: string
@@ -10,6 +16,8 @@ interface PhoneScreenProps {
   error: string
   loginPennyText: string
   googleClientId: string
+  /** Server-side flag from /api/config. Default false leaves this screen as-is. */
+  clerkEnabled?: boolean
   phoneInputRef: React.Ref<HTMLInputElement>
   onPhoneChange: (e: React.ChangeEvent<HTMLInputElement>) => void
   onSmsOptInChange: (v: boolean) => void
@@ -19,7 +27,7 @@ interface PhoneScreenProps {
 }
 
 export function PhoneScreen({
-  phone, smsOptIn, loading, error, loginPennyText, googleClientId,
+  phone, smsOptIn, loading, error, loginPennyText, googleClientId, clerkEnabled = false,
   phoneInputRef, onPhoneChange, onSmsOptInChange, onSendCode, onNavigate, setError,
 }: PhoneScreenProps) {
   const isValid = phone.length === 10
@@ -109,6 +117,12 @@ export function PhoneScreen({
 
         {googleClientId && (
           <div id="google-signin-btn" style={{ ...layout.rowCenter, width: '100%', marginBottom: '12px' }} />
+        )}
+
+        {clerkEnabled && clerkActive() && (
+          <Suspense fallback={null}>
+            <ClerkSignInButton />
+          </Suspense>
         )}
 
         <button

@@ -91,6 +91,9 @@ func TestMethodNotAllowed_AllEndpoints(t *testing.T) {
 		{"Brands_POST", server.handleBrands, "POST", "/api/brands"},
 		{"NPSCheck_POST", server.handleNPSCheck, "POST", "/api/nps/check"},
 		{"NPS_GET", server.handleNPS, "GET", "/api/nps"},
+		// The method check runs before the CLERK_ENABLED dark-404, so a GET is
+		// 405 whether or not Rally sign-in is enabled (it is off here).
+		{"ClerkExchange_GET", server.handleClerkExchange, "GET", "/auth/clerk/exchange"},
 	}
 
 	for _, tc := range cases {
