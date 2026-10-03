@@ -18,6 +18,17 @@ func addColumnIfNotExists(db dbExecer, table, column, definition string) {
 	}
 }
 
+// createIndexIfNotExists runs an additive CREATE [UNIQUE] INDEX IF NOT EXISTS
+// and logs loudly on failure instead of aborting startup. A unique index can
+// legitimately fail to build on an existing database that already holds
+// duplicate rows; that needs a human to reconcile, and the rest of the schema
+// must still come up. Never used for anything destructive.
+func createIndexIfNotExists(db dbExecer, stmt string) {
+	if _, err := db.Exec(stmt); err != nil {
+		log.Printf("[schema] WARNING could not create index (existing duplicate rows?): %v -- stmt: %s", err, stmt)
+	}
+}
+
 func initDB(db *sql.DB) error {
 	// =========================================================================
 	// USERS TABLE — owned by pennyai
@@ -714,6 +725,13 @@ func initDB(db *sql.DB) error {
 		return fmt.Errorf("creating brand_transactions table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_brand_transactions_user ON brand_transactions(brand_user_id)")
+	// One ledger row per Stripe payment_intent. Stripe retries webhooks by
+	// design and can deliver the same event concurrently, so the storage layer
+	// — not a COUNT(*) check — is what prevents a double credit.
+	// Partial, because the dev/test deposit fallback writes stripe_id = '' for
+	// every row it inserts.
+	createIndexIfNotExists(db, `CREATE UNIQUE INDEX IF NOT EXISTS idx_brand_transactions_stripe_id
+		ON brand_transactions(stripe_id) WHERE stripe_id IS NOT NULL AND stripe_id <> ''`)
 
 	// Bug reports table
 	_, err = db.Exec(`

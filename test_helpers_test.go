@@ -668,6 +668,10 @@ func initTestDB(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("creating brand_transactions table: %w", err)
 	}
+	// Mirrors schema.go idx_brand_transactions_stripe_id. Partial, because the
+	// dev/test deposit fallback writes stripe_id = '' for every row.
+	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_brand_transactions_stripe_id
+		ON brand_transactions(stripe_id) WHERE stripe_id IS NOT NULL AND stripe_id <> ''`)
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS bug_reports (
@@ -1332,6 +1336,40 @@ func openTestDB(t *testing.T) (*sql.DB, *PGDB) {
 	pgdb := WrapPG(db)
 	pgdb.skipConversion = true
 	return db, pgdb
+}
+
+// =============================================================================
+// CONCURRENCY TEST HELPER
+// =============================================================================
+
+// hammer runs fn concurrently n times and waits for all of them to finish,
+// releasing them as close to simultaneously as a start barrier allows. Use it
+// to exercise TOCTOU windows in money-handling paths.
+//
+// IMPORTANT: the test database is SQLite :memory: with SetMaxOpenConns(1), so
+// individual statements serialise. A check-then-act interleaving is still
+// possible (the check releases the connection before the transaction begins),
+// but whether it happens depends on goroutine scheduling. Every hammer test
+// MUST therefore be paired with a deterministic negative test that pre-seeds
+// the conflicting row and asserts the guard fires, so correctness never
+// depends on scheduler luck.
+func hammer(t *testing.T, n int, fn func(i int)) {
+	t.Helper()
+	var ready, done sync.WaitGroup
+	start := make(chan struct{})
+	ready.Add(n)
+	done.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer done.Done()
+			ready.Done()
+			<-start
+			fn(i)
+		}(i)
+	}
+	ready.Wait()
+	close(start)
+	done.Wait()
 }
 
 // =============================================================================

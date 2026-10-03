@@ -295,25 +295,85 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Idempotency: check if we've already processed this payment
-		var existing int
-		s.db.QueryRow("SELECT COUNT(*) FROM brand_transactions WHERE stripe_id = ?", pi.Object.ID).Scan(&existing)
-		if existing > 0 {
-			log.Printf("[stripe] duplicate payment_intent %s, skipping", pi.Object.ID)
-			w.WriteHeader(http.StatusOK)
+		if err := s.creditBrandDeposit(brandUserID, pi.Object.ID, pi.Object.Amount); err != nil {
+			// Tell Stripe to retry: nothing was committed.
+			log.Printf("[stripe] crediting payment_intent %s failed: %v", pi.Object.ID, err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not record deposit"})
 			return
 		}
-
-		// Credit balance
-		s.db.Exec(`UPDATE brand_balance SET balance_cents = balance_cents + ?, last_deposit_at = CURRENT_TIMESTAMP
-			WHERE brand_user_id = ?`, pi.Object.Amount, brandUserID)
-		s.db.Exec(`INSERT INTO brand_transactions (brand_user_id, type, amount_cents, description, stripe_id)
-			VALUES (?, 'deposit', ?, 'Stripe deposit', ?)`, brandUserID, pi.Object.Amount, pi.Object.ID)
-
-		log.Printf("[stripe] credited %d cents to brand user %s (pi: %s)", pi.Object.Amount, brandUserID, pi.Object.ID)
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// creditBrandDeposit records one Stripe deposit exactly once.
+//
+// The ledger INSERT is the FIRST mutation and carries ON CONFLICT DO NOTHING
+// against the partial unique index on brand_transactions(stripe_id), so the
+// storage layer decides the winner. A duplicate delivery affects zero rows and
+// returns nil without touching the balance — Stripe gets its 200 and stops
+// retrying. The balance UPDATE runs in the same transaction as the ledger
+// INSERT, per the Revenue Rule that wallet balances never move outside the
+// transaction holding the ledger row.
+//
+// A nil return means "settled" (credited now, or already credited earlier).
+// A non-nil return means nothing was committed and the caller should let
+// Stripe retry.
+func (s *Server) creditBrandDeposit(brandUserID, stripeID string, amountCents int) error {
+	if stripeID == "" {
+		return fmt.Errorf("refusing to credit a deposit with an empty stripe id")
+	}
+	if amountCents <= 0 {
+		return fmt.Errorf("refusing to credit a non-positive amount (%d cents)", amountCents)
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("starting transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Claim the payment_intent. Losers of the race affect zero rows.
+	res, err := tx.Exec(`INSERT INTO brand_transactions (brand_user_id, type, amount_cents, description, stripe_id)
+		VALUES (?, 'deposit', ?, 'Stripe deposit', ?) ON CONFLICT DO NOTHING`,
+		brandUserID, amountCents, stripeID)
+	if err != nil {
+		return fmt.Errorf("recording ledger row: %w", err)
+	}
+	claimed, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("reading ledger insert result: %w", err)
+	}
+	if claimed != 1 {
+		log.Printf("[stripe] duplicate payment_intent %s, already credited — skipping", stripeID)
+		return nil
+	}
+
+	// Credit the balance in the same transaction. Upsert, so a brand with no
+	// balance row yet never has its deposit silently swallowed.
+	res, err = tx.Exec(`INSERT INTO brand_balance (brand_user_id, balance_cents, last_deposit_at)
+		VALUES (?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT (brand_user_id) DO UPDATE SET
+			balance_cents = brand_balance.balance_cents + ?,
+			last_deposit_at = CURRENT_TIMESTAMP`,
+		brandUserID, amountCents, amountCents)
+	if err != nil {
+		return fmt.Errorf("crediting balance: %w", err)
+	}
+	credited, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("reading balance update result: %w", err)
+	}
+	if credited != 1 {
+		return fmt.Errorf("balance credit affected %d rows, want 1", credited)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing deposit: %w", err)
+	}
+
+	log.Printf("[stripe] credited %d cents to brand user %s (pi: %s)", amountCents, brandUserID, stripeID)
+	return nil
 }
 
 // verifyStripeSignature verifies a Stripe webhook signature (v1 scheme).
