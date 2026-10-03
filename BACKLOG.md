@@ -45,6 +45,7 @@
 | G31 | Household "who claimed what" indicator | James persona: no `claimed_by` badge on ItemRow. Duplicate-prevention narrative weakened. Show faint name badge when `claimed_by_user_id ≠ NULL`. | S |
 | G33 | Deal detail partial-fetch error state | Brand portal shows perpetual "Loading performance data…" when `/brand/deal-performance` or `/brand/optimize` fails silently. Show recoverable error banner instead. | S |
 | G34 | Deal save success toast | Budget/discount edits silently refresh with no confirmation feedback. Tamika: "Did I save that?" Add 2s success toast before refetch. | S |
+| G35 | Wire revenue events to timpager | `pushRevenueEvent` has zero callers, so no Groflo revenue reaches timpager's revenue-events API and the 30% community share has nothing to compute from. Call it after rebate verify and after a brand deposit is credited, outside the wallet transaction, with the mandated `pennyai_{eventType}_{sourceRef}_{date}` key. The helper itself is correct and now tested (auth header, 409-as-idempotent-success, retry cap) — what is missing is the call site. Feature, not a bugfix. | M |
 
 ## P3 — Future
 

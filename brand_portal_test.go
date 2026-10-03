@@ -3443,3 +3443,38 @@ func TestBrandFeedback_MethodNotAllowed(t *testing.T) {
 		t.Errorf("Status: got %d, want 405", rr.Code)
 	}
 }
+
+// TestBrandPortal_DepositCheckoutFormCarriesSourceMetadata: CLAUDE.md Revenue
+// Rules require source: "pennyai" on all charges. The Checkout Session set only
+// brand_user_id, so timpager-side attribution was broken for every real deposit.
+func TestBrandPortal_DepositCheckoutFormCarriesSourceMetadata(t *testing.T) {
+	form := buildDepositCheckoutForm("42", 25000, "https://brands.groflo.io")
+
+	if got := form.Get("payment_intent_data[metadata][source]"); got != "pennyai" {
+		t.Errorf("payment_intent_data[metadata][source] = %q, want \"pennyai\"", got)
+	}
+	if got := form.Get("payment_intent_data[metadata][brand_user_id]"); got != "42" {
+		t.Errorf("brand_user_id metadata = %q, want \"42\"", got)
+	}
+
+	// The encoded body is what Stripe actually receives.
+	encoded := form.Encode()
+	for _, want := range []string{
+		"payment_intent_data%5Bmetadata%5D%5Bsource%5D=pennyai",
+		"payment_intent_data%5Bmetadata%5D%5Bbrand_user_id%5D=42",
+		"mode=payment",
+		"line_items%5B0%5D%5Bprice_data%5D%5Bunit_amount%5D=25000",
+	} {
+		if !strings.Contains(encoded, want) {
+			t.Errorf("encoded form body missing %q\ngot: %s", want, encoded)
+		}
+	}
+
+	// Redirects must go back to the brand portal.
+	if got := form.Get("success_url"); got != "https://brands.groflo.io?deposit=success" {
+		t.Errorf("success_url = %q", got)
+	}
+	if got := form.Get("cancel_url"); got != "https://brands.groflo.io?deposit=cancel" {
+		t.Errorf("cancel_url = %q", got)
+	}
+}

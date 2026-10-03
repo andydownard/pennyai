@@ -175,15 +175,7 @@ func (s *Server) handleBrandDeposit(w http.ResponseWriter, r *http.Request) {
 		baseURL := "https://brands.groflo.io"
 		log.Printf("[stripe] deposit: using baseURL=%s (origin was %q)", baseURL, r.Header.Get("Origin"))
 
-		form := url.Values{}
-		form.Set("mode", "payment")
-		form.Set("line_items[0][price_data][currency]", "usd")
-		form.Set("line_items[0][price_data][product_data][name]", "Groflo Brand Account Deposit")
-		form.Set("line_items[0][price_data][unit_amount]", strconv.Itoa(req.AmountCents))
-		form.Set("line_items[0][quantity]", "1")
-		form.Set("payment_intent_data[metadata][brand_user_id]", bs.BrandUserID)
-		form.Set("success_url", baseURL+"?deposit=success")
-		form.Set("cancel_url", baseURL+"?deposit=cancel")
+		form := buildDepositCheckoutForm(bs.BrandUserID, req.AmountCents, baseURL)
 
 		httpReq, _ := http.NewRequest("POST", "https://api.stripe.com/v1/checkout/sessions", strings.NewReader(form.Encode()))
 		httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -304,6 +296,26 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// buildDepositCheckoutForm builds the form body for a brand deposit Stripe
+// Checkout Session. Extracted so the encoded body — in particular the required
+// metadata — is testable without calling Stripe.
+//
+// CLAUDE.md Revenue Rules: Stripe metadata MUST include source: "pennyai" on all
+// charges. Without it, timpager-side attribution is broken for every deposit.
+func buildDepositCheckoutForm(brandUserID string, amountCents int, baseURL string) url.Values {
+	form := url.Values{}
+	form.Set("mode", "payment")
+	form.Set("line_items[0][price_data][currency]", "usd")
+	form.Set("line_items[0][price_data][product_data][name]", "Groflo Brand Account Deposit")
+	form.Set("line_items[0][price_data][unit_amount]", strconv.Itoa(amountCents))
+	form.Set("line_items[0][quantity]", "1")
+	form.Set("payment_intent_data[metadata][brand_user_id]", brandUserID)
+	form.Set("payment_intent_data[metadata][source]", "pennyai")
+	form.Set("success_url", baseURL+"?deposit=success")
+	form.Set("cancel_url", baseURL+"?deposit=cancel")
+	return form
 }
 
 // creditBrandDeposit records one Stripe deposit exactly once.

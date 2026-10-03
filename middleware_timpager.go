@@ -27,12 +27,23 @@ func (s *Server) pushRevenueEvent(eventType string, amountCents int, sourceRef, 
 		jsonBody, _ := json.Marshal(body)
 
 		for attempt := 0; attempt < 3; attempt++ {
-			client := &http.Client{Timeout: 10 * time.Second}
-			resp, err := client.Post(
+			// Explicit request, not client.Post: this endpoint needs the
+			// Authorization header. The helper already refuses to run without
+			// TimpagerAPIKey, but it never actually sent the key, so every event
+			// timpager received was unauthenticated. Mirrors pushPayoutToTimpager.
+			req, err := http.NewRequest("POST",
 				s.config.TimpagerURL+"/api/marketplaces/penny/revenue-events",
-				"application/json",
 				bytes.NewReader(jsonBody),
 			)
+			if err != nil {
+				log.Printf("[timpager-revenue] new request failed: %v", err)
+				return
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+s.config.TimpagerAPIKey)
+
+			client := &http.Client{Timeout: 10 * time.Second}
+			resp, err := client.Do(req)
 			if err != nil {
 				log.Printf("[timpager-revenue] attempt %d failed: %v", attempt+1, err)
 				time.Sleep(time.Duration(1<<attempt) * time.Second) // exponential backoff

@@ -311,3 +311,61 @@ func TestTimpagerPushPayoutStubUsesGoldenKey(t *testing.T) {
 		t.Errorf("stub mode must log intent (no real send), got: %q", out)
 	}
 }
+
+// -----------------------------------------------------------------------------
+// Authorization header on revenue pushes
+// -----------------------------------------------------------------------------
+
+// TestTimpagerPushRevenueEventSendsAuthHeader: pushRevenueEvent refuses to run
+// unless TimpagerAPIKey is set, yet it used client.Post and sent no
+// Authorization header at all — so every event timpager received was
+// unauthenticated. pushPayoutToTimpager already does this correctly.
+func TestTimpagerPushRevenueEventSendsAuthHeader(t *testing.T) {
+	authCh := make(chan string, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authCh <- r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	s := newTestServer(t, &MockTwilioClient{})
+	s.config.TimpagerURL = srv.URL
+	s.config.TimpagerAPIKey = "test-key"
+
+	s.pushRevenueEvent("swap_rebate", 150, "rebate_1", "pennyai_swap_rebate_rebate_1_2026-06-29")
+
+	select {
+	case got := <-authCh:
+		if want := "Bearer test-key"; got != want {
+			t.Errorf("Authorization header: got %q, want %q", got, want)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the revenue event push")
+	}
+}
+
+// TestTimpagerPushRevenueEventSendsJSONContentType pins the content type
+// alongside the auth header, since both now come from an explicit request.
+func TestTimpagerPushRevenueEventSendsJSONContentType(t *testing.T) {
+	ctCh := make(chan string, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctCh <- r.Header.Get("Content-Type")
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	s := newTestServer(t, &MockTwilioClient{})
+	s.config.TimpagerURL = srv.URL
+	s.config.TimpagerAPIKey = "test-key"
+
+	s.pushRevenueEvent("swap_rebate", 150, "rebate_1", "pennyai_swap_rebate_rebate_1_2026-06-29")
+
+	select {
+	case got := <-ctCh:
+		if got != "application/json" {
+			t.Errorf("Content-Type: got %q, want application/json", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the revenue event push")
+	}
+}
