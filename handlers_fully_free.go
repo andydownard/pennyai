@@ -35,7 +35,34 @@ func (s *Server) handleFullyFreeReceiptVerify(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Rate limit: max 5 fully_free verifications per user per day
+	// Load rebate and verify ownership + status
+	var rebateUserID string
+	var dealID, amountCents int
+	var rebateStatus string
+	err := s.db.QueryRow(
+		"SELECT user_id, deal_id, amount_cents, status FROM swap_rebates WHERE id = ?",
+		req.RebateID,
+	).Scan(&rebateUserID, &dealID, &amountCents, &rebateStatus)
+	if err != nil {
+		writeNotFound(w, "Rebate not found")
+		return
+	}
+	if rebateUserID != session.UserID {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Not your rebate"})
+		return
+	}
+
+	// Only pending_purchase rebates can be verified. Fast path only: the
+	// authoritative guard is the conditional UPDATE inside the transaction below.
+	if rebateStatus != "pending_purchase" {
+		writeConflict(w, "Rebate is not awaiting purchase verification")
+		return
+	}
+
+	// Rate limit: max 5 fully_free verifications per user per day. Consumed only
+	// after ownership and status check out, so a 403 or 404 does not burn one of
+	// the user's attempts — otherwise anyone could exhaust a victim's daily quota
+	// by guessing rebate ids.
 	val, _ := s.earningsUploadLimiter.LoadOrStore(fmt.Sprintf("ff_%s", session.UserID), &rateBucket{})
 	rb := val.(*rateBucket)
 	rb.mu.Lock()
@@ -54,29 +81,6 @@ func (s *Server) handleFullyFreeReceiptVerify(w http.ResponseWriter, r *http.Req
 	}
 	rb.times = append(recent, now)
 	rb.mu.Unlock()
-
-	// Load rebate and verify ownership + status
-	var rebateUserID string
-	var dealID, amountCents int
-	var rebateStatus string
-	err := s.db.QueryRow(
-		"SELECT user_id, deal_id, amount_cents, status FROM swap_rebates WHERE id = ?",
-		req.RebateID,
-	).Scan(&rebateUserID, &dealID, &amountCents, &rebateStatus)
-	if err != nil {
-		writeNotFound(w, "Rebate not found")
-		return
-	}
-	if rebateUserID != session.UserID {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Not your rebate"})
-		return
-	}
-
-	// Only pending_purchase rebates can be verified
-	if rebateStatus != "pending_purchase" {
-		writeBadRequest(w, "Rebate is not awaiting purchase verification")
-		return
-	}
 
 	// Load deal to get max_rebate, platform_fee, UPC, deal_type
 	var maxRebateCents, platformFeeCents, budgetTotal int
@@ -116,6 +120,34 @@ func (s *Server) handleFullyFreeReceiptVerify(w http.ResponseWriter, r *http.Req
 	}
 	defer tx.Rollback()
 
+	// Claim the rebate FIRST, with status in the WHERE clause. This is the
+	// check-then-act fix (B11): the status read above happened before tx.Begin,
+	// so two concurrent verifications both passed it and each ran the budget
+	// debit below — individually atomic, so both succeeded, and the brand paid
+	// rebate + platform fee twice for one rebate. A loser affects zero rows and
+	// gets a 409 before any money moves.
+	verifiedAt := time.Now().UTC().Format("2006-01-02 15:04:05")
+	claim, err := tx.Exec(
+		`UPDATE swap_rebates SET status = 'verified', amount_cents = ?, verified_amount_cents = ?, verified_at = ?, receipt_image_url = ?
+		 WHERE id = ? AND user_id = ? AND status = 'pending_purchase'`,
+		actualRebate, actualRebate, verifiedAt, req.ReceiptImage, req.RebateID, session.UserID,
+	)
+	if err != nil {
+		log.Printf("[fully_free] failed to update rebate %d: %v", req.RebateID, err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update rebate"})
+		return
+	}
+	claimed, err := claim.RowsAffected()
+	if err != nil {
+		log.Printf("[fully_free] failed to read rebate update result for %d: %v", req.RebateID, err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update rebate"})
+		return
+	}
+	if claimed != 1 {
+		writeConflict(w, "Rebate is not awaiting purchase verification")
+		return
+	}
+
 	// Atomic budget debit — conditional UPDATE prevents overspend
 	if budgetTotal > 0 {
 		result, err := tx.Exec(
@@ -140,16 +172,8 @@ func (s *Server) handleFullyFreeReceiptVerify(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	// Update rebate: status → verified, set verified amount and timestamp
-	verifiedAt := time.Now().UTC().Format("2006-01-02 15:04:05")
-	if _, err := tx.Exec(
-		"UPDATE swap_rebates SET status = 'verified', amount_cents = ?, verified_amount_cents = ?, verified_at = ?, receipt_image_url = ? WHERE id = ?",
-		actualRebate, actualRebate, verifiedAt, req.ReceiptImage, req.RebateID,
-	); err != nil {
-		log.Printf("[fully_free] failed to update rebate %d: %v", req.RebateID, err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update rebate"})
-		return
-	}
+	// The rebate was already marked verified by the guarded claim at the top of
+	// this transaction.
 
 	// Auto-pause deal if budget now exhausted
 	var newBudgetSpent int
