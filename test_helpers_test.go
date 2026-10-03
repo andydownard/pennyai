@@ -285,6 +285,9 @@ func initTestDB(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("creating referrals table: %w", err)
 	}
+	// Mirrors schema.go idx_referrals_unique. Without it the referral
+	// idempotency tests passed against code that double-credits.
+	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_referrals_unique ON referrals(referrer_id, referred_id)")
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS redemptions (

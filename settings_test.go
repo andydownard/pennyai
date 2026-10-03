@@ -1088,6 +1088,103 @@ func TestReferral_ClaimIdempotent(t *testing.T) {
 	}
 }
 
+// TestReferral_ConcurrentClaimCreditsOnce fires simultaneous claims of the same
+// referral code. The "already claimed" SELECT ran outside the transaction, and
+// the INSERT INTO referrals error was logged and stepped past, so the points
+// UPDATE ran regardless of whether the referral row was actually created.
+// referral_points convert to a $10 Venmo payout, so this is money.
+func TestReferral_ConcurrentClaimCreditsOnce(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+
+	cookieA, referrerID := loginUser(t, server, "5551111111")
+	rr := doRequest(server.handleReferral, "GET", "/api/referral", nil, []*http.Cookie{cookieA})
+	referralCode := parseJSON(rr)["code"].(string)
+
+	cookieB, referredID := loginUser(t, server, "5552222222")
+
+	const n = 8
+	codes := make([]int, n)
+	hammer(t, n, func(i int) {
+		rr := doRequest(server.handleReferralClaim, "POST", "/api/referral/claim",
+			map[string]string{"code": referralCode}, []*http.Cookie{cookieB})
+		codes[i] = rr.Code
+	})
+
+	// Every claim is idempotent, so every one reports success. A 500 here is the
+	// Postgres failure mode: the swallowed INSERT error aborts the transaction
+	// and the Commit then fails.
+	for i, c := range codes {
+		if c != http.StatusOK {
+			t.Errorf("claim %d: expected 200 (idempotent), got %d", i, c)
+		}
+	}
+
+	var referralRows int
+	server.db.QueryRow("SELECT COUNT(*) FROM referrals WHERE referrer_id = ? AND referred_id = ?", referrerID, referredID).Scan(&referralRows)
+	if referralRows != 1 {
+		t.Errorf("referrals rows: got %d, want 1", referralRows)
+	}
+
+	var points int
+	server.db.QueryRow("SELECT COALESCE(referral_points, 0) FROM users WHERE id = ?", referrerID).Scan(&points)
+	if points != referralPointsPerInvite {
+		t.Errorf("referral_points: got %d, want %d (double credit converts to a real payout)", points, referralPointsPerInvite)
+	}
+}
+
+// TestReferral_ClaimWithPreSeededRowCreditsNothing is the deterministic partner
+// to the hammer test: the referral row already exists, so the claim must report
+// success and credit no further points.
+func TestReferral_ClaimWithPreSeededRowCreditsNothing(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+
+	cookieA, referrerID := loginUser(t, server, "5551111111")
+	rr := doRequest(server.handleReferral, "GET", "/api/referral", nil, []*http.Cookie{cookieA})
+	referralCode := parseJSON(rr)["code"].(string)
+
+	cookieB, referredID := loginUser(t, server, "5552222222")
+
+	// A prior claim already landed the row and the points.
+	if _, err := server.db.Exec("INSERT INTO referrals (referrer_id, referred_id) VALUES (?, ?)", referrerID, referredID); err != nil {
+		t.Fatalf("seeding referral row: %v", err)
+	}
+	server.db.Exec("UPDATE users SET referral_points = ? WHERE id = ?", referralPointsPerInvite, referrerID)
+
+	rr = doRequest(server.handleReferralClaim, "POST", "/api/referral/claim",
+		map[string]string{"code": referralCode}, []*http.Cookie{cookieB})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("repeat claim: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var points int
+	server.db.QueryRow("SELECT COALESCE(referral_points, 0) FROM users WHERE id = ?", referrerID).Scan(&points)
+	if points != referralPointsPerInvite {
+		t.Errorf("referral_points after a repeat claim: got %d, want %d", points, referralPointsPerInvite)
+	}
+	var referralRows int
+	server.db.QueryRow("SELECT COUNT(*) FROM referrals WHERE referrer_id = ? AND referred_id = ?", referrerID, referredID).Scan(&referralRows)
+	if referralRows != 1 {
+		t.Errorf("referrals rows: got %d, want 1", referralRows)
+	}
+}
+
+// TestReferral_UniqueIndexInTestSchema pins idx_referrals_unique into the test
+// schema. Production has had it since schema.go:582, but the hand-copied SQLite
+// test schema did not, so the referral idempotency tests were passing against
+// code that would double-credit.
+func TestReferral_UniqueIndexInTestSchema(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('ref-a', '5551110000')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('ref-b', '5552220000')")
+
+	if _, err := server.db.Exec("INSERT INTO referrals (referrer_id, referred_id) VALUES ('ref-a', 'ref-b')"); err != nil {
+		t.Fatalf("first referral insert: %v", err)
+	}
+	if _, err := server.db.Exec("INSERT INTO referrals (referrer_id, referred_id) VALUES ('ref-a', 'ref-b')"); err == nil {
+		t.Error("duplicate (referrer_id, referred_id) accepted — idx_referrals_unique missing from the test schema")
+	}
+}
+
 func TestReferral_CannotSelfRefer(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)

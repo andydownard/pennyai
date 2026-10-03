@@ -156,7 +156,9 @@ func (s *Server) handleReferralClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Idempotent — check if already claimed
+	// Idempotent — fast path for an already-claimed referral. Not a guard: it ran
+	// outside the transaction, so concurrent claims all passed it. The
+	// authoritative guard is the ON CONFLICT claim below.
 	var existingID int
 	err = s.db.QueryRow("SELECT id FROM referrals WHERE referrer_id = ? AND referred_id = ?", referrerID, session.UserID).Scan(&existingID)
 	if err == nil {
@@ -172,11 +174,36 @@ func (s *Server) handleReferralClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec("INSERT INTO referrals (referrer_id, referred_id) VALUES (?, ?)", referrerID, session.UserID); err != nil {
+	// Claim the referral. ON CONFLICT against idx_referrals_unique lets storage
+	// pick the winner, and the points award is gated on having won.
+	//
+	// The INSERT error used to be logged and stepped past, which was worse than
+	// it looked: in Postgres a failed statement aborts the transaction, so the
+	// points UPDATE and the Commit both failed and the second concurrent claimer
+	// got a 500 instead of the idempotent 200. Returning on error is what makes
+	// that 200 real.
+	claim, err := tx.Exec("INSERT INTO referrals (referrer_id, referred_id) VALUES (?, ?) ON CONFLICT DO NOTHING", referrerID, session.UserID)
+	if err != nil {
 		log.Printf("[referral] failed to insert referral: %v", err)
+		dbError(w, err, "We couldn't process your referral. Please try again.")
+		return
 	}
+	claimed, err := claim.RowsAffected()
+	if err != nil {
+		log.Printf("[referral] failed to read referral insert result: %v", err)
+		dbError(w, err, "We couldn't process your referral. Please try again.")
+		return
+	}
+	if claimed != 1 {
+		// Another request claimed it first. Idempotent success, nothing credited.
+		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+		return
+	}
+
 	if _, err := tx.Exec("UPDATE users SET referral_points = COALESCE(referral_points, 0) + ? WHERE id = ?", referralPointsPerInvite, referrerID); err != nil {
 		log.Printf("[referral] failed to update points: %v", err)
+		dbError(w, err, "We couldn't process your referral. Please try again.")
+		return
 	}
 	// M2d: Track referral source
 	tx.Exec("UPDATE users SET referral_source = 'referral' WHERE id = ? AND referral_source = ''", session.UserID)
