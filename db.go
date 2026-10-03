@@ -852,6 +852,24 @@ func maskPhone(phone string) string {
 	return phone[:2] + "***" + phone[len(phone)-2:]
 }
 
+// maskEmail masks an email address for logs, keeping the domain so a log line is
+// still useful for debugging: "verylongname@example.com" → "v***e@example.com".
+func maskEmail(email string) string {
+	at := strings.LastIndex(email, "@")
+	if at <= 0 {
+		// No local part to mask (or not an address at all).
+		if email == "" {
+			return ""
+		}
+		return "***"
+	}
+	local, domain := email[:at], email[at:]
+	if len(local) <= 2 {
+		return "***" + domain
+	}
+	return local[:1] + "***" + local[len(local)-1:] + domain
+}
+
 // getItemByID fetches a single list item belonging to a household.
 func getItemByID(db dbExecer, id int, userID string) (ListItem, error) {
 	whereClause, whereArgs := householdItemsWhereClause(db, userID)

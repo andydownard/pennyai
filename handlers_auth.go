@@ -32,22 +32,46 @@ func (s *Server) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify Google ID token via tokeninfo endpoint
+	// Verify Google ID token via tokeninfo endpoint.
+	//
+	// POST with the token in the form body rather than GET with it in the query
+	// string: a query string is recorded by every proxy and access log along the
+	// path, and the ID token is a bearer credential. Google's tokeninfo accepts
+	// both forms.
 	tokenInfoURL := "https://oauth2.googleapis.com/tokeninfo"
 	if s.googleTokenInfoURL != "" {
 		tokenInfoURL = s.googleTokenInfoURL
 	}
-	resp, err := http.Get(tokenInfoURL + "?id_token=" + url.QueryEscape(req.Credential))
+
+	form := url.Values{}
+	form.Set("id_token", req.Credential)
+	tokenReq, err := http.NewRequest(http.MethodPost, tokenInfoURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		log.Printf("[google-auth] building token verification request failed: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to verify Google token"})
+		return
+	}
+	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	// Explicit timeout: http.DefaultClient has none, so a hung tokeninfo call
+	// pinned this request's goroutine indefinitely.
+	tokenInfoTimeout := s.googleTokenInfoTimeout
+	if tokenInfoTimeout <= 0 {
+		tokenInfoTimeout = googleTokenInfoTimeoutDefault
+	}
+	resp, err := (&http.Client{Timeout: tokenInfoTimeout}).Do(tokenReq)
 	if err != nil {
 		log.Printf("[google-auth] token verification request failed: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to verify Google token"})
 		return
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxGoogleTokenInfoBytes))
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[google-auth] token invalid: %s", string(body))
+		// Status only. Google's raw response body is unbounded and is not a
+		// useful diagnostic; logging it verbatim is a hygiene problem.
+		log.Printf("[google-auth] token invalid: tokeninfo returned %d", resp.StatusCode)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid Google token"})
 		return
 	}
@@ -93,7 +117,7 @@ func (s *Server) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, s.config, token)
-	log.Printf("[google-auth] user %s logged in via Google (%s)", user.ID, tokenInfo.Email)
+	log.Printf("[google-auth] user %s logged in via Google (%s)", user.ID, maskEmail(tokenInfo.Email))
 
 	authResp := map[string]interface{}{
 		"success": true,

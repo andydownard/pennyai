@@ -41,6 +41,12 @@ const (
 	// send nothing and are not counted against either.
 	inviteSMSPerInviterPerDay = 10
 	inviteSMSWindow           = 24 * time.Hour
+
+	// Google tokeninfo verification. http.DefaultClient has no timeout, so a
+	// hung call would hold a request goroutine forever; the response is also
+	// capped, since it is parsed as a small JSON object.
+	googleTokenInfoTimeoutDefault = 10 * time.Second
+	maxGoogleTokenInfoBytes       = 64 * 1024
 )
 
 // loadDotEnv reads a .env file and sets any variables not already in the environment.

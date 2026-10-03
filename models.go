@@ -218,6 +218,9 @@ type Server struct {
 	// googleTokenInfoURL overrides the Google tokeninfo endpoint (for testing).
 	// When empty, defaults to "https://oauth2.googleapis.com/tokeninfo".
 	googleTokenInfoURL string
+	// googleTokenInfoTimeout overrides the tokeninfo HTTP timeout (for testing).
+	// When zero, googleTokenInfoTimeoutDefault applies.
+	googleTokenInfoTimeout time.Duration
 }
 
 // BrandDeal represents an active swap deal from the brand_deals table.

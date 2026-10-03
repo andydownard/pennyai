@@ -2897,3 +2897,161 @@ func TestGoogleAuth_MergedAccount(t *testing.T) {
 		t.Errorf("expected account_merged=true, got %v", body["account_merged"])
 	}
 }
+
+// =============================================================================
+// GOOGLE TOKENINFO TRANSPORT + LOG HYGIENE
+// =============================================================================
+
+// TestGoogleAuth_SendsIDTokenInPOSTBody: the ID token used to travel in the GET
+// query string, where it lands in proxy and access logs along the whole path.
+// Google's tokeninfo endpoint also accepts a POST form, which keeps the token out
+// of those logs.
+func TestGoogleAuth_SendsIDTokenInPOSTBody(t *testing.T) {
+	const testClientID = "test-google-client-id"
+
+	type seen struct {
+		method   string
+		rawQuery string
+		formTok  string
+	}
+	ch := make(chan seen, 1)
+
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		ch <- seen{method: r.Method, rawQuery: r.URL.RawQuery, formTok: r.PostFormValue("id_token")}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"sub": "g-sub-post-1", "email": "posty@example.com",
+			"email_verified": "true", "name": "Posty", "aud": testClientID,
+		})
+	}))
+	defer tokenServer.Close()
+
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.GoogleClientID = testClientID
+	server.googleTokenInfoURL = tokenServer.URL
+
+	rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+		map[string]string{"credential": "secret-id-token-value"}, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	got := <-ch
+	if got.method != http.MethodPost {
+		t.Errorf("tokeninfo request method: got %s, want POST", got.method)
+	}
+	if strings.Contains(got.rawQuery, "secret-id-token-value") {
+		t.Errorf("ID token must not travel in the query string, got raw query: %q", got.rawQuery)
+	}
+	if got.formTok != "secret-id-token-value" {
+		t.Errorf("id_token form field: got %q, want the credential", got.formTok)
+	}
+}
+
+// TestGoogleAuth_DoesNotLogRawErrorBodyOrEmail: an invalid token logged Google's
+// raw response body unbounded, and a successful login logged the user's full
+// email address.
+func TestGoogleAuth_DoesNotLogRawErrorBodyOrEmail(t *testing.T) {
+	const testClientID = "test-google-client-id"
+
+	t.Run("invalid token logs status, not the body", func(t *testing.T) {
+		secret := "GOOGLE-RAW-ERROR-BODY-SHOULD-NOT-BE-LOGGED"
+		tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(secret))
+		}))
+		defer tokenServer.Close()
+
+		server := newTestServer(t, &MockTwilioClient{})
+		server.config.GoogleClientID = testClientID
+		server.googleTokenInfoURL = tokenServer.URL
+
+		out := captureLog(func() {
+			rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+				map[string]string{"credential": "bad-token"}, nil)
+			if rr.Code != http.StatusUnauthorized {
+				t.Fatalf("expected 401, got %d", rr.Code)
+			}
+		})
+
+		if strings.Contains(out, secret) {
+			t.Errorf("raw Google error body must not be logged, got: %q", out)
+		}
+		if !strings.Contains(out, "400") {
+			t.Errorf("log should name the upstream status code, got: %q", out)
+		}
+	})
+
+	t.Run("success logs a masked email", func(t *testing.T) {
+		tokenServer := newMockGoogleTokenServer(t, map[string]string{
+			"sub": "g-sub-mask-1", "email": "verylongname@example.com",
+			"email_verified": "true", "name": "Masked", "aud": testClientID,
+		})
+		defer tokenServer.Close()
+
+		server := newTestServer(t, &MockTwilioClient{})
+		server.config.GoogleClientID = testClientID
+		server.googleTokenInfoURL = tokenServer.URL
+
+		out := captureLog(func() {
+			rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+				map[string]string{"credential": "good-token"}, nil)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+			}
+		})
+
+		if strings.Contains(out, "verylongname@example.com") {
+			t.Errorf("full email must not be logged, got: %q", out)
+		}
+		if !strings.Contains(out, "example.com") {
+			t.Errorf("masked email should keep the domain for debugging, got: %q", out)
+		}
+	})
+}
+
+// TestGoogleAuth_TokenInfoCallTimesOut: the handler used http.Get with the
+// default client, which has no timeout, so a hung tokeninfo call pinned the
+// handler goroutine indefinitely.
+func TestGoogleAuth_TokenInfoCallTimesOut(t *testing.T) {
+	release := make(chan struct{})
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release // hang until the test lets go
+	}))
+	defer tokenServer.Close()
+	defer close(release)
+
+	server := newTestServer(t, &MockTwilioClient{})
+	server.config.GoogleClientID = "test-google-client-id"
+	server.googleTokenInfoURL = tokenServer.URL
+	server.googleTokenInfoTimeout = 150 * time.Millisecond
+
+	done := make(chan int, 1)
+	go func() {
+		rr := doRequest(server.handleGoogleAuth, "POST", "/auth/google",
+			map[string]string{"credential": "token"}, nil)
+		done <- rr.Code
+	}()
+
+	select {
+	case code := <-done:
+		if code != http.StatusInternalServerError {
+			t.Errorf("hung tokeninfo call: got %d, want 500", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler did not give up on a hung tokeninfo call — no client timeout")
+	}
+}
+
+// TestGoogleAuth_DefaultTokenInfoTimeoutIsBounded pins a sane production default
+// so the override above cannot mask a missing one.
+func TestGoogleAuth_DefaultTokenInfoTimeoutIsBounded(t *testing.T) {
+	got := googleTokenInfoTimeoutDefault
+	if got <= 0 {
+		t.Fatalf("default tokeninfo timeout must be positive, got %v", got)
+	}
+	if got > 30*time.Second {
+		t.Errorf("default tokeninfo timeout %v is too long to hold a request goroutine", got)
+	}
+}
