@@ -201,12 +201,28 @@ Per panel decision (Devon — R2), iPhone link previews and OG cards must show "
 ## Phase 3 — Rally login federation (gated on Phase 2)
 
 ### Current state
-`pennyai/middleware_timpager.go` already implements the inbound auth bridge:
-- Reads `X-Timpager-Session` header
-- Calls `GET {TIMPAGER_URL}/api/auth/verify` (60s cache)
-- Maps timpager user → local Penny user via phone
-- Falls through to cookie auth if header absent
-- Local cookie auth (phone/SMS, Google, email/password, magic link) continues to work — **never break this** per CLAUDE.md.
+There is **no inbound auth bridge**. `middleware_timpager.go` once held a
+header-forwarding one (read `X-Timpager-Session`, call `GET {TIMPAGER_URL}/api/auth/verify`
+with a 60s cache, map the timpager user to a local Penny user by phone, fall
+through to cookie auth). It was **deleted** in the top-10 code-review pass,
+unused, for three reasons:
+
+- Zero call sites. It was never wired into any handler.
+- It mapped any timpager session to a pennyai account **by phone alone**,
+  creating one if absent: cross-marketplace account takeover by phone with no
+  pennyai verification (CLAUDE.md pattern-detection #9).
+- Its create path could not work anyway. The INSERT omitted `users.id` (TEXT
+  PRIMARY KEY, no default) and wrote an `auth_method` column that does not exist
+  on `users` — providers live in `auth_methods`.
+
+Header forwarding is also the wrong mechanism now: Rally identity routes through
+timpager's server-to-server identity resolve API, and SSO routes through Clerk
+JWKS verification (see the FINAL Clerk satellite plan). Whatever Phase 3 needs
+should be built on one of those, not resurrected from git history.
+
+`middleware_timpager.go` still holds `pushRevenueEvent` and `pushPayoutToTimpager`.
+
+Local cookie auth (phone/SMS, Google, email/password, magic link) continues to work — **never break this** per CLAUDE.md.
 
 Timpager's auth verify endpoint (per `/Users/andydownard/projects/timpager/routes/auth.js:345`):
 ```js
@@ -233,7 +249,7 @@ Existing pennyai users can use their phone with timpager's Verify service to sig
 - [ ] Add a new auth screen option below "Use email instead": "Sign in with Rally"
 - [ ] Tapping it opens a popup window to `https://rallytasks.com/auth/redirect?return_url=https://app.groflo.io/auth/rally/callback`
 - [ ] timpager handles the auth (Twilio Verify), then redirects back to groflo.io with a session token
-- [ ] groflo.io's `/auth/rally/callback` handler validates the token, calls `verifyTimpagerSession`, and creates a local session cookie
+- [ ] groflo.io's `/auth/rally/callback` handler validates the token (via the Clerk JWKS path or timpager's identity resolve API — **not** a revived header-forwarding bridge, see Current state) and creates a local session cookie
 - [ ] User is now signed in to BOTH Rally and Groflo
 
 **3c. Dual-write window**

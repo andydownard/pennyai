@@ -14,16 +14,19 @@ import (
 )
 
 // =============================================================================
-// Tests for middleware_timpager.go — the federated identity + revenue module.
+// Tests for middleware_timpager.go — the revenue + payout push module.
 //
-// This file is MONEY/auth critical (CLAUDE.md MONEY + Auth rules) and shipped
-// with ZERO tests. These tests pin:
+// This file is MONEY critical (CLAUDE.md Revenue Rules) and shipped with ZERO
+// tests. These tests pin:
 //   - the golden idempotency-key formats (pennyai_/groflo_payout_ prefixes)
 //   - 409-from-timpager is treated as idempotent success with NO retry
 //   - the retry/backoff loop is capped (never retries forever)
 //   - non-positive / empty payout distributions are refused (no send)
-//   - verifyTimpagerSession positive / negative / tampered-token paths
-//   - requireSessionWithTimpager auth-negative + mapping behavior
+//
+// The header-forwarding cross-domain SSO bridge that used to live in
+// middleware_timpager.go was deleted along with its tests. Cross-domain SSO is
+// not implemented by design; Rally identity routes through timpager's identity
+// resolve API, and SSO routes through Clerk JWKS verification.
 //
 // All timpager HTTP calls are mocked with httptest — tests never hit the network.
 // =============================================================================
@@ -36,14 +39,6 @@ type revEventBody struct {
 	Currency       string `json:"currency"`
 	SourceRef      string `json:"source_ref"`
 	IdempotencyKey string `json:"idempotency_key"`
-}
-
-// resetTimpagerCache clears the package-level verify cache so each subtest sees
-// a fresh state (the cache is keyed by token and lives for 60s).
-func resetTimpagerCache() {
-	timpagerVerifyCache.Lock()
-	timpagerVerifyCache.entries = make(map[string]timpagerCacheEntry)
-	timpagerVerifyCache.Unlock()
 }
 
 // captureLog redirects the standard logger to a buffer for the duration of fn
@@ -315,174 +310,4 @@ func TestTimpagerPushPayoutStubUsesGoldenKey(t *testing.T) {
 	if !strings.Contains(out, "would push payout") {
 		t.Errorf("stub mode must log intent (no real send), got: %q", out)
 	}
-}
-
-// -----------------------------------------------------------------------------
-// verifyTimpagerSession — positive / negative / tampered token
-// -----------------------------------------------------------------------------
-
-func TestTimpagerVerifySession(t *testing.T) {
-	const validToken = "tok-valid-123"
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// A tampered / unknown bearer token is rejected by timpager with 401.
-		if r.Header.Get("Authorization") != "Bearer "+validToken {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(timpagerVerifyResponse{
-			Valid:       true,
-			UserID:      "rally-1",
-			Phone:       "+15551230000",
-			DisplayName: "Pat",
-			Role:        "user",
-		})
-	}))
-	defer srv.Close()
-
-	t.Run("not configured", func(t *testing.T) {
-		resetTimpagerCache()
-		s := newTestServer(t, &MockTwilioClient{})
-		s.config.TimpagerURL = ""
-		if _, err := s.verifyTimpagerSession(validToken); err == nil {
-			t.Fatal("expected error when TIMPAGER_URL is unset")
-		}
-	})
-
-	t.Run("positive", func(t *testing.T) {
-		resetTimpagerCache()
-		s := newTestServer(t, &MockTwilioClient{})
-		s.config.TimpagerURL = srv.URL
-		resp, err := s.verifyTimpagerSession(validToken)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !resp.Valid || resp.UserID != "rally-1" || resp.Phone != "+15551230000" {
-			t.Fatalf("unexpected verify response: %+v", resp)
-		}
-	})
-
-	t.Run("tampered token rejected", func(t *testing.T) {
-		resetTimpagerCache()
-		s := newTestServer(t, &MockTwilioClient{})
-		s.config.TimpagerURL = srv.URL
-		if _, err := s.verifyTimpagerSession("tok-TAMPERED"); err == nil {
-			t.Fatal("expected error for tampered/unknown token (timpager 401)")
-		}
-	})
-
-	t.Run("valid=false rejected", func(t *testing.T) {
-		bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewEncoder(w).Encode(timpagerVerifyResponse{Valid: false})
-		}))
-		defer bad.Close()
-		resetTimpagerCache()
-		s := newTestServer(t, &MockTwilioClient{})
-		s.config.TimpagerURL = bad.URL
-		if _, err := s.verifyTimpagerSession("tok-x"); err == nil {
-			t.Fatal("expected error when timpager reports valid=false")
-		}
-	})
-}
-
-// -----------------------------------------------------------------------------
-// requireSessionWithTimpager — auth-negative + header mapping
-// -----------------------------------------------------------------------------
-
-func TestRequireSessionWithTimpager(t *testing.T) {
-	t.Run("auth-negative: no header, no cookie -> 401", func(t *testing.T) {
-		s := newTestServer(t, &MockTwilioClient{})
-		rr := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/api/whatever", nil)
-		if _, ok := s.requireSessionWithTimpager(rr, req); ok {
-			t.Fatal("expected auth failure with no header and no cookie")
-		}
-		if rr.Code != http.StatusUnauthorized {
-			t.Fatalf("want 401, got %d", rr.Code)
-		}
-	})
-
-	t.Run("header maps to existing penny user", func(t *testing.T) {
-		resetTimpagerCache()
-		const tok = "tok-map-1"
-		const phone = "+15557778888"
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("Authorization") != "Bearer "+tok {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-			_ = json.NewEncoder(w).Encode(timpagerVerifyResponse{
-				Valid: true, UserID: "rally-2", Phone: phone, DisplayName: "Sam", Role: "user",
-			})
-		}))
-		defer srv.Close()
-
-		s := newTestServer(t, &MockTwilioClient{})
-		s.config.TimpagerURL = srv.URL
-		// Pre-seed the local Penny user so resolveOrCreateTimpagerUser resolves
-		// via SELECT (the INSERT branch is exercised in production schema).
-		if _, err := s.db.Exec("INSERT INTO users (id, phone) VALUES (?, ?)", "penny-user-2", phone); err != nil {
-			t.Fatalf("seed user: %v", err)
-		}
-
-		rr := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/api/whatever", nil)
-		req.Header.Set("X-Timpager-Session", tok)
-		sess, ok := s.requireSessionWithTimpager(rr, req)
-		if !ok {
-			t.Fatalf("expected success, got %d: %s", rr.Code, rr.Body.String())
-		}
-		if sess.UserID != "penny-user-2" {
-			t.Errorf("UserID = %q, want penny-user-2 (mapped by phone)", sess.UserID)
-		}
-		if sess.AuthMethod != "timpager" {
-			t.Errorf("AuthMethod = %q, want timpager", sess.AuthMethod)
-		}
-		if sess.PhoneNumber != phone {
-			t.Errorf("PhoneNumber = %q, want %q", sess.PhoneNumber, phone)
-		}
-	})
-
-	t.Run("timpager user without phone -> 401", func(t *testing.T) {
-		resetTimpagerCache()
-		const tok = "tok-nophone"
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewEncoder(w).Encode(timpagerVerifyResponse{
-				Valid: true, UserID: "rally-3", Phone: "", DisplayName: "NoPhone",
-			})
-		}))
-		defer srv.Close()
-
-		s := newTestServer(t, &MockTwilioClient{})
-		s.config.TimpagerURL = srv.URL
-		rr := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/api/whatever", nil)
-		req.Header.Set("X-Timpager-Session", tok)
-		if _, ok := s.requireSessionWithTimpager(rr, req); ok {
-			t.Fatal("expected failure for phone-less timpager user")
-		}
-		if rr.Code != http.StatusUnauthorized {
-			t.Fatalf("want 401, got %d", rr.Code)
-		}
-	})
-
-	t.Run("invalid timpager token falls through to cookie auth", func(t *testing.T) {
-		resetTimpagerCache()
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusUnauthorized) // verify fails
-		}))
-		defer srv.Close()
-
-		s := newTestServer(t, &MockTwilioClient{})
-		s.config.TimpagerURL = srv.URL
-		rr := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/api/whatever", nil)
-		req.Header.Set("X-Timpager-Session", "bad-token")
-		// Falls through to cookie auth; with no cookie present that is a 401.
-		if _, ok := s.requireSessionWithTimpager(rr, req); ok {
-			t.Fatal("expected failure: bad token falls through to cookie auth, no cookie present")
-		}
-		if rr.Code != http.StatusUnauthorized {
-			t.Fatalf("want 401, got %d", rr.Code)
-		}
-	})
 }
