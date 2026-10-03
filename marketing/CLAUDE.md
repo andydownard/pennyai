@@ -1,19 +1,18 @@
-# Groflo Marketing Site (thrift.ly repo)
+# Groflo Marketing Site (pennyai/marketing)
 
-This repo (`groflo-site` per `package.json`, retained git URL `andydownard/thrift.ly`) is the canonical Netlify-deployed marketing site for **Groflo** (formerly Thriftly), an AI shopping list app where users text **Penny**, the in-app assistant. Groflo is a marketplace inside the Rally ecosystem (auth and Stripe federate through `timpager` / rallytasks.com).
+This directory (package name `groflo-site`) is the Groflo marketing site served at `groflo.io`. It lives inside the pennyai monorepo at `marketing/` and deploys on Railway with the `serve` static package (see [DEPLOYMENT.md](./DEPLOYMENT.md)). The standalone `/projects/thrift.ly` repo is an older copy that has drifted and is **not** the deploy source; do not edit it expecting changes to ship. Groflo is a shared shopping list app where households text **Penny**. Groflo is a marketplace inside the Rally ecosystem (identity and Stripe federate through `timpager` / rallytasks.com).
 
 > **Work tracking:** new items land in [INBOX.md](./INBOX.md). Triage moves them to [BACKLOG.md](./BACKLOG.md) (`Backlog` P0–P3, `Bugs (Open)`, `Shipped`, `Not In Scope`). Pattern mirrors `pennyai/ROADMAP.md`. Read [INBOX.md](./INBOX.md) first when picking up unfinished work.
 
-The repo also contains the investor deck and timpager AI slide generator as sibling sub-apps so they can be deployed independently from the same source tree.
+The directory also carries the investor deck (`deck/`) and dated panel reviews (`archive/`).
 
 **Rebrand status (as of 2026-04-07):** Phase 0 of the Thriftly→Groflo rebrand is shipped. `groflo.io` DNS is live. Privacy + Terms include full A2P 10DLC compliance language. Phases 1-5 (Twilio re-vetting, DNS cutover details, Rally login federation, Stripe Connect consolidation, internal identifier sweep) are queued — see `/Users/andydownard/projects/pennyai/GROFLO_REBRAND_SPRINT.md` for the full plan.
 
 ## Architecture
 
-- **Marketing site** (`src/`): React 19 + TypeScript + Vite SPA, React Router DOM 7, Stripe Elements for campaign signup, vanilla CSS with custom properties (no Tailwind). Deploys to Netlify from `main`. Component CTAs route through `import.meta.env.VITE_APP_URL` (fallback `https://app.groflo.io`).
-- **Investor deck** (`deck/`): Node.js server + SQLite (WAL mode), Twilio Verify SMS auth, feedback widget with GitHub issue creation, slide view analytics, deployed on Railway. Internal package names (`@thriftly/*`) and asset filenames retain the legacy "thriftly" — Phase 5 cleanup, no user impact.
-- **Timpager** (`timpager/`): Node.js server, AI-driven slide generation/update (`ai-generate.js`, `ai-update.js`), slide type renderer (`slide-types.js`), Claude API integration.
-- **Brand source of truth**: `../pitch deck/penny-brand-bible.json` — v3.0 with the Groflo identity block (company: Groflo, Inc., app: Groflo, domain: groflo.io, ecosystem: Rally, footer: "Penny by Groflo"). Canonical copy lives at `/Users/andydownard/projects/pennyai/penny-brand-bible.json`. Brand color `#35644F` and Inter typeface are unchanged across the rebrand.
+- **Marketing site** (`src/`): React 19 + TypeScript + Vite SPA, React Router DOM 7, vanilla CSS with custom properties (no Tailwind). Campaign signup is lead capture, not Stripe. Deploys on Railway via `serve` (`railway.toml` startCommand `npx serve dist -l $PORT`, no `-s`). Route rewrites live in `public/serve.json` and must be extended whenever a new SPA route is added; unknown URLs get `serve`'s plain 404, not the React 404 page. `netlify.toml`, `public/_headers` and `public/_redirects` are inert on Railway and kept only as history. Component CTAs route through `import.meta.env.VITE_APP_URL` (fallback `https://app.groflo.io`).
+- **Investor deck** (`deck/`): Node.js server + SQLite (WAL mode), Twilio Verify SMS auth, feedback widget with GitHub issue creation, slide view analytics. The static deck is served at `groflo.io/deck` from `public/deck` (unlisted: noindex meta, `X-Robots-Tag` header, robots `Disallow`). The Node + SQLite deck server in `deck/` (`server.js`, `Dockerfile`, `railway.toml`) is not currently deployed; its CORS, auth and idempotency rules below apply if it is revived. Internal package names (`@thriftly/*`) and asset filenames retain the legacy "thriftly" — Phase 5 cleanup, no user impact.
+- **Brand source of truth**: `../../pitch deck/penny-brand-source.json` (brand source of truth per the top-level `CLAUDE.md`); `penny-brand-bible.json` is the older v3.0 file and still exists in both places. Brand color `#35644F` and Inter typeface are unchanged across the rebrand.
 - **Pages** (marketing site): Home (`/`), For Brands (`/for-brands`), Pricing (`/pricing`), About (`/about`), Campaign Signup (`/campaign/signup`), Privacy (`/privacy`), Terms (`/terms`)
 
 ---
@@ -26,7 +25,7 @@ The repo also contains the investor deck and timpager AI slide generator as sibl
 - All secrets live in environment variables — TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, GH_PAT, ADMIN_API_KEY, FEEDBACK_CODE, FEEDBACK_PHONES must never appear in source
 - If a secret is accidentally committed, rotate it immediately
 
-### Idempotency & Mutation Safety (deck/ and timpager/)
+### Idempotency & Mutation Safety (deck/, if revived)
 
 Every handler that mutates state (INSERT, UPDATE, DELETE) must have:
 
@@ -48,7 +47,7 @@ The deck server has state-mutating endpoints: feedback submission, session creat
 
 - Test-to-code ratio must be >= 1.3x
 - Marketing site: production code is `src/**/*.{ts,tsx}`, test code is `__tests__/**`, `*.test.*`, `*.spec.*`
-- Deck/timpager: test all HTTP endpoints (happy path + error paths), test rate limiting, test auth flows
+- Deck (`deck/`, if revived): test all HTTP endpoints (happy path + error paths), test rate limiting, test auth flows
 - No feature or change is "done" until tests pass with zero failures
 
 ### Continuous Work Mode
@@ -91,14 +90,14 @@ Never stop working. When you finish a task: check for unblocked items, improve t
 
 - **CEO (Andy)** — final call on all website copy, positioning, messaging priority, feature prominence
 - **VP Product Marketing** — copy recommendations, audience insights, competitive positioning
-- **Brand PM** — consistency with `penny-brand-bible.json` v3.0 (Groflo identity block), design tokens, voice
+- **Brand PM** — consistency with `penny-brand-source.json` (Groflo identity block), design tokens, voice
 - **CMO** — brand alignment across all surfaces
 
 Changes to copy require explicit CEO approval. Minor tweaks (punctuation, single-word swaps) may bypass CEO review if PMM + Brand PM agree it strengthens clarity without changing messaging intent.
 
 ### Privacy + Terms (legal canonical, Twilio-vetting documents)
 
-`src/pages/Privacy.tsx` (12 numbered sections) and `src/pages/Terms.tsx` (13 numbered sections) are the **canonical** legal pages used for Twilio A2P 10DLC campaign vetting. Pennyai's `handlers_admin.go` HTML mirrors them. **Edit here first**, then sync to pennyai. The following CTIA-required language MUST appear and render cleanly:
+`src/pages/Privacy.tsx` (12 numbered sections) and `src/pages/Terms.tsx` (13 numbered sections) are the **canonical** legal pages used for Twilio A2P 10DLC campaign vetting. The Go backend's `handlers_admin.go` serves an HTML mirror of the same text; **edit the `.tsx` pages here first**, then update the mirror in the same PR (same repo now, no cross-repo sync). The following CTIA-required language MUST appear and render cleanly:
 
 - "Message frequency varies"
 - "Message and data rates may apply"
@@ -144,6 +143,7 @@ Do NOT use feature-list approach in hero. Do NOT give all features equal weight.
 - Inter font in all text (no Roboto, no serif fallbacks)
 - Background #F7F6F3 or white for main surfaces
 - Tagline present in footer or hero: "The AI shopping list for families"
+  - NOTE: this tagline and the "AI" phrasing in `About.tsx` line 52, `Home.tsx` line 459 and `Footer.tsx` line 13 conflict with the top-level `CLAUDE.md` Vocabulary table (never "AI", "assistant", "bot" in copy). `Privacy.tsx` and `Terms.tsx` also say "AI assistant" but are Twilio-vetted legal text. Resolving this is a copy change that needs CEO sign-off and a Customer Panel pass; tracked in [INBOX.md](./INBOX.md).
 - Penny personality reflected (warm, helpful, not corporate)
 - Footer attribution: "Penny by Groflo" / "© Groflo, Inc."
 - App CTAs read `import.meta.env.VITE_APP_URL` (fallback `https://app.groflo.io`) — do NOT hardcode the URL again
@@ -155,7 +155,7 @@ Do NOT use feature-list approach in hero. Do NOT give all features equal weight.
 
 Watch for these across the codebase. When detected, audit for all instances.
 
-1. Color/font drift — hex colors or font-families that don't match `penny-brand-bible.json` v3.0
+1. Color/font drift — hex colors or font-families that don't match `penny-brand-source.json`
 2. Brand-name drift — "Thriftly" or "thrift.ly" in user-visible text (only the negative test assertions in `Privacy.test.tsx` and `Terms.test.tsx` should reference Thriftly)
 3. Hardcoded `https://app.groflo.io` in components — should read `import.meta.env.VITE_APP_URL` with fallback
 4. Email-address drift — `*@thrift.ly` addresses anywhere in user-visible text or backend (canonical is `*@groflo.io`)
