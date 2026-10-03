@@ -488,6 +488,12 @@ func initDB(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("creating swap_events table: %w", err)
 	}
+	// One accepted swap per user per campaign (B14/B17). This is what makes
+	// swaps non-farmable, so it is enforced in storage rather than by a COUNT
+	// that a concurrent request can race past. Partial: declines and offers are
+	// deliberately repeatable.
+	createIndexIfNotExists(db, `CREATE UNIQUE INDEX IF NOT EXISTS idx_swap_events_one_accept
+		ON swap_events(user_id, deal_id) WHERE action = 'accepted'`)
 
 	// swap_suppressions: tracks per-user deal dismissals, 3+ = permanent suppress
 	_, err = db.Exec(`

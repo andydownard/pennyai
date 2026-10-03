@@ -275,19 +275,23 @@ func TestAdminDashboard_IncludesRebateStats(t *testing.T) {
 	token, _ := server.sessions.CreateSession("user-1", "3104861833", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
-	// Insert a brand deal so FK references are valid
-	server.db.Exec("INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, status) VALUES (1, 'Test Comp', 'Test Brand', 'Test Product', 50, 'active')")
+	// Three brand deals so FK references are valid. One deal per accepted event:
+	// idx_swap_events_one_accept gives a user a single accept per campaign, so
+	// three accepts necessarily belong to three different deals.
+	for id := 1; id <= 3; id++ {
+		server.db.Exec("INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, status) VALUES (?, 'Test Comp', 'Test Brand', 'Test Product', 50, 'active')", id)
+	}
 
 	// Insert swap events so we can reference valid IDs
 	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (1, 'user-1', 1, 'accepted')")
-	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (2, 'user-1', 1, 'accepted')")
+	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (2, 'user-1', 2, 'accepted')")
 
 	// Insert rebates: 2 pending, 1 issued
 	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-1', 1, 1, 100, 'pending')")
-	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-1', 2, 1, 150, 'pending')")
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-1', 2, 2, 150, 'pending')")
 	// Manually insert a paid one (no swap event needed for ledger test)
-	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (3, 'user-1', 1, 'accepted')")
-	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-1', 3, 1, 200, 'paid')")
+	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (3, 'user-1', 3, 'accepted')")
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-1', 3, 3, 200, 'paid')")
 
 	rr := doRequest(server.handleAdminDashboard, "GET", "/api/admin/dashboard", nil, cookies)
 	if rr.Code != 200 {
@@ -1317,12 +1321,21 @@ func TestProcessCategoryAlerts_DetectsRisingStar(t *testing.T) {
 	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, status, category_id)
 		VALUES (200, 'OldBrand Widget', 'RisingStar', 'RisingStar Widget', 150, 'active', 1)`)
 
+	// A user accepts a campaign at most once (idx_swap_events_one_accept), so an
+	// acceptance rate is a figure across many users. Give every accept its own
+	// user; offers may repeat for the same user and stay on uid.
+	accepter := func(n int) string {
+		id := fmt.Sprintf("rs-user-%d", n)
+		server.db.Exec("INSERT INTO users (id, phone) VALUES (?, ?)", id, fmt.Sprintf("555900%04d", n))
+		return id
+	}
+
 	// Prior period (8-30 days ago): 10 offered, 2 accepted = 20% rate
 	for i := 0; i < 10; i++ {
 		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 200, 'offered', datetime('now', '-15 days'))", uid)
 	}
 	for i := 0; i < 2; i++ {
-		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 200, 'accepted', datetime('now', '-15 days'))", uid)
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 200, 'accepted', datetime('now', '-15 days'))", accepter(i))
 	}
 
 	// Recent period (last 7 days): 10 offered, 7 accepted = 70% rate (+50% delta)
@@ -1330,7 +1343,7 @@ func TestProcessCategoryAlerts_DetectsRisingStar(t *testing.T) {
 		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 200, 'offered', datetime('now', '-2 days'))", uid)
 	}
 	for i := 0; i < 7; i++ {
-		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 200, 'accepted', datetime('now', '-2 days'))", uid)
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 200, 'accepted', datetime('now', '-2 days'))", accepter(100+i))
 	}
 
 	server.processCategoryAlerts()

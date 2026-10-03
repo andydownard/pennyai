@@ -1573,13 +1573,22 @@ func TestCompetitiveIntel_ReturnsData(t *testing.T) {
 	// Create a test user so swap_events have valid user_id
 	server.db.Exec("INSERT OR IGNORE INTO users (id, name) VALUES ('user-1', 'TestUser')")
 
+	// A user accepts a campaign at most once (idx_swap_events_one_accept), so
+	// the accepts in an acceptance rate come from different users. Offers may
+	// repeat for one user.
+	accepter := func(n int) string {
+		id := fmt.Sprintf("ci-user-%d", n)
+		server.db.Exec("INSERT OR IGNORE INTO users (id, name) VALUES (?, 'TestUser')", id)
+		return id
+	}
+
 	// Insert swap events for our deal: 10 offered, 4 accepted
 	for i := 0; i < 10; i++ {
 		action := "offered"
 		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-1', ?, ?)", dealID, action)
 	}
 	for i := 0; i < 4; i++ {
-		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-1', ?, 'accepted')", dealID)
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (?, ?, 'accepted')", accepter(i), dealID)
 	}
 
 	// Insert swap events for competitor deal: 20 offered, 4 accepted
@@ -1587,7 +1596,7 @@ func TestCompetitiveIntel_ReturnsData(t *testing.T) {
 		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-1', ?, 'offered')", competitorDealID)
 	}
 	for i := 0; i < 4; i++ {
-		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-1', ?, 'accepted')", competitorDealID)
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (?, ?, 'accepted')", accepter(i), competitorDealID)
 	}
 
 	// Now call the endpoint

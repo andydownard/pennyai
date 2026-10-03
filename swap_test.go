@@ -579,11 +579,12 @@ func TestRebates_ReturnsHistory(t *testing.T) {
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
-	// Insert swap events and rebates with different statuses
+	// Insert swap events and rebates with different statuses. One campaign each:
+	// a user gets a single accept per campaign (idx_swap_events_one_accept).
 	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (1, 'user-1', 1, 'accepted')")
-	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (2, 'user-1', 1, 'accepted')")
+	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (2, 'user-1', 2, 'accepted')")
 	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-1', 1, 1, 150, 'pending')")
-	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-1', 2, 1, 150, 'paid')")
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-1', 2, 2, 150, 'paid')")
 
 	rr := doRequest(server.handleRebates, "GET", "/api/rebates", nil, cookies)
 	if rr.Code != 200 {
@@ -991,6 +992,147 @@ func TestSwaps_DoubleAcceptBlocked(t *testing.T) {
 	}
 }
 
+// TestSwaps_ConcurrentAcceptBlocked fires many simultaneous accepts of the same
+// deal. The prior-accepts COUNT ran before tx.Begin, so two concurrent accepts
+// both passed it and each one incremented the brand's budget, inserted a
+// swap_events row, inserted a swap_rebates row and credited swap_credits_cents:
+// the brand pays twice and the user is paid twice for one swap. The
+// one-accept-per-user-per-campaign guarantee is what makes swaps non-farmable.
+func TestSwaps_ConcurrentAcceptBlocked(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 'user-1', 'Peanut Butter', 'Skippy', 'Pantry & Dry Goods')")
+
+	var dealID, budgetBefore int
+	server.db.QueryRow("SELECT id, budget_spent_cents FROM brand_deals WHERE competitor_product = 'skippy'").Scan(&dealID, &budgetBefore)
+
+	const n = 8
+	codes := make([]int, n)
+	hammer(t, n, func(i int) {
+		rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+			map[string]interface{}{"text": "accept_swap", "swap_deal_id": dealID, "swap_item_id": 1}, cookies)
+		codes[i] = rr.Code
+	})
+
+	wins := 0
+	for i, c := range codes {
+		switch c {
+		case http.StatusCreated, http.StatusOK:
+			wins++
+		case http.StatusConflict:
+		default:
+			t.Errorf("accept %d: unexpected status %d (want 201 for the winner, 409 for losers)", i, c)
+		}
+	}
+	if wins != 1 {
+		t.Errorf("accepts that succeeded: got %d, want exactly 1", wins)
+	}
+
+	var acceptedEvents int
+	server.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE user_id = 'user-1' AND deal_id = ? AND action = 'accepted'", dealID).Scan(&acceptedEvents)
+	if acceptedEvents != 1 {
+		t.Errorf("accepted swap_events rows: got %d, want 1", acceptedEvents)
+	}
+
+	var rebateCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM swap_rebates WHERE user_id = 'user-1' AND deal_id = ?", dealID).Scan(&rebateCount)
+	if rebateCount != 1 {
+		t.Errorf("swap_rebates rows: got %d, want 1 (user paid more than once)", rebateCount)
+	}
+
+	var credits int
+	server.db.QueryRow("SELECT swap_credits_cents FROM users WHERE id = 'user-1'").Scan(&credits)
+	if credits != 125 {
+		t.Errorf("swap_credits_cents: got %d, want 125 (single accept)", credits)
+	}
+
+	var budgetAfter int
+	server.db.QueryRow("SELECT budget_spent_cents FROM brand_deals WHERE id = ?", dealID).Scan(&budgetAfter)
+	if budgetAfter-budgetBefore != 125 {
+		t.Errorf("brand budget debited by %d, want 125 (brand charged more than once)", budgetAfter-budgetBefore)
+	}
+}
+
+// TestSwaps_AcceptWithPreSeededEventBlocked is the deterministic partner to the
+// hammer test: the accepted swap_events row already exists, so the accept must
+// 409 and leave the brand's budget and the user's credits untouched.
+func TestSwaps_AcceptWithPreSeededEventBlocked(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, brand, department) VALUES (1, 'user-1', 'Peanut Butter', 'Skippy', 'Pantry & Dry Goods')")
+
+	var dealID, budgetBefore int
+	server.db.QueryRow("SELECT id, budget_spent_cents FROM brand_deals WHERE competitor_product = 'skippy'").Scan(&dealID, &budgetBefore)
+
+	// A prior accept already landed.
+	if _, err := server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES ('user-1', ?, 1, 'accepted')", dealID); err != nil {
+		t.Fatalf("seeding accepted event: %v", err)
+	}
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "accept_swap", "swap_deal_id": dealID, "swap_item_id": 1}, cookies)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("second accept: expected 409, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var budgetAfter int
+	server.db.QueryRow("SELECT budget_spent_cents FROM brand_deals WHERE id = ?", dealID).Scan(&budgetAfter)
+	if budgetAfter != budgetBefore {
+		t.Errorf("brand budget moved on a blocked accept: %d -> %d", budgetBefore, budgetAfter)
+	}
+	var credits int
+	server.db.QueryRow("SELECT swap_credits_cents FROM users WHERE id = 'user-1'").Scan(&credits)
+	if credits != 0 {
+		t.Errorf("swap_credits_cents on a blocked accept: got %d, want 0", credits)
+	}
+	var rebateCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM swap_rebates WHERE user_id = 'user-1'").Scan(&rebateCount)
+	if rebateCount != 0 {
+		t.Errorf("swap_rebates rows on a blocked accept: got %d, want 0", rebateCount)
+	}
+}
+
+// TestSwaps_OneAcceptUniqueIndex pins the partial unique index that enforces
+// one accepted swap_events row per (user, deal) at the storage layer. Declines
+// are deliberately unconstrained — a user may decline the same deal repeatedly.
+func TestSwaps_OneAcceptUniqueIndex(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
+
+	var dealID int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE competitor_product = 'skippy'").Scan(&dealID)
+
+	ins := func(action string) error {
+		_, err := server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES ('user-1', ?, 1, ?)", dealID, action)
+		return err
+	}
+
+	if err := ins("accepted"); err != nil {
+		t.Fatalf("first accepted insert: %v", err)
+	}
+	if err := ins("accepted"); err == nil {
+		t.Error("second accepted swap_events row was accepted — unique index missing")
+	}
+
+	if err := ins("declined"); err != nil {
+		t.Fatalf("first declined insert: %v", err)
+	}
+	if err := ins("declined"); err != nil {
+		t.Errorf("repeat declines must stay allowed, got: %v", err)
+	}
+	if err := ins("offered"); err != nil {
+		t.Errorf("repeat offers must stay allowed, got: %v", err)
+	}
+}
+
 func TestSwaps_CrossUserAcceptBlocked(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)
@@ -1331,17 +1473,21 @@ func TestWrapped_WithSwapRebates(t *testing.T) {
 	token, _ := server.sessions.CreateSession("user-100", "+15551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
 
-	// Insert a brand deal with high ID to avoid conflict with seeded deals
+	// Two brand deals with high IDs to avoid conflict with seeded deals. Two
+	// campaigns, because a user gets a single accept per campaign
+	// (idx_swap_events_one_accept).
 	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status)
 		VALUES (900, 'heinz ketchup', 'Hunts', 'Tomato Ketchup', 200, 10000, 'active')`)
+	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, total_budget_cents, status)
+		VALUES (901, 'french''s mustard', 'Hunts', 'Yellow Mustard', 200, 10000, 'active')`)
 
 	// Insert accepted swap events (this month)
 	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (900, 'user-100', 900, 'accepted')")
-	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (901, 'user-100', 900, 'accepted')")
+	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (901, 'user-100', 901, 'accepted')")
 
 	// Insert swap rebates (this month)
 	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-100', 900, 900, 150, 'pending')")
-	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-100', 901, 900, 250, 'pending')")
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-100', 901, 901, 250, 'pending')")
 
 	rr := doRequest(server.handleWrapped, "GET", "/api/wrapped", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusOK {
@@ -1748,17 +1894,22 @@ func TestProcessSwapPredictions_ComputesRates(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 	_, uid := loginUser(t, server, "5551234567")
 
-	// Create a deal with category (use id=100 to avoid conflicting with seeded deals)
-	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product,
-		discount_cents, status, deal_type, category_id)
-		VALUES (100, 'Brand A Milk', 'Brand B', 'Brand B Milk', 50, 'active', 'sku_swap', 1)`)
+	// Three deals in the same category and brand (ids 100-102 to avoid
+	// conflicting with seeded deals). The prediction is per user, so the three
+	// accepts stay on one user and spread across three campaigns — a user gets a
+	// single accept per campaign (idx_swap_events_one_accept).
+	for id := 100; id <= 102; id++ {
+		server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product,
+			discount_cents, status, deal_type, category_id)
+			VALUES (?, 'Brand A Milk', 'Brand B', 'Brand B Milk', 50, 'active', 'sku_swap', 1)`, id)
+	}
 
 	// Create 10 offered, 3 accepted, 7 declined
 	for i := 0; i < 10; i++ {
 		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, 100, 1, 'offered')", uid)
 	}
 	for i := 0; i < 3; i++ {
-		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, time_to_action_ms) VALUES (?, 100, 1, 'accepted', 2000)", uid)
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, time_to_action_ms) VALUES (?, ?, 1, 'accepted', 2000)", uid, 100+i)
 	}
 	for i := 0; i < 7; i++ {
 		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, time_to_action_ms) VALUES (?, 100, 1, 'declined', 5000)", uid)

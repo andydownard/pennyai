@@ -503,6 +503,9 @@ func initTestDB(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("creating swap_events table: %w", err)
 	}
+	// Mirrors schema.go idx_swap_events_one_accept.
+	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_swap_events_one_accept
+		ON swap_events(user_id, deal_id) WHERE action = 'accepted'`)
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS swap_suppressions (

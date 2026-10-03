@@ -17,7 +17,10 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 	resp := ParseResponse{Items: []ListItem{}, Skipped: []SkippedItem{}}
 
 	if req.Text == "accept_swap" {
-		// 1-swap-per-user-per-campaign: prevent accepting the same deal more than once (B14)
+		// 1-swap-per-user-per-campaign (B14). Fast path only: the authoritative
+		// guard is the unique-index claim that is the first mutation inside the
+		// transaction below. This check alone raced, because it ran before
+		// tx.Begin — two concurrent accepts both passed it and both got paid.
 		var priorAccepts int
 		s.db.QueryRow(
 			"SELECT COUNT(*) FROM swap_events WHERE user_id = ? AND deal_id = ? AND action = 'accepted'",
@@ -55,6 +58,37 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 			writeBadRequest(w, "Deal budget exhausted")
 			return
 		}
+
+		// Claim the one accept this user gets for this campaign. This is the
+		// FIRST mutation in the transaction, and ON CONFLICT DO NOTHING against
+		// idx_swap_events_one_accept makes storage pick the winner. A loser
+		// affects zero rows, gets a 409, and the deferred Rollback undoes
+		// nothing — no budget debit, no rebate, no credit.
+		whyTappedInt := 0
+		if req.WhyTapped {
+			whyTappedInt = 1
+		}
+		result, err := tx.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action, time_to_action_ms, why_tapped)
+			VALUES (?, ?, ?, 'accepted', ?, ?) ON CONFLICT DO NOTHING`,
+			session.UserID, req.SwapDealID, req.SwapItemID, req.TimeToActionMs, whyTappedInt)
+		if err != nil {
+			log.Printf("[swaps] failed to insert swap event: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+			return
+		}
+		// RowsAffected must be read before LastInsertId: on a skipped insert the
+		// driver's LastInsertId is stale, not zero.
+		claimed, err := result.RowsAffected()
+		if err != nil {
+			log.Printf("[swaps] failed to read swap event insert result: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+			return
+		}
+		if claimed != 1 {
+			writeConflict(w, "Swap already accepted")
+			return
+		}
+		swapEventID, _ := result.LastInsertId()
 
 		// For fully_free deals: NO budget deduction on accept — debit happens on receipt verification
 		isFullyFree := dealType == "fully_free"
@@ -141,19 +175,8 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 			}
 		}
 
-		// Log accepted event
-		whyTappedInt := 0
-		if req.WhyTapped {
-			whyTappedInt = 1
-		}
-		result, err := tx.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, time_to_action_ms, why_tapped) VALUES (?, ?, ?, 'accepted', ?, ?)",
-			session.UserID, req.SwapDealID, req.SwapItemID, req.TimeToActionMs, whyTappedInt)
-		if err != nil {
-			log.Printf("[swaps] failed to insert swap event: %v", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
-			return
-		}
-		swapEventID, _ := result.LastInsertId()
+		// The accepted swap_events row was already claimed at the top of this
+		// transaction; swapEventID comes from there.
 
 		// Insert rebate ledger entry — fully_free uses 'pending_purchase' status (budget debit deferred to verification)
 		rebateStatus := "pending"

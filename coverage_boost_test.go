@@ -397,13 +397,21 @@ func TestNewTests_AdminPayouts_MultiplePendingRebates(t *testing.T) {
 	regularUser, _ := upsertUser(server.db, "5559990099")
 	server.db.Exec("UPDATE users SET name = 'Multi Rebate User', email = 'multi@test.com' WHERE id = ?", regularUser.ID)
 
-	dealRes, _ := server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, status)
-		VALUES ('X', 'Y', 'Z', 100, 5000, 'active')`)
-	dealID, _ := dealRes.LastInsertId()
-
-	// Create 3 swap events and rebates
+	// Create 3 swap events and rebates, one campaign each: a user gets a single
+	// accept per campaign (idx_swap_events_one_accept), so three pending rebates
+	// for one user means three different campaigns.
 	for i := 0; i < 3; i++ {
-		swapRes, _ := server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, ?, 'accepted')`, regularUser.ID, dealID, i+1)
+		dealRes, err := server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, status)
+			VALUES ('X', 'Y', 'Z', 100, 5000, 'active')`)
+		if err != nil {
+			t.Fatalf("inserting deal %d: %v", i, err)
+		}
+		dealID, _ := dealRes.LastInsertId()
+
+		swapRes, err := server.db.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, ?, 'accepted')`, regularUser.ID, dealID, i+1)
+		if err != nil {
+			t.Fatalf("inserting swap event %d: %v", i, err)
+		}
 		swapEventID, _ := swapRes.LastInsertId()
 		server.db.Exec(`INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, ?, ?, ?, 'pending')`,
 			regularUser.ID, swapEventID, dealID, 50*(i+1))
