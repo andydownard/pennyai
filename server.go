@@ -33,6 +33,14 @@ const (
 	maxMediaBytes            = 5 * 1024 * 1024
 	maxImageBytes            = 5 * 1024 * 1024
 	maxParseBodyBytes        = 10 * 1024 * 1024
+
+	// Household invite SMS guards. Outbound SMS costs money, carries A2P 10DLC
+	// reputation, and reaches someone who did not ask for it, so an invite that
+	// texts a phone is limited two ways: how many one inviter may send per day,
+	// and how often one household may text the same number. Link-only invites
+	// send nothing and are not counted against either.
+	inviteSMSPerInviterPerDay = 10
+	inviteSMSWindow           = 24 * time.Hour
 )
 
 // loadDotEnv reads a .env file and sets any variables not already in the environment.
@@ -549,6 +557,7 @@ Get these from https://console.twilio.com (see README for full setup).
 			pruneBucketLimiter(&server.parseLimiter, time.Hour)
 			pruneBucketLimiter(&server.earningsUploadLimiter, time.Hour)
 			pruneBucketLimiter(&server.npsSubmitLimiter, time.Hour)
+			pruneTimeLimiter(&server.inviteLimiter, inviteSMSWindow)
 		}
 	}()
 

@@ -1185,6 +1185,115 @@ func TestReferral_UniqueIndexInTestSchema(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// INVITE SMS GUARDS
+// =============================================================================
+
+// TestInvite_PerInviterRateLimit: an authenticated user could POST
+// /api/settings/invite in a loop with arbitrary phone numbers, and every call
+// fired a Twilio SMS carrying the inviter's name. Unwanted outbound SMS is
+// CLAUDE.md damage risk #1, and this is also a harassment vector and an A2P
+// 10DLC reputation risk. Every other send site in the codebase is guarded.
+func TestInvite_PerInviterRateLimit(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+	cookie, _ := loginUser(t, server, "5551111111")
+
+	// A different destination each time, so the per-destination guard is not
+	// what is under test here.
+	sent := 0
+	for i := 0; i < inviteSMSPerInviterPerDay; i++ {
+		rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
+			map[string]string{"phone": fmt.Sprintf("555200%04d", i)}, []*http.Cookie{cookie})
+		if rr.Code != http.StatusOK {
+			t.Fatalf("invite %d: expected 200, got %d: %s", i, rr.Code, rr.Body.String())
+		}
+		sent++
+	}
+	if got := mock.GetSMSCount(); got != sent {
+		t.Fatalf("SMS sent within the limit: got %d, want %d", got, sent)
+	}
+
+	// One past the limit must be refused, and must send nothing.
+	before := mock.GetSMSCount()
+	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
+		map[string]string{"phone": "5552009999"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("invite past the daily limit: expected 429, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if after := mock.GetSMSCount(); after != before {
+		t.Errorf("SMS sent past the limit: count went %d -> %d, want no change", before, after)
+	}
+}
+
+// TestInvite_PerDestinationDedup: inviting the same phone twice from one
+// household must text that person once. Nothing stopped a loop against a single
+// number before.
+func TestInvite_PerDestinationDedup(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+	cookie, _ := loginUser(t, server, "5551111111")
+
+	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
+		map[string]string{"phone": "5553334444"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("first invite: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if got := mock.GetSMSCount(); got != 1 {
+		t.Fatalf("after first invite: got %d SMS, want 1", got)
+	}
+
+	// Same destination again: the invite is still created (the caller gets a
+	// fresh link to share by other means) but no second SMS goes out.
+	rr = doRequest(server.handleInvite, "POST", "/api/settings/invite",
+		map[string]string{"phone": "5553334444"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("repeat invite: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if got := mock.GetSMSCount(); got != 1 {
+		t.Errorf("after repeat invite to the same phone: got %d SMS, want 1", got)
+	}
+	if parseJSON(rr)["code"] == nil {
+		t.Error("repeat invite should still return a usable invite code")
+	}
+}
+
+// TestInvite_ConcurrentSameDestinationSendsOnce hammers one destination from one
+// inviter: still exactly one SMS.
+func TestInvite_ConcurrentSameDestinationSendsOnce(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+	cookie, _ := loginUser(t, server, "5551111111")
+
+	hammer(t, 8, func(int) {
+		doRequest(server.handleInvite, "POST", "/api/settings/invite",
+			map[string]string{"phone": "5557778888"}, []*http.Cookie{cookie})
+	})
+
+	if got := mock.GetSMSCount(); got != 1 {
+		t.Errorf("concurrent invites to one phone: got %d SMS, want 1", got)
+	}
+}
+
+// TestInvite_WithoutPhoneIsNotRateLimited: link-only invites send no SMS, so
+// they must not consume the SMS quota.
+func TestInvite_WithoutPhoneIsNotRateLimited(t *testing.T) {
+	mock := &MockTwilioClient{CheckApproved: true}
+	server := newTestServer(t, mock)
+	cookie, _ := loginUser(t, server, "5551111111")
+
+	for i := 0; i < inviteSMSPerInviterPerDay+5; i++ {
+		rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
+			map[string]string{"phone": ""}, []*http.Cookie{cookie})
+		if rr.Code != http.StatusOK {
+			t.Fatalf("link-only invite %d: expected 200, got %d: %s", i, rr.Code, rr.Body.String())
+		}
+	}
+	if got := mock.GetSMSCount(); got != 0 {
+		t.Errorf("link-only invites sent %d SMS, want 0", got)
+	}
+}
+
 func TestReferral_CannotSelfRefer(t *testing.T) {
 	mock := &MockTwilioClient{CheckApproved: true}
 	server := newTestServer(t, mock)

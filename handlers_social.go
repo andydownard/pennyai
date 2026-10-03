@@ -89,6 +89,31 @@ func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 		invHID = int64(hID)
 	}
 
+	// Outbound-SMS guards, checked before the invite row is written so a refused
+	// text does not leave a stray invite behind. Only invites that would text
+	// someone are limited; a link-only invite sends nothing.
+	//
+	// Two keys: one caps how many invite texts an inviter may send in a day, the
+	// other makes a second text to the same number from the same household a
+	// no-op. Without them any authenticated user could loop this endpoint against
+	// arbitrary phones, each call firing a Twilio SMS carrying the inviter's name
+	// (CLAUDE.md damage risk #1: unwanted outbound messages).
+	smsAllowed := hasPhone
+	if hasPhone {
+		if checkRateLimit(&s.inviteLimiter, "inviter:"+session.UserID, inviteSMSWindow, inviteSMSPerInviterPerDay) {
+			writeJSON(w, http.StatusTooManyRequests, map[string]string{
+				"error": "You've sent a lot of invites today. Try again tomorrow.",
+			})
+			return
+		}
+		// Already texted from this household recently: still create the invite so
+		// the caller gets a link to share another way, but send no second SMS.
+		if checkRateLimit(&s.inviteLimiter, fmt.Sprintf("dest:%d:%s", invHID, e164), inviteSMSWindow, 1) {
+			log.Printf("[invite] skipping duplicate SMS to %s for household %d", maskPhone(e164), invHID)
+			smsAllowed = false
+		}
+	}
+
 	// Generate random invite code
 	codeBytes := make([]byte, 16)
 	if _, err := rand.Read(codeBytes); err != nil {
@@ -108,8 +133,8 @@ func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send SMS invite only if phone was provided
-	if hasPhone {
+	// Send SMS invite only if a phone was provided and the guards above allowed it
+	if smsAllowed {
 		// Personalize with inviter's name if available
 		var inviterName string
 		s.db.QueryRow("SELECT COALESCE(name,'') FROM users WHERE id = ?", session.UserID).Scan(&inviterName)

@@ -208,6 +208,12 @@ type Server struct {
 	earningsUploadLimiter sync.Map
 	// Per-user NPS submit rate limiter: userID -> *rateBucket (3 submissions/hour)
 	npsSubmitLimiter sync.Map
+	// Household invite SMS limiter: holds two kinds of key, both -> []time.Time.
+	//   "inviter:<userID>"            -> 10 invite texts per 24h
+	//   "dest:<householdID>:<e164>"   -> 1 invite text per 24h
+	// Keeps an authenticated user from looping /api/settings/invite to text
+	// arbitrary numbers (CLAUDE.md damage risk #1).
+	inviteLimiter sync.Map
 
 	// googleTokenInfoURL overrides the Google tokeninfo endpoint (for testing).
 	// When empty, defaults to "https://oauth2.googleapis.com/tokeninfo".
