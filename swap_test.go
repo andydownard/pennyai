@@ -581,10 +581,15 @@ func TestRebates_ReturnsHistory(t *testing.T) {
 
 	// Insert swap events and rebates with different statuses. One campaign each:
 	// a user gets a single accept per campaign (idx_swap_events_one_accept).
-	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (1, 'user-1', 1, 'accepted')")
-	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (2, 'user-1', 2, 'accepted')")
-	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-1', 1, 1, 150, 'pending')")
-	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-1', 2, 2, 150, 'paid')")
+	// Deal ids come from the seeded deals (their numbering differs between
+	// SQLite and Postgres), so look them up rather than assuming 1 and 2.
+	var jifDeal, otherDeal int
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE competitor_product = 'skippy'").Scan(&jifDeal)
+	server.db.QueryRow("SELECT id FROM brand_deals WHERE id != ? ORDER BY id LIMIT 1", jifDeal).Scan(&otherDeal)
+	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (1, 'user-1', ?, 'accepted')", jifDeal)
+	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (2, 'user-1', ?, 'accepted')", otherDeal)
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-1', 1, ?, 150, 'pending')", jifDeal)
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-1', 2, ?, 150, 'paid')", otherDeal)
 
 	rr := doRequest(server.handleRebates, "GET", "/api/rebates", nil, cookies)
 	if rr.Code != 200 {
@@ -609,9 +614,16 @@ func TestRebates_ReturnsHistory(t *testing.T) {
 	}
 
 	// Verify rebate entries have deal info
-	first := rebates[0].(map[string]interface{})
-	if first["offer_brand"] != "Jif" {
-		t.Errorf("expected offer_brand Jif, got %v", first["offer_brand"])
+	// created_at ties on second-resolution SQLite, so find the Jif entry
+	// rather than assuming its position.
+	var first map[string]interface{}
+	for _, r := range rebates {
+		if e := r.(map[string]interface{}); e["offer_brand"] == "Jif" {
+			first = e
+		}
+	}
+	if first == nil {
+		t.Fatalf("expected a rebate with offer_brand Jif, got %v", rebates)
 	}
 	if first["amount_cents"] != float64(150) {
 		t.Errorf("expected amount_cents 150, got %v", first["amount_cents"])
