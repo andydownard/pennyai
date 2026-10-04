@@ -98,7 +98,7 @@ test.describe('Share & Earn screen', () => {
   test('shows household section with invite button', async ({ page }) => {
     await page.goto('/share')
     await expect(page.getByText('Shared List')).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByText('Invite someone to share')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Invite your family to this list' })).toBeVisible()
   })
 
   test('shows referral section', async ({ page }) => {

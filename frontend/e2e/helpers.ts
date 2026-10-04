@@ -13,7 +13,7 @@ export function uniquePhone(): string {
 
 /** The home screen's chat box — present only when signed in. */
 export function homeInput(page: Page) {
-  return page.locator('textarea[placeholder*="Tell Penny"]')
+  return page.getByRole('textbox', { name: 'Add items or tell Penny anything' })
 }
 
 /** The signed-out login screen. */
@@ -36,33 +36,31 @@ export async function login(page: Page, phone?: string): Promise<string> {
   const res = await page.request.post('/auth/test-login', { data: { phone_number: phoneNumber } })
   expect(res.status(), 'POST /auth/test-login (is the server running with TEST_MODE=true?)').toBe(200)
 
-  await page.goto('/')
+  // 'domcontentloaded', not 'load': index.html pulls gtag from googletagmanager.com, and a slow
+  // or blocked third-party request would otherwise stall 'load' for the whole test timeout.
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
   await expect(homeInput(page)).toBeVisible({ timeout: 10_000 })
 
   return phoneNumber
 }
 
+/** Open the slide-in navigation menu (the hamburger in the header). */
+export async function openNavMenu(page: Page) {
+  await page.getByRole('button', { name: 'Open navigation menu' }).click()
+  const nav = page.getByRole('navigation', { name: 'Main navigation' })
+  await expect(nav).toBeVisible()
+  return nav
+}
+
 /**
- * Navigate to a specific screen via the bottom tab bar.
- * Maps common menu item names to tab labels.
+ * Navigate to a screen via the hamburger menu. Pass the menu item's label:
+ * 'Shopping List', 'My Lists', 'Penny', 'Share & Earn' or 'Profile'.
+ * The menu closes itself after a selection.
  */
 export async function navigateTo(page: Page, menuItemText: string | RegExp): Promise<void> {
-  // Map old menu names to bottom tab labels
-  const labelMap: Record<string, string> = {
-    'Shopping List': 'List',
-    'Penny': 'Penny',
-    'Profile': 'Profile',
-  }
-
-  const text = typeof menuItemText === 'string' ? menuItemText : ''
-  // Handle Share & Earn / Share tab
-  if (typeof menuItemText !== 'string' || menuItemText.includes('Share')) {
-    await page.getByRole('button', { name: 'Share' }).click()
-    return
-  }
-
-  const tabLabel = labelMap[text] || text
-  await page.getByRole('button', { name: tabLabel }).click()
+  const nav = await openNavMenu(page)
+  await nav.getByRole('button', { name: menuItemText }).click()
+  await expect(nav).toBeHidden()
 }
 
 /**

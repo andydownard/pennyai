@@ -7,8 +7,9 @@ test.describe('List operations', () => {
   })
 
   test('empty list shows Penny greeting', async ({ page }) => {
-    await expect(page.getByText('What do you need from the store?')).toBeVisible()
-    await expect(page.getByText('Type, paste a list, or snap a photo')).toBeVisible()
+    // A brand-new user (first login, never added an item) gets Penny's intro.
+    await expect(page.getByText("Hey! I'm Penny", { exact: true })).toBeVisible()
+    await expect(page.getByText("Type what you need — I'll organize it by aisle")).toBeVisible()
   })
 
   test('add item via API and it appears in list', async ({ page }) => {
@@ -58,7 +59,10 @@ test.describe('List operations', () => {
     })
 
     await page.reload()
-    await expect(page.getByText('What do you need from the store?')).toBeVisible({ timeout: 10_000 })
+    // The list is empty again. Items were added by API, so the browser never set its
+    // 'has_added_items' flag and this first-login user still sees Penny's intro empty state.
+    await expect(page.getByText("Hey! I'm Penny", { exact: true })).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('Bread', { exact: true })).toHaveCount(0)
   })
 
   test('multiple items appear in correct order', async ({ page }) => {
