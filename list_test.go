@@ -2045,6 +2045,13 @@ func TestUpsertListItem_ConcurrentSafety(t *testing.T) {
 	if count != 1 {
 		t.Errorf("Expected 1 egg item, got %d (duplicates created)", count)
 	}
+
+	// No lost updates: every one of the 10 adds must be reflected in the quantity.
+	var qty int
+	server.db.QueryRow("SELECT COALESCE(SUM(quantity), 0) FROM list_items WHERE user_id = ? AND LOWER(name) = 'eggs'", userID).Scan(&qty)
+	if qty != 10 {
+		t.Errorf("Expected merged quantity 10, got %d (lost update)", qty)
+	}
 }
 
 func TestItemHistory_WrongMethod(t *testing.T) {

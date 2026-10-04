@@ -906,6 +906,23 @@ func upsertListItem(db *PGDB, userID string, name, brand, department, size strin
 	}
 	defer tx.Rollback()
 
+	// Serialise concurrent upserts for the same list. The look-up below followed
+	// by an INSERT is check-then-act: under READ COMMITTED two requests can both
+	// find nothing and both insert, leaving duplicate rows (a double-tapped add,
+	// or an SMS and the app adding "eggs" together). The list is shared across a
+	// household with no unique key to lean on, so take a transaction-scoped
+	// advisory lock keyed on the household (or the user, when solo). It releases
+	// at COMMIT/ROLLBACK. SQLite (tests) has a single writer and no such lock.
+	if !db.skipConversion {
+		lockKey := "list_items:u:" + userID
+		if hid := getUserHouseholdID(db, userID); hid != 0 {
+			lockKey = fmt.Sprintf("list_items:h:%d", hid)
+		}
+		if _, err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(?))", lockKey); err != nil {
+			return ListItem{}, false, fmt.Errorf("locking list for upsert: %w", err)
+		}
+	}
+
 	// Look for an existing item with the same name across household (checked or unchecked)
 	queryArgs := append(append([]interface{}{}, whereArgs...), name)
 	var existingID int
