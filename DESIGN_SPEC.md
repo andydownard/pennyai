@@ -25,9 +25,8 @@ Autotune ON → slider hidden. Autotune OFF → slider appears with CSS transiti
 
 ### Auth Screens
 
-- All auth screens: PennyAvatar + cycling typewriter value props + form fields + submit + alt auth links
-- Password reveal icon: `bottom` positioning, not `top: 50%`
-- Rally sign-in (dark behind `CLERK_ENABLED`): PhoneScreen and EmailLoginScreen gain **one** optional button, "Continue with Rally", directly below the Google button. Nothing else moves and nothing is renamed; with the flag off the screens are byte-identical to today's. Copy never says SSO, bot, AI, or assistant.
+- There is one sign-in screen (`LoginScreen.tsx`): PennyAvatar, Penny's text, "Continue with Rally", legal links. It collects no credentials; Rally (Clerk) hosts them. Phone-code, Google, email/password and magic-link screens were removed 2026-10-03. SMS consent is not asked on this screen.
+- Copy never says SSO, bot, AI, or assistant.
 
 ### Touch Targets & Contact Actions
 

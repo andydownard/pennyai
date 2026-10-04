@@ -1,6 +1,6 @@
 # Groflo Backlog
 
-**Last updated:** 2026-04-18
+**Last updated:** 2026-10-03
 
 ---
 
@@ -16,7 +16,7 @@
 |---|------|-----|------|
 | G4 | Brand portal campaign lead hand-off | marketing/campaign-lead.mts redirects to brands.groflo.io but portal doesn't read params. | S |
 | G5 | Data migration: SQLite → Postgres | Script ready (scripts/migrate_sqlite_to_postgres.sh). Need to execute against production. | M |
-| G6 | Deploy pennyai to timpager Railway canvas | Service created, vars set. Need source repo connected + first deploy. | S |
+| G6 | Deploy pennyai to timpager Railway canvas | Service created, vars set. Need source repo connected + first deploy. **Superseded 2026-10-03:** pennyai deploys from Railway project `rally`, service `pennyai`, branch `main`. | S |
 | G7 | Email campaign CRM integration | 13 templates ready in marketing/emails/. Need Klaviyo/SendGrid wiring. | M |
 | G22 | Marketing Home.tsx body copy + alt text sweep | Hero h2 fixed; body copy at line ~724 still reads as B2B SaaS. PMM/Brand PM pass. | S |
 | G23 | Twilio webhook redelivery dedup | `sendSMSReply` in handlers_webhook.go:371,377,408,470,476,494 fires without message-ID dedup. Twilio retries on timeout → duplicate SMS. Store `twilio_message_id` with UNIQUE before reply. | M |
@@ -45,7 +45,7 @@
 | G31 | Household "who claimed what" indicator | James persona: no `claimed_by` badge on ItemRow. Duplicate-prevention narrative weakened. Show faint name badge when `claimed_by_user_id ≠ NULL`. | S |
 | G33 | Deal detail partial-fetch error state | Brand portal shows perpetual "Loading performance data…" when `/brand/deal-performance` or `/brand/optimize` fails silently. Show recoverable error banner instead. | S |
 | G34 | Deal save success toast | Budget/discount edits silently refresh with no confirmation feedback. Tamika: "Did I save that?" Add 2s success toast before refetch. | S |
-| G35 | Wire revenue events to timpager | `pushRevenueEvent` has zero callers, so no Groflo revenue reaches timpager's revenue-events API and the 30% community share has nothing to compute from. Call it after rebate verify and after a brand deposit is credited, outside the wallet transaction, with the mandated `pennyai_{eventType}_{sourceRef}_{date}` key. The helper itself is correct and now tested (auth header, 409-as-idempotent-success, retry cap) — what is missing is the call site. Feature, not a bugfix. | M |
+| G35 | Wire revenue events to timpager | **Moot 2026-10-03: the Timpager integration and `pushRevenueEvent` were removed.** Whether and how Groflo revenue reaches Rally is an open decision for Andy. Original note:  `pushRevenueEvent` has zero callers, so no Groflo revenue reaches timpager's revenue-events API and the 30% community share has nothing to compute from. Call it after rebate verify and after a brand deposit is credited, outside the wallet transaction, with the mandated `pennyai_{eventType}_{sourceRef}_{date}` key. The helper itself is correct and now tested (auth header, 409-as-idempotent-success, retry cap) — what is missing is the call site. Feature, not a bugfix. | M |
 
 ## P3 — Future
 
@@ -53,13 +53,28 @@
 |---|------|-----|------|
 | G17 | Brand testimonial compliance | ForBrands.tsx testimonials may be composites. Get consent or add disclosure. | S |
 | G18 | Supabase migration for marketing site | Run 002_campaign_leads.sql before deploy. | S |
-| G19 | Circuit breaker for external services | Claude/Twilio/SendGrid down → fail fast. Timpager has B116 for same. | M |
+| G19 | Circuit breaker for external services | Claude/Twilio/SendGrid down → fail fast. Timpager (separate repo) has B116 for same. | M |
 | G20 | Kroger MCP integration | Product images, correct logos, SKU-level data. | L |
 | G21 | Spanish language MVP | Multi-lingual Penny. CST solidarity principle. | L |
 
 ## Bugs (Open)
 
 _None currently open._
+
+## Follow-ups from go-live review 2026-10-03
+
+Raw follow-ups from the go-live review. Not yet triaged into P0-P3.
+
+- Built frontend assets in `static/` are committed to git and go stale (the Dockerfile rebuilds them). Decide whether to untrack them.
+- `frontend/index.html` `og:url` and `NavMenu` (`frontend/src/components/NavMenu.tsx`) still point at `app.groflo.io` and `brands.groflo.io`.
+- The brand portal and the marketing site have no host: `app.groflo.io`, `brands.groflo.io`, `penny.rallytasks.com` and `groflo.io` are not attached to any service.
+- `sessions.role` always stores `'user'`, so `auth_method` reads back as "user".
+- The inbound webhook signature check (`handlers_webhook.go`) is skipped when `WEBHOOK_BASE_URL` is empty.
+- Go module is still named `thriftly` (see G16).
+- `currentUserId` is typed as a number in the frontend, but user ids are UUID strings.
+- Clerk bot protection loads from `challenges.cloudflare.com`, which is not in the CSP.
+- Decide the branch and promotion model. Railway deploys `main`; the documented `main` → `staging` → `production` model no longer matches.
+- `.github/workflows/uptime.yml` still checks `https://app.thrift.ly/health`. Repoint it at the live host.
 
 ## Shipped
 

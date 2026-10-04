@@ -6,7 +6,7 @@ A feature is DONE when it passes both tiers. Tier 1 (GATE) blocks every commit. 
 
 All must pass before code reaches main.
 
-- [ ] **Go tests pass.** `go test -count=1 ./...` exits 0. All new/modified tests pass. No skipped tests.
+- [ ] **Go tests pass.** `go test -count=1 ./...` exits 0 (SQLite tier), and `scripts/test-postgres.sh` exits 0 (PostgreSQL tier). All new/modified tests pass. No skipped tests.
 - [ ] **Frontend tests pass.** `cd frontend && npx playwright test` exits 0. All new/modified tests pass.
 - [ ] **No secrets in code.** Grep for API keys, tokens, phone numbers. Check .env, logs, comments, URLs. Secrets only in env vars.
 - [ ] **No DROP TABLE or table recreation.** Use ALTER TABLE ADD COLUMN only. All migrations backward-compatible.
@@ -16,14 +16,14 @@ All must pass before code reaches main.
 - [ ] **No duplicate notification/SMS paths.** Trace every code path that sends SMS (Twilio), email (SendGrid), or push notification. Verify: dedup guard OR idempotency key OR "already sent" flag. If you cannot prove no duplication, add a guard.
 - [ ] **Data isolation verified.** Every query filters by current user or household_id. Query audit: spot-check 5+ queries to confirm no cross-user leaks. Write a specific test: "User A cannot see User B's lists or household."
 - [ ] **Rate limits enforced server-side.** Rate limiting via `sync.Map` with sliding time windows. Limits non-bypassable from client. Trace: list creation, item addition, SMS submissions.
-- [ ] **Security rules not violated.** Read [SECURITY.md](./SECURITY.md). Confirm: no phone/email exposure across user boundary, no PII in logs (IDs only), auth methods preserved.
+- [ ] **Security rules not violated.** Read [SECURITY.md](./SECURITY.md). Confirm: no phone/email exposure across user boundary, no PII in logs (IDs only), Clerk sign-in intact and no legacy sign-in or Timpager call reintroduced.
 - [ ] **Penny personality intact.** Typewriter effect, chime-ins, idle reminders, personality quotes still present and functional. No refactoring removed them.
 
 ## Tier 2: QUALITY (Blocks PR Merge)
 
 All must pass before merge. Individual items can be follow-ups if panel approves.
 
-- [ ] **Test ratio >= 1.3x.** Lines of test code ≥ 1.3 × lines of new source code. `go test -count=1 ./...` and `cd frontend && npx playwright test` both pass.
+- [ ] **Test ratio >= 1.3x.** Lines of test code ≥ 1.3 × lines of new source code. `go test -count=1 ./...`, `scripts/test-postgres.sh` and `cd frontend && npx playwright test` all pass.
 - [ ] **Every mutation has 4 test types:** (1) Positive path (happy case succeeds). (2) Negative path (validation fails or no auth). (3) Idempotency (call twice = once, no duplicates). (4) Cross-user prevention (other user cannot access/modify).
 - [ ] **No endpoint removed or renamed.** Read [CLAUDE.md](./CLAUDE.md) §Refactoring Constraints. Do NOT remove, rename, or change HTTP method of any endpoint. Do NOT change JSON request/response shapes without backward-compatibility test.
 - [ ] **No database table dropped or recreated.** Use ALTER TABLE ADD COLUMN. Migrations stay inline in `initDB()`, numbered sequentially.

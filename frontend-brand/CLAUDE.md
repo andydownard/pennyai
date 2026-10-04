@@ -1,13 +1,13 @@
 # Groflo Brand Portal (frontend-brand)
 
-> The B2B dashboard at `brands.groflo.io` where CPG brand managers create deals, view competitive intel, and fund their accounts.
+> The B2B dashboard (no host attached as of 2026-10-03; previously `brands.groflo.io`) where CPG brand managers create deals, view competitive intel, and fund their accounts.
 
 ## Architecture
 
 - **Frontend**: React/TypeScript single-page app (`App.tsx` + components), Vite build
 - **Backend**: Same Go server as consumer app, routes prefixed with `/brand/`
 - **Auth**: Email/password with `brand_users` table (separate from consumer `users`)
-- **Build output**: `../static-brand/` (served by Go at `brands.groflo.io` subdomain)
+- **Build output**: `../static-brand/` (served by Go from the brand-portal host; none is attached as of 2026-10-03)
 - **Dev server**: `http://localhost:5174`, proxies `/brand/*` to Go backend at `:8080`
 
 ## Relationship to Consumer App (`frontend/`)
@@ -18,7 +18,7 @@ These are **two separate React apps** for **two separate audiences**:
 |---|---|---|
 | **User** | Shoppers | CPG brand managers |
 | **Design** | Mobile-first, Avenir font, warm tones | Desktop-first, system fonts, professional |
-| **Auth** | Phone/SMS, Google OAuth, email | Email/password only |
+| **Auth** | Rally sign-in (Clerk) only | Email/password only |
 | **DB tables** | `users`, `sessions` | `brand_users`, `brand_sessions` |
 | **Port** | 5173 (dev) | 5174 (dev) |
 | **Build dir** | `dist/` | `static-brand/` |

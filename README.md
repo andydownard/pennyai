@@ -6,39 +6,15 @@ Text Penny AI to build your family's shopping list.
 
 1. **Go** — the programming language ([download](https://go.dev/dl/))
 2. **Node.js** — for building the frontend ([download](https://nodejs.org/))
-3. **A Twilio account** — for sending verification codes (free trial works)
+3. **PostgreSQL** — a local database (the app and the test tiers use it)
+4. **A Clerk instance** — sign-in is Rally's, through Clerk ("Continue with Rally"). For local work you can skip it and use `TEST_MODE=true` (see below).
+5. **A Twilio account (optional)** — only for texting Penny, invite texts and the daily digest. Without it SMS is off and nothing is sent.
 
-## Setting up Twilio (5 minutes)
+## Signing in
 
-You need three values from Twilio. Here's exactly where to find them:
+Sign-in is Clerk only. Set `CLERK_ENABLED=1`, `CLERK_JWT_ISSUER` and `CLERK_AUTHORIZED_PARTIES` (see `.env.example`). The backend verifies Clerk's session JWT against the issuer's public JWKS and then mints its own session cookie. Never put `CLERK_SECRET_KEY` or `CLERK_WEBHOOK_SIGNING_SECRET` in this app's environment; it refuses to start if either is set. For a phone number to be saved, the Clerk instance must emit the custom session-token claims `email`, `phone`, `phone_verified` and `name`.
 
-### 1. Create a Twilio account
-
-Go to [twilio.com/try-twilio](https://www.twilio.com/try-twilio) and sign up. Free trial gives you $15 in credits — enough for hundreds of verification codes.
-
-### 2. Get your Account SID and Auth Token
-
-After signing in, you land on the **Console Dashboard**. Your **Account SID** and **Auth Token** are right there at the top. The Auth Token is hidden — click "Show" to reveal it.
-
-```
-Account SID:  ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-Auth Token:   xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
-
-### 3. Create a Verify Service
-
-This is the Twilio product that actually sends OTP codes.
-
-1. In the left sidebar, go to **Explore Products → Verify** (or visit [console.twilio.com/us1/develop/verify/services](https://console.twilio.com/us1/develop/verify/services))
-2. Click **Create new**
-3. Name it **thriftly** (or whatever you want)
-4. Copy the **Service SID** — it starts with `VA`
-
-```
-Verify Service SID:  VAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
-
-That's it. Three values. You don't need to buy a phone number — Verify uses Twilio's own numbers.
+For local development without Clerk, set `TEST_MODE=true`. That enables `POST /auth/test-login` and swaps in an SMS client that only logs. It is refused on Railway.
 
 ## Running locally
 
@@ -61,30 +37,34 @@ npm run build
 cd ..
 
 # 5. Run the server
-source .env && go run main.go
+source .env && go run .
 ```
 
 Visit **http://localhost:8080** — you should see the login screen.
 
-> **Note:** On a Twilio free trial, you can only send codes to phone numbers you've verified in the Twilio console. Go to **Phone Numbers → Verified Caller IDs** to add your number.
+> **Note:** On a Twilio free trial, you can only text phone numbers you've verified in the Twilio console. Go to **Phone Numbers → Verified Caller IDs** to add your number.
 
 ## Running tests
 
-Tests don't need Twilio credentials — they use a mock. They also use an in-memory database, so nothing is written to disk.
+Tests don't need Twilio or Clerk credentials. The Go suite has two tiers:
 
 ```bash
-go test -v        # verbose output (shows each test name)
-go test -cover    # code coverage percentage
-go test -race     # detect concurrency bugs
+go test -count=1 ./...        # SQLite tier (default, in-memory)
+scripts/test-postgres.sh      # PostgreSQL tier (needs a local Postgres)
+# or: TEST_DATABASE_URL=postgres://localhost:5432/postgres?sslmode=disable go test .
+go test -race                 # detect concurrency bugs
+cd frontend && npx playwright test   # end-to-end; uses a throwaway local Postgres database and TEST_MODE=true
 ```
+
+CI runs both Go tiers (the `test` and `test-postgres` jobs) and the frontend checks.
 
 ## How your API keys stay safe
 
 This is important to understand:
 
-- **Your Twilio credentials are ONLY in your .env file**, which is listed in `.gitignore` — git will never track it, so it can't accidentally end up on GitHub.
+- **Your credentials (Twilio, Anthropic and the rest) are ONLY in your .env file**, which is listed in `.gitignore` — git will never track it, so it can't accidentally end up on GitHub.
 - **The Go server loads them from environment variables** at startup. They live in server memory and are never exposed via any URL endpoint.
-- **The frontend (React) NEVER sees your keys.** All Twilio API calls happen server-side in Go. The browser only talks to your Go server, which talks to Twilio on its behalf.
+- **The frontend (React) NEVER sees your keys.** All Twilio API calls happen server-side in Go. The browser only talks to your Go server, which talks to Twilio on its behalf. The only values in the frontend build are the public `VITE_*` ones, such as the Clerk publishable key.
 - **Session cookies are HttpOnly**, meaning JavaScript running in the browser can't read them — this prevents XSS attacks from stealing sessions.
 
 ```
@@ -98,21 +78,19 @@ If someone hacks into your GitHub repo, they won't find any secrets because `.en
 
 ```
 thriftly/
-├── main.go            ← Go backend (auth, database, handlers)
-├── main_test.go       ← 33 tests (phone, db, sessions, handlers, full flow)
-├── go.mod             ← Go dependencies
+├── server.go, handlers_*.go, ...  ← Go backend (package main; run with `go run .`)
+├── clerk*.go          ← Clerk token verification and local user upsert
+├── pgcompat.go        ← SQLite-to-PostgreSQL SQL wrapper
+├── *_test.go          ← Go tests (SQLite tier by default; PostgreSQL tier via scripts/test-postgres.sh)
+├── go.mod             ← Go dependencies (module is still named thriftly)
 ├── .env.example       ← Template — copy to .env and fill in
-├── .gitignore         ← Keeps .env and build artifacts out of git
-├── thriftly.db        ← SQLite database (created on first run, not in git)
-├── frontend/
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── vite.config.ts
-│   ├── index.html
-│   └── src/
-│       ├── main.tsx
-│       └── App.tsx    ← The entire UI
-└── static/            ← Built frontend (generated by npm run build)
+├── Dockerfile         ← Builds the frontends and the Go binary; takes VITE_* build args
+├── railway.toml       ← Railway deploy settings
+├── frontend/          ← Consumer React app (Vite); Playwright tests in e2e/
+├── frontend-brand/    ← Brand portal React app
+├── marketing/         ← Marketing site
+├── static/            ← Built consumer frontend (generated by npm run build)
+└── static-brand/      ← Built brand portal (generated)
 ```
 
 ## Development workflow
@@ -121,7 +99,7 @@ For faster iteration on the frontend (hot reload):
 
 ```bash
 # Terminal 1: Go server
-source .env && go run main.go
+source .env && go run .
 
 # Terminal 2: Vite dev server (auto-refreshes on changes)
 cd frontend

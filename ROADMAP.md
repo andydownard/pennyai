@@ -776,6 +776,8 @@ Break-even math:
 ### Account Merging — Simple & Safe (P1) — DONE
 **Current state:** `resolveOrCreateUser()` auto-merges accounts by matching email with full data conflict resolution.
 
+*Removed 2026-10-03: the merge path went with the legacy sign-in methods. Sign-in is Clerk only; email is never a matching signal.*
+
 **Completed:**
 - ~~When a merge happens, clearly tell the user~~ — Penny shows "Welcome back! I linked your [method] account to your existing Thriftly account."
 - ~~**Household dedup on merge**~~ — `mergeHouseholds()` removes duplicate/orphaned household memberships automatically.
