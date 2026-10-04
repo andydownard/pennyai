@@ -2597,9 +2597,14 @@ func TestListClaim_Override(t *testing.T) {
 
 	// Create household: user1 creates, user2 joins
 	server.db.Exec("INSERT INTO households (name) VALUES ('Test')")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, ?, 'admin')", userID1)
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, ?, 'member')", userID2)
-	server.db.Exec("UPDATE users SET household_id = 1 WHERE id IN (?, ?)", userID1, userID2)
+	var hid int
+	server.db.QueryRow("SELECT id FROM households ORDER BY id DESC LIMIT 1").Scan(&hid)
+	// Each login already put the user in a solo household (user_id is unique in
+	// household_members), so move both users out before joining them together.
+	server.db.Exec("DELETE FROM household_members WHERE user_id IN (?, ?)", userID1, userID2)
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (?, ?, 'admin')", hid, userID1)
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (?, ?, 'member')", hid, userID2)
+	server.db.Exec("UPDATE users SET household_id = ? WHERE id IN (?, ?)", hid, userID1, userID2)
 
 	result, _ := server.db.Exec(
 		"INSERT INTO list_items (user_id, name, department) VALUES (?, ?, ?)",
