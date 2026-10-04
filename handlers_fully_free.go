@@ -169,6 +169,8 @@ func (s *Server) handleFullyFreeReceiptVerify(w http.ResponseWriter, r *http.Req
 		if _, err := tx.Exec("UPDATE brand_deals SET budget_spent_cents = budget_spent_cents + ? WHERE id = ?",
 			totalDebit, dealID); err != nil {
 			log.Printf("[fully_free] failed to debit deal %d budget: %v", dealID, err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process verification"})
+			return // deferred tx.Rollback() leaves the rebate pending
 		}
 	}
 
@@ -181,6 +183,8 @@ func (s *Server) handleFullyFreeReceiptVerify(w http.ResponseWriter, r *http.Req
 	if budgetTotal > 0 && newBudgetSpent >= budgetTotal {
 		if _, err := tx.Exec("UPDATE brand_deals SET status = 'paused' WHERE id = ?", dealID); err != nil {
 			log.Printf("[fully_free] failed to auto-pause deal %d: %v", dealID, err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process verification"})
+			return
 		}
 		log.Printf("[fully_free] deal %d auto-paused: budget exhausted", dealID)
 	}
