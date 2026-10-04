@@ -410,9 +410,9 @@ func (s *Server) handleAdminDeals(w http.ResponseWriter, r *http.Request) {
 			                         offer_unit_price, competitor_unit_price,
 			                         unit_label, why_bullets, allergen_notes,
 			                         deal_type, quantity_offered, trial_product_name, trial_size, campaign_tag)
-			VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			deal.CompetitorProduct, deal.OfferBrand, deal.OfferProduct, deal.DiscountCents,
-			deal.TotalBudgetCents, deal.Status, deal.EndsAt,
+			deal.TotalBudgetCents, deal.Status, nullIfEmpty(deal.EndsAt),
 			deal.OfferPriceCents, deal.CompetitorPriceCents,
 			deal.OfferSize, deal.CompetitorSize,
 			deal.OfferUnitPrice, deal.CompetitorUnitPrice,
@@ -439,7 +439,7 @@ func (s *Server) handleAdminDeals(w http.ResponseWriter, r *http.Request) {
 		}
 		_, err := s.db.Exec(`
 			UPDATE brand_deals SET competitor_product = ?, offer_brand = ?, offer_product = ?,
-			       discount_cents = ?, total_budget_cents = ?, status = ?, ends_at = NULLIF(?, ''),
+			       discount_cents = ?, total_budget_cents = ?, status = ?, ends_at = ?,
 			       offer_price_cents = ?, competitor_price_cents = ?,
 			       offer_size = ?, competitor_size = ?,
 			       offer_unit_price = ?, competitor_unit_price = ?,
@@ -447,7 +447,7 @@ func (s *Server) handleAdminDeals(w http.ResponseWriter, r *http.Request) {
 			       deal_type = ?, quantity_offered = ?, trial_product_name = ?, trial_size = ?, campaign_tag = ?
 			WHERE id = ?`,
 			deal.CompetitorProduct, deal.OfferBrand, deal.OfferProduct,
-			deal.DiscountCents, deal.TotalBudgetCents, deal.Status, deal.EndsAt,
+			deal.DiscountCents, deal.TotalBudgetCents, deal.Status, nullIfEmpty(deal.EndsAt),
 			deal.OfferPriceCents, deal.CompetitorPriceCents,
 			deal.OfferSize, deal.CompetitorSize,
 			deal.OfferUnitPrice, deal.CompetitorUnitPrice,

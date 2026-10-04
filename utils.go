@@ -259,3 +259,13 @@ func jsonArrayText(s string) string {
 	wrapped, _ := json.Marshal([]string{s})
 	return string(wrapped)
 }
+
+// nullIfEmpty returns nil for an empty string so the column receives SQL NULL.
+// Use it instead of NULLIF(?, '') for timestamp/JSONB columns: on PostgreSQL
+// NULLIF(?, '') is typed text and cannot be assigned to those columns.
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
