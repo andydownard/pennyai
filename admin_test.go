@@ -185,7 +185,7 @@ func TestAdminDashboard_ActiveUsersCount(t *testing.T) {
 	upsertUser(server.db, "5552222222")
 
 	// Create a user without last_active (simulating old user)
-	server.db.Exec("INSERT OR IGNORE INTO users (phone) VALUES ('5553333333')")
+	server.db.Exec("INSERT OR IGNORE INTO users (id, phone) VALUES ('old-user-5553333333', '5553333333')")
 
 	rr := doRequest(server.handleAdminDashboard, "GET", "/api/admin/dashboard?days=30", nil, []*http.Cookie{cookie})
 	body := parseJSON(rr)
@@ -1671,7 +1671,7 @@ func TestAdminFeedbackTriage_UpdateStatus(t *testing.T) {
 	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
 
 	user, _ := upsertUser(server.db, "5551234567")
-	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'please fix', 'bug', 'high')", user.ID)
+	server.db.Exec("INSERT INTO feedback_requests (id, user_id, body, type, urgency) VALUES (1, ?, 'please fix', 'bug', 'high')", user.ID)
 
 	status := "roadmapped"
 	notes := "Added to Q2 sprint"
@@ -1699,7 +1699,7 @@ func TestAdminFeedbackTriage_InvalidStatus(t *testing.T) {
 	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
 
 	user, _ := upsertUser(server.db, "5551234567")
-	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'test', 'bug', 'normal')", user.ID)
+	server.db.Exec("INSERT INTO feedback_requests (id, user_id, body, type, urgency) VALUES (1, ?, 'test', 'bug', 'normal')", user.ID)
 
 	badStatus := "invalid_status"
 	rr := doRequest(server.handleAdminFeedbackByID, "PUT", "/api/admin/feedback/1",
@@ -1732,7 +1732,7 @@ func TestAdminFeedbackTriage_NoFields(t *testing.T) {
 	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
 
 	user, _ := upsertUser(server.db, "5551234567")
-	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'test', 'bug', 'normal')", user.ID)
+	server.db.Exec("INSERT INTO feedback_requests (id, user_id, body, type, urgency) VALUES (1, ?, 'test', 'bug', 'normal')", user.ID)
 
 	rr := doRequest(server.handleAdminFeedbackByID, "PUT", "/api/admin/feedback/1",
 		map[string]interface{}{}, []*http.Cookie{adminCookie})
