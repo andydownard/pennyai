@@ -150,7 +150,7 @@ func TestConvertInsertOrReplace_PanicsLoudly(t *testing.T) {
 
 func TestConvertIFNULL(t *testing.T) {
 	got := convertSQL("SELECT IFNULL(name, '') FROM users WHERE id = ?")
-	expect := "SELECT COALESCE(name, '') FROM users WHERE id = $1"
+	expect := "SELECT COALESCE((name)::TEXT, '') FROM users WHERE id = $1"
 	if got != expect {
 		t.Errorf("convertSQL IFNULL\n  got:  %q\n  want: %q", got, expect)
 	}
@@ -291,7 +291,7 @@ func TestConvertRealWorldQueries(t *testing.T) {
 		{
 			name:   "select with coalesce",
 			input:  "SELECT id, phone_number, COALESCE(name,''), COALESCE(email,''), household_id, created_at FROM users WHERE phone_number = ?",
-			expect: "SELECT id, phone_number, COALESCE(name,''), COALESCE(email,''), household_id, created_at FROM users WHERE phone_number = $1",
+			expect: "SELECT id, phone_number, COALESCE((name)::TEXT,''), COALESCE((email)::TEXT,''), household_id, created_at FROM users WHERE phone_number = $1",
 		},
 		{
 			name:   "insert with datetime",
@@ -821,7 +821,7 @@ func TestConvertSQL_DoubleConversionIdempotent(t *testing.T) {
 		"INSERT INTO users (name) VALUES ($1) RETURNING id",
 		"INSERT INTO t (a, b) VALUES ($1, $2) ON CONFLICT DO NOTHING",
 		"SELECT STRING_AGG(name::TEXT, ',') FROM users GROUP BY team",
-		"SELECT COALESCE(name, '') FROM users WHERE id = $1",
+		"SELECT COALESCE((name)::TEXT, '') FROM users WHERE id = $1",
 		"SELECT EXTRACT(DOW FROM created_at) FROM orders",
 		"SELECT TO_CHAR(created_at, 'YYYY-MM-DD') FROM users",
 		"SELECT EXTRACT(EPOCH FROM NOW()) / 86400",

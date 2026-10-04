@@ -2884,8 +2884,9 @@ func TestUpdateBrandDeal_SuccessfulUpdate(t *testing.T) {
 	if budget != newBudget {
 		t.Errorf("total_budget_cents: got %d, want %d", budget, newBudget)
 	}
-	if why != newWhy {
-		t.Errorf("why_bullets: got %q, want %q", why, newWhy)
+	// why_bullets is a JSON array column: plain text is kept as one bullet.
+	if wantWhy := jsonArrayText(newWhy); why != wantWhy {
+		t.Errorf("why_bullets: got %q, want %q", why, wantWhy)
 	}
 	if allergen != newAllergen {
 		t.Errorf("allergen_notes: got %q, want %q", allergen, newAllergen)

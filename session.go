@@ -23,17 +23,19 @@ type cachedSession struct {
 const sessionCacheTTL = 5 * time.Minute
 
 type SessionStore struct {
-	db    *sql.DB
+	db    *PGDB
 	mu    sync.RWMutex
 	cache map[string]cachedSession
 }
 
-func NewSessionStore(db *sql.DB) *SessionStore {
+// NewSessionStore takes the PGDB wrapper, never the raw connection: its queries
+// use `?` placeholders, which only the wrapper converts for PostgreSQL.
+func NewSessionStore(db *PGDB) *SessionStore {
 	return &SessionStore{db: db, cache: make(map[string]cachedSession)}
 }
 
 // CreateSession generates a random 64-char hex token, stores the session
-// in the timpager shared sessions table, and returns the token.
+// in the sessions table, and returns the token.
 // Sessions expire after 30 days.
 func (s *SessionStore) CreateSession(userID string, phone string, authMethod string) (string, error) {
 	b := make([]byte, 32) // 32 bytes = 256 bits of randomness
@@ -70,7 +72,7 @@ func (s *SessionStore) GetSession(token string) (Session, bool) {
 	var userID sql.NullString
 	var displayName sql.NullString
 	var email sql.NullString
-	// Join with timpager users table to get display_name and email.
+	// Join with users to get display_name and email.
 	err := s.db.QueryRow(
 		`SELECT s.user_id, s.phone, s.role, s.created_at, u.display_name, u.email
 		 FROM sessions s

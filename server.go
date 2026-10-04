@@ -253,11 +253,12 @@ Get these from https://console.twilio.com (see README for full setup).
 	if err := initDB(pgdb.DB); err != nil {
 		log.Fatalf("Schema initialization error: %v", err)
 	}
+	pgdb.loadSerialTables()
 
 	server := &Server{
 		config:   cfg,
 		db:       pgdb,
-		sessions: NewSessionStore(pgdb.DB),
+		sessions: NewSessionStore(pgdb),
 		twilio: &RealTwilioClient{
 			AccountSID:    cfg.TwilioAccountSID,
 			AuthToken:     cfg.TwilioAuthToken,

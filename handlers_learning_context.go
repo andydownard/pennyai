@@ -200,13 +200,9 @@ func (s *Server) getRepurchaseNudges(userID string) []RepurchaseNudge {
 		}
 
 		// Parse the last added timestamp
-		lastAdded, err := time.Parse("2006-01-02 15:04:05", lastAddedStr)
+		lastAdded, err := parseDBTime(lastAddedStr)
 		if err != nil {
-			// Try alternate format
-			lastAdded, err = time.Parse("2006-01-02T15:04:05Z", lastAddedStr)
-			if err != nil {
-				continue
-			}
+			continue
 		}
 
 		// Check if the item is due: current_date - last_added_date >= avg_days

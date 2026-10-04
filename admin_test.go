@@ -385,12 +385,12 @@ func TestAdminBackup_AdminCanTrigger(t *testing.T) {
 func TestAdminBackup_WithFileDB(t *testing.T) {
 	t.Skip("Backup endpoint stubbed for PostgreSQL — VACUUM INTO not applicable")
 	// Use in-memory SQLite test DB (VACUUM INTO won't work but we test the handler path)
-	rawDB, pgdb := openTestDB(t)
+	_, pgdb := openTestDB(t)
 
 	server := &Server{
 		config:   Config{Port: "8080", AnthropicAPIKey: "test-key", TwilioPhoneNumber: "+10000000000", AdminPhone: "3104861833", DatabaseURL: "test"},
 		db:       pgdb,
-		sessions: NewSessionStore(rawDB),
+		sessions: NewSessionStore(pgdb),
 		twilio:   &MockTwilioClient{},
 		parseItems: func(apiKey, text string, images []string) ([]ParsedItem, error) {
 			return nil, nil

@@ -1336,6 +1336,9 @@ func seedTestPricingTiers(db *sql.DB) {
 // Returns the raw *sql.DB and a *PGDB wrapper.
 func openTestDB(t *testing.T) (*sql.DB, *PGDB) {
 	t.Helper()
+	if adminURL := postgresTestURL(); adminURL != "" {
+		return openPostgresTestDB(t, adminURL)
+	}
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
@@ -1395,12 +1398,12 @@ func hammer(t *testing.T, n int, fn func(i int)) {
 func newTestServer(t *testing.T, mock *MockTwilioClient) *Server {
 	t.Helper() // marks this as a helper so errors show the caller's line number
 
-	rawDB, pgdb := openTestDB(t)
+	_, pgdb := openTestDB(t)
 
 	server := &Server{
 		config:   Config{Port: "8080", AnthropicAPIKey: "test-key", TwilioPhoneNumber: "+10000000000", AdminPhone: "3104861833", FeedbackPhones: []string{"5551234567"}, BcryptCost: 4},
 		db:       pgdb,
-		sessions: NewSessionStore(rawDB),
+		sessions: NewSessionStore(pgdb),
 		twilio:   mock,
 		parseItems: func(apiKey, text string, images []string) ([]ParsedItem, error) {
 			// Default mock parser: returns nothing. Tests can override.
@@ -1477,10 +1480,10 @@ func createListItem(t *testing.T, db *PGDB, userID string, name, department stri
 // newTestSessionStore creates a SessionStore backed by an in-memory SQLite DB.
 func newTestSessionStore(t *testing.T) *SessionStore {
 	t.Helper()
-	rawDB, _ := openTestDB(t)
+	rawDB, pgdb := openTestDB(t)
 	// Create users so FK constraints are satisfied
 	rawDB.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567'), ('user-2', '5552222222')")
-	return NewSessionStore(rawDB)
+	return NewSessionStore(pgdb)
 }
 
 // loginUser creates a user in the DB and returns a session cookie for that user.

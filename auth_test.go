@@ -739,8 +739,8 @@ func TestRequireAdmin_AdminUser(t *testing.T) {
 // =============================================================================
 
 func TestSessionStore_CleanExpired(t *testing.T) {
-	rawDB, _ := openTestDB(t)
-	store := NewSessionStore(rawDB)
+	rawDB, pgdb := openTestDB(t)
+	store := NewSessionStore(pgdb)
 
 	// Create user for FK
 	rawDB.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -766,8 +766,8 @@ func TestSessionStore_CleanExpired(t *testing.T) {
 }
 
 func TestSessionStore_ExpiredSessionNotReturned(t *testing.T) {
-	rawDB, _ := openTestDB(t)
-	store := NewSessionStore(rawDB)
+	rawDB, pgdb := openTestDB(t)
+	store := NewSessionStore(pgdb)
 
 	// Create user for FK
 	rawDB.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")

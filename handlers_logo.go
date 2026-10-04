@@ -109,26 +109,22 @@ func (s *Server) handleLogoProxy(w http.ResponseWriter, r *http.Request) {
 //   - Public token  (pk_...): validated by Referer header — only works in browsers
 //     where the referring page matches a registered domain. Server-side Go HTTP
 //     clients send no Referer, so Logo.dev rejects these requests with non-200.
-//   - Secret key    (sk_...): bypasses Referer validation, intended for server-side
-//     use. This is what we must use here.
+//   - Secret key    (sk_...): for Logo.dev's REST API only. The image CDN
+//     rejects it with 401 (verified 2026-10-03), so it is never sent there.
 //
-// We accept both and prefer the secret key (sk_...) for the actual API call.
-// The public token is accepted as a fallback in case the secret is unset but the
-// token alone is configured (e.g. a plan that doesn't issue a secret key).
+// The image CDN accepts the publishable token from a server when the request
+// carries a Referer, so that is what we send. secretKey is accepted for
+// signature compatibility and ignored: preferring it made every logo fetch
+// fail whenever LOGODEV_SECRET was configured.
 func fetchBrandLogo(domain, secretKey, publicToken string) ([]byte, string) {
-	// Prefer secret key for server-side use (bypasses Referer validation).
-	// Fall back to public token with Referer header as a best-effort.
-	token := secretKey
-	useReferer := false
-	if token == "" {
-		token = publicToken
-		useReferer = true
-	}
+	_ = secretKey
+	token := publicToken
+	useReferer := true
 	if token == "" {
 		return nil, ""
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
-	reqURL := "https://img.logo.dev/" + url.QueryEscape(domain) + "?token=" + url.QueryEscape(token) + "&size=128&format=png"
+	reqURL := logoDevImageBaseURL + url.QueryEscape(domain) + "?token=" + url.QueryEscape(token) + "&size=128&format=png"
 	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, ""
@@ -285,3 +281,7 @@ func (s *Server) handleBrands(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	json.NewEncoder(w).Encode(result)
 }
+
+// logoDevImageBaseURL is the Logo.dev image CDN. A variable so tests can point
+// it at a local server.
+var logoDevImageBaseURL = "https://img.logo.dev/"

@@ -254,9 +254,9 @@ func (s *Server) createBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 		req.TotalBudgetCents, bs.BrandUserID,
 		req.OfferPriceCents, req.CompetitorPriceCents,
 		req.OfferSize, req.CompetitorSize, req.OfferUnitPrice, req.CompetitorUnitPrice,
-		req.UnitLabel, req.WhyBullets, req.AllergenNotes,
+		req.UnitLabel, jsonArrayText(req.WhyBullets), req.AllergenNotes,
 		req.DealType, req.QuantityOffered, req.TrialProductName, req.TrialSize, req.CampaignTag,
-		categoryID, req.ProductDescription, req.KeyBenefits, req.BrandStory,
+		categoryID, req.ProductDescription, jsonArrayText(req.KeyBenefits), req.BrandStory,
 		req.MaxRebateCents, req.PlatformFeeCents, requireVerified,
 		req.ReceiptGraceDays, req.UPC,
 	)
@@ -321,7 +321,7 @@ func (s *Server) updateBrandDeal(w http.ResponseWriter, r *http.Request, bs Bran
 	}
 	if req.WhyBullets != nil {
 		sets = append(sets, "why_bullets = ?")
-		args = append(args, *req.WhyBullets)
+		args = append(args, jsonArrayText(*req.WhyBullets))
 	}
 	if req.AllergenNotes != nil {
 		sets = append(sets, "allergen_notes = ?")

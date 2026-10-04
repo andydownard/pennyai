@@ -308,7 +308,7 @@ func (s *Server) handleListToggle(w http.ResponseWriter, r *http.Request, id int
 	whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID)
 	toggleArgs := append([]interface{}{id}, whereArgs...)
 	_, err := s.db.Exec(
-		"UPDATE list_items SET checked = NOT checked WHERE id = ? AND "+whereClause,
+		"UPDATE list_items SET checked = 1 - checked WHERE id = ? AND "+whereClause,
 		toggleArgs...,
 	)
 	if err != nil {
@@ -367,7 +367,7 @@ func (s *Server) handleListUrgent(w http.ResponseWriter, r *http.Request, id int
 	whereClause, whereArgs := householdItemsWhereClause(s.db, session.UserID)
 	urgentArgs := append([]interface{}{id}, whereArgs...)
 	_, err := s.db.Exec(
-		"UPDATE list_items SET urgent = NOT urgent WHERE id = ? AND "+whereClause,
+		"UPDATE list_items SET urgent = 1 - urgent WHERE id = ? AND "+whereClause,
 		urgentArgs...,
 	)
 	if err != nil {
@@ -1117,11 +1117,7 @@ func (s *Server) handleSharedView(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check expiry
-	expiry, err := time.Parse("2006-01-02 15:04:05", expiresAt)
-	if err != nil {
-		// Try RFC3339 format
-		expiry, err = time.Parse(time.RFC3339, expiresAt)
-	}
+	expiry, err := parseDBTime(expiresAt)
 	if err != nil || time.Now().After(expiry) {
 		writeJSON(w, http.StatusGone, map[string]string{"error": "This share link has expired"})
 		return

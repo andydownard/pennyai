@@ -426,7 +426,7 @@ func (s *Server) processChurnSignals() {
 			COUNT(CASE WHEN action = 'declined' THEN 1 END) as total_declines
 		FROM swap_events
 		GROUP BY user_id
-		HAVING total_offers > 10
+		HAVING COUNT(CASE WHEN action = 'offered' THEN 1 END) > 10
 	`)
 	if err != nil {
 		log.Printf("[churn] failed to query swap_fatigue: %v", err)
@@ -538,10 +538,10 @@ func (s *Server) processUserCohorts() {
 					THEN '0' || CAST(strftime('%W', u.created_at) AS TEXT)
 					ELSE CAST(strftime('%W', u.created_at) AS TEXT)
 				END as cohort_week,
-			COALESCE(am.provider, '') as signup_source
+			COALESCE(MIN(am.provider), '') as signup_source
 		FROM users u
 		LEFT JOIN auth_methods am ON am.user_id = u.id
-		GROUP BY u.id
+		GROUP BY u.id, u.created_at
 	`)
 	if err != nil {
 		log.Printf("[cohorts] failed to query users: %v", err)
@@ -644,7 +644,7 @@ func (s *Server) processUserCohorts() {
 		}
 		// Churned if no activity in 30 days
 		if cr.lastActive.Valid {
-			lastActiveTime, parseErr := time.Parse("2006-01-02 15:04:05", cr.lastActive.String)
+			lastActiveTime, parseErr := parseDBTime(cr.lastActive.String)
 			if parseErr == nil && time.Since(lastActiveTime).Hours() > 30*24 {
 				cr.isChurned = 1
 			}
@@ -924,7 +924,7 @@ func (s *Server) processCategoryAlerts() {
 		JOIN brand_deals bd ON bd.id = se.deal_id
 		WHERE se.created_at >= datetime('now', '-30 days')
 		GROUP BY bd.offer_brand, bd.category_id
-		HAVING recent_offered + prior_offered >= 5
+		HAVING SUM(CASE WHEN se.action = 'offered' THEN 1 ELSE 0 END) >= 5
 	`)
 	if err != nil {
 		log.Printf("[alerts] failed to query brand metrics: %v", err)

@@ -259,7 +259,7 @@ func resolveBrandAlternatives(db dbExecer, userID string, pennyBrandMode string,
 		hasPref := err == nil
 		isStale := false
 		if hasPref {
-			if lp, err := time.Parse("2006-01-02 15:04:05", lastPicked); err == nil {
+			if lp, err := parseDBTime(lastPicked); err == nil {
 				isStale = time.Since(lp) > 90*24*time.Hour && streak < 5
 			}
 		}

@@ -416,7 +416,7 @@ func (s *Server) handleAdminDeals(w http.ResponseWriter, r *http.Request) {
 			deal.OfferPriceCents, deal.CompetitorPriceCents,
 			deal.OfferSize, deal.CompetitorSize,
 			deal.OfferUnitPrice, deal.CompetitorUnitPrice,
-			deal.UnitLabel, deal.WhyBullets, deal.AllergenNotes,
+			deal.UnitLabel, jsonArrayText(deal.WhyBullets), deal.AllergenNotes,
 			deal.DealType, deal.QuantityOffered, deal.TrialProductName, deal.TrialSize, deal.CampaignTag,
 		)
 		if err != nil {
@@ -451,7 +451,7 @@ func (s *Server) handleAdminDeals(w http.ResponseWriter, r *http.Request) {
 			deal.OfferPriceCents, deal.CompetitorPriceCents,
 			deal.OfferSize, deal.CompetitorSize,
 			deal.OfferUnitPrice, deal.CompetitorUnitPrice,
-			deal.UnitLabel, deal.WhyBullets, deal.AllergenNotes,
+			deal.UnitLabel, jsonArrayText(deal.WhyBullets), deal.AllergenNotes,
 			deal.DealType, deal.QuantityOffered, deal.TrialProductName, deal.TrialSize, deal.CampaignTag,
 			deal.ID,
 		)
