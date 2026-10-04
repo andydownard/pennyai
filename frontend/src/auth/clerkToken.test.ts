@@ -5,7 +5,12 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import {
   clerkActive,
+  clerkExchangePending,
   clerkSignOut,
+  runClerkExchange,
+  setClerkExchangePending,
+  setClerkExchangeRunner,
+  subscribeClerkExchangePending,
   getClerkToken,
   notifyClerkExchanged,
   setClerkExchangeHandler,
@@ -99,5 +104,42 @@ describe('clerkToken', () => {
       })
       expect(() => notifyClerkExchanged()).not.toThrow()
     })
+  })
+})
+
+describe('clerkToken explicit exchange', () => {
+  beforeEach(() => _resetClerkTokenRegistry())
+
+  it('runClerkExchange is a no-op when no runner is registered', async () => {
+    await expect(runClerkExchange()).resolves.toBeUndefined()
+  })
+
+  it('runClerkExchange calls the registered runner', async () => {
+    const runner = vi.fn(async () => {})
+    setClerkExchangeRunner(runner)
+    await runClerkExchange()
+    expect(runner).toHaveBeenCalledTimes(1)
+  })
+
+  it('runClerkExchange swallows a failing runner', async () => {
+    setClerkExchangeRunner(async () => {
+      throw new Error('boom')
+    })
+    await expect(runClerkExchange()).resolves.toBeUndefined()
+  })
+
+  it('publishes pending changes to subscribers, once per change', () => {
+    const listener = vi.fn()
+    const unsubscribe = subscribeClerkExchangePending(listener)
+    expect(clerkExchangePending()).toBe(false)
+
+    setClerkExchangePending(true)
+    setClerkExchangePending(true)
+    expect(clerkExchangePending()).toBe(true)
+    expect(listener).toHaveBeenCalledTimes(1)
+
+    unsubscribe()
+    setClerkExchangePending(false)
+    expect(listener).toHaveBeenCalledTimes(1)
   })
 })

@@ -2,8 +2,8 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import RootProviders from './RootProviders'
 
-// RootProviders keeps the StrictMode wrapper and, only when
-// VITE_CLERK_PUBLISHABLE_KEY is set, lazily wraps it in the Clerk provider.
+// RootProviders keeps the StrictMode wrapper and lazily wraps the app in the
+// Rally (Clerk) sign-in provider.
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <RootProviders>
     <App />

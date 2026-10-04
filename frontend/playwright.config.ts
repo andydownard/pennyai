@@ -16,7 +16,14 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'cd .. && rm -f /tmp/playwright-test.db && npm run --prefix frontend build && TEST_MODE=true DB_PATH=/tmp/playwright-test.db go run .',
+    // A throwaway local PostgreSQL database per run (production is Postgres,
+    // so the end-to-end suite must be too). TEST_MODE enables /auth/test-login
+    // and nothing in this command reads the repo's .env secrets for sending:
+    // Twilio and Clerk are left unconfigured.
+    command:
+      'cd .. && dropdb --if-exists pennyai_playwright && createdb pennyai_playwright && npm run --prefix frontend build && ' +
+      'env -u TWILIO_ACCOUNT_SID -u TWILIO_AUTH_TOKEN TEST_MODE=true PORT=8080 ' +
+      'DATABASE_URL="postgres://localhost:5432/pennyai_playwright?sslmode=disable" go run .',
     url: 'http://localhost:8080/health',
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,

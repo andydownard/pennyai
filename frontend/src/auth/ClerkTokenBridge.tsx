@@ -20,7 +20,8 @@ export function ClerkTokenBridge() {
   }, [getToken])
 
   useEffect(() => {
-    setClerkSignOut(() => clerk.signOut())
+    // Land on Groflo's own login screen, never a page on the Rally primary.
+    setClerkSignOut(() => clerk.signOut({ redirectUrl: `${window.location.origin}/login` }))
     return () => setClerkSignOut(null)
   }, [clerk])
 

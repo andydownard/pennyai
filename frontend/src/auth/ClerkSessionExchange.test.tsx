@@ -2,20 +2,18 @@
 // session, and the guard is sessionStorage — not React state — so StrictMode's
 // deliberate double mount cannot produce a second POST. (CLAUDE.md: never rely
 // on React state alone for a one-shot action.)
+//
+// It is also what keeps sign-out stable: once a Clerk session has been
+// exchanged, nothing exchanges it again unless the user asks.
 
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, waitFor } from '@testing-library/react'
+import { render, waitFor, act } from '@testing-library/react'
 
 let authState = { isLoaded: true, isSignedIn: true, sessionId: 'sess_1' }
 
 vi.mock('@clerk/clerk-react', () => ({
   useAuth: () => authState,
-}))
-
-const notifyClerkExchanged = vi.fn()
-vi.mock('./clerkToken', () => ({
-  notifyClerkExchanged: (e?: string) => notifyClerkExchanged(e),
 }))
 
 const fetchActionMock = vi.fn()
@@ -24,28 +22,41 @@ vi.mock('../api', () => ({
 }))
 
 import { ClerkSessionExchange } from './ClerkSessionExchange'
+import {
+  _resetClerkTokenRegistry,
+  clerkExchangePending,
+  runClerkExchange,
+  setClerkExchangeHandler,
+} from './clerkToken'
 
 const GUARD = 'groflo.clerk_exchanged:sess_1'
+const notified = vi.fn()
+const settle = () => new Promise(r => setTimeout(r, 10))
 
 describe('ClerkSessionExchange', () => {
   beforeEach(() => {
     sessionStorage.clear()
+    _resetClerkTokenRegistry()
+    setClerkExchangeHandler(notified)
     fetchActionMock.mockReset()
     fetchActionMock.mockResolvedValue({ ok: true, status: 200 })
-    notifyClerkExchanged.mockClear()
+    notified.mockClear()
     authState = { isLoaded: true, isSignedIn: true, sessionId: 'sess_1' }
   })
-  afterEach(() => sessionStorage.clear())
+  afterEach(async () => {
+    await settle() // let any in-flight exchange finish before the next test
+    sessionStorage.clear()
+  })
 
   it('posts once and notifies on success', async () => {
     render(<ClerkSessionExchange />)
     await waitFor(() => expect(fetchActionMock).toHaveBeenCalledTimes(1))
     expect(fetchActionMock).toHaveBeenCalledWith('/auth/clerk/exchange', { method: 'POST' })
-    await waitFor(() => expect(notifyClerkExchanged).toHaveBeenCalledWith(undefined))
+    await waitFor(() => expect(notified).toHaveBeenCalledWith(undefined))
     expect(sessionStorage.getItem(GUARD)).not.toBeNull()
   })
 
-  it('posts exactly once across a StrictMode double mount', async () => {
+  it('posts exactly once across a StrictMode double mount, and still notifies', async () => {
     render(
       <React.StrictMode>
         <ClerkSessionExchange />
@@ -53,14 +64,17 @@ describe('ClerkSessionExchange', () => {
     )
     await waitFor(() => expect(fetchActionMock).toHaveBeenCalledTimes(1))
     // Let any second effect pass run before asserting the count is still one.
-    await new Promise(r => setTimeout(r, 10))
+    await settle()
     expect(fetchActionMock).toHaveBeenCalledTimes(1)
+    // The first mount's cleanup must not swallow the result.
+    expect(notified).toHaveBeenCalledTimes(1)
+    expect(notified).toHaveBeenCalledWith(undefined)
   })
 
   it('does not post when the guard is already set', async () => {
     sessionStorage.setItem(GUARD, '1')
     render(<ClerkSessionExchange />)
-    await new Promise(r => setTimeout(r, 10))
+    await settle()
     expect(fetchActionMock).not.toHaveBeenCalled()
   })
 
@@ -72,7 +86,7 @@ describe('ClerkSessionExchange', () => {
     })
     render(<ClerkSessionExchange />)
     await waitFor(() =>
-      expect(notifyClerkExchanged).toHaveBeenCalledWith(
+      expect(notified).toHaveBeenCalledWith(
         'This account is already connected to a different Rally sign-in.',
       ),
     )
@@ -83,21 +97,21 @@ describe('ClerkSessionExchange', () => {
   it('falls back to its own message when the server sends none', async () => {
     fetchActionMock.mockResolvedValue({ ok: false, status: 0 })
     render(<ClerkSessionExchange />)
-    await waitFor(() => expect(notifyClerkExchanged).toHaveBeenCalled())
-    expect(notifyClerkExchanged.mock.calls[0][0]).toMatch(/could not be completed/i)
+    await waitFor(() => expect(notified).toHaveBeenCalled())
+    expect(notified.mock.calls[0][0]).toMatch(/could not be completed/i)
   })
 
   it('does nothing until Clerk has loaded', async () => {
     authState = { isLoaded: false, isSignedIn: false, sessionId: '' }
     render(<ClerkSessionExchange />)
-    await new Promise(r => setTimeout(r, 10))
+    await settle()
     expect(fetchActionMock).not.toHaveBeenCalled()
   })
 
   it('does nothing when signed out', async () => {
     authState = { isLoaded: true, isSignedIn: false, sessionId: '' }
     render(<ClerkSessionExchange />)
-    await new Promise(r => setTimeout(r, 10))
+    await settle()
     expect(fetchActionMock).not.toHaveBeenCalled()
   })
 
@@ -110,5 +124,66 @@ describe('ClerkSessionExchange', () => {
   it('renders nothing', () => {
     const { container } = render(<ClerkSessionExchange />)
     expect(container.firstChild).toBeNull()
+  })
+
+  it('reports the request as pending while it is in flight', async () => {
+    let finish: (v: unknown) => void = () => {}
+    fetchActionMock.mockReturnValue(new Promise(r => { finish = r }))
+    render(<ClerkSessionExchange />)
+    await waitFor(() => expect(clerkExchangePending()).toBe(true))
+    finish({ ok: true, status: 200 })
+    await waitFor(() => expect(clerkExchangePending()).toBe(false))
+  })
+
+  describe('after sign-out', () => {
+    it('does not exchange again once the Clerk session has ended', async () => {
+      const { rerender } = render(<ClerkSessionExchange />)
+      await waitFor(() => expect(notified).toHaveBeenCalledTimes(1))
+
+      // Sign-out: Clerk reports no session.
+      authState = { isLoaded: true, isSignedIn: false, sessionId: '' }
+      rerender(<ClerkSessionExchange />)
+      await settle()
+      expect(fetchActionMock).toHaveBeenCalledTimes(1)
+
+      // Even an explicit request has nothing to trade.
+      await runClerkExchange()
+      expect(fetchActionMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not sign the user back in if ending the Clerk session failed', async () => {
+      // First mount: the session is exchanged. Then the user signs out of
+      // Groflo, Clerk sign-out fails, and the page reloads with the same Clerk
+      // session still alive. A second automatic exchange here would be a loop.
+      const first = render(<ClerkSessionExchange />)
+      await waitFor(() => expect(notified).toHaveBeenCalledTimes(1))
+      first.unmount()
+
+      render(<ClerkSessionExchange />)
+      await settle()
+      expect(fetchActionMock).toHaveBeenCalledTimes(1)
+      expect(notified).toHaveBeenCalledTimes(1)
+    })
+
+    it('exchanges again only when the user asks', async () => {
+      render(<ClerkSessionExchange />)
+      await waitFor(() => expect(notified).toHaveBeenCalledTimes(1))
+
+      await act(async () => { await runClerkExchange() })
+      expect(fetchActionMock).toHaveBeenCalledTimes(2)
+      expect(notified).toHaveBeenCalledTimes(2)
+    })
+
+    it('joins a request already in flight instead of posting twice', async () => {
+      let finish: (v: unknown) => void = () => {}
+      fetchActionMock.mockReturnValue(new Promise(r => { finish = r }))
+      render(<ClerkSessionExchange />)
+      await waitFor(() => expect(fetchActionMock).toHaveBeenCalledTimes(1))
+
+      const asked = runClerkExchange()
+      finish({ ok: true, status: 200 })
+      await asked
+      expect(fetchActionMock).toHaveBeenCalledTimes(1)
+    })
   })
 })

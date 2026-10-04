@@ -5,6 +5,9 @@
 // (/join/<code>, /r/<code>) must round-trip through sign-in, so the path and
 // query are preserved; the fragment is dropped so nothing after # leaks into a
 // redirect URL that gets logged on the primary.
+//
+// The same target serves both modes (first-party and satellite): it is always
+// an address on this app's own origin.
 // =============================================================================
 
 export function signInRedirectTarget(): string {

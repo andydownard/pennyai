@@ -4,6 +4,22 @@ WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci
 COPY frontend/ ./
+# Vite bakes these into the bundle at build time. Railway passes a service
+# variable to the build only when the Dockerfile declares it as an ARG.
+ARG VITE_CLERK_PUBLISHABLE_KEY
+ARG VITE_CLERK_SIGN_IN_URL
+ARG VITE_CLERK_DOMAIN
+ARG VITE_ALLOWED_REDIRECT_ORIGINS
+ARG VITE_APP_URL
+ARG VITE_BRAND_PORTAL_URL
+ARG VITE_POSTHOG_KEY
+ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY \
+    VITE_CLERK_SIGN_IN_URL=$VITE_CLERK_SIGN_IN_URL \
+    VITE_CLERK_DOMAIN=$VITE_CLERK_DOMAIN \
+    VITE_ALLOWED_REDIRECT_ORIGINS=$VITE_ALLOWED_REDIRECT_ORIGINS \
+    VITE_APP_URL=$VITE_APP_URL \
+    VITE_BRAND_PORTAL_URL=$VITE_BRAND_PORTAL_URL \
+    VITE_POSTHOG_KEY=$VITE_POSTHOG_KEY
 RUN npm run build
 # Verify frontend build produced valid output (catches missing JS bundles)
 RUN set -e && \

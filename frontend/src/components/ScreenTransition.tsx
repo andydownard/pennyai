@@ -8,9 +8,8 @@ import { useRef, useEffect, useState, type ReactNode, type CSSProperties } from 
 //   ScreenTransition — wrapper component that applies the style
 // =============================================================================
 
-type Screen = 'phone' | 'code' | 'home' | 'penny' | 'profile' | 'settings-share'
-  | 'admin' | 'email-login' | 'email-register' | 'forgot-password'
-  | 'reset-password' | 'shared-list' | 'help' | 'earnings' | 'receipts'
+type Screen = 'login' | 'home' | 'penny' | 'profile' | 'settings-share'
+  | 'admin' | 'shared-list' | 'help' | 'earnings' | 'receipts'
   | 'saved-lists'
 
 // Screens that are "children" of a parent tab screen

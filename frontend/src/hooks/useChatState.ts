@@ -57,7 +57,6 @@ interface UseChatStateOptions {
   handleOpenInviteSheet: () => void
   // App state
   loginCount: number
-  authMethods: string[]
   handleSessionExpired: () => void
   handleLoadSavedList: (id: number, mode: 'merge' | 'overwrite') => Promise<void>
   showToast: (msg: string, type?: 'success' | 'error') => void
@@ -403,7 +402,7 @@ export function useChatState(options: UseChatStateOptions) {
 
     // --- Onboarding nudges (spaced, non-intrusive) ---
     if (action === 'add' && addedItems.length > 0) {
-      const { loginCount, settingsFirstName, settingsEmail, settingsUserPhone, authMethods, items } = optRef.current
+      const { loginCount, settingsFirstName, settingsEmail, settingsUserPhone, items } = optRef.current
       // Session 1: After first add, casually ask for name (once per session)
       if (loginCount <= 1 && !settingsFirstName && !onboardingNameAsked.current) {
         onboardingNameAsked.current = true
@@ -449,25 +448,23 @@ export function useChatState(options: UseChatStateOptions) {
           typePennyHome("By the way — I keep an eye out for deals on your items. If I spot a swap that saves you money, I'll let you know!")
         }, 3500)
       }
-      // Session 2+: Prompt to add phone if signed up via Google/email
-      else if (loginCount >= 2 && !onboardingLinkPhoneMentioned.current && !settingsUserPhone && settingsEmail && (authMethods.includes('google') || authMethods.includes('email'))) {
+      // Session 2+: No mobile number yet. Groflo cannot add one itself — the
+      // number comes from the Rally account — so Penny says where it goes.
+      else if (loginCount >= 2 && !onboardingLinkPhoneMentioned.current && !settingsUserPhone && settingsEmail) {
         onboardingLinkPhoneMentioned.current = true
         localStorage.setItem('ob_link_phone', '1')
         syncOnboardingFlags()
         setTimeout(() => {
-          typePennyHome("Want to text me your grocery list on the go? Add your phone number and I can help over SMS.", [
-            { label: 'Add phone', onClick: () => optRef.current.setScreen('profile') },
-            { label: 'Not now', onClick: () => typePennyHome("No problem — I'm always here in the app!") },
-          ])
+          typePennyHome("Want to text me your list on the go? Add a mobile number to your Rally account and I'll pick it up the next time you sign in.")
         }, 3500)
       }
-      // Session 2+: Prompt to add email if signed up via phone only
-      else if (loginCount >= 2 && !onboardingLinkEmailMentioned.current && settingsUserPhone && !settingsEmail && authMethods.includes('phone')) {
+      // Session 2+: Prompt to add an email so lists and recipes can be forwarded
+      else if (loginCount >= 2 && !onboardingLinkEmailMentioned.current && settingsUserPhone && !settingsEmail) {
         onboardingLinkEmailMentioned.current = true
         localStorage.setItem('ob_link_email', '1')
         syncOnboardingFlags()
         setTimeout(() => {
-          typePennyHome("Add your email so you can log in from any device and I can send you receipts.", [
+          typePennyHome("Add your email and you can forward me any recipe or list. I'll add it for you.", [
             { label: 'Add email', onClick: () => optRef.current.setScreen('profile') },
             { label: 'Maybe later', onClick: () => typePennyHome("Just let me know when you're ready!") },
           ])

@@ -1,12 +1,11 @@
-// api.ts gained one thing: an optional Clerk Bearer header.
+// api.ts attaches the Rally (Clerk) session token as a Bearer header.
 //
-// The load-bearing assertion is the first one. With VITE_CLERK_PUBLISHABLE_KEY
-// unset, fetch must receive the caller's exact options object — not a copy, not
-// a Headers-normalized version — so every existing request is byte-for-byte what
-// it is today and the 401 path is untouched.
+// In a build without VITE_CLERK_PUBLISHABLE_KEY (a misconfiguration, or a test
+// build) fetch must receive the caller's exact options object — not a copy, not
+// a Headers-normalized version — and the 401 path is untouched.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { fetchAPI, fetchAction, postJSON } from './api'
+import { fetchAPI, fetchAction } from './api'
 import { setClerkTokenGetter, _resetClerkTokenRegistry } from './auth/clerkToken'
 
 function okResponse(body: unknown = { ok: true }) {
@@ -35,7 +34,7 @@ describe('api auth header', () => {
     vi.unstubAllGlobals()
   })
 
-  describe('with Clerk off (the shipping default)', () => {
+  describe('in a build without a Rally key', () => {
     beforeEach(() => vi.stubEnv('VITE_CLERK_PUBLISHABLE_KEY', ''))
 
     it('passes the caller options through by identity — no header added, nothing rewritten', async () => {
@@ -58,17 +57,9 @@ describe('api auth header', () => {
       await fetchAction('/api/list/clear', { method: 'POST' })
       expect(getter).not.toHaveBeenCalled()
     })
-
-    it('leaves postJSON exactly as it was', async () => {
-      await postJSON('/api/nps', { score: 9 })
-      const init = fetchMock.mock.calls[0][1] as RequestInit
-      expect(init.method).toBe('POST')
-      expect(authHeaderOf(init)).toBeNull()
-      expect(init.body).toBe(JSON.stringify({ score: 9 }))
-    })
   })
 
-  describe('with Clerk on', () => {
+  describe('with Rally sign-in configured', () => {
     beforeEach(() => vi.stubEnv('VITE_CLERK_PUBLISHABLE_KEY', 'pk_test_abc'))
 
     it('adds the Bearer header from the registered getter', async () => {

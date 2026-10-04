@@ -1,79 +1,45 @@
 import { type Page, expect } from '@playwright/test'
 
 /**
- * Generate a unique 10-digit phone number for each test to avoid session conflicts.
- * Uses timestamp + random suffix to prevent collisions across test runs.
+ * Generate a unique, well-formed 10-digit US number for each test so sessions
+ * never collide. Area code 212; the exchange starts 2-9, as real ones do.
  */
 export function uniquePhone(): string {
-  const ts = Date.now() % 10_000_000 // last 7 digits of epoch ms
-  const rand = Math.floor(Math.random() * 1000)
-  return `${ts}${String(rand).padStart(3, '0')}`
+  const exchangeLead = 2 + Math.floor(Math.random() * 8)
+  const ts = String(Date.now() % 1000).padStart(3, '0')
+  const rand = String(Math.floor(Math.random() * 1000)).padStart(3, '0')
+  return `212${exchangeLead}${ts}${rand}`
+}
+
+/** The home screen's chat box — present only when signed in. */
+export function homeInput(page: Page) {
+  return page.locator('textarea[placeholder*="Tell Penny"]')
+}
+
+/** The signed-out login screen. */
+export function loginScreen(page: Page) {
+  return page.getByTestId('login-screen')
 }
 
 /**
- * Log in via the phone/code flow using the TEST_MODE bypass (code "000000").
+ * Sign in without the UI.
+ *
+ * Real sign-in happens on the Rally primary, which a local test cannot drive.
+ * With TEST_MODE=true the server exposes POST /auth/test-login, which sets the
+ * session cookie on this browser context. The endpoint does not exist in
+ * production and the app has no UI for it.
+ *
  * Returns the phone number used.
  */
 export async function login(page: Page, phone?: string): Promise<string> {
   const phoneNumber = phone ?? uniquePhone()
-  await page.goto('/login')
+  const res = await page.request.post('/auth/test-login', { data: { phone_number: phoneNumber } })
+  expect(res.status(), 'POST /auth/test-login (is the server running with TEST_MODE=true?)').toBe(200)
 
-  // Type the phone number digit-by-digit (React onChange strips non-digits)
-  const phoneInput = page.getByPlaceholder('(555) 123-4567')
-  await phoneInput.click()
-  await phoneInput.pressSequentially(phoneNumber)
-
-  // The checkbox for SMS opt-in may already be checked; ensure it is
-  const checkbox = page.locator('input[type="checkbox"]').first()
-  if (!(await checkbox.isChecked())) {
-    await checkbox.check()
-  }
-
-  // Submit — button text is "Continue →"
-  await page.getByRole('button', { name: /Continue/ }).click()
-
-  // Wait for code screen
-  await expect(page.getByText('Enter the code sent to')).toBeVisible({ timeout: 10_000 })
-
-  // Type "000000" into the 6 code inputs.
-  // Each input auto-advances focus via React's handleCodeChange.
-  // We use pressSequentially on the first input — React onChange fires per keystroke
-  // and auto-focuses the next input.
-  const firstCodeInput = page.locator('input[maxlength="1"]').first()
-  await firstCodeInput.waitFor({ state: 'visible' })
-  await firstCodeInput.click()
-  await page.waitForTimeout(200)
-  await firstCodeInput.pressSequentially('000000', { delay: 80 })
-
-  // Wait for home screen — look for the chat input that only exists on the home screen
-  await expect(page.locator('textarea[placeholder*="Tell Penny"]')).toBeVisible({ timeout: 10_000 })
+  await page.goto('/')
+  await expect(homeInput(page)).toBeVisible({ timeout: 10_000 })
 
   return phoneNumber
-}
-
-/**
- * Log in via email/password flow using TEST_MODE (skips bcrypt & auto-creates account).
- */
-export async function loginWithEmail(page: Page, email: string, password: string): Promise<void> {
-  await page.goto('/login/email/register')
-
-  // Fill registration form — FloatingLabelField inputs don't have aria labels,
-  // so use the textbox role by index
-  const inputs = page.locator('input[type="email"], input[type="text"], input[type="password"]')
-  const emailInput = inputs.first()
-  await emailInput.fill(email)
-
-  const nameInput = page.getByPlaceholder('First')
-  if (await nameInput.isVisible()) {
-    await nameInput.fill('Test')
-  }
-
-  const passwordInput = page.locator('input[type="password"]').first()
-  await passwordInput.fill(password)
-  await page.getByRole('button', { name: /Create|Sign/ }).click()
-
-  // Wait for home screen
-  await expect(page.locator('textarea[placeholder*="Tell Penny"]')).toBeVisible({ timeout: 10_000 })
 }
 
 /**

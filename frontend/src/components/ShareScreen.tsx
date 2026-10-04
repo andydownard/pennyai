@@ -1,4 +1,5 @@
 import { useRef, useCallback } from 'react'
+import { appHost, referralLink } from '../appUrl'
 import { QRCodeCanvas } from 'qrcode.react'
 import { ScreenTransition } from './ScreenTransition'
 import { ConfirmModal } from './ConfirmModal'
@@ -42,7 +43,7 @@ export function ShareScreen({
 }: ShareScreenProps) {
   const qrCanvasRef = useRef<HTMLDivElement>(null)
 
-  const referralUrl = `https://app.groflo.io/r/${referralCode}?via=qr`
+  const referralUrl = referralLink(referralCode, 'qr')
 
   const handleSaveQR = useCallback(async () => {
     // Build a branded 1000x1240 PNG with QR code centered
@@ -95,7 +96,7 @@ export function ShareScreen({
     ctx.fillStyle = '#525252'
     ctx.font = '20px -apple-system, "Segoe UI", sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText(`app.groflo.io/r/${referralCode}`, w / 2, 860)
+    ctx.fillText(`${appHost()}/r/${referralCode}`, w / 2, 860)
 
     // Earn message
     ctx.fillStyle = BRAND
@@ -131,7 +132,7 @@ export function ShareScreen({
   const handleEmailInvite = useCallback(() => {
     const subject = encodeURIComponent('Try Penny — the household shopping list')
     const body = encodeURIComponent(
-      `Hey!\n\nI've been using Penny to manage my grocery list. She organizes everything, suggests brands, and keeps the whole family in sync.\n\nTry it: https://app.groflo.io/r/${referralCode}\n\nText, email, or type your list — Penny handles the rest.`
+      `Hey!\n\nI've been using Penny to manage my grocery list. She organizes everything, suggests brands, and keeps the whole family in sync.\n\nTry it: ${referralLink(referralCode)}\n\nText, email, or type your list — Penny handles the rest.`
     )
     window.open(`mailto:?subject=${subject}&body=${body}`, '_self')
   }, [referralCode])
@@ -181,7 +182,7 @@ export function ShareScreen({
 
             {/* Link + copy */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', backgroundColor: 'var(--bg)', borderRadius: '10px', border: '1px solid var(--border)', marginBottom: '12px' }}>
-              <span style={{ flex: 1, fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text)', wordBreak: 'break-all' as const }}>{`https://app.groflo.io/r/${referralCode}`}</span>
+              <span style={{ flex: 1, fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text)', wordBreak: 'break-all' as const }}>{referralLink(referralCode)}</span>
               <button
                 onClick={onCopyReferral}
                 style={{ padding: '6px 12px', fontFamily: FONT, fontSize: FONT_2XS, fontWeight: 600, color: 'var(--brand)', backgroundColor: 'transparent', border: '1px solid var(--brand)', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}

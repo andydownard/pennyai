@@ -1,8 +1,9 @@
-// RootProviders decides whether Clerk is loaded at all.
+// RootProviders wraps the app in the Rally (Clerk) sign-in provider.
 //
-// The important assertion: with no publishable key the lazy import is never
-// evaluated. That is what keeps @clerk/clerk-react out of the entry bundle for
-// every user while Rally sign-in is dark.
+// The provider is lazy, so Clerk stays out of the entry bundle. And nothing that
+// goes wrong up here may blank the page: with no key, or a provider that fails
+// to load, the app still renders and the login screen says sign-in is
+// unavailable.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
@@ -53,5 +54,26 @@ describe('RootProviders', () => {
     await waitFor(() => expect(screen.getByTestId('clerk-provider')).toBeInTheDocument())
     expect(screen.getByTestId('app')).toBeInTheDocument()
     expect(providerMounts).toHaveBeenCalled()
+  })
+
+  it('still renders the app when the provider fails to load', async () => {
+    vi.stubEnv('VITE_CLERK_PUBLISHABLE_KEY', 'pk_test_abc')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    providerMounts.mockImplementation(() => {
+      throw new Error('chunk failed')
+    })
+    const { default: RootProviders } = await import('./RootProviders')
+
+    render(
+      <RootProviders>
+        <div data-testid="app">app</div>
+      </RootProviders>,
+    )
+
+    await waitFor(() => expect(screen.getByTestId('app')).toBeInTheDocument())
+    expect(screen.queryByTestId('clerk-provider')).not.toBeInTheDocument()
+    providerMounts.mockReset()
+    vi.restoreAllMocks()
   })
 })

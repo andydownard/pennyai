@@ -17,12 +17,12 @@ export function setSessionExpiredHandler(handler: SessionExpiredHandler) {
 }
 
 /**
- * Attach the Clerk session token as a Bearer header when Rally sign-in is built
- * into this bundle and a token is available.
+ * Attach the Rally (Clerk) session token as a Bearer header when a token is
+ * available.
  *
- * With Clerk off this returns the caller's options object UNCHANGED — not a copy
- * — and never awaits a getter, so requests are byte-for-byte what they are
- * today. A caller-supplied Authorization header is never overwritten.
+ * In a build without Rally configured this returns the caller's options object
+ * UNCHANGED — not a copy — and never awaits a getter. A caller-supplied
+ * Authorization header is never overwritten.
  */
 async function withAuthHeader(options?: RequestInit): Promise<RequestInit | undefined> {
   if (!clerkActive()) return options
@@ -86,22 +86,4 @@ export async function fetchAction(
     return { ok: false, status: res.status, error: errData?.error || `Error ${res.status}` }
   }
   return { ok: true, status: res.status }
-}
-
-/** POST JSON helper */
-export function postJSON(url: string, body: unknown): Promise<ActionResult> {
-  return fetchAction(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-}
-
-/** PATCH JSON helper */
-export function patchJSON<T = Record<string, unknown>>(url: string, body: unknown): Promise<T | null> {
-  return fetchAPI<T>(url, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
 }

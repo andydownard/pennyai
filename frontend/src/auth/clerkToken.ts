@@ -2,10 +2,10 @@
 // clerkToken — the registry between Clerk's React context and plain modules.
 //
 // api.ts needs a Clerk token, but api.ts is not a component and must not import
-// @clerk/clerk-react: that import is what would pull Clerk into the main bundle
-// for every user, including the ones who will never see a Rally sign-in button.
-// So ClerkTokenBridge (which IS inside the provider) registers the getter here,
-// and everyone else reads it through these functions.
+// @clerk/clerk-react: Clerk's hooks only work inside its provider, and the
+// provider lives in its own lazily-loaded chunk. So ClerkTokenBridge (which IS
+// inside the provider) registers the getter here, and everyone else reads it
+// through these functions.
 //
 // This module imports nothing from @clerk/clerk-react. Nothing here ever throws.
 // =============================================================================
@@ -13,13 +13,17 @@
 type TokenGetter = () => Promise<string | null>
 type SignOut = () => Promise<void>
 type ExchangeHandler = (error?: string) => void
+type ExchangeRunner = () => Promise<void>
 
 let tokenGetter: TokenGetter | null = null
 let signOutFn: SignOut | null = null
 let exchangeHandler: ExchangeHandler | null = null
+let exchangeRunner: ExchangeRunner | null = null
+let exchangePending = false
+const pendingListeners = new Set<() => void>()
 
 /**
- * Whether this build has Clerk configured at all. Checked at the call site
+ * Whether this build carries a Rally (Clerk) key. Checked at the call site
  * rather than cached so tests can stub import.meta.env.
  */
 export function clerkActive(): boolean {
@@ -53,9 +57,9 @@ export function setClerkSignOut(fn: SignOut | null) {
 /**
  * End the Clerk session. A no-op when Clerk is not mounted.
  *
- * This matters: without it, logging out of Groflo would leave the Clerk session
- * alive, and the very next request would re-authenticate via the Bearer header.
- * The user would be unable to log out.
+ * This matters: without it, signing out of Groflo would leave the Rally session
+ * alive, and the next person to tap "Continue with Rally" on a shared device
+ * would be signed straight back in as the last one.
  */
 export async function clerkSignOut(): Promise<void> {
   if (!signOutFn) return
@@ -81,9 +85,60 @@ export function notifyClerkExchanged(error?: string) {
   }
 }
 
+/** Registered by ClerkSessionExchange while a Clerk session is signed in. */
+export function setClerkExchangeRunner(runner: ExchangeRunner | null) {
+  exchangeRunner = runner
+}
+
+/**
+ * Trade the live Clerk session for a Groflo session because the user asked to.
+ *
+ * The automatic exchange runs once per Clerk session. This is the explicit
+ * path for everything after that: a failed exchange, or a Groflo session that
+ * expired while the Clerk one is still alive. A no-op when Clerk is not mounted
+ * or nobody is signed in. Never throws.
+ */
+export async function runClerkExchange(): Promise<void> {
+  if (!exchangeRunner) return
+  try {
+    await exchangeRunner()
+  } catch {
+    // The runner reports its own failures through notifyClerkExchanged.
+  }
+}
+
+/** Called by ClerkSessionExchange around the request. */
+export function setClerkExchangePending(pending: boolean) {
+  if (exchangePending === pending) return
+  exchangePending = pending
+  pendingListeners.forEach(l => {
+    try {
+      l()
+    } catch {
+      // A listener throwing must not break the sign-in flow.
+    }
+  })
+}
+
+/** Whether an exchange request is in flight. Pair with subscribeClerkExchangePending. */
+export function clerkExchangePending(): boolean {
+  return exchangePending
+}
+
+/** useSyncExternalStore-shaped subscription to clerkExchangePending. */
+export function subscribeClerkExchangePending(listener: () => void): () => void {
+  pendingListeners.add(listener)
+  return () => {
+    pendingListeners.delete(listener)
+  }
+}
+
 /** Test-only: clear every registration. */
 export function _resetClerkTokenRegistry() {
   tokenGetter = null
   signOutFn = null
   exchangeHandler = null
+  exchangeRunner = null
+  exchangePending = false
+  pendingListeners.clear()
 }
