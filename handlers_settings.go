@@ -446,7 +446,7 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		if *req.DailyDigestEnabled {
 			val = 1
 			// Set opted_in_at only on first enable (if not already set)
-			s.db.Exec("UPDATE users SET daily_digest_opted_in_at = datetime('now') WHERE id = ? AND (daily_digest_opted_in_at IS NULL OR daily_digest_opted_in_at = '')", session.UserID)
+			s.db.Exec("UPDATE users SET daily_digest_opted_in_at = datetime('now') WHERE id = ? AND daily_digest_opted_in_at IS NULL", session.UserID)
 		}
 		addSetClause(&setClauses, &args, "daily_digest_enabled", val)
 	}
