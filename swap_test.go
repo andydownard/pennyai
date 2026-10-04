@@ -1787,7 +1787,7 @@ func TestOptimizeDeal_MissingBullets(t *testing.T) {
 		status, brand_user_id, offer_price_cents, competitor_price_cents,
 		offer_size, competitor_size, offer_unit_price, competitor_unit_price,
 		unit_label, why_bullets, allergen_notes, deal_type, quantity_offered)
-		VALUES ('Cola', 'TestBrand', 'TestCola', 50, 5000, 'active', ?, 400, 500, '12pk', '12pk', '$0.33/can', '$0.42/can', 'can', '', '', 'sku_swap', 1)`,
+		VALUES ('Cola', 'TestBrand', 'TestCola', 50, 5000, 'active', ?, 400, 500, '12pk', '12pk', '$0.33/can', '$0.42/can', 'can', '[]', '', 'sku_swap', 1)`,
 		brandUserID)
 	dealID64, _ := result.LastInsertId()
 
