@@ -22,11 +22,15 @@ func (s *Server) recordSignal(userID string, signal, category, value string, ctx
 // scope: "user", "household", "brand", "store", "global"
 // confidence: 0.0 to 1.0 — increases with more confirming signals
 func (s *Server) updateLearning(scope string, scopeID interface{}, key, value string, confidence float64) {
-	s.db.Exec(`INSERT INTO penny_learnings (scope, scope_id, key, value, confidence, updated_at)
+	// scope_id is TEXT. Callers pass ints (household/brand/store ids); PostgreSQL
+	// will not coerce an int parameter into a TEXT column, so stringify here.
+	if _, err := s.db.Exec(`INSERT INTO penny_learnings (scope, scope_id, key, value, confidence, updated_at)
 		VALUES (?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT(scope, scope_id, key)
 		DO UPDATE SET value = ?, confidence = ?, updated_at = datetime('now')`,
-		scope, scopeID, key, value, confidence, value, confidence)
+		scope, fmt.Sprint(scopeID), key, value, confidence, value, confidence); err != nil {
+		log.Printf("[learning] failed to upsert %s/%v/%s: %v", scope, scopeID, key, err)
+	}
 }
 
 // handlePennyInsights returns Penny's accumulated learnings for a user.
@@ -60,7 +64,7 @@ func (s *Server) handlePennyInsights(w http.ResponseWriter, r *http.Request) {
 	s.db.QueryRow("SELECT COALESCE(household_id, 0) FROM users WHERE id = ?", session.UserID).Scan(&householdID)
 	if householdID > 0 {
 		rows2, err := s.db.Query(`SELECT key, value, confidence FROM penny_learnings
-			WHERE scope = 'household' AND scope_id = ?`, householdID)
+			WHERE scope = 'household' AND scope_id = ?`, fmt.Sprint(householdID)) // scope_id is TEXT
 		if err == nil {
 			defer rows2.Close()
 			for rows2.Next() {
@@ -229,7 +233,7 @@ func (s *Server) processLearnings() {
 		JOIN brand_deals bd ON bd.id = se.deal_id
 		WHERE se.created_at >= datetime('now', '-60 days')
 		GROUP BY se.user_id
-		HAVING accepts + declines >= 3
+		HAVING COUNT(CASE WHEN se.action = 'accepted' THEN 1 END) + COUNT(CASE WHEN se.action = 'declined' THEN 1 END) >= 3
 	`)
 	if err == nil {
 		for psRows.Next() {
@@ -372,7 +376,7 @@ func (s *Server) processLearnings() {
 		FROM receipts
 		WHERE store_name != '' AND created_at >= datetime('now', '-60 days')
 		GROUP BY store_name
-		HAVING receipt_count >= 2
+		HAVING COUNT(*) >= 2
 	`)
 	if err == nil {
 		for sRows.Next() {
@@ -411,7 +415,8 @@ func (s *Server) processLearnings() {
 		WHERE im.action = 'added'
 			AND im.created_at >= datetime('now', '-90 days')
 		GROUP BY im.user_id, LOWER(li.name)
-		HAVING add_count >= 2 AND avg_days > 0
+		HAVING COUNT(*) >= 2
+			AND (julianday(MAX(im.created_at)) - julianday(MIN(im.created_at))) / (COUNT(*) - 1) > 0
 		ORDER BY im.user_id, add_count DESC
 	`)
 	if err == nil {
