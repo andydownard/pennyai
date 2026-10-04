@@ -113,6 +113,8 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 				if _, err := tx.Exec("UPDATE brand_deals SET budget_spent_cents = budget_spent_cents + ? WHERE id = ?",
 					discountCents, req.SwapDealID); err != nil {
 					log.Printf("[swaps] failed to update deal %d budget: %v", req.SwapDealID, err)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+					return // deferred tx.Rollback() discards every write above
 				}
 			}
 		}
@@ -132,6 +134,8 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 				)
 				if err != nil {
 					log.Printf("[swaps] bogo accept update error: %v", err)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+					return // deferred tx.Rollback() discards every write above
 				}
 			case "trial":
 				trialResult, trialErr := tx.Exec(
@@ -140,6 +144,8 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 				)
 				if trialErr != nil {
 					log.Printf("[swaps] trial accept insert error: %v", trialErr)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+					return // deferred tx.Rollback() discards every write above
 				}
 				_ = trialResult
 			case "fully_free":
@@ -150,6 +156,8 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 				)
 				if freeErr != nil {
 					log.Printf("[swaps] fully_free accept insert error: %v", freeErr)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+					return // deferred tx.Rollback() discards every write above
 				}
 				_ = freeResult
 			default:
@@ -160,6 +168,8 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 				)
 				if err != nil {
 					log.Printf("[swaps] accept update error: %v", err)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+					return // deferred tx.Rollback() discards every write above
 				}
 			}
 
@@ -171,6 +181,8 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 					savingsArgs...,
 				); err != nil {
 					log.Printf("[swaps] failed to set swap_savings_cents on item %d: %v", req.SwapItemID, err)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+					return // deferred tx.Rollback() discards every write above
 				}
 			}
 		}
@@ -190,6 +202,8 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 			session.UserID, swapEventID, req.SwapDealID, rebateAmount, rebateStatus,
 		); err != nil {
 			log.Printf("[swaps] failed to insert rebate: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+			return // deferred tx.Rollback() discards every write above
 		}
 
 		// Update user counters — for fully_free, don't credit until verified
@@ -197,11 +211,15 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 			if _, err := tx.Exec("UPDATE users SET deal_accept_count = deal_accept_count + 1 WHERE id = ?",
 				session.UserID); err != nil {
 				log.Printf("[swaps] failed to update user accept count for user %s: %v", session.UserID, err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+				return // deferred tx.Rollback() discards every write above
 			}
 		} else {
 			if _, err := tx.Exec("UPDATE users SET deal_accept_count = deal_accept_count + 1, swap_credits_cents = swap_credits_cents + ? WHERE id = ?",
 				discountCents, session.UserID); err != nil {
 				log.Printf("[swaps] failed to update user credits for user %s: %v", session.UserID, err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+				return // deferred tx.Rollback() discards every write above
 			}
 		}
 
@@ -212,6 +230,8 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 			if budgetTotal > 0 && newBudgetSpent >= budgetTotal {
 				if _, err := tx.Exec("UPDATE brand_deals SET status = 'paused' WHERE id = ?", req.SwapDealID); err != nil {
 					log.Printf("[swaps] failed to auto-pause deal %d: %v", req.SwapDealID, err)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+					return // deferred tx.Rollback() discards every write above
 				}
 				log.Printf("[swaps] deal %d auto-paused: budget exhausted", req.SwapDealID)
 			}
