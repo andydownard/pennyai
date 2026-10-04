@@ -1934,7 +1934,10 @@ func TestBrandDealCreation_WithProductDescription(t *testing.T) {
 	if desc != "Refreshing zero-sugar cola with natural flavors." {
 		t.Errorf("product_description: got %q", desc)
 	}
-	if benefits != `["Zero sugar","Natural caffeine","No artificial sweeteners"]` {
+	// JSONB re-serialises (adds spaces), so compare the decoded array.
+	var gotBenefits []string
+	if err := json.Unmarshal([]byte(benefits), &gotBenefits); err != nil || len(gotBenefits) != 3 ||
+		gotBenefits[0] != "Zero sugar" || gotBenefits[1] != "Natural caffeine" || gotBenefits[2] != "No artificial sweeteners" {
 		t.Errorf("key_benefits: got %q", benefits)
 	}
 	if story != "NewCola was founded to prove that healthy can taste great." {
@@ -2533,7 +2536,7 @@ func TestResolveBrandAlternatives_GlobalDefaults(t *testing.T) {
 
 	// Seed global brand choices for "ketchup" from multiple users
 	for i := 0; i < 5; i++ {
-		otherUserID := 1000 + i
+		otherUserID := fmt.Sprintf("other-user-%d", 1000+i)
 		server.db.Exec("INSERT OR IGNORE INTO users (id, phone) VALUES (?, ?)", otherUserID, fmt.Sprintf("555000%04d", i))
 		server.db.Exec(
 			"INSERT INTO brand_choices (user_id, product_category, brand, source) VALUES (?, ?, ?, ?)",
