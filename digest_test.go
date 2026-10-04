@@ -237,7 +237,7 @@ func TestProcessDailyDigest_CheckedItemsExcluded(t *testing.T) {
 }
 
 func TestSettingsDailyDigestEnabled_GetAndPatch(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 	cookie, userID := loginUser(t, server, "5551234567")
 
@@ -273,7 +273,7 @@ func TestSettingsDailyDigestEnabled_GetAndPatch(t *testing.T) {
 }
 
 func TestSettingsDailyDigestEnabled_AfterOptOut_DoesNotSend(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 	cookie, _ := loginUser(t, server, "5551234567")
 

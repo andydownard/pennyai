@@ -1121,7 +1121,7 @@ func TestSavedListDelete_Success_Cascade(t *testing.T) {
 }
 
 func TestSavedLists_NotFoundRoute(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// PATCH on a saved list ID is not a valid route
@@ -1132,7 +1132,7 @@ func TestSavedLists_NotFoundRoute(t *testing.T) {
 }
 
 func TestSavedListUpdate_FullFlow(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add items to current list
@@ -1166,7 +1166,7 @@ func TestSavedListUpdate_FullFlow(t *testing.T) {
 }
 
 func TestSavedListsGet_WithItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add item and create saved list
@@ -1187,7 +1187,7 @@ func TestSavedListsGet_WithItems(t *testing.T) {
 }
 
 func TestSavedListLoad_OverwriteWithExisting(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add items and create saved list
@@ -1260,7 +1260,7 @@ func TestSavedLists_RootDELETE_Returns405(t *testing.T) {
 // =============================================================================
 
 func TestSavedListLoad_OverwriteClearsExisting(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	user, _ := upsertUser(server.db, "5551234567")
@@ -1308,7 +1308,7 @@ func TestSavedListLoad_OverwriteClearsExisting(t *testing.T) {
 }
 
 func TestSavedListUpdate_EmptyList(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	user, _ := upsertUser(server.db, "5551234567")

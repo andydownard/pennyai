@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -145,21 +144,19 @@ func (s *SessionStore) CleanExpired() {
 }
 
 // =============================================================================
-// TWILIO VERIFY CLIENT
+// TWILIO SMS CLIENT
 //
-// Interface + real implementation. Tests use a mock (in main_test.go).
+// Interface + real implementation. Tests use a mock (in test_helpers_test.go).
+// Sign-in does not use Twilio; it only sends and receives SMS.
 // =============================================================================
 
 type TwilioClient interface {
-	SendVerification(phone string) error
-	CheckVerification(phone, code string) (bool, error)
 	SendSMS(from, to, body string) error
 }
 
 type RealTwilioClient struct {
-	AccountSID    string
-	AuthToken     string
-	VerifyService string
+	AccountSID string
+	AuthToken  string
 }
 
 // doRequest performs a Twilio API POST with Basic Auth and checks the status.
@@ -182,32 +179,6 @@ func (t *RealTwilioClient) doRequest(apiURL string, data url.Values, expectStatu
 		return body, fmt.Errorf("twilio returned %d: %s", resp.StatusCode, string(body))
 	}
 	return body, nil
-}
-
-// SendVerification asks Twilio to text an OTP code to the phone number.
-func (t *RealTwilioClient) SendVerification(phone string) error {
-	apiURL := fmt.Sprintf("https://verify.twilio.com/v2/Services/%s/Verifications", t.VerifyService)
-	data := url.Values{"To": {phone}, "Channel": {"sms"}}
-	_, err := t.doRequest(apiURL, data, http.StatusCreated)
-	return err
-}
-
-// CheckVerification asks Twilio if the user-entered code is correct.
-func (t *RealTwilioClient) CheckVerification(phone, code string) (bool, error) {
-	apiURL := fmt.Sprintf("https://verify.twilio.com/v2/Services/%s/VerificationCheck", t.VerifyService)
-	data := url.Values{"To": {phone}, "Code": {code}}
-	body, err := t.doRequest(apiURL, data, http.StatusOK)
-	if err != nil {
-		log.Printf("Twilio verify error: %v", err)
-		return false, nil
-	}
-	var result struct {
-		Status string `json:"status"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return false, fmt.Errorf("parsing response: %w", err)
-	}
-	return result.Status == "approved", nil
 }
 
 // SendSMS sends an SMS message via the Twilio Messages API.

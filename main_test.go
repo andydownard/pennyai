@@ -797,7 +797,7 @@ func TestRequireMethod_Denied(t *testing.T) {
 // =============================================================================
 
 func TestLogo_MissingDomain(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	rr := doRequest(server.handleLogoProxy, "GET", "/api/logo", nil, nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("Expected 400, got %d", rr.Code)
@@ -806,7 +806,7 @@ func TestLogo_MissingDomain(t *testing.T) {
 
 
 func TestLogo_InvalidDomain(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	rr := doRequest(server.handleLogoProxy, "GET", "/api/logo?domain=evil%3Cscript%3E.com", nil, nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("Expected 400, got %d", rr.Code)
@@ -815,7 +815,7 @@ func TestLogo_InvalidDomain(t *testing.T) {
 
 
 func TestLogo_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	rr := doRequest(server.handleLogoProxy, "POST", "/api/logo?domain=kraft.com", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("Expected 405, got %d", rr.Code)
@@ -824,7 +824,7 @@ func TestLogo_WrongMethod(t *testing.T) {
 
 
 func TestLogo_MemoryCacheHit(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	// Pre-populate memory cache
 	fakeData := []byte("PNG_FAKE_DATA_LARGE_ENOUGH_TO_PASS_CHECK_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 	server.logoCache.Store("kraft.com", &cachedLogo{data: fakeData, contentType: "image/png"})
@@ -846,7 +846,7 @@ func TestLogo_MemoryCacheHit(t *testing.T) {
 
 
 func TestLogo_MemoryCacheIsCaseInsensitive(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	fakeData := []byte("PNG_FAKE_DATA_LARGE_ENOUGH_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 	server.logoCache.Store("kraft.com", &cachedLogo{data: fakeData, contentType: "image/png"})
 
@@ -858,7 +858,7 @@ func TestLogo_MemoryCacheIsCaseInsensitive(t *testing.T) {
 
 
 func TestLogo_SQLiteCacheHit(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	// Insert a brand and logo into the database
 	// Use a unique brand name to avoid conflict with seedBrands
 	res, err := server.db.Exec("INSERT INTO brands (name, domain) VALUES ('TestBrandXYZ', 'testbrandxyz.com')")
@@ -884,7 +884,7 @@ func TestLogo_SQLiteCacheHit(t *testing.T) {
 
 
 func TestLogo_PlaceholderFallback(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	// No token, no cache → should get 404 so frontend falls back to emoji
 	server.config.LogoDevToken = ""
 
@@ -896,7 +896,7 @@ func TestLogo_PlaceholderFallback(t *testing.T) {
 
 
 func TestLogo_PlaceholderUseBrandName(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	server.config.LogoDevToken = ""
 	// Insert a brand so the handler can use its name for initials
 	server.db.Exec("INSERT OR IGNORE INTO brands (name, domain) VALUES ('Zesty Foods', 'zestyfoods.com')")
@@ -953,7 +953,7 @@ func TestFetchBrandLogo_EmptyToken(t *testing.T) {
 
 
 func TestLogo_DomainSanitization(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	// Valid domains
 	validDomains := []string{"kraft.com", "ben-jerrys.com", "Mr.Clean.com", "a1steak.com"}
 	for _, d := range validDomains {

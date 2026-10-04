@@ -33,9 +33,8 @@ func initDB(db *sql.DB) error {
 	// =========================================================================
 	// USERS TABLE — owned by pennyai
 	// =========================================================================
-	// Pennyai owns its own users table. Identity federation with Rally/timpager
-	// happens via a server-to-server API call at verify time (PR 3), not via a
-	// shared database.
+	// Pennyai owns its own users table. Identity is the Clerk user id
+	// (users.clerk_user_id) from a verified Rally sign-in token; no shared database.
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
 			id           TEXT PRIMARY KEY,
@@ -79,9 +78,8 @@ func initDB(db *sql.DB) error {
 		{"daily_digest_enabled", "INTEGER NOT NULL DEFAULT 0"},
 		{"daily_digest_opted_in_at", "TIMESTAMPTZ"},
 		{"daily_digest_last_sent", "TIMESTAMPTZ"},
-		// Rally sign-in (Clerk satellite): the `sub` claim of a verified Clerk
-		// session JWT. Nullable with no default — every legacy row keeps a NULL
-		// and nothing about the existing four auth methods changes.
+		// Rally sign-in (Clerk): the `sub` claim of a verified Clerk
+		// session JWT. Nullable with no default; rows with no Clerk identity keep a NULL.
 		{"clerk_user_id", "TEXT"},
 	} {
 		addColumnIfNotExists(db, "users", c.col, c.def)

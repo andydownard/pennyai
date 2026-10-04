@@ -117,8 +117,8 @@ func TestVerifyClerkToken_ValidTokenYieldsIdentity(t *testing.T) {
 	if id.AuthorizedParty != testClerkAZP {
 		t.Errorf("AuthorizedParty: got %q want %q", id.AuthorizedParty, testClerkAZP)
 	}
-	if id.GoogleSub != "" || id.Email != "" || id.Phone != "" {
-		t.Errorf("default Clerk session token carries no google_sub/email/phone; got %+v", id)
+	if id.Email != "" || id.Phone != "" || id.PhoneVerified || id.Name != "" {
+		t.Errorf("default Clerk session token carries no custom claims; got %+v", id)
 	}
 	if id.Claims == nil {
 		t.Error("Claims should be retained for callers that need a field we did not project")
@@ -138,16 +138,20 @@ func TestVerifyClerkToken_OptionalCustomClaimsSurface(t *testing.T) {
 	o := defaultClerkTokenOpts()
 	o.sub = "user_with_claims"
 	o.extra = map[string]any{
-		"google_sub": "google-sub-123",
-		"email":      "Tamika@Example.com",
-		"phone":      "+15551234567",
+		"email":          "Tamika@Example.com",
+		"phone":          "+15551234567",
+		"phone_verified": true,
+		"name":           "Tamika",
 	}
 	id, err := VerifyClerkToken(context.Background(), mintClerkTestJWT(t, priv, o))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if id.GoogleSub != "google-sub-123" {
-		t.Errorf("GoogleSub: got %q want google-sub-123", id.GoogleSub)
+	if !id.PhoneVerified {
+		t.Error("PhoneVerified: got false want true")
+	}
+	if id.Name != "Tamika" {
+		t.Errorf("Name: got %q want Tamika", id.Name)
 	}
 	if id.Email != "Tamika@Example.com" {
 		t.Errorf("Email: got %q (normalization happens at the resolve/upsert layer)", id.Email)
@@ -835,6 +839,38 @@ func TestClerkIsEnabled(t *testing.T) {
 			t.Setenv("CLERK_ENABLED", c.val)
 			if got := clerkIsEnabled(); got != c.want {
 				t.Errorf("got %v want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestVerifyClerkToken_PhoneVerifiedAcceptsBoolOrString(t *testing.T) {
+	priv := newTestKeypair(t)
+	withClerkSatelliteEnv(t, priv, nil)
+
+	cases := []struct {
+		name string
+		val  any
+		want bool
+	}{
+		{"bool true", true, true},
+		{"string true", "true", true},
+		{"bool false", false, false},
+		{"string false", "false", false},
+		{"unexpected string", "yes", false},
+		{"number", 1, false},
+		{"null", nil, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			o := defaultClerkTokenOpts()
+			o.extra = map[string]any{"phone": "+15551234567", "phone_verified": c.val}
+			id, err := VerifyClerkToken(context.Background(), mintClerkTestJWT(t, priv, o))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if id.PhoneVerified != c.want {
+				t.Errorf("PhoneVerified: got %v want %v", id.PhoneVerified, c.want)
 			}
 		})
 	}

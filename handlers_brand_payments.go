@@ -303,7 +303,7 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 // metadata — is testable without calling Stripe.
 //
 // CLAUDE.md Revenue Rules: Stripe metadata MUST include source: "pennyai" on all
-// charges. Without it, timpager-side attribution is broken for every deposit.
+// charges. Without it, attribution is broken for every deposit.
 func buildDepositCheckoutForm(brandUserID string, amountCents int, baseURL string) url.Values {
 	form := url.Values{}
 	form.Set("mode", "payment")

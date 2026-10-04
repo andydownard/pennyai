@@ -77,6 +77,12 @@ func (db *PGDB) QueryRow(query string, args ...interface{}) *sql.Row {
 }
 
 func (db *PGDB) Begin() (*PGTx, error) {
+	// Read the catalog before the transaction takes a connection. Loading it
+	// lazily from inside a transaction needs a second connection while holding
+	// the first, which deadlocks once concurrent callers exhaust the pool.
+	if !db.skipConversion {
+		db.loadSerialTables()
+	}
 	tx, err := db.DB.Begin()
 	if err != nil {
 		return nil, err

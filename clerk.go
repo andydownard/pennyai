@@ -1,15 +1,14 @@
 package main
 
-// clerk.go — Rally sign-in verifier. pennyai is a Clerk SATELLITE DAUGHTER of
-// the primary Rally instance that lives in timpager.
+// clerk.go — Rally sign-in verifier. pennyai is first-party on the Rally
+// apex and verifies the Rally Clerk instance's session tokens.
 //
 // Three rules shape every line below.
 //
-//  1. NO CLERK SECRET. A satellite verifies session JWTs against the primary's
+//  1. NO CLERK SECRET. pennyai verifies session JWTs against the issuer's
 //     PUBLIC JWKS and never touches Clerk's Backend API. The server refuses to
 //     boot if CLERK_SECRET_KEY or CLERK_WEBHOOK_SIGNING_SECRET is present
-//     (see clerkForbiddenSecrets, wired into main()). Webhooks and secrets live
-//     in timpager only.
+//     (see clerkForbiddenSecrets, wired into main()).
 //
 //  2. COOKIE-BLIND. Clerk's published convention is a `__session` cookie on the
 //     apex domain. pennyai never reads it. Only an `Authorization: Bearer`
@@ -17,10 +16,8 @@ package main
 //     authenticate anyone here, and a cookie bleed across the apex is a
 //     non-event for us.
 //
-//  3. FAIL OPEN TO LEGACY, FAIL CLOSED ON TRUST. A Clerk token that does not
-//     verify yields (nil, nil) so the four legacy auth methods (phone/SMS,
-//     Google OAuth, email/password, magic link) carry the request exactly as
-//     they do today. But anything that would require trusting an unverified
+//  3. FAIL CLOSED ON TRUST. A Clerk token that does not verify never
+//     authenticates anyone. Anything that would require trusting an unverified
 //     input — a missing issuer, an empty azp allowlist, an unreachable JWKS —
 //     is an error, never a pass.
 //
@@ -108,9 +105,9 @@ var errNoClerkToken = errors.New("no clerk token on request")
 // ClerkIdentity is a VERIFIED Clerk identity. Every field came out of a token
 // whose signature, issuer, authorized party and lifetime have been checked.
 //
-// Email, Phone and GoogleSub are only populated when the primary instance is
-// configured to add those custom claims to its session token; Clerk's default
-// session JWT carries none of them. Downstream code must treat them as
+// Email, Phone, PhoneVerified and Name are only populated when the primary
+// instance is configured to add those custom claims to its session token;
+// Clerk's default session JWT carries none of them. Downstream code must treat them as
 // best-effort and work when they are empty.
 type ClerkIdentity struct {
 	ClerkUserID     string // `sub`
@@ -118,7 +115,8 @@ type ClerkIdentity struct {
 	AuthorizedParty string // `azp`
 	Email           string // optional custom claim
 	Phone           string // optional custom claim
-	GoogleSub       string // optional custom claim; enables google_sub mapping
+	PhoneVerified   bool   // optional custom claim; Phone is trusted only when true
+	Name            string // optional custom claim
 	Claims          *clerk.SessionClaims
 }
 
@@ -130,9 +128,24 @@ type LocalUserResolver func(id ClerkIdentity) (*Session, error)
 // clerkCustomClaims is the optional custom-claim schema. Absent claims stay
 // empty strings.
 type clerkCustomClaims struct {
-	GoogleSub string `json:"google_sub"`
-	Email     string `json:"email"`
-	Phone     string `json:"phone"`
+	Email         string         `json:"email"`
+	Phone         string         `json:"phone"`
+	PhoneVerified clerkLooseBool `json:"phone_verified"`
+	Name          string         `json:"name"`
+}
+
+// clerkLooseBool decodes a JSON bool or the strings "true"/"false", because a
+// Clerk token template can emit either. Anything else (null, a number, other
+// strings) decodes to false: absence of proof is not proof.
+type clerkLooseBool bool
+
+func (b *clerkLooseBool) UnmarshalJSON(data []byte) error {
+	*b = false
+	switch strings.TrimSpace(string(data)) {
+	case "true", `"true"`:
+		*b = true
+	}
+	return nil
 }
 
 // -------- Configuration --------
@@ -147,19 +160,25 @@ func clerkIsEnabled() bool {
 	return os.Getenv("CLERK_ENABLED") == "1"
 }
 
-// clerkConfig reads the satellite configuration at call time. Both values are
+// clerkConfig reads the verifier configuration at call time. Both values are
 // mandatory: without an exact issuer a token from any Clerk instance would
 // pass the SDK's pattern check, and without an azp allowlist any app on the
 // primary instance could mint tokens this server would honour. Security
 // configuration gets no fallback chain (regression #21).
 func clerkConfig() (clerkSatelliteConfig, error) {
-	issuer := strings.TrimSpace(os.Getenv("CLERK_JWT_ISSUER"))
+	return clerkConfigFrom(os.Getenv)
+}
+
+// clerkConfigFrom is clerkConfig over an injectable environment, so boot
+// validation can be unit-tested.
+func clerkConfigFrom(getenv func(string) string) (clerkSatelliteConfig, error) {
+	issuer := strings.TrimSpace(getenv("CLERK_JWT_ISSUER"))
 	if issuer == "" {
 		return clerkSatelliteConfig{}, errors.New("CLERK_JWT_ISSUER is required when CLERK_ENABLED=1 (no fallback)")
 	}
 
 	var parties []string
-	for _, p := range strings.Split(os.Getenv("CLERK_AUTHORIZED_PARTIES"), ",") {
+	for _, p := range strings.Split(getenv("CLERK_AUTHORIZED_PARTIES"), ",") {
 		if p = strings.TrimSpace(p); p != "" {
 			parties = append(parties, p)
 		}
@@ -464,9 +483,10 @@ func VerifyClerkToken(ctx context.Context, token string) (*ClerkIdentity, error)
 		Claims:          claims,
 	}
 	if custom, ok := claims.Custom.(*clerkCustomClaims); ok && custom != nil {
-		id.GoogleSub = custom.GoogleSub
 		id.Email = custom.Email
 		id.Phone = custom.Phone
+		id.PhoneVerified = bool(custom.PhoneVerified)
+		id.Name = custom.Name
 	}
 	return id, nil
 }
@@ -479,7 +499,7 @@ func VerifyClerkToken(ctx context.Context, token string) (*ClerkIdentity, error)
 //   - the kill switch is off
 //   - there is no Authorization Bearer header (a `__session` cookie alone is
 //     always nil: we are cookie-blind)
-//   - the token does not verify (the legacy cookie path still has to run)
+//   - the token does not verify
 //   - resolveLocalUser is nil, or returns no local row yet
 //
 // Returns an error only when the resolver fails (a DB problem, which the caller

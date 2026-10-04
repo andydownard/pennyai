@@ -172,31 +172,39 @@ func TestRequireSession_PreservesLegacy401Messages(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------
-// /api/config — additive only
+// /api/config
 // -----------------------------------------------------------------------
 
-func TestAPIConfig_ClerkEnabledIsAdditive(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	server.config.GoogleClientID = "google-client-id-123"
+// -----------------------------------------------------------------------
+// CSP — byte-identical when off, widened only when fully configured
+// -----------------------------------------------------------------------
 
-	t.Run("backward compatible with the flag off", func(t *testing.T) {
+// These two strings are copied VERBATIM from server.go as of this change. If a
+// future edit alters a directive, this test fails and the author has to decide
+// deliberately rather than drift.
+const (
+	wantEmbedCSP = "default-src 'self'; script-src 'self' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://www.google-analytics.com https://www.googletagmanager.com; frame-src 'self'; frame-ancestors 'self' https://vibeflourishing.com https://vibeflourishing-production.up.railway.app https://deck.groflo.io https://deck.thrift.ly https://localhost:5173"
+	wantAppCSP   = "default-src 'self'; script-src 'self' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.ingest.us.sentry.io https://us.i.posthog.com https://www.google-analytics.com https://www.googletagmanager.com https://penny.rallytasks.com; frame-src 'self'; frame-ancestors 'self' https://penny.rallytasks.com; font-src 'self'"
+)
+
+func TestAPIConfig_ShapeIsClerkEnabledOnly(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	t.Run("flag off reports false and nothing else", func(t *testing.T) {
 		t.Setenv("CLERK_ENABLED", "")
 		rr := doRequest(server.handleAPIConfig, http.MethodGet, "/api/config", nil, nil)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("status: got %d", rr.Code)
 		}
 		body := parseJSON(rr)
-		// Existing contract: same key, same type, same value.
-		gcid, ok := body["google_client_id"].(string)
-		if !ok || gcid != "google-client-id-123" {
-			t.Errorf("google_client_id must stay a string with the same value; got %#v", body["google_client_id"])
+		if len(body) != 1 {
+			t.Errorf("config must expose exactly one key; got %#v", body)
 		}
-		enabled, ok := body["clerk_enabled"].(bool)
-		if !ok {
-			t.Fatalf("clerk_enabled must be a boolean; got %#v", body["clerk_enabled"])
+		if enabled, ok := body["clerk_enabled"].(bool); !ok || enabled {
+			t.Errorf("clerk_enabled must be boolean false; got %#v", body["clerk_enabled"])
 		}
-		if enabled {
-			t.Error("clerk_enabled must default to false")
+		if _, leaked := body["google_client_id"]; leaked {
+			t.Error("google_client_id must be gone")
 		}
 	})
 
@@ -205,9 +213,6 @@ func TestAPIConfig_ClerkEnabledIsAdditive(t *testing.T) {
 		body := parseJSON(doRequest(server.handleAPIConfig, http.MethodGet, "/api/config", nil, nil))
 		if body["clerk_enabled"] != true {
 			t.Errorf("clerk_enabled: got %#v want true", body["clerk_enabled"])
-		}
-		if body["google_client_id"] != "google-client-id-123" {
-			t.Error("enabling Rally sign-in must not disturb the Google client id")
 		}
 	})
 
@@ -219,17 +224,6 @@ func TestAPIConfig_ClerkEnabledIsAdditive(t *testing.T) {
 	})
 }
 
-// -----------------------------------------------------------------------
-// CSP — byte-identical when off, widened only when fully configured
-// -----------------------------------------------------------------------
-
-// These two strings are copied VERBATIM from server.go as of this change. If a
-// future edit alters a directive, this test fails and the author has to decide
-// deliberately rather than drift.
-const (
-	wantEmbedCSP = "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://www.google-analytics.com https://www.googletagmanager.com; frame-src https://accounts.google.com; frame-ancestors 'self' https://vibeflourishing.com https://vibeflourishing-production.up.railway.app https://deck.groflo.io https://deck.thrift.ly https://localhost:5173"
-	wantAppCSP   = "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://*.ingest.us.sentry.io https://us.i.posthog.com https://www.google-analytics.com https://www.googletagmanager.com https://penny.rallytasks.com; frame-src https://accounts.google.com; frame-ancestors 'self' https://penny.rallytasks.com; font-src 'self'"
-)
 
 func TestCSPHeader_UnchangedWhenClerkIsOff(t *testing.T) {
 	cases := []struct {
@@ -319,5 +313,21 @@ func TestCSPHeader_NoCredentialsHeaderOnAppPaths(t *testing.T) {
 	rr := doRequest(server.handleAPIConfig, http.MethodGet, "/api/config", nil, nil)
 	if v := rr.Header().Get("Access-Control-Allow-Credentials"); v != "" {
 		t.Errorf("Access-Control-Allow-Credentials should not be set; got %q", v)
+	}
+}
+
+func TestCSPHeader_NoGoogleIdentityAllowances(t *testing.T) {
+	t.Setenv("CLERK_ENABLED", "1")
+	t.Setenv("CLERK_FRONTEND_API_ORIGIN", "https://clerk.rallytasks.com")
+	for _, path := range []string{"/", "/embed/list"} {
+		got := cspHeader(path)
+		for _, banned := range []string{"accounts.google.com", "apis.google.com"} {
+			if strings.Contains(got, banned) {
+				t.Errorf("%s: CSP must not allow %s now that Google sign-in is gone: %s", path, banned, got)
+			}
+		}
+		if !strings.Contains(cspDirective(got, "script-src"), "https://clerk.rallytasks.com") {
+			t.Errorf("%s: script-src must allow clerk-js: %s", path, got)
+		}
 	}
 }

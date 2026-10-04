@@ -1,17 +1,12 @@
 package main
 
-// handlers_clerk_test.go — STEP 6: POST /auth/clerk/exchange, the one mutating
-// endpoint in the Rally sign-in path, plus the upsert beneath it.
+// handlers_clerk_test.go — POST /auth/clerk/exchange, the one mutating endpoint
+// in the Rally sign-in path, plus the per-request resolver.
 //
 // Per CLAUDE.md every mutation needs positive, negative, idempotency and
-// auth/tenant-isolation coverage. The isolation suite is the important one here:
-// the exchange can ADOPT an existing legacy account, so the tests pin the
-// mapping order (clerk → google_sub → phone → email), prove a row already bound
-// to one Clerk identity is never rebound to another, and prove no cross-user
-// data becomes visible.
-//
-// Every test asserts the resulting row counts, not just the status code: a
-// handler that returns 200 while writing two users rows has still failed.
+// auth/tenant-isolation coverage. Every test asserts resulting row counts, not
+// just the status code: a handler that returns 200 while writing two users rows
+// has still failed.
 
 import (
 	"crypto/rsa"
@@ -20,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // -----------------------------------------------------------------------
@@ -29,23 +25,28 @@ import (
 type clerkExchangeHarness struct {
 	server *Server
 	priv   *rsa.PrivateKey
-	stub   *stubTimpager
 	jwks   *stubJWKSSource
 }
 
-// newClerkExchangeHarness wires a test server to a stub timpager and a stub
-// JWKS, with the kill switch ON for this test only. Nothing reaches a network.
-func newClerkExchangeHarness(t *testing.T, resolveBody string, resolveStatus int) *clerkExchangeHarness {
+// newClerkExchangeHarness wires a test server to a stub JWKS, with the kill
+// switch ON for this test only. Nothing reaches a network.
+func newClerkExchangeHarness(t *testing.T) *clerkExchangeHarness {
 	t.Helper()
 	server := newTestServer(t, &MockTwilioClient{})
 	priv := newTestKeypair(t)
 	jwks := withClerkSatelliteEnv(t, priv, nil)
-	stub := newStubTimpagerResolve(t, resolveBody, resolveStatus)
-	useStubTimpager(server, stub, "svc_test_key")
-	return &clerkExchangeHarness{server: server, priv: priv, stub: stub, jwks: jwks}
+	return &clerkExchangeHarness{server: server, priv: priv, jwks: jwks}
 }
 
-// post sends a POST to the exchange with the given bearer token (empty = none).
+// token mints a valid token for sub with the given custom claims.
+func (h *clerkExchangeHarness) token(t *testing.T, sub string, extra map[string]any) string {
+	t.Helper()
+	o := defaultClerkTokenOpts()
+	o.sub = sub
+	o.extra = extra
+	return mintClerkTestJWT(t, h.priv, o)
+}
+
 func (h *clerkExchangeHarness) post(bearer string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	return h.request(http.MethodPost, bearer, cookies...)
 }
@@ -72,39 +73,57 @@ func (h *clerkExchangeHarness) count(t *testing.T, query string, args ...interfa
 	return n
 }
 
-// assertNothingMinted is the guard every negative test shares: a refused
-// exchange must leave the database exactly as it was.
-func (h *clerkExchangeHarness) assertNothingMinted(t *testing.T, expectedUsers int) {
+// assertCounts pins users / households / household_members / clerk
+// auth_methods / sessions in one place.
+func (h *clerkExchangeHarness) assertCounts(t *testing.T, users, households, members, authMethods, sessions int) {
 	t.Helper()
-	if got := h.count(t, "SELECT COUNT(*) FROM users"); got != expectedUsers {
-		t.Errorf("users rows: got %d want %d", got, expectedUsers)
-	}
-	if got := h.count(t, "SELECT COUNT(*) FROM auth_methods WHERE provider = 'clerk'"); got != 0 {
-		t.Errorf("clerk auth_methods rows: got %d want 0", got)
-	}
-	if got := h.count(t, "SELECT COUNT(*) FROM sessions"); got != 0 {
-		t.Errorf("sessions rows: got %d want 0", got)
+	for _, c := range []struct {
+		name  string
+		query string
+		want  int
+	}{
+		{"users", "SELECT COUNT(*) FROM users", users},
+		{"households", "SELECT COUNT(*) FROM households", households},
+		{"household_members", "SELECT COUNT(*) FROM household_members", members},
+		{"clerk auth_methods", "SELECT COUNT(*) FROM auth_methods WHERE provider = 'clerk'", authMethods},
+		{"sessions", "SELECT COUNT(*) FROM sessions", sessions},
+	} {
+		if got := h.count(t, c.query); got != c.want {
+			t.Errorf("%s rows: got %d want %d", c.name, got, c.want)
+		}
 	}
 }
 
-func clerkUserIDOf(t *testing.T, s *Server, userID string) string {
+// assertNothingMinted is the guard every negative test shares: a refused
+// exchange must leave the database exactly as it was.
+func (h *clerkExchangeHarness) assertNothingMinted(t *testing.T) {
 	t.Helper()
-	var v string
-	if err := s.db.QueryRow("SELECT COALESCE(clerk_user_id,'') FROM users WHERE id = ?", userID).Scan(&v); err != nil {
-		t.Fatalf("reading clerk_user_id for %s: %v", userID, err)
+	h.assertCounts(t, 0, 0, 0, 0, 0)
+}
+
+type userRow struct {
+	ID, Phone, Email, Name, ClerkID string
+}
+
+func (h *clerkExchangeHarness) userByClerkID(t *testing.T, sub string) userRow {
+	t.Helper()
+	var u userRow
+	err := h.server.db.QueryRow(
+		"SELECT id, COALESCE(phone,''), COALESCE(email,''), COALESCE(name,''), COALESCE(clerk_user_id,'') FROM users WHERE clerk_user_id = ?", sub,
+	).Scan(&u.ID, &u.Phone, &u.Email, &u.Name, &u.ClerkID)
+	if err != nil {
+		t.Fatalf("no users row for clerk id %s: %v", sub, err)
 	}
-	return v
+	return u
 }
 
 // -----------------------------------------------------------------------
 // positive
 // -----------------------------------------------------------------------
 
-func TestClerkExchange_Positive_NewRallyUser(t *testing.T) {
-	h := newClerkExchangeHarness(t, resolveOKBody("rally-user-R", "user_sub_1", "", ""), http.StatusOK)
-	jwt := mintValidClerkJWT(t, h.priv, "user_sub_1")
-
-	rr := h.post(jwt)
+func TestClerkExchange_Positive_NewClerkUser(t *testing.T) {
+	h := newClerkExchangeHarness(t)
+	rr := h.post(h.token(t, "user_sub_1", map[string]any{"email": "Tamika@Example.com", "name": "Tamika"}))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status: got %d want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -113,86 +132,98 @@ func TestClerkExchange_Positive_NewRallyUser(t *testing.T) {
 	if body["success"] != true {
 		t.Errorf("success: got %v", body["success"])
 	}
-	if body["user_id"] != "rally-user-R" {
-		t.Errorf("user_id: got %v want rally-user-R — users.id must BE the rally_user_id", body["user_id"])
-	}
-	if _, ok := body["account_merged"]; ok {
-		t.Errorf("a brand-new account is not a merge; got %#v", body)
-	}
-
-	// Session cookie: the normal pennyai session, HttpOnly.
-	cookie := getSessionCookie(rr)
-	if cookie == nil {
-		t.Fatal(`no "session" cookie set — the exchange must mint the normal pennyai session`)
-	}
-	if !cookie.HttpOnly {
-		t.Error("the session cookie must be HttpOnly")
-	}
-
-	// Rows.
-	if got := h.count(t, "SELECT COUNT(*) FROM users"); got != 1 {
-		t.Errorf("users rows: got %d want 1", got)
-	}
-	if got := clerkUserIDOf(t, h.server, "rally-user-R"); got != "user_sub_1" {
-		t.Errorf("users.clerk_user_id: got %q want user_sub_1", got)
-	}
-	if got := h.count(t, "SELECT COUNT(*) FROM auth_methods WHERE provider = 'clerk' AND provider_id = ?", "user_sub_1"); got != 1 {
-		t.Errorf("clerk auth_methods rows: got %d want 1", got)
-	}
-	if got := h.count(t, "SELECT COUNT(*) FROM households"); got != 1 {
-		t.Errorf("households: got %d want 1 (every new user gets a solo household)", got)
-	}
-	if got := h.count(t, "SELECT COUNT(*) FROM household_members WHERE user_id = ?", "rally-user-R"); got != 1 {
-		t.Errorf("household_members: got %d want 1", got)
-	}
-
-	// The minted cookie works on the existing surfaces.
-	me := doRequest(h.server.handleMe, http.MethodGet, "/auth/me", nil, []*http.Cookie{cookie})
-	if me.Code != http.StatusOK {
-		t.Fatalf("/auth/me with the exchange cookie: got %d want 200", me.Code)
-	}
-	meBody := parseJSON(me)
-	if meBody["logged_in"] != true {
-		t.Errorf("/auth/me logged_in: got %v", meBody["logged_in"])
-	}
-	// `auth_methods` is the array built from the auth_methods table, so "clerk"
-	// has to appear there. (The scalar `auth_method` field reads sessions.role,
-	// which CreateSession has always hardcoded to "user" for every auth method
-	// including Google — pre-existing, and not this change's business to alter.)
-	methods, _ := meBody["auth_methods"].([]interface{})
-	found := false
-	for _, m := range methods {
-		if m == "clerk" {
-			found = true
+	for _, gone := range []string{"account_merged", "merge_message"} {
+		if _, ok := body[gone]; ok {
+			t.Errorf("response must not carry %q: %#v", gone, body)
 		}
 	}
-	if !found {
-		t.Errorf(`/auth/me auth_methods should include "clerk"; got %#v`, methods)
+
+	h.assertCounts(t, 1, 1, 1, 1, 1)
+	u := h.userByClerkID(t, "user_sub_1")
+	if body["user_id"] != u.ID {
+		t.Errorf("user_id: got %v want %s", body["user_id"], u.ID)
+	}
+	if len(u.ID) != 36 {
+		t.Errorf("users.id must be a locally minted UUID, got %q", u.ID)
+	}
+	if u.Email != "tamika@example.com" {
+		t.Errorf("email: got %q want lowercased claim", u.Email)
+	}
+	if u.Name != "Tamika" {
+		t.Errorf("name: got %q want Tamika", u.Name)
+	}
+	if u.Phone != "" {
+		t.Errorf("phone: got %q want none (no phone claim)", u.Phone)
 	}
 
-	// The authority was called with the right header discipline.
-	reqs := h.stub.Requests()
-	if len(reqs) != 1 {
-		t.Fatalf("timpager calls: got %d want 1", len(reqs))
+	var provider, providerID string
+	if err := h.server.db.QueryRow("SELECT provider, provider_id FROM auth_methods WHERE user_id = ?", u.ID).Scan(&provider, &providerID); err != nil {
+		t.Fatalf("auth_methods: %v", err)
 	}
-	if reqs[0].APIKeyHeader != "svc_test_key" {
-		t.Errorf("X-API-Key: got %q", reqs[0].APIKeyHeader)
+	if provider != "clerk" || providerID != "user_sub_1" {
+		t.Errorf("auth_methods: got %s/%s", provider, providerID)
 	}
-	if reqs[0].Authorization != "Bearer "+jwt {
-		t.Error("Authorization must forward the same end-user Clerk JWT the client presented")
+
+	cookie := getSessionCookie(rr)
+	if cookie == nil || !cookie.HttpOnly {
+		t.Fatalf("expected an HttpOnly session cookie, got %+v", cookie)
+	}
+	if sess, ok := h.server.sessions.GetSession(cookie.Value); !ok || sess.UserID != u.ID {
+		t.Errorf("cookie must resolve to the new user: %+v ok=%v", sess, ok)
 	}
 }
 
-func TestClerkExchange_Positive_PhoneFromAuthorityIsStored(t *testing.T) {
-	h := newClerkExchangeHarness(t, resolveOKBody("rally-user-P", "user_sub_p", "", "+15557778888"), http.StatusOK)
-
-	if rr := h.post(mintValidClerkJWT(t, h.priv, "user_sub_p")); rr.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200 (%s)", rr.Code, rr.Body.String())
+func TestClerkExchange_Positive_VerifiedPhoneIsStoredAsTenDigits(t *testing.T) {
+	h := newClerkExchangeHarness(t)
+	rr := h.post(h.token(t, "user_ph", map[string]any{"phone": "+15551234567", "phone_verified": true}))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d (%s)", rr.Code, rr.Body.String())
 	}
-	var phone string
-	h.server.db.QueryRow("SELECT COALESCE(phone,'') FROM users WHERE id = ?", "rally-user-P").Scan(&phone)
-	if phone != "5557778888" {
-		t.Errorf("users.phone: got %q want 5557778888 (10-digit storage form)", phone)
+	if got := h.userByClerkID(t, "user_ph").Phone; got != "5551234567" {
+		t.Errorf("phone: got %q want 5551234567", got)
+	}
+	h.assertCounts(t, 1, 1, 1, 1, 1)
+}
+
+func TestClerkExchange_Positive_SessionCarriesCurrentPhone(t *testing.T) {
+	h := newClerkExchangeHarness(t)
+	rr := h.post(h.token(t, "user_ph2", map[string]any{"phone": "5559990000", "phone_verified": "true"}))
+	cookie := getSessionCookie(rr)
+	if cookie == nil {
+		t.Fatalf("no cookie (status %d)", rr.Code)
+	}
+	sess, ok := h.server.sessions.GetSession(cookie.Value)
+	if !ok || sess.PhoneNumber != "5559990000" {
+		t.Errorf("session phone: got %+v ok=%v want 5559990000", sess, ok)
+	}
+}
+
+func TestClerkExchange_Positive_PhoneNotStoredUnlessVerified(t *testing.T) {
+	cases := []struct {
+		name  string
+		extra map[string]any
+	}{
+		{"verified false", map[string]any{"phone": "+15551234567", "phone_verified": false}},
+		{"verified absent", map[string]any{"phone": "+15551234567"}},
+		{"verified string false", map[string]any{"phone": "+15551234567", "phone_verified": "false"}},
+		{"verified but malformed", map[string]any{"phone": "12345", "phone_verified": true}},
+		{"verified but empty", map[string]any{"phone": "", "phone_verified": true}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := newClerkExchangeHarness(t)
+			rr := h.post(h.token(t, "user_np", c.extra))
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status: got %d (%s)", rr.Code, rr.Body.String())
+			}
+			if got := h.userByClerkID(t, "user_np").Phone; got != "" {
+				t.Errorf("phone must not be stored; got %q", got)
+			}
+			if got := h.count(t, "SELECT COUNT(*) FROM users WHERE phone IS NOT NULL AND phone != ''"); got != 0 {
+				t.Errorf("rows holding a phone: got %d want 0", got)
+			}
+			h.assertCounts(t, 1, 1, 1, 1, 1)
+		})
 	}
 }
 
@@ -201,46 +232,43 @@ func TestClerkExchange_Positive_PhoneFromAuthorityIsStored(t *testing.T) {
 // -----------------------------------------------------------------------
 
 func TestClerkExchange_Negative_KillSwitchOffIs404(t *testing.T) {
-	h := newClerkExchangeHarness(t, resolveOKBody("rally-x", "user_x", "", ""), http.StatusOK)
-	jwt := mintValidClerkJWT(t, h.priv, "user_x")
+	h := newClerkExchangeHarness(t)
+	jwt := h.token(t, "user_x", nil)
 	t.Setenv("CLERK_ENABLED", "0")
 
 	rr := h.post(jwt)
 	if rr.Code != http.StatusNotFound {
-		t.Fatalf("a dark endpoint must 404, not 401 or 503: got %d", rr.Code)
-	}
-	if h.stub.Calls() != 0 {
-		t.Errorf("the authority must not be called when disabled; calls=%d", h.stub.Calls())
+		t.Fatalf("a dark endpoint must 404, not 401: got %d", rr.Code)
 	}
 	if h.jwks.Lookups() != 0 {
 		t.Errorf("no JWKS lookup when disabled; lookups=%d", h.jwks.Lookups())
 	}
-	h.assertNothingMinted(t, 0)
+	h.assertNothingMinted(t)
 }
 
 func TestClerkExchange_Negative_WrongMethodIs405(t *testing.T) {
-	h := newClerkExchangeHarness(t, resolveOKBody("rally-x", "user_x", "", ""), http.StatusOK)
-	rr := h.request(http.MethodGet, mintValidClerkJWT(t, h.priv, "user_x"))
+	h := newClerkExchangeHarness(t)
+	rr := h.request(http.MethodGet, h.token(t, "user_x", nil))
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status: got %d want 405", rr.Code)
 	}
-	h.assertNothingMinted(t, 0)
+	h.assertNothingMinted(t)
 }
 
 func TestClerkExchange_Negative_NoBearerIs401(t *testing.T) {
-	h := newClerkExchangeHarness(t, resolveOKBody("rally-x", "user_x", "", ""), http.StatusOK)
+	h := newClerkExchangeHarness(t)
 	rr := h.post("")
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status: got %d want 401", rr.Code)
 	}
-	h.assertNothingMinted(t, 0)
+	h.assertNothingMinted(t)
 }
 
 func TestClerkExchange_Negative_SessionCookieAloneIs401(t *testing.T) {
 	// pennyai is cookie-blind: a __session cookie for the apex must not
 	// authenticate an exchange here.
-	h := newClerkExchangeHarness(t, resolveOKBody("rally-x", "user_x", "", ""), http.StatusOK)
-	jwt := mintValidClerkJWT(t, h.priv, "user_x")
+	h := newClerkExchangeHarness(t)
+	jwt := h.token(t, "user_x", nil)
 
 	rr := h.post("", &http.Cookie{Name: "__session", Value: jwt})
 	if rr.Code != http.StatusUnauthorized {
@@ -249,10 +277,10 @@ func TestClerkExchange_Negative_SessionCookieAloneIs401(t *testing.T) {
 	if h.jwks.Lookups() != 0 {
 		t.Errorf("the JWKS must never be consulted for a cookie; lookups=%d", h.jwks.Lookups())
 	}
-	h.assertNothingMinted(t, 0)
+	h.assertNothingMinted(t)
 }
 
-func TestClerkExchange_Negative_BadTokensAreRefusedBeforeAnyCall(t *testing.T) {
+func TestClerkExchange_Negative_BadTokensWriteNothing(t *testing.T) {
 	cases := []struct {
 		name string
 		opts func(o *clerkTokenOpts)
@@ -261,14 +289,14 @@ func TestClerkExchange_Negative_BadTokensAreRefusedBeforeAnyCall(t *testing.T) {
 		{"alg none", func(o *clerkTokenOpts) { o.alg = "none" }},
 		{"wrong issuer", func(o *clerkTokenOpts) { o.iss = "https://clerk.evil.invalid" }},
 		{"bad azp", func(o *clerkTokenOpts) { o.azp = "https://attacker.example" }},
-		{"expired", func(o *clerkTokenOpts) { o.expDelta = -10 * 60 * 1000000000 }},
+		{"expired", func(o *clerkTokenOpts) { o.expDelta = -10 * time.Minute }},
 		{"missing exp", func(o *clerkTokenOpts) { o.omitExp = true }},
 		{"missing sub", func(o *clerkTokenOpts) { o.omitSub = true }},
 		{"missing kid", func(o *clerkTokenOpts) { o.omitKID = true }},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			h := newClerkExchangeHarness(t, resolveOKBody("rally-x", "user_x", "", ""), http.StatusOK)
+			h := newClerkExchangeHarness(t)
 			o := defaultClerkTokenOpts()
 			c.opts(&o)
 
@@ -276,75 +304,35 @@ func TestClerkExchange_Negative_BadTokensAreRefusedBeforeAnyCall(t *testing.T) {
 			if rr.Code != http.StatusUnauthorized {
 				t.Fatalf("status: got %d want 401 (%s)", rr.Code, rr.Body.String())
 			}
-			if h.stub.Calls() != 0 {
-				t.Errorf("the authority must not be called for an unverified token; calls=%d", h.stub.Calls())
-			}
-			h.assertNothingMinted(t, 0)
-			if strings.Contains(rr.Body.String(), "jwt") || strings.Contains(rr.Body.String(), "JWT") {
+			h.assertNothingMinted(t)
+			if strings.Contains(strings.ToLower(rr.Body.String()), "jwt") {
 				t.Errorf("the error must not describe token internals to the client: %s", rr.Body.String())
 			}
 		})
 	}
 }
 
-func TestClerkExchange_Negative_AuthorityRejectionIs401(t *testing.T) {
-	h := newClerkExchangeHarness(t, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-	rr := h.post(mintValidClerkJWT(t, h.priv, "user_x"))
+func TestClerkExchange_Negative_BadSignatureWritesNothing(t *testing.T) {
+	h := newClerkExchangeHarness(t)
+	other := newTestKeypair(t) // signs with a key the JWKS does not hold
+	o := defaultClerkTokenOpts()
+	rr := h.post(mintClerkTestJWT(t, other, o))
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status: got %d want 401", rr.Code)
 	}
-	h.assertNothingMinted(t, 0)
-}
-
-func TestClerkExchange_Negative_AuthorityUnavailableIs503(t *testing.T) {
-	h := newClerkExchangeHarness(t, `{"error":"boom"}`, http.StatusBadGateway)
-	rr := h.post(mintValidClerkJWT(t, h.priv, "user_x"))
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Fatalf("an unreachable authority is a 503, not a 401 or a 500: got %d", rr.Code)
-	}
-	h.assertNothingMinted(t, 0)
-}
-
-func TestClerkExchange_Negative_AuthorityNotConfiguredIs503(t *testing.T) {
-	h := newClerkExchangeHarness(t, resolveOKBody("rally-x", "user_x", "", ""), http.StatusOK)
-	h.server.config.TimpagerAPIKey = "" // no service key on this deploy
-	rr := h.post(mintValidClerkJWT(t, h.priv, "user_x"))
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status: got %d want 503", rr.Code)
-	}
-	if h.stub.Calls() != 0 {
-		t.Errorf("no HTTP call without the service key; calls=%d", h.stub.Calls())
-	}
-	h.assertNothingMinted(t, 0)
-}
-
-func TestClerkExchange_Negative_NoRallyIdentityAndNoLocalMatchIs409(t *testing.T) {
-	// rally_user_id null and nothing local to adopt: we must NOT mint a locally
-	// generated UUID, because users.id has to equal the rally_user_id.
-	h := newClerkExchangeHarness(t, resolveOKBody("", "user_orphan", "", ""), http.StatusOK)
-	rr := h.post(mintValidClerkJWT(t, h.priv, "user_orphan"))
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("status: got %d want 409 (%s)", rr.Code, rr.Body.String())
-	}
-	msg, _ := parseJSON(rr)["error"].(string)
-	for _, banned := range []string{"SSO", "bot", "AI", "assistant", "rally_user_id", "null"} {
-		if strings.Contains(msg, banned) {
-			t.Errorf("user-facing copy must not contain %q: %q", banned, msg)
-		}
-	}
-	h.assertNothingMinted(t, 0)
+	h.assertNothingMinted(t)
 }
 
 func TestClerkExchange_Negative_RateLimitedBeforeVerification(t *testing.T) {
-	h := newClerkExchangeHarness(t, resolveOKBody("rally-x", "user_x", "", ""), http.StatusOK)
-	jwt := mintValidClerkJWT(t, h.priv, "user_x")
+	h := newClerkExchangeHarness(t)
+	jwt := h.token(t, "user_x", nil)
 
 	// 20 per 10 minutes per IP. The 21st is refused.
 	for i := 0; i < 20; i++ {
 		h.post(jwt)
 	}
 	lookupsBefore := h.jwks.Lookups()
-	callsBefore := h.stub.Calls()
+	sessionsBefore := h.count(t, "SELECT COUNT(*) FROM sessions")
 
 	rr := h.post(jwt)
 	if rr.Code != http.StatusTooManyRequests {
@@ -353,8 +341,8 @@ func TestClerkExchange_Negative_RateLimitedBeforeVerification(t *testing.T) {
 	if h.jwks.Lookups() != lookupsBefore {
 		t.Error("the rate limit must be enforced before verification runs")
 	}
-	if h.stub.Calls() != callsBefore {
-		t.Error("the rate limit must be enforced before the authority is called")
+	if got := h.count(t, "SELECT COUNT(*) FROM sessions"); got != sessionsBefore {
+		t.Errorf("a rate-limited request must create no session: %d -> %d", sessionsBefore, got)
 	}
 }
 
@@ -363,37 +351,23 @@ func TestClerkExchange_Negative_RateLimitedBeforeVerification(t *testing.T) {
 // -----------------------------------------------------------------------
 
 func TestClerkExchange_Idempotent_SameTokenTwice(t *testing.T) {
-	h := newClerkExchangeHarness(t, resolveOKBody("rally-user-I", "user_sub_i", "", ""), http.StatusOK)
-	jwt := mintValidClerkJWT(t, h.priv, "user_sub_i")
+	h := newClerkExchangeHarness(t)
+	jwt := h.token(t, "user_sub_i", nil)
 
-	first := h.post(jwt)
-	second := h.post(jwt)
+	first, second := h.post(jwt), h.post(jwt)
 	if first.Code != http.StatusOK || second.Code != http.StatusOK {
-		t.Fatalf("both exchanges must succeed: %d, %d", first.Code, second.Code)
+		t.Fatalf("statuses: %d, %d", first.Code, second.Code)
 	}
 	if parseJSON(first)["user_id"] != parseJSON(second)["user_id"] {
-		t.Error("a repeat sign-in must resolve to the same user")
-	}
-
-	if got := h.count(t, "SELECT COUNT(*) FROM users"); got != 1 {
-		t.Errorf("users rows: got %d want 1 — a second sign-in must not create a second account", got)
-	}
-	if got := h.count(t, "SELECT COUNT(*) FROM auth_methods WHERE provider = 'clerk'"); got != 1 {
-		t.Errorf("clerk auth_methods rows: got %d want 1", got)
-	}
-	if got := h.count(t, "SELECT COUNT(*) FROM households"); got != 1 {
-		t.Errorf("households: got %d want 1", got)
+		t.Error("the same token twice must resolve to the same user")
 	}
 	// Two sign-ins legitimately mean two sessions — that is not a duplicate.
-	if got := h.count(t, "SELECT COUNT(*) FROM sessions WHERE user_id = ?", "rally-user-I"); got != 2 {
-		t.Errorf("sessions: got %d want 2 (one per sign-in)", got)
-	}
+	h.assertCounts(t, 1, 1, 1, 1, 2)
 }
 
-func TestClerkExchange_Idempotent_NewSessionSameSubject(t *testing.T) {
-	h := newClerkExchangeHarness(t, resolveOKBody("rally-user-I2", "user_sub_i2", "", ""), http.StatusOK)
-
-	first := h.post(mintValidClerkJWT(t, h.priv, "user_sub_i2"))
+func TestClerkExchange_Idempotent_NewTokenSameSubject(t *testing.T) {
+	h := newClerkExchangeHarness(t)
+	first := h.post(h.token(t, "user_sub_i2", nil))
 
 	// A fresh Clerk session for the same person: new sid, same sub.
 	o := defaultClerkTokenOpts()
@@ -407,40 +381,53 @@ func TestClerkExchange_Idempotent_NewSessionSameSubject(t *testing.T) {
 	if parseJSON(first)["user_id"] != parseJSON(second)["user_id"] {
 		t.Error("a new Clerk session for the same subject must resolve to the same user")
 	}
-	if got := h.count(t, "SELECT COUNT(*) FROM users"); got != 1 {
-		t.Errorf("users rows: got %d want 1", got)
-	}
+	h.assertCounts(t, 1, 1, 1, 1, 2)
 }
 
 func TestClerkExchange_Idempotent_ConcurrentFirstSignIn(t *testing.T) {
-	// NOTE: the Go suite runs on a single-connection in-memory SQLite through
-	// pgcompat, so these goroutines are serialized at the driver and this cannot
-	// prove true concurrency. On Postgres the partial unique index
-	// idx_users_clerk_user_id is the real backstop; this test pins the contract
-	// (every response is a success or a clean conflict, never a second row) and
-	// exercises the conflict-retry path.
-	h := newClerkExchangeHarness(t, resolveOKBody("rally-user-C", "user_sub_c", "", ""), http.StatusOK)
-	jwt := mintValidClerkJWT(t, h.priv, "user_sub_c")
+	// On Postgres the goroutines truly overlap, and the partial unique index
+	// idx_users_clerk_user_id is the backstop. Every response must be a success
+	// or a clean, retryable conflict; never a 500, never a second row.
+	h := newClerkExchangeHarness(t)
+	jwt := h.token(t, "user_sub_c", map[string]any{"email": "c@example.com"})
 
-	const n = 10
+	const n = 12
 	codes := make([]int, n)
 	var wg sync.WaitGroup
 	wg.Add(n)
+	start := make(chan struct{})
 	for i := 0; i < n; i++ {
 		go func(i int) {
 			defer wg.Done()
+			<-start
 			codes[i] = h.post(jwt).Code
 		}(i)
 	}
+	close(start)
 	wg.Wait()
 
+	ok := 0
 	for i, code := range codes {
-		if code != http.StatusOK && code != http.StatusConflict {
-			t.Errorf("goroutine %d: got %d — want 200 or 409, never a 500 or a duplicate", i, code)
+		switch code {
+		case http.StatusOK:
+			ok++
+		case http.StatusConflict, http.StatusTooManyRequests:
+			// clean, retryable outcome
+		default:
+			t.Errorf("goroutine %d: got %d — want 200 or a clean retryable outcome, never a 500", i, code)
 		}
+	}
+	if ok == 0 {
+		t.Error("no request succeeded")
 	}
 	if got := h.count(t, "SELECT COUNT(*) FROM users"); got != 1 {
 		t.Errorf("users rows after %d concurrent first sign-ins: got %d want 1", n, got)
+	}
+	if got := h.count(t, "SELECT COUNT(*) FROM households"); got != 1 {
+		t.Errorf("households: got %d want 1", got)
+	}
+	if got := h.count(t, "SELECT COUNT(*) FROM household_members"); got != 1 {
+		t.Errorf("household_members: got %d want 1", got)
 	}
 	if got := h.count(t, "SELECT COUNT(*) FROM auth_methods WHERE provider = 'clerk'"); got != 1 {
 		t.Errorf("clerk auth_methods rows: got %d want 1", got)
@@ -448,275 +435,157 @@ func TestClerkExchange_Idempotent_ConcurrentFirstSignIn(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------
-// auth / tenant isolation — the mapping order and the takeover guard
+// adoption and isolation
 // -----------------------------------------------------------------------
 
-// A. A legacy phone user is adopted, not duplicated.
-func TestClerkExchange_Isolation_A_AdoptsLegacyPhoneUser(t *testing.T) {
-	h := newClerkExchangeHarness(t, "", http.StatusOK)
-	legacy, err := upsertUser(h.server.db, "5551110000")
+// A phone-only row, as created by an inbound text, is adopted by a Clerk user
+// presenting that VERIFIED phone.
+func TestClerkExchange_Adoption_PhoneOnlyRowIsBound(t *testing.T) {
+	h := newClerkExchangeHarness(t)
+	texted, err := upsertUser(h.server.db, "5551110000")
 	if err != nil {
-		t.Fatalf("seeding legacy phone user: %v", err)
+		t.Fatalf("seeding phone-only user: %v", err)
 	}
-	h.stub.SetResponse(resolveOKBody("rally-new-id", "user_S1", "", "+15551110000"), http.StatusOK)
+	createListItem(t, h.server.db, texted.ID, "texted milk", "Dairy")
 
-	rr := h.post(mintValidClerkJWT(t, h.priv, "user_S1"))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200 (%s)", rr.Code, rr.Body.String())
-	}
-	body := parseJSON(rr)
-	if body["user_id"] != legacy.ID {
-		t.Errorf("user_id: got %v want the legacy user %s — a phone match must adopt, not mint", body["user_id"], legacy.ID)
-	}
-	if body["account_merged"] != true {
-		t.Errorf("account_merged should be true when an existing account was adopted; got %#v", body)
-	}
-	if msg, _ := body["merge_message"].(string); msg == "" {
-		t.Error("a merge should carry a message the UI can show")
-	}
-	if got := clerkUserIDOf(t, h.server, legacy.ID); got != "user_S1" {
-		t.Errorf("legacy row clerk_user_id: got %q want user_S1", got)
-	}
-	if got := h.count(t, "SELECT COUNT(*) FROM users"); got != 1 {
-		t.Errorf("users rows: got %d want 1 (no second account)", got)
-	}
-	if got := h.count(t, "SELECT COUNT(*) FROM users WHERE id = ?", "rally-new-id"); got != 0 {
-		t.Error("no row should be created under the rally_user_id when a legacy row was adopted")
-	}
-}
-
-// B. The takeover guard: a row bound to one Clerk identity is never rebound.
-func TestClerkExchange_Isolation_B_NoTakeoverOfBoundAccount(t *testing.T) {
-	h := newClerkExchangeHarness(t, "", http.StatusOK)
-	legacy, err := upsertUser(h.server.db, "5552220000")
-	if err != nil {
-		t.Fatalf("seeding legacy user: %v", err)
-	}
-
-	// First sign-in binds S1.
-	h.stub.SetResponse(resolveOKBody("rally-b1", "user_S1", "", "+15552220000"), http.StatusOK)
-	if rr := h.post(mintValidClerkJWT(t, h.priv, "user_S1")); rr.Code != http.StatusOK {
-		t.Fatalf("first sign-in: got %d (%s)", rr.Code, rr.Body.String())
-	}
-	sessionsAfterFirst := h.count(t, "SELECT COUNT(*) FROM sessions")
-
-	// A DIFFERENT Clerk identity now claims the same phone.
-	h.stub.SetResponse(resolveOKBody("rally-b2", "user_S2", "", "+15552220000"), http.StatusOK)
-	rr := h.post(mintValidClerkJWT(t, h.priv, "user_S2"))
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("a second Clerk identity claiming a bound account must be 409: got %d (%s)", rr.Code, rr.Body.String())
-	}
-
-	if got := clerkUserIDOf(t, h.server, legacy.ID); got != "user_S1" {
-		t.Errorf("the binding was overwritten: clerk_user_id is now %q, want user_S1", got)
-	}
-	if got := h.count(t, "SELECT COUNT(*) FROM users"); got != 1 {
-		t.Errorf("users rows: got %d want 1", got)
-	}
-	if got := h.count(t, "SELECT COUNT(*) FROM sessions"); got != sessionsAfterFirst {
-		t.Errorf("a refused exchange must not mint a session: got %d want %d", got, sessionsAfterFirst)
-	}
-	if got := h.count(t, "SELECT COUNT(*) FROM auth_methods WHERE provider = 'clerk' AND provider_id = ?", "user_S2"); got != 0 {
-		t.Errorf("no auth_methods row for the refused identity; got %d", got)
-	}
-	if getSessionCookie(rr) != nil {
-		t.Error("a 409 must not set a session cookie")
-	}
-}
-
-// C. google_sub beats phone.
-func TestClerkExchange_Isolation_C_GoogleSubBeatsPhone(t *testing.T) {
-	h := newClerkExchangeHarness(t, "", http.StatusOK)
-	google, err := resolveOrCreateUser(h.server.db, "google", "g1", "e@x.com", "Google User")
-	if err != nil {
-		t.Fatalf("seeding google user: %v", err)
-	}
-	phoneUser, err := upsertUser(h.server.db, "5553330000")
-	if err != nil {
-		t.Fatalf("seeding phone user: %v", err)
-	}
-
-	h.stub.SetResponse(resolveOKBody("rally-c", "user_S3", "", "+15553330000"), http.StatusOK)
-	o := defaultClerkTokenOpts()
-	o.sub = "user_S3"
-	o.extra = map[string]any{"google_sub": "g1"}
-
-	rr := h.post(mintClerkTestJWT(t, h.priv, o))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200 (%s)", rr.Code, rr.Body.String())
-	}
-	if parseJSON(rr)["user_id"] != google.ID {
-		t.Errorf("user_id: got %v want the google user %s — google_sub must outrank phone", parseJSON(rr)["user_id"], google.ID)
-	}
-	if got := clerkUserIDOf(t, h.server, phoneUser.ID); got != "" {
-		t.Errorf("the phone user must be untouched; its clerk_user_id is %q", got)
-	}
-	if got := h.count(t, "SELECT COUNT(*) FROM users"); got != 2 {
-		t.Errorf("users rows: got %d want 2 (no new account)", got)
-	}
-}
-
-// D. phone beats email.
-func TestClerkExchange_Isolation_D_PhoneBeatsEmail(t *testing.T) {
-	h := newClerkExchangeHarness(t, "", http.StatusOK)
-	phoneUser, err := upsertUser(h.server.db, "5554440000")
-	if err != nil {
-		t.Fatalf("seeding phone user: %v", err)
-	}
-	emailUser, err := resolveOrCreateUser(h.server.db, "email", "e@x.com", "e@x.com", "Email User")
-	if err != nil {
-		t.Fatalf("seeding email user: %v", err)
-	}
-
-	h.stub.SetResponse(resolveOKBody("rally-d", "user_S4", "e@x.com", "+15554440000"), http.StatusOK)
-	rr := h.post(mintValidClerkJWT(t, h.priv, "user_S4"))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200 (%s)", rr.Code, rr.Body.String())
-	}
-	if parseJSON(rr)["user_id"] != phoneUser.ID {
-		t.Errorf("user_id: got %v want the phone user %s — phone must outrank email", parseJSON(rr)["user_id"], phoneUser.ID)
-	}
-	if got := clerkUserIDOf(t, h.server, emailUser.ID); got != "" {
-		t.Errorf("the email user must be untouched; its clerk_user_id is %q", got)
-	}
-}
-
-// E. A Clerk account with neither phone nor email still works.
-func TestClerkExchange_Isolation_E_NoPhoneNoEmailMintsCleanly(t *testing.T) {
-	h := newClerkExchangeHarness(t, "", http.StatusOK)
-	legacy, err := upsertUser(h.server.db, "5555550000")
-	if err != nil {
-		t.Fatalf("seeding legacy user: %v", err)
-	}
-
-	h.stub.SetResponse(resolveOKBody("rally-e-new", "user_S5", "", ""), http.StatusOK)
-	rr := h.post(mintValidClerkJWT(t, h.priv, "user_S5"))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200 (%s)", rr.Code, rr.Body.String())
-	}
-	if parseJSON(rr)["user_id"] != "rally-e-new" {
-		t.Errorf("user_id: got %v want rally-e-new", parseJSON(rr)["user_id"])
-	}
-	if got := clerkUserIDOf(t, h.server, legacy.ID); got != "" {
-		t.Errorf("the unrelated legacy user must be untouched; its clerk_user_id is %q", got)
-	}
-	if got := h.count(t, "SELECT COUNT(*) FROM users"); got != 2 {
-		t.Errorf("users rows: got %d want 2", got)
-	}
-}
-
-// F. Adoption does not open a cross-user data path.
-func TestClerkExchange_Isolation_F_NoCrossUserDataAccess(t *testing.T) {
-	h := newClerkExchangeHarness(t, "", http.StatusOK)
-	userX, err := upsertUser(h.server.db, "5556660000")
-	if err != nil {
-		t.Fatalf("seeding user X: %v", err)
-	}
-	cookieY, userYID := loginUser(t, h.server, "5557770000")
-	createListItem(t, h.server.db, userX.ID, "X milk", "Dairy")
-	createListItem(t, h.server.db, userYID, "Y bread", "Bakery")
-
-	h.stub.SetResponse(resolveOKBody("rally-f", "user_SF", "", "+15556660000"), http.StatusOK)
-	rr := h.post(mintValidClerkJWT(t, h.priv, "user_SF"))
+	rr := h.post(h.token(t, "user_S1", map[string]any{"phone": "+15551110000", "phone_verified": true}))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status: got %d (%s)", rr.Code, rr.Body.String())
 	}
-	cookieX := getSessionCookie(rr)
-	if cookieX == nil {
-		t.Fatal("no session cookie")
+	if parseJSON(rr)["user_id"] != texted.ID {
+		t.Errorf("user_id: got %v want the texted user %s", parseJSON(rr)["user_id"], texted.ID)
+	}
+	h.assertCounts(t, 1, 1, 1, 1, 1)
+	if got := h.userByClerkID(t, "user_S1").ID; got != texted.ID {
+		t.Errorf("the existing row must be bound; got %s", got)
 	}
 
-	listX := doRequest(h.server.handleList, http.MethodGet, "/api/list", nil, []*http.Cookie{cookieX})
-	if listX.Code != http.StatusOK {
-		t.Fatalf("X's list: got %d", listX.Code)
-	}
-	if strings.Contains(listX.Body.String(), "Y bread") {
-		t.Error("X can see Y's item — the Clerk session must be scoped exactly like any other")
-	}
-	if !strings.Contains(listX.Body.String(), "X milk") {
-		t.Error("X cannot see their own item")
-	}
-
-	listY := doRequest(h.server.handleList, http.MethodGet, "/api/list", nil, []*http.Cookie{cookieY})
-	if strings.Contains(listY.Body.String(), "X milk") {
-		t.Error("Y can see X's item")
+	// The household's list is reachable through the new session.
+	list := doRequest(h.server.handleList, http.MethodGet, "/api/list", nil, []*http.Cookie{getSessionCookie(rr)})
+	if !strings.Contains(list.Body.String(), "texted milk") {
+		t.Error("the adopted account must keep its list")
 	}
 }
 
-// G. Soft-deleted rows are never adopted by an email match.
-func TestClerkExchange_Isolation_G_SoftDeletedRowNotAdopted(t *testing.T) {
-	h := newClerkExchangeHarness(t, "", http.StatusOK)
-	if _, err := h.server.db.Exec(
-		"INSERT INTO users (id, email, name) VALUES (?, ?, ?)",
-		"soft-deleted-1", "ghost@x.com", "[merged into user abcdef]",
-	); err != nil {
-		t.Fatalf("seeding soft-deleted row: %v", err)
-	}
-
-	h.stub.SetResponse(resolveOKBody("rally-g-new", "user_SG", "ghost@x.com", ""), http.StatusOK)
-	rr := h.post(mintValidClerkJWT(t, h.priv, "user_SG"))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200 (%s)", rr.Code, rr.Body.String())
-	}
-	if parseJSON(rr)["user_id"] != "rally-g-new" {
-		t.Errorf("user_id: got %v want a fresh row — a soft-deleted account must never be adopted", parseJSON(rr)["user_id"])
-	}
-	if got := clerkUserIDOf(t, h.server, "soft-deleted-1"); got != "" {
-		t.Errorf("the soft-deleted row was bound: clerk_user_id %q", got)
-	}
-}
-
-func TestClerkExchange_Isolation_G2_SoftDeletedAuthMethodNotAdopted(t *testing.T) {
-	// The same exclusion must hold for the auth_methods email fallback, not just
-	// the users lookup — otherwise a soft-deleted account could be adopted via
-	// its auth_methods row one query later.
-	h := newClerkExchangeHarness(t, "", http.StatusOK)
-	ghost, err := resolveOrCreateUser(h.server.db, "email", "ghost2@x.com", "ghost2@x.com", "Ghost")
-	if err != nil {
-		t.Fatalf("seeding: %v", err)
-	}
-	// Soft-delete it the way mergeUserData does, leaving auth_methods in place.
-	if _, err := h.server.db.Exec(
-		"UPDATE users SET name = ?, email = '' WHERE id = ?",
-		"[merged into user other-id]", ghost.ID,
-	); err != nil {
-		t.Fatalf("soft-deleting: %v", err)
-	}
-
-	h.stub.SetResponse(resolveOKBody("rally-g2-new", "user_SG2", "ghost2@x.com", ""), http.StatusOK)
-	rr := h.post(mintValidClerkJWT(t, h.priv, "user_SG2"))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200 (%s)", rr.Code, rr.Body.String())
-	}
-	if parseJSON(rr)["user_id"] != "rally-g2-new" {
-		t.Errorf("user_id: got %v want a fresh row", parseJSON(rr)["user_id"])
-	}
-	if got := clerkUserIDOf(t, h.server, ghost.ID); got != "" {
-		t.Errorf("the soft-deleted account was adopted via auth_methods: clerk_user_id %q", got)
-	}
-}
-
-func TestClerkExchange_Isolation_EmailAdoptionViaAuthMethods(t *testing.T) {
-	// The email fallback also looks at auth_methods, so an account whose email
-	// lives only there is still recognized rather than duplicated.
-	h := newClerkExchangeHarness(t, "", http.StatusOK)
-	existing, err := resolveOrCreateUser(h.server.db, "email", "only-in-auth@x.com", "", "No Users Email")
+func TestClerkExchange_Adoption_UnverifiedPhoneIsNotAdopted(t *testing.T) {
+	h := newClerkExchangeHarness(t)
+	texted, err := upsertUser(h.server.db, "5552220000")
 	if err != nil {
 		t.Fatalf("seeding: %v", err)
 	}
 
-	h.stub.SetResponse(resolveOKBody("rally-h", "user_SH", "ONLY-IN-AUTH@x.com", ""), http.StatusOK)
-	rr := h.post(mintValidClerkJWT(t, h.priv, "user_SH"))
+	rr := h.post(h.token(t, "user_S2", map[string]any{"phone": "+15552220000", "phone_verified": false}))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status: got %d (%s)", rr.Code, rr.Body.String())
 	}
-	if parseJSON(rr)["user_id"] != existing.ID {
-		t.Errorf("user_id: got %v want %s — email matching must be case-insensitive and cover auth_methods", parseJSON(rr)["user_id"], existing.ID)
+	// 2 users, 2 households, 2 members; only the Clerk user has a clerk auth_methods row.
+	h.assertCounts(t, 2, 2, 2, 1, 1)
+	u := h.userByClerkID(t, "user_S2")
+	if u.ID == texted.ID {
+		t.Fatal("an unverified phone must never adopt an existing row")
+	}
+	if u.Phone != "" {
+		t.Errorf("the new row must be phone-less; got %q", u.Phone)
+	}
+	if got := clerkIDOf(t, h.server, texted.ID); got != "" {
+		t.Errorf("the texted row must stay unbound; got %q", got)
 	}
 }
 
+// Phone row already bound to Clerk user A; Clerk user B presents the same
+// verified phone. B gets their own phone-less row and A is untouched.
+func TestClerkExchange_NoTakeover_BoundPhoneRowIsNeverRebound(t *testing.T) {
+	h := newClerkExchangeHarness(t)
+	claims := map[string]any{"phone": "+15553330000", "phone_verified": true}
+
+	if rr := h.post(h.token(t, "user_A", claims)); rr.Code != http.StatusOK {
+		t.Fatalf("A: status %d (%s)", rr.Code, rr.Body.String())
+	}
+	a := h.userByClerkID(t, "user_A")
+	if a.Phone != "5553330000" {
+		t.Fatalf("A should hold the phone; got %q", a.Phone)
+	}
+
+	rr := h.post(h.token(t, "user_B", claims))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("B: status %d (%s)", rr.Code, rr.Body.String())
+	}
+	b := h.userByClerkID(t, "user_B")
+	if b.ID == a.ID {
+		t.Fatal("B must not be bound to A's row")
+	}
+	if b.Phone != "" {
+		t.Errorf("B must not receive A's phone; got %q", b.Phone)
+	}
+	after := h.userByClerkID(t, "user_A")
+	if after != a {
+		t.Errorf("A's row changed: before %+v after %+v", a, after)
+	}
+	h.assertCounts(t, 2, 2, 2, 2, 2)
+}
+
+// Email is never a matching signal: an existing row with the same email is not
+// adopted, whether or not the phone matches nothing.
+func TestClerkExchange_EmailIsNeverAMatchingSignal(t *testing.T) {
+	h := newClerkExchangeHarness(t)
+	if _, err := h.server.db.Exec("INSERT INTO users (id, email, name) VALUES (?, ?, ?)", "existing-email-user", "same@example.com", "Old"); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+
+	rr := h.post(h.token(t, "user_E", map[string]any{"email": "same@example.com"}))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d (%s)", rr.Code, rr.Body.String())
+	}
+	if got := h.count(t, "SELECT COUNT(*) FROM users"); got != 2 {
+		t.Errorf("users rows: got %d want 2 (a new row, no adoption)", got)
+	}
+	if got := clerkIDOf(t, h.server, "existing-email-user"); got != "" {
+		t.Errorf("the email-matching row must stay unbound; got %q", got)
+	}
+	if h.userByClerkID(t, "user_E").ID == "existing-email-user" {
+		t.Error("email must never adopt a row")
+	}
+}
+
+// Adoption must not open a cross-user data path.
+func TestClerkExchange_Isolation_NoCrossUserDataAccess(t *testing.T) {
+	h := newClerkExchangeHarness(t)
+	_, userAID := loginUser(t, h.server, "5556660000")
+	createListItem(t, h.server.db, userAID, "A milk", "Dairy")
+
+	rr := h.post(h.token(t, "user_B", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d (%s)", rr.Code, rr.Body.String())
+	}
+	cookieB := getSessionCookie(rr)
+	if cookieB == nil {
+		t.Fatal("no session cookie for B")
+	}
+	createListItem(t, h.server.db, h.userByClerkID(t, "user_B").ID, "B bread", "Bakery")
+
+	listB := doRequest(h.server.handleList, http.MethodGet, "/api/list", nil, []*http.Cookie{cookieB})
+	if listB.Code != http.StatusOK {
+		t.Fatalf("B's list: got %d", listB.Code)
+	}
+	if strings.Contains(listB.Body.String(), "A milk") {
+		t.Error("B can see A's item")
+	}
+	if !strings.Contains(listB.Body.String(), "B bread") {
+		t.Error("B cannot see their own item")
+	}
+}
+
+func clerkIDOf(t *testing.T, s *Server, userID string) string {
+	t.Helper()
+	var v string
+	if err := s.db.QueryRow("SELECT COALESCE(clerk_user_id,'') FROM users WHERE id = ?", userID).Scan(&v); err != nil {
+		t.Fatalf("reading clerk_user_id for %s: %v", userID, err)
+	}
+	return v
+}
+
 // -----------------------------------------------------------------------
-// resolveClerkSession — the lookup-only per-request resolver
+// resolveClerkSession — the per-request, read-only resolver
 // -----------------------------------------------------------------------
 
 func TestResolveClerkSession(t *testing.T) {
@@ -752,12 +621,10 @@ func TestResolveClerkSession(t *testing.T) {
 	})
 
 	t.Run("it never provisions", func(t *testing.T) {
-		// The per-request resolver must be read-only: provisioning happens only
-		// at the exchange, which has the authority's answer in hand.
 		server := newTestServer(t, &MockTwilioClient{})
 		var before int
 		server.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&before)
-		server.resolveClerkSession(ClerkIdentity{ClerkUserID: "user_nobody", Email: "a@b.com", Phone: "5551234567"})
+		server.resolveClerkSession(ClerkIdentity{ClerkUserID: "user_nobody", Email: "a@b.com", Phone: "5551234567", PhoneVerified: true})
 		var after int
 		server.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&after)
 		if before != after {

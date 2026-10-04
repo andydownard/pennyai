@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -23,33 +24,12 @@ import (
 // =============================================================================
 
 type MockTwilioClient struct {
-	mu             sync.Mutex
-	LastSendPhone  string
-	LastCheckPhone string
-	LastCheckCode  string
-	LastSMSTo      string
-	LastSMSBody    string
-	SMSCount       int
+	mu          sync.Mutex
+	LastSMSTo   string
+	LastSMSBody string
+	SMSCount    int
 
-	SendErr       error
-	CheckApproved bool
-	CheckErr      error
-	SMSErr        error
-}
-
-func (m *MockTwilioClient) SendVerification(phone string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.LastSendPhone = phone
-	return m.SendErr
-}
-
-func (m *MockTwilioClient) CheckVerification(phone, code string) (bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.LastCheckPhone = phone
-	m.LastCheckCode = code
-	return m.CheckApproved, m.CheckErr
+	SMSErr error
 }
 
 func (m *MockTwilioClient) SendSMS(from, to, body string) error {
@@ -140,8 +120,8 @@ func initTestDB(db *sql.DB) error {
 	}
 
 	// Sessions table (pennyai-owned — see schema.go initDB).
-	// Session cookies live on .groflo.io only; no cross-domain handoff with
-	// timpager. `role` is read by penny as auth_method for reporting.
+	// Session cookies live on .groflo.io only; no cross-domain handoff.
+	// `role` is read by penny as auth_method for reporting.
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS sessions (
 			token      TEXT PRIMARY KEY,
@@ -1493,7 +1473,7 @@ func loginUser(t *testing.T, server *Server, phone string) (*http.Cookie, string
 	if err != nil {
 		t.Fatalf("upsertUser: %v", err)
 	}
-	token, err := server.sessions.CreateSession(user.ID, phone, "phone")
+	token, err := server.sessions.CreateSession(user.ID, phone, "test")
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -1698,12 +1678,13 @@ func setupEarningsTestData(t *testing.T, server *Server) (*http.Cookie, string, 
 	return cookie, userID, dealID, rebateID
 }
 
-// newMockGoogleTokenServer creates a mock Google tokeninfo endpoint that returns
-// the provided tokenInfo JSON for any request.
-func newMockGoogleTokenServer(t *testing.T, tokenInfoJSON map[string]string) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(tokenInfoJSON)
-	}))
+// captureLog redirects the standard logger to a buffer for the duration of fn
+// and returns everything written.
+func captureLog(fn func()) string {
+	var buf bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(prev)
+	fn()
+	return buf.String()
 }

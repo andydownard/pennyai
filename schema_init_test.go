@@ -1,6 +1,6 @@
 // schema_init_test.go
 //
-// Regression test for the 2026-04-18 staging crash. initDB assumed timpager's
+// Regression test for the 2026-04-18 staging crash. initDB assumed another service's
 // shared Postgres already contained a `users` table, so the first ALTER TABLE
 // users in a fresh pennyai-owned Postgres raised "relation \"users\" does not
 // exist" and schema init aborted before any table was created.
@@ -97,8 +97,8 @@ func TestSchema_InitDB_DeclaresUsersAsOwnedByPennyai(t *testing.T) {
 	}
 	body := string(src)
 
-	if strings.Contains(body, "SHARED USERS TABLE — owned by timpager") {
-		t.Fatalf("schema.go still claims users table is owned by timpager — CLAUDE.md says pennyai owns its own users/sessions since 2026-04-18")
+	if strings.Contains(body, "SHARED USERS TABLE") {
+		t.Fatalf("schema.go still claims the users table is shared — pennyai owns its own users/sessions")
 	}
 	if !strings.Contains(body, "USERS TABLE — owned by pennyai") {
 		t.Fatalf("schema.go should declare USERS TABLE — owned by pennyai as the section header")

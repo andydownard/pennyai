@@ -19,7 +19,7 @@ import (
 // =============================================================================
 
 func TestSwaps_DealMatchingBasic(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	// Create user and session
@@ -64,7 +64,7 @@ func TestSwaps_DealMatchingBasic(t *testing.T) {
 }
 
 func TestSwaps_AcceptSwap(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -114,7 +114,7 @@ func TestSwaps_AcceptSwap(t *testing.T) {
 }
 
 func TestSwaps_DeclineAndSuppression(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -163,7 +163,7 @@ func TestSwaps_DeclineAndSuppression(t *testing.T) {
 }
 
 func TestSwaps_SliderConvenienceBlocksDeals(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	// Create user with slider = 100 (convenience, never show deals)
@@ -191,7 +191,7 @@ func TestSwaps_SliderConvenienceBlocksDeals(t *testing.T) {
 }
 
 func TestSwaps_BudgetExhaustedAutopauses(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -222,7 +222,7 @@ func TestSwaps_BudgetExhaustedAutopauses(t *testing.T) {
 }
 
 func TestSwaps_FrequencyCapLimitsPendingOffers(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -269,7 +269,7 @@ func TestSwaps_FrequencyCapLimitsPendingOffers(t *testing.T) {
 }
 
 func TestSwaps_FrequencyCapResetsAfterDecline(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -338,7 +338,7 @@ func TestSwaps_FrequencyCapResetsAfterDecline(t *testing.T) {
 // =============================================================================
 
 func TestDoneShopping_Action(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -377,7 +377,7 @@ func TestDoneShopping_Action(t *testing.T) {
 // =============================================================================
 
 func TestAdminDeals_CRUD(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	// Create admin user
@@ -462,7 +462,7 @@ func TestAdminDeals_CRUD(t *testing.T) {
 }
 
 func TestAdminDeals_RequiresAdmin(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	// Non-admin user
@@ -477,7 +477,7 @@ func TestAdminDeals_RequiresAdmin(t *testing.T) {
 }
 
 func TestAdminDeals_RejectsNegativeValues(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '3104861833')")
@@ -510,7 +510,7 @@ func TestAdminDeals_RejectsNegativeValues(t *testing.T) {
 }
 
 func TestSwaps_RebateCreatedOnAccept(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -553,7 +553,7 @@ func TestSwaps_RebateCreatedOnAccept(t *testing.T) {
 }
 
 func TestSwaps_RebateAppearsInSettings(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone, swap_credits_cents) VALUES ('user-1', '5551234567', 350)")
@@ -572,7 +572,7 @@ func TestSwaps_RebateAppearsInSettings(t *testing.T) {
 }
 
 func TestRebates_ReturnsHistory(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -628,7 +628,7 @@ func TestRebates_RequiresAuth(t *testing.T) {
 }
 
 func TestRebates_EmptyForNewUser(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -651,7 +651,7 @@ func TestRebates_EmptyForNewUser(t *testing.T) {
 }
 
 func TestSwaps_AcceptIncludesCumulativeTotal(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone, swap_credits_cents) VALUES ('user-1', '5551234567', 500)")
@@ -683,7 +683,7 @@ func TestSwaps_AcceptIncludesCumulativeTotal(t *testing.T) {
 }
 
 func TestSwaps_PendingSwapIncludesPriceData(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -732,7 +732,7 @@ func TestSwaps_PendingSwapIncludesPriceData(t *testing.T) {
 }
 
 func TestSwaps_WhyBulletsParsed(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -765,7 +765,7 @@ func TestSwaps_WhyBulletsParsed(t *testing.T) {
 }
 
 func TestSwaps_AllergenWarningIncluded(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -796,7 +796,7 @@ func TestSwaps_AllergenWarningIncluded(t *testing.T) {
 }
 
 func TestSwaps_PendingSwapGracefulDegradation(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -852,7 +852,7 @@ func TestSwaps_PendingSwapGracefulDegradation(t *testing.T) {
 }
 
 func TestSwaps_AutotuneThresholdBlocksDeals(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	// Create user with autotune ON, 20+ shown, <5% accept rate → should block deals
@@ -880,7 +880,7 @@ func TestSwaps_AutotuneThresholdBlocksDeals(t *testing.T) {
 }
 
 func TestSwaps_SliderMidRangeFiltersSmallDiscounts(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	// Slider 50, autotune OFF — should block deals with discount <= $1
@@ -927,7 +927,7 @@ func TestSwaps_SliderMidRangeFiltersSmallDiscounts(t *testing.T) {
 }
 
 func TestSwaps_InvalidDealIDReturnsError(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -951,7 +951,7 @@ func TestSwaps_InvalidDealIDReturnsError(t *testing.T) {
 }
 
 func TestSwaps_DoubleAcceptBlocked(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -999,7 +999,7 @@ func TestSwaps_DoubleAcceptBlocked(t *testing.T) {
 // the brand pays twice and the user is paid twice for one swap. The
 // one-accept-per-user-per-campaign guarantee is what makes swaps non-farmable.
 func TestSwaps_ConcurrentAcceptBlocked(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -1061,7 +1061,7 @@ func TestSwaps_ConcurrentAcceptBlocked(t *testing.T) {
 // hammer test: the accepted swap_events row already exists, so the accept must
 // 409 and leave the brand's budget and the user's credits untouched.
 func TestSwaps_AcceptWithPreSeededEventBlocked(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -1134,7 +1134,7 @@ func TestSwaps_OneAcceptUniqueIndex(t *testing.T) {
 }
 
 func TestSwaps_CrossUserAcceptBlocked(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	// User 1 owns the item
@@ -1165,7 +1165,7 @@ func TestSwaps_CrossUserAcceptBlocked(t *testing.T) {
 }
 
 func TestSwaps_BudgetExhaustionBlocksAccept(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -1213,7 +1213,7 @@ func TestSwaps_BudgetExhaustionBlocksAccept(t *testing.T) {
 }
 
 func TestSwaps_OneSwapPerUserPerCampaign(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -1252,7 +1252,7 @@ func TestSwaps_OneSwapPerUserPerCampaign(t *testing.T) {
 // =============================================================================
 
 func TestSwaps_BOGOAcceptSetsQuantity(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -1294,7 +1294,7 @@ func TestSwaps_BOGOAcceptSetsQuantity(t *testing.T) {
 }
 
 func TestSwaps_TrialAcceptAddsItem(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -1339,7 +1339,7 @@ func TestSwaps_TrialAcceptAddsItem(t *testing.T) {
 }
 
 func TestSwaps_SeasonalDealIncludesEndsAt(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -1371,7 +1371,7 @@ func TestSwaps_SeasonalDealIncludesEndsAt(t *testing.T) {
 }
 
 func TestSwaps_NewDealTypesInAdminGET(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	// Use the admin phone directly
@@ -2206,7 +2206,7 @@ func TestSwapPropagations_AdminOnly(t *testing.T) {
 // ── Dynamic Auction Pricing Tests ─────────────────────────────────────
 
 func TestAuction_HighestBidScoreWins(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	// Create user
@@ -2259,7 +2259,7 @@ func TestAuction_HighestBidScoreWins(t *testing.T) {
 }
 
 func TestAuction_OutbidEventsLogged(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -2316,7 +2316,7 @@ func TestAuction_OutbidEventsLogged(t *testing.T) {
 }
 
 func TestAuction_SingleCandidate_NoOutbidEvents(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -2362,7 +2362,7 @@ func TestAuction_SingleCandidate_NoOutbidEvents(t *testing.T) {
 }
 
 func TestAuction_PredictionWeightedBidding(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -2582,7 +2582,7 @@ func TestRegionalSwapPerformance_ReturnsData(t *testing.T) {
 }
 
 func TestStoreAwarePricing_EnrichesSwapCard(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -2656,7 +2656,7 @@ func TestGetStorePrice_NotFound(t *testing.T) {
 // ── v1 Stretch: Rich Product Descriptions Tests ──────────────────────
 
 func TestProductDescription_InSwapResponse(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -2704,7 +2704,7 @@ func TestProductDescription_InSwapResponse(t *testing.T) {
 }
 
 func TestProductDescription_EmptyGracefulDegradation(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")

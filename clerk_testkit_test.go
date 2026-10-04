@@ -1,8 +1,7 @@
 // clerk_testkit_test.go — test-only scaffolding for the Clerk satellite path.
 //
-// Mirrors timpager's app/tests/clerk_testkit.py: every Clerk test in this
-// package runs with ZERO network. There is no real JWKS fetch, no real Clerk
-// instance, and no real timpager. Keys are generated in-process, tokens are
+// Every Clerk test in this package runs with ZERO network. There is no real
+// JWKS fetch and no real Clerk instance. Keys are generated in-process, tokens are
 // minted by hand (so a test can omit a claim or forge an algorithm, which no
 // signing library will let you do), and the JWKS seam is swapped for a stub.
 //
@@ -23,7 +22,6 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -87,7 +85,7 @@ type clerkTokenOpts struct {
 	omitNbf  bool
 	iatDelta time.Duration
 	omitIat  bool
-	// extra carries custom session-token claims (google_sub / email / phone),
+	// extra carries custom session-token claims (email / phone / phone_verified / name),
 	// which Clerk only emits if the primary instance is configured to add them.
 	extra map[string]any
 }
@@ -357,139 +355,4 @@ func (s *jwksTestServer) SetBody(body string, status int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.body, s.status = body, status
-}
-
-// -----------------------------------------------------------------------
-// timpager identity-resolve stub
-// -----------------------------------------------------------------------
-
-// recordedResolveRequest is everything the resolve client sent, so a test can
-// assert the service key travelled as X-API-Key and the end-user Clerk JWT as
-// Authorization — never the other way round.
-type recordedResolveRequest struct {
-	Method        string
-	Path          string
-	APIKeyHeader  string
-	Authorization string
-	ContentType   string
-	Body          map[string]any
-	RawBody       string
-}
-
-type stubTimpager struct {
-	*httptest.Server
-	mu       sync.Mutex
-	requests []recordedResolveRequest
-	status   int
-	body     string
-	// followUp, when set, answers every request after the first — so a test can
-	// make the first attempt fail and the retry succeed without a spin loop.
-	followUpBody   string
-	followUpStatus int
-	hasFollowUp    bool
-}
-
-// newStubTimpagerResolve serves POST /api/v1/identity/resolve. `response` may
-// be a map/struct (marshalled) or a string (served verbatim, for malformed
-// JSON tests).
-func newStubTimpagerResolve(t *testing.T, response any, status int) *stubTimpager {
-	t.Helper()
-	s := &stubTimpager{status: status}
-	switch v := response.(type) {
-	case nil:
-		s.body = "{}"
-	case string:
-		s.body = v
-	default:
-		b, err := json.Marshal(v)
-		if err != nil {
-			t.Fatalf("marshalling stub timpager response: %v", err)
-		}
-		s.body = string(b)
-	}
-
-	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
-		rec := recordedResolveRequest{
-			Method:        r.Method,
-			Path:          r.URL.Path,
-			APIKeyHeader:  r.Header.Get("X-API-Key"),
-			Authorization: r.Header.Get("Authorization"),
-			ContentType:   r.Header.Get("Content-Type"),
-			RawBody:       string(raw),
-		}
-		json.Unmarshal(raw, &rec.Body)
-		s.mu.Lock()
-		s.requests = append(s.requests, rec)
-		status, body := s.status, s.body
-		if s.hasFollowUp && len(s.requests) > 1 {
-			status, body = s.followUpStatus, s.followUpBody
-		}
-		s.mu.Unlock()
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		io.WriteString(w, body)
-	}))
-	t.Cleanup(s.Close)
-	return s
-}
-
-func (s *stubTimpager) Requests() []recordedResolveRequest {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]recordedResolveRequest(nil), s.requests...)
-}
-
-func (s *stubTimpager) Calls() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.requests)
-}
-
-func (s *stubTimpager) SetResponse(body string, status int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.body, s.status = body, status
-}
-
-// SetFollowUp makes every request after the first answer with this instead.
-func (s *stubTimpager) SetFollowUp(body string, status int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.followUpBody, s.followUpStatus, s.hasFollowUp = body, status, true
-}
-
-// resolveOKBody builds a 200 response from timpager's identity resolve.
-// rallyUserID "" means "no Rally user matched" (rally_user_id: null).
-func resolveOKBody(rallyUserID, clerkUserID, email, phone string) string {
-	m := map[string]any{
-		"user":               nil,
-		"rally_user_id":      nil,
-		"clerk_user_id":      clerkUserID,
-		"email":              nil,
-		"phone":              nil,
-		"is_superadmin":      false,
-		"version":            "2026-06-17",
-		"cache_ttl_seconds":  300,
-	}
-	if rallyUserID != "" {
-		m["rally_user_id"] = rallyUserID
-		m["user"] = map[string]any{"id": rallyUserID}
-	}
-	if email != "" {
-		m["email"] = email
-	}
-	if phone != "" {
-		m["phone"] = phone
-	}
-	b, _ := json.Marshal(m)
-	return string(b)
-}
-
-// useStubTimpager points the server's existing TIMPAGER_* config at the stub.
-// No new Config fields: the exchange reuses TimpagerURL / TimpagerAPIKey.
-func useStubTimpager(s *Server, stub *stubTimpager, apiKey string) {
-	s.config.TimpagerURL = strings.TrimSuffix(stub.URL, "/")
-	s.config.TimpagerAPIKey = apiKey
 }

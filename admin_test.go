@@ -241,7 +241,7 @@ func TestAdminDashboard_EmptyLeaderboard(t *testing.T) {
 }
 
 func TestAdminDashboard_IncludesSwapStats(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '3104861833')")
@@ -268,7 +268,7 @@ func TestAdminDashboard_IncludesSwapStats(t *testing.T) {
 }
 
 func TestAdminDashboard_IncludesRebateStats(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '3104861833')")

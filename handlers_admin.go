@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,8 +11,7 @@ import (
 )
 
 func (s *Server) requireSession(w http.ResponseWriter, r *http.Request) (Session, bool) {
-	// Cookie path first and unchanged — a usable cookie always wins and costs
-	// nothing extra. The four legacy auth methods behave exactly as before.
+	// Cookie path first — a usable cookie always wins and costs nothing extra.
 	staleCookie := false
 	if cookie, err := r.Cookie("session"); err == nil {
 		if session, ok := s.sessions.GetSession(cookie.Value); ok {
@@ -44,14 +44,36 @@ func (s *Server) requireSession(w http.ResponseWriter, r *http.Request) (Session
 	return Session{}, false
 }
 
-// requireAdmin checks for a valid session and that the phone is the admin phone.
+// isAdmin reports whether the session belongs to an owner. Server-side only:
+// either the session phone is ADMIN_PHONE, or the user's Clerk id is in the
+// ADMIN_CLERK_USER_IDS allowlist (so an owner without a phone can be admin).
+func (s *Server) isAdmin(session Session) bool {
+	if s.config.AdminPhone != "" && session.PhoneNumber != "" && session.PhoneNumber == s.config.AdminPhone {
+		return true
+	}
+	if len(s.config.AdminClerkUserIDs) == 0 || session.UserID == "" {
+		return false
+	}
+	var clerkID sql.NullString
+	if err := s.db.QueryRow("SELECT clerk_user_id FROM users WHERE id = ?", session.UserID).Scan(&clerkID); err != nil || !clerkID.Valid || clerkID.String == "" {
+		return false
+	}
+	for _, id := range s.config.AdminClerkUserIDs {
+		if id == clerkID.String {
+			return true
+		}
+	}
+	return false
+}
+
+// requireAdmin checks for a valid session that isAdmin accepts.
 // Returns the session and true if authorized, or writes an error and returns false.
 func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) (Session, bool) {
 	session, ok := s.requireSession(w, r)
 	if !ok {
 		return Session{}, false
 	}
-	if s.config.AdminPhone == "" || session.PhoneNumber != s.config.AdminPhone {
+	if !s.isAdmin(session) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden"})
 		return Session{}, false
 	}

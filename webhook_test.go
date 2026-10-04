@@ -1080,7 +1080,7 @@ func TestExtractEmail_Formats(t *testing.T) {
 }
 
 func TestEmailWebhook_KnownUserAddsItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	_, userID := loginUser(t, server, "5551234567")
 
 	// Set email for user
@@ -1111,7 +1111,7 @@ func TestEmailWebhook_KnownUserAddsItems(t *testing.T) {
 }
 
 func TestEmailWebhook_KnownUserEmptyText(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	_, userID := loginUser(t, server, "5551234567")
 	server.db.Exec("UPDATE users SET email = 'test@example.com' WHERE id = ?", userID)
 

@@ -3,8 +3,8 @@ package main
 // handlers_clerk.go — Rally sign-in endpoint and per-request resolver.
 //
 // POST /auth/clerk/exchange trades a verified Clerk session JWT for a normal
-// pennyai session cookie. It is the ONLY place in the Clerk path that writes,
-// and the only place that talks to timpager. Everything else is read-only.
+// pennyai session cookie. It is the ONLY place in the Clerk path that writes.
+// Everything else is read-only.
 //
 // The endpoint ships DARK: with CLERK_ENABLED unset it answers 404, so a
 // probe cannot even tell the route exists.
@@ -27,9 +27,9 @@ const (
 
 // handleClerkExchange handles POST /auth/clerk/exchange.
 //
-// Order is deliberate: method → kill switch → rate limit → token → authority →
-// local upsert → session. The rate limit sits ahead of verification so an
-// attacker cannot make us do crypto or call timpager for free.
+// Order is deliberate: method → kill switch → rate limit → token → local
+// upsert → session. The rate limit sits ahead of verification so an attacker
+// cannot make us do crypto for free.
 func (s *Server) handleClerkExchange(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPost) {
 		return
@@ -63,34 +63,17 @@ func (s *Server) handleClerkExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// timpager is the authority on Rally identity. No answer, no account.
-	rally, err := resolveRallyIdentity(r.Context(), s.config, nil, token, *identity)
+	user, mappedBy, err := upsertClerkUser(s.db, *identity)
 	if err != nil {
-		if errors.Is(err, errClerkAuthorityRejected) {
-			log.Printf("[clerk-auth] authority rejected sub=%s", identity.ClerkUserID)
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Sign-in could not be verified"})
+		if errors.Is(err, errClerkAccountConflict) {
+			writeConflict(w, "This account is already connected to a different Rally sign-in.")
 			return
 		}
-		log.Printf("[clerk-auth] identity authority unavailable for sub=%s: %v", identity.ClerkUserID, err)
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "Sign-in is briefly unavailable. Try again in a moment.",
-		})
+		dbError(w, err, "Failed to sign in")
 		return
 	}
 
-	user, mappedBy, err := upsertClerkUser(s.db, *identity, rally)
-	if err != nil {
-		switch {
-		case errors.Is(err, errClerkAccountConflict):
-			writeConflict(w, "This account is already connected to a different Rally sign-in.")
-		case errors.Is(err, errRallyIdentityMissing):
-			writeConflict(w, "Your Rally account is still being set up. Try again in a moment.")
-		default:
-			dbError(w, err, "Failed to sign in")
-		}
-		return
-	}
-
+	// user.PhoneNumber is the user's CURRENT users.phone, not a stale copy.
 	sessionToken, err := s.sessions.CreateSession(user.ID, user.PhoneNumber, "clerk")
 	if err != nil {
 		dbError(w, err, "Failed to create session")
@@ -100,21 +83,14 @@ func (s *Server) handleClerkExchange(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[clerk-auth] user %s signed in via Rally (mapped_by=%s)", user.ID, mappedBy)
 
-	resp := map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"user_id": user.ID,
-	}
-	// Same shape family as /auth/google: only say "merged" when an existing
-	// local account was adopted, not on a repeat sign-in or a fresh account.
-	if mappedBy != "" && mappedBy != "clerk" {
-		resp["account_merged"] = true
-		resp["merge_message"] = "Welcome back! I connected your Rally sign-in to your existing Groflo account."
-	}
-	writeJSON(w, http.StatusOK, resp)
+	})
 }
 
 // resolveClerkSession maps a verified Clerk identity to an existing local user.
-// LOOKUP ONLY: no provisioning, no timpager call, no writes. A Clerk user with
+// LOOKUP ONLY: no provisioning, no writes. A Clerk user with
 // no local row is simply anonymous until they complete an exchange.
 func (s *Server) resolveClerkSession(id ClerkIdentity) (*Session, error) {
 	if id.ClerkUserID == "" {

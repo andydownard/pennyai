@@ -3447,7 +3447,7 @@ func TestBrandFeedback_MethodNotAllowed(t *testing.T) {
 
 // TestBrandPortal_DepositCheckoutFormCarriesSourceMetadata: CLAUDE.md Revenue
 // Rules require source: "pennyai" on all charges. The Checkout Session set only
-// brand_user_id, so timpager-side attribution was broken for every real deposit.
+// brand_user_id, so attribution was broken for every real deposit.
 func TestBrandPortal_DepositCheckoutFormCarriesSourceMetadata(t *testing.T) {
 	form := buildDepositCheckoutForm("42", 25000, "https://brands.groflo.io")
 
