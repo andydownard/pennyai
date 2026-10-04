@@ -214,6 +214,15 @@ describe('ForBrands page', () => {
       expect(screen.getByText(/skip the shelf and go straight to the shopping list/)).toBeInTheDocument()
     })
 
+    it('renders the receipt fraud protection benefit', () => {
+      // Backed by a shipped feature: penny.go runs an 11-point authenticity
+      // check and handlers_parse.go rejects receipts that fail it. A copy
+      // cleanup must not silently drop a claim we actually deliver.
+      renderForBrands()
+      expect(screen.getByText('Receipt fraud protection')).toBeInTheDocument()
+      expect(screen.getByText(/11-point authenticity check/)).toBeInTheDocument()
+    })
+
     it('renders five benefit items total', () => {
       renderForBrands()
       const benefitItems = document.querySelectorAll('.benefit-item')

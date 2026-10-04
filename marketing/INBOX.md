@@ -20,3 +20,7 @@ Surfaced during the option-A campaign-signup refactor. Each item is a real risk 
 - **Brand testimonials on `ForBrands.tsx:361, :370, :379`.** "Sarah K. — VP Marketing, Emerging Snack Brand", "Marcus T. — Brand Manager, Organic Dairy", "Priya M. — Head of Growth, Plant-Based Foods" appear to be illustrative composites. Either obtain real-partner consent + name them, or add a small disclosure ("Composite based on early partner conversations").
 - **Netlify env vars must be set before `campaign-lead.mts` deploy.** `BRAND_PORTAL_URL`, `IP_HASH_SALT`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`. Missing any of them returns 500 to brand visitors. See `.env.example` and `DEPLOYMENT.md` § Required Environment Variables.
 - **Supabase migration `002_campaign_leads.sql` must run before deploy.** New table `campaign_leads`, idempotency unique index, RLS enabled. Idempotent SQL (uses `create table if not exists`), safe to re-run.
+
+## 2026-10-03 — Vocabulary conflict in marketing copy
+
+- **"AI" phrasing violates the top-level Vocabulary table.** The footer tagline "The AI shopping list for families", `About.tsx` line 52 ("Penny, our AI assistant"), `Home.tsx` line 459 ("AI that learns your brands") and `Footer.tsx` line 13 conflict with `pennyai/CLAUDE.md`'s Vocabulary table, which forbids "AI", "assistant" and "bot" in user-facing copy. `Privacy.tsx` and `Terms.tsx` also say "AI assistant" but are Twilio-vetted legal text and should not be reworded without re-vetting. Resolving this is a copy change: needs CEO sign-off and a Customer Panel pass.
