@@ -52,6 +52,12 @@ func pgURLForDatabase(adminURL, name string) (string, error) {
 		return "", err
 	}
 	u.Path = "/" + name
+	// Production runs with a UTC session zone. The app writes UTC wall-clock
+	// strings ("2006-01-02 15:04:05") into TIMESTAMPTZ columns, which only
+	// round-trips when the session zone is UTC, so the tests pin it too.
+	q := u.Query()
+	q.Set("timezone", "UTC")
+	u.RawQuery = q.Encode()
 	return u.String(), nil
 }
 

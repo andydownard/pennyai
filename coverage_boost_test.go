@@ -765,7 +765,7 @@ func TestNewTests_GetVariant_FunctionLevel_InvalidVariantsJSON(t *testing.T) {
 
 	// Create a test with invalid JSON in variants column
 	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
-		VALUES ('bad_json_var', 'desc', 'not-json', 'metric', 100, 7, 100, 'active')`)
+		VALUES ('bad_json_var', 'desc', '"not-json"', 'metric', 100, 7, 100, 'active')`)
 
 	_, err := getVariant(server.db, "bad_json_var", "user-1")
 	if err == nil {
@@ -790,13 +790,13 @@ func TestNewTests_AnalyzeABTest_BothZeroEvents(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"both_zero", "control", i, "purchases", 0.0,
+			"both_zero", "control", fmt.Sprint(i), "purchases", 0.0,
 		)
 	}
 	for i := 4; i <= 6; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"both_zero", "variant_a", i, "purchases", 0.0,
+			"both_zero", "variant_a", fmt.Sprint(i), "purchases", 0.0,
 		)
 	}
 
@@ -957,7 +957,9 @@ func TestNewTests_ABCreateTest_DefaultsApplied(t *testing.T) {
 	server.db.QueryRow("SELECT variants, min_sample_per_variant, measurement_days, traffic_pct FROM ab_tests WHERE name = 'defaults_test'").
 		Scan(&variantsJSON, &minSample, &days, &pct)
 
-	if variantsJSON != `["control","variant"]` {
+	// JSONB re-serialises with spaces, so compare the decoded value.
+	var gotVariants []string
+	if err := json.Unmarshal([]byte(variantsJSON), &gotVariants); err != nil || len(gotVariants) != 2 || gotVariants[0] != "control" || gotVariants[1] != "variant" {
 		t.Errorf("Default variants: got %q, want [\"control\",\"variant\"]", variantsJSON)
 	}
 	if minSample != 100 {
@@ -1078,8 +1080,14 @@ func TestNewTests_AdminDeals_PostWithEndsAt(t *testing.T) {
 	// Verify ends_at was stored
 	var endsAt string
 	server.db.QueryRow("SELECT COALESCE(ends_at,'') FROM brand_deals WHERE id = ?", deal.ID).Scan(&endsAt)
-	if endsAt != "2026-12-31" {
-		t.Errorf("ends_at: got %q, want '2026-12-31'", endsAt)
+	// SQLite keeps the literal; Postgres returns a timestamptz at midnight in
+	// the session zone. Either way the calendar date must be preserved.
+	gotDate := endsAt
+	if parsed, err := parseDBTime(endsAt); err == nil {
+		gotDate = parsed.Format("2006-01-02")
+	}
+	if gotDate != "2026-12-31" {
+		t.Errorf("ends_at: got %q, want date 2026-12-31", endsAt)
 	}
 }
 

@@ -206,7 +206,11 @@ func (s *Server) handleReferralClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// M2d: Track referral source
-	tx.Exec("UPDATE users SET referral_source = 'referral' WHERE id = ? AND referral_source = ''", session.UserID)
+	if _, err := tx.Exec("UPDATE users SET referral_source = 'referral' WHERE id = ? AND referral_source = ''", session.UserID); err != nil {
+		log.Printf("[referral] failed to record referral source for %s: %v", session.UserID, err)
+		dbError(w, err, "We couldn't process your referral. Please try again.")
+		return // rolls back the claim and the points above
+	}
 
 	if err := tx.Commit(); err != nil {
 		dbError(w, err, "We couldn't process your referral. Please try again.")

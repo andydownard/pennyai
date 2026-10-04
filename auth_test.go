@@ -208,9 +208,13 @@ func TestMe_NeedsSmsConsent_FalseAfterOptIn(t *testing.T) {
 func TestUsersSchema_HasPhoneNotPhoneNumber(t *testing.T) {
 	_, pgdb := openTestDB(t)
 
-	rows, err := pgdb.Query("SELECT name FROM pragma_table_info('users')")
+	colQuery := "SELECT name FROM pragma_table_info('users')"
+	if postgresTestURL() != "" {
+		colQuery = "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'users'"
+	}
+	rows, err := pgdb.Query(colQuery)
 	if err != nil {
-		t.Fatalf("pragma_table_info: %v", err)
+		t.Fatalf("listing users columns: %v", err)
 	}
 	defer rows.Close()
 

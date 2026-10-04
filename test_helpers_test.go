@@ -66,6 +66,11 @@ func (m *MockTwilioClient) GetLastSMS() (string, string) {
 // initTestDB creates all tables using SQLite-compatible DDL. This mirrors
 // schema.go's initDB but uses SQLite types instead of PostgreSQL types.
 func initTestDB(db *sql.DB) error {
+	if postgresTestURL() != "" {
+		// Postgres tier: the database is built from the production schema, so a
+		// re-init means running the production migration again.
+		return initDB(db)
+	}
 	db.Exec("PRAGMA foreign_keys = ON")
 
 	// Users table (pennyai-owned — see schema.go initDB).

@@ -185,7 +185,7 @@ func TestAdminDashboard_ActiveUsersCount(t *testing.T) {
 	upsertUser(server.db, "5552222222")
 
 	// Create a user without last_active (simulating old user)
-	server.db.Exec("INSERT OR IGNORE INTO users (phone) VALUES ('5553333333')")
+	server.db.Exec("INSERT OR IGNORE INTO users (id, phone) VALUES ('old-user-5553333333', '5553333333')")
 
 	rr := doRequest(server.handleAdminDashboard, "GET", "/api/admin/dashboard?days=30", nil, []*http.Cookie{cookie})
 	body := parseJSON(rr)
@@ -1671,7 +1671,7 @@ func TestAdminFeedbackTriage_UpdateStatus(t *testing.T) {
 	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
 
 	user, _ := upsertUser(server.db, "5551234567")
-	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'please fix', 'bug', 'high')", user.ID)
+	server.db.Exec("INSERT INTO feedback_requests (id, user_id, body, type, urgency) VALUES (1, ?, 'please fix', 'bug', 'high')", user.ID)
 
 	status := "roadmapped"
 	notes := "Added to Q2 sprint"
@@ -1699,7 +1699,7 @@ func TestAdminFeedbackTriage_InvalidStatus(t *testing.T) {
 	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
 
 	user, _ := upsertUser(server.db, "5551234567")
-	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'test', 'bug', 'normal')", user.ID)
+	server.db.Exec("INSERT INTO feedback_requests (id, user_id, body, type, urgency) VALUES (1, ?, 'test', 'bug', 'normal')", user.ID)
 
 	badStatus := "invalid_status"
 	rr := doRequest(server.handleAdminFeedbackByID, "PUT", "/api/admin/feedback/1",
@@ -1732,7 +1732,7 @@ func TestAdminFeedbackTriage_NoFields(t *testing.T) {
 	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
 
 	user, _ := upsertUser(server.db, "5551234567")
-	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'test', 'bug', 'normal')", user.ID)
+	server.db.Exec("INSERT INTO feedback_requests (id, user_id, body, type, urgency) VALUES (1, ?, 'test', 'bug', 'normal')", user.ID)
 
 	rr := doRequest(server.handleAdminFeedbackByID, "PUT", "/api/admin/feedback/1",
 		map[string]interface{}{}, []*http.Cookie{adminCookie})
@@ -2582,7 +2582,7 @@ func TestAnalyzeABTest_SignificantLift(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_sig", "control", i, "items_added", 1.0,
+			"test_sig", "control", fmt.Sprint(i), "items_added", 1.0,
 		)
 	}
 
@@ -2590,7 +2590,7 @@ func TestAnalyzeABTest_SignificantLift(t *testing.T) {
 	for i := 4; i <= 6; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_sig", "variant_a", i, "items_added", 2.0,
+			"test_sig", "variant_a", fmt.Sprint(i), "items_added", 2.0,
 		)
 	}
 
@@ -2629,14 +2629,14 @@ func TestAnalyzeABTest_ControlWins(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_ctrl_wins", "control", i, "items_added", 3.0,
+			"test_ctrl_wins", "control", fmt.Sprint(i), "items_added", 3.0,
 		)
 	}
 	// Variant: average = 1.0 (much worse than control)
 	for i := 4; i <= 6; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_ctrl_wins", "variant_a", i, "items_added", 1.0,
+			"test_ctrl_wins", "variant_a", fmt.Sprint(i), "items_added", 1.0,
 		)
 	}
 
@@ -2670,13 +2670,13 @@ func TestAnalyzeABTest_NoSignificantDifference(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_nosig", "control", i, "items_added", 2.0,
+			"test_nosig", "control", fmt.Sprint(i), "items_added", 2.0,
 		)
 	}
 	for i := 4; i <= 6; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_nosig", "variant_a", i, "items_added", 2.1, // < 10% difference
+			"test_nosig", "variant_a", fmt.Sprint(i), "items_added", 2.1, // < 10% difference
 		)
 	}
 
@@ -2705,14 +2705,14 @@ func TestAnalyzeABTest_ControlZeroEvents(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_zero", "control", i, "purchases", 0.0,
+			"test_zero", "control", fmt.Sprint(i), "purchases", 0.0,
 		)
 	}
 	// Variant: has events
 	for i := 4; i <= 6; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_zero", "variant_a", i, "purchases", 5.0,
+			"test_zero", "variant_a", fmt.Sprint(i), "purchases", 5.0,
 		)
 	}
 
@@ -2743,13 +2743,13 @@ func TestAnalyzeABTest_MeasurementPeriodNotReached(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_early", "control", i, "items_added", 1.0,
+			"test_early", "control", fmt.Sprint(i), "items_added", 1.0,
 		)
 	}
 	for i := 4; i <= 6; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_early", "variant_a", i, "items_added", 2.0,
+			"test_early", "variant_a", fmt.Sprint(i), "items_added", 2.0,
 		)
 	}
 
@@ -2779,7 +2779,7 @@ func TestABResults_WithData(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"results_test", "control", i, "items_added", 1.0,
+			"results_test", "control", fmt.Sprint(i), "items_added", 1.0,
 		)
 	}
 
@@ -3217,8 +3217,11 @@ func TestProcessUserCohorts_UserWithSwaps(t *testing.T) {
 
 	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, ?, 'accepted')", userID, dealID, itemID)
 
+	var swapEventID int
+	server.db.QueryRow("SELECT id FROM swap_events WHERE user_id = ? ORDER BY id DESC LIMIT 1", userID).Scan(&swapEventID)
+
 	// Create a rebate
-	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, 1, ?, 100, 'pending')", userID, dealID)
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, ?, ?, 100, 'pending')", userID, swapEventID, dealID)
 
 	server.processUserCohorts()
 

@@ -1006,7 +1006,7 @@ func (s *Server) processCategoryAlerts() {
 		JOIN brand_deals bd ON bd.id = se.deal_id
 		WHERE se.created_at >= datetime('now', '-30 days')
 		GROUP BY bd.category_id
-		HAVING recent_vol >= 10
+		HAVING COALESCE(SUM(CASE WHEN se.created_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END), 0) >= 10
 	`)
 	if err == nil {
 		for catRows.Next() {
