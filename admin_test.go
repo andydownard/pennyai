@@ -2582,7 +2582,7 @@ func TestAnalyzeABTest_SignificantLift(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_sig", "control", i, "items_added", 1.0,
+			"test_sig", "control", fmt.Sprint(i), "items_added", 1.0,
 		)
 	}
 
@@ -2590,7 +2590,7 @@ func TestAnalyzeABTest_SignificantLift(t *testing.T) {
 	for i := 4; i <= 6; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_sig", "variant_a", i, "items_added", 2.0,
+			"test_sig", "variant_a", fmt.Sprint(i), "items_added", 2.0,
 		)
 	}
 
@@ -2629,14 +2629,14 @@ func TestAnalyzeABTest_ControlWins(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_ctrl_wins", "control", i, "items_added", 3.0,
+			"test_ctrl_wins", "control", fmt.Sprint(i), "items_added", 3.0,
 		)
 	}
 	// Variant: average = 1.0 (much worse than control)
 	for i := 4; i <= 6; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_ctrl_wins", "variant_a", i, "items_added", 1.0,
+			"test_ctrl_wins", "variant_a", fmt.Sprint(i), "items_added", 1.0,
 		)
 	}
 
@@ -2670,13 +2670,13 @@ func TestAnalyzeABTest_NoSignificantDifference(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_nosig", "control", i, "items_added", 2.0,
+			"test_nosig", "control", fmt.Sprint(i), "items_added", 2.0,
 		)
 	}
 	for i := 4; i <= 6; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_nosig", "variant_a", i, "items_added", 2.1, // < 10% difference
+			"test_nosig", "variant_a", fmt.Sprint(i), "items_added", 2.1, // < 10% difference
 		)
 	}
 
@@ -2705,14 +2705,14 @@ func TestAnalyzeABTest_ControlZeroEvents(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_zero", "control", i, "purchases", 0.0,
+			"test_zero", "control", fmt.Sprint(i), "purchases", 0.0,
 		)
 	}
 	// Variant: has events
 	for i := 4; i <= 6; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_zero", "variant_a", i, "purchases", 5.0,
+			"test_zero", "variant_a", fmt.Sprint(i), "purchases", 5.0,
 		)
 	}
 
@@ -2743,13 +2743,13 @@ func TestAnalyzeABTest_MeasurementPeriodNotReached(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_early", "control", i, "items_added", 1.0,
+			"test_early", "control", fmt.Sprint(i), "items_added", 1.0,
 		)
 	}
 	for i := 4; i <= 6; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_early", "variant_a", i, "items_added", 2.0,
+			"test_early", "variant_a", fmt.Sprint(i), "items_added", 2.0,
 		)
 	}
 
@@ -2779,7 +2779,7 @@ func TestABResults_WithData(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"results_test", "control", i, "items_added", 1.0,
+			"results_test", "control", fmt.Sprint(i), "items_added", 1.0,
 		)
 	}
 

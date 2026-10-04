@@ -765,7 +765,7 @@ func TestNewTests_GetVariant_FunctionLevel_InvalidVariantsJSON(t *testing.T) {
 
 	// Create a test with invalid JSON in variants column
 	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
-		VALUES ('bad_json_var', 'desc', 'not-json', 'metric', 100, 7, 100, 'active')`)
+		VALUES ('bad_json_var', 'desc', '"not-json"', 'metric', 100, 7, 100, 'active')`)
 
 	_, err := getVariant(server.db, "bad_json_var", "user-1")
 	if err == nil {
@@ -790,13 +790,13 @@ func TestNewTests_AnalyzeABTest_BothZeroEvents(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"both_zero", "control", i, "purchases", 0.0,
+			"both_zero", "control", fmt.Sprint(i), "purchases", 0.0,
 		)
 	}
 	for i := 4; i <= 6; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"both_zero", "variant_a", i, "purchases", 0.0,
+			"both_zero", "variant_a", fmt.Sprint(i), "purchases", 0.0,
 		)
 	}
 
@@ -957,7 +957,9 @@ func TestNewTests_ABCreateTest_DefaultsApplied(t *testing.T) {
 	server.db.QueryRow("SELECT variants, min_sample_per_variant, measurement_days, traffic_pct FROM ab_tests WHERE name = 'defaults_test'").
 		Scan(&variantsJSON, &minSample, &days, &pct)
 
-	if variantsJSON != `["control","variant"]` {
+	// JSONB re-serialises with spaces, so compare the decoded value.
+	var gotVariants []string
+	if err := json.Unmarshal([]byte(variantsJSON), &gotVariants); err != nil || len(gotVariants) != 2 || gotVariants[0] != "control" || gotVariants[1] != "variant" {
 		t.Errorf("Default variants: got %q, want [\"control\",\"variant\"]", variantsJSON)
 	}
 	if minSample != 100 {
