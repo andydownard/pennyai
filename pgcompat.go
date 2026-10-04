@@ -38,7 +38,8 @@ type PGDB struct {
 
 	// serialTables names every table whose `id` column is an integer, i.e. the
 	// tables where LastInsertId() means something. Loaded once from the catalog.
-	serialOnce   sync.Once
+	serialMu     sync.Mutex
+	serialLoaded bool
 	serialTables map[string]bool
 }
 
@@ -96,7 +97,7 @@ func (tx *PGTx) Exec(query string, args ...interface{}) (sql.Result, error) {
 		return tx.Tx.Exec(sqliteCompat(query), args...)
 	}
 	converted := convertSQL(query)
-	return pgExecWithReturning(tx.Tx, tx.parent.hasSerialID, converted, args...)
+	return pgExecWithReturning(tx.Tx, func(table string) bool { return tx.parent.hasSerialIDVia(tx.Tx, table) }, converted, args...)
 }
 
 func (tx *PGTx) Query(query string, args ...interface{}) (*sql.Rows, error) {
@@ -400,35 +401,63 @@ func (r pgResult) RowsAffected() (int64, error) { return r.affected, nil }
 var insertTableRe = regexp.MustCompile(`(?i)^\s*INSERT\s+INTO\s+"?([a-z_][a-z0-9_]*)"?`)
 
 // loadSerialTables reads, once, which tables have an integer `id` column.
-// It runs on the pool, never on a caller's transaction. main() calls it after
-// initDB so the first INSERT does not pay for it.
+// main() calls it after initDB so the first INSERT does not pay for it.
 func (db *PGDB) loadSerialTables() {
-	db.serialOnce.Do(func() {
-		tables := map[string]bool{}
-		rows, err := db.DB.Query(
-			`SELECT table_name FROM information_schema.columns
-			 WHERE table_schema = current_schema()
-			   AND column_name = 'id'
-			   AND data_type IN ('integer', 'bigint', 'smallint')`)
-		if err != nil {
-			log.Printf("[pgcompat] could not read the catalog for integer id columns: %v", err)
-			db.serialTables = tables
-			return
+	db.loadSerialTablesVia(db.DB)
+}
+
+// loadSerialTablesVia does the load on q. A caller already inside a transaction
+// passes its own *sql.Tx: borrowing a second pooled connection from there
+// deadlocks once every connection in the pool is held by a transaction that is
+// itself waiting for this load (a burst of concurrent first INSERTs on a
+// freshly started process). The mutex means only one caller loads; the others
+// wait without needing a connection. A failed load is not remembered, so the
+// next INSERT retries instead of losing LastInsertId() for the process's life.
+func (db *PGDB) loadSerialTablesVia(q interface {
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+}) bool {
+	db.serialMu.Lock()
+	defer db.serialMu.Unlock()
+	if db.serialLoaded {
+		return true
+	}
+	rows, err := q.Query(
+		`SELECT table_name FROM information_schema.columns
+		 WHERE table_schema = current_schema()
+		   AND column_name = 'id'
+		   AND data_type IN ('integer', 'bigint', 'smallint')`)
+	if err != nil {
+		log.Printf("[pgcompat] could not read the catalog for integer id columns: %v", err)
+		return false
+	}
+	defer rows.Close()
+	tables := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if rows.Scan(&name) == nil {
+			tables[strings.ToLower(name)] = true
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var name string
-			if rows.Scan(&name) == nil {
-				tables[strings.ToLower(name)] = true
-			}
-		}
-		db.serialTables = tables
-	})
+	}
+	if rows.Err() != nil {
+		log.Printf("[pgcompat] reading integer id columns: %v", rows.Err())
+		return false
+	}
+	db.serialTables = tables
+	db.serialLoaded = true
+	return true
 }
 
 // hasSerialID reports whether INSERTs into table can return a generated id.
 func (db *PGDB) hasSerialID(table string) bool {
-	db.loadSerialTables()
+	return db.hasSerialIDVia(db.DB, table)
+}
+
+func (db *PGDB) hasSerialIDVia(q interface {
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+}, table string) bool {
+	if !db.loadSerialTablesVia(q) {
+		return false
+	}
 	return db.serialTables[strings.ToLower(table)]
 }
 
