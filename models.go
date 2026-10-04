@@ -76,7 +76,7 @@ type User struct {
 type Session struct {
 	UserID      string
 	PhoneNumber string // may be empty for non-phone auth
-	AuthMethod  string // "phone", "google", or "email"
+	AuthMethod  string // "phone", "google", "email", or "clerk" (Rally sign-in)
 	CreatedAt   time.Time
 }
 
@@ -214,6 +214,8 @@ type Server struct {
 	// Keeps an authenticated user from looping /api/settings/invite to text
 	// arbitrary numbers (CLAUDE.md damage risk #1).
 	inviteLimiter sync.Map
+	// Per-IP Rally sign-in exchange limiter: IP -> []time.Time (20 req/10min)
+	clerkExchangeIPLimiter sync.Map
 
 	// googleTokenInfoURL overrides the Google tokeninfo endpoint (for testing).
 	// When empty, defaults to "https://oauth2.googleapis.com/tokeninfo".

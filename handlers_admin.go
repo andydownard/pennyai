@@ -10,19 +10,38 @@ import (
 )
 
 func (s *Server) requireSession(w http.ResponseWriter, r *http.Request) (Session, bool) {
-	cookie, err := r.Cookie("session")
-	if err != nil {
-		log.Printf("[auth] no session cookie on %s %s: %v", r.Method, r.URL.Path, err)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not logged in"})
-		return Session{}, false
-	}
-	session, ok := s.sessions.GetSession(cookie.Value)
-	if !ok {
+	// Cookie path first and unchanged — a usable cookie always wins and costs
+	// nothing extra. The four legacy auth methods behave exactly as before.
+	staleCookie := false
+	if cookie, err := r.Cookie("session"); err == nil {
+		if session, ok := s.sessions.GetSession(cookie.Value); ok {
+			return session, true
+		}
 		log.Printf("[auth] invalid/expired session on %s %s", r.Method, r.URL.Path)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Session expired"})
+		staleCookie = true
+	} else {
+		log.Printf("[auth] no session cookie on %s %s: %v", r.Method, r.URL.Path, err)
+	}
+
+	// No usable cookie: try an Authorization: Bearer Clerk session JWT. With
+	// CLERK_ENABLED unset this is one env read and nothing else, so the dark
+	// build is identical to today's.
+	clerkSession, err := VerifyClerkRequest(r, s.resolveClerkSession)
+	if err != nil {
+		dbError(w, err, "Failed to verify sign-in")
 		return Session{}, false
 	}
-	return session, true
+	if clerkSession != nil {
+		return *clerkSession, true
+	}
+
+	// Same two messages, same conditions, as before this change.
+	msg := "Not logged in"
+	if staleCookie {
+		msg = "Session expired"
+	}
+	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": msg})
+	return Session{}, false
 }
 
 // requireAdmin checks for a valid session and that the phone is the admin phone.

@@ -667,8 +667,11 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
+	// Additive: google_client_id keeps its key, type and value. clerk_enabled
+	// tells the frontend whether to offer the Rally sign-in button at all.
+	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"google_client_id": s.config.GoogleClientID,
+		"clerk_enabled":    clerkIsEnabled(),
 	})
 }
 

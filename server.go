@@ -158,8 +158,58 @@ func (r *statusRecorder) Flush() {
 	}
 }
 
+// Content-Security-Policy, as two literal baselines. Extracted from the request
+// handler so the Rally sign-in widening is testable — and so the test can assert
+// byte-for-byte equality with these strings while the feature is off.
+const (
+	// Embed routes are framed by approved partner origins.
+	cspEmbedBase = "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://www.google-analytics.com https://www.googletagmanager.com; frame-src https://accounts.google.com; frame-ancestors 'self' https://vibeflourishing.com https://vibeflourishing-production.up.railway.app https://deck.groflo.io https://deck.thrift.ly https://localhost:5173"
+	// Every other route.
+	cspAppBase = "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://*.ingest.us.sentry.io https://us.i.posthog.com https://www.google-analytics.com https://www.googletagmanager.com https://penny.rallytasks.com; frame-src https://accounts.google.com; frame-ancestors 'self' https://penny.rallytasks.com; font-src 'self'"
+)
+
+// cspHeader returns the Content-Security-Policy for a path.
+//
+// Output is byte-identical to the historical literals unless BOTH
+// CLERK_ENABLED=1 and CLERK_FRONTEND_API_ORIGIN are set — so this ships dark
+// with the rest of Rally sign-in. When both are set, the Clerk Frontend API
+// origin is added to script-src, connect-src and frame-src, and worker-src is
+// allowed a blob (clerk-js runs a blob worker). Widening is strictly additive:
+// no existing source is ever removed.
+func cspHeader(path string) string {
+	base := cspAppBase
+	if strings.HasPrefix(path, "/embed") {
+		base = cspEmbedBase
+	}
+
+	origin := strings.TrimSpace(os.Getenv("CLERK_FRONTEND_API_ORIGIN"))
+	if !clerkIsEnabled() || origin == "" {
+		return base
+	}
+
+	out := make([]string, 0, 10)
+	for _, directive := range strings.Split(base, "; ") {
+		name := strings.SplitN(directive, " ", 2)[0]
+		switch name {
+		case "script-src", "connect-src", "frame-src":
+			directive += " " + origin
+		}
+		out = append(out, directive)
+	}
+	out = append(out, "worker-src 'self' blob:")
+	return strings.Join(out, "; ")
+}
+
 func main() {
 	cfg := loadConfig()
+
+	// pennyai is a Clerk SATELLITE: it verifies session JWTs against the Rally
+	// primary's public JWKS and never calls Clerk's Backend API. Holding a Clerk
+	// secret here is itself the misconfiguration, so refuse to boot on it —
+	// whether or not CLERK_ENABLED is set. Webhooks and secrets live in timpager.
+	if forbidden := clerkForbiddenSecrets(); len(forbidden) > 0 {
+		log.Fatalf("Refusing to start: %s is set. pennyai is a Clerk satellite and must never hold a Clerk secret; unset these and restart.", strings.Join(forbidden, ", "))
+	}
 
 	// Sentry error monitoring — gracefully skipped if DSN not set
 	if dsn := os.Getenv("SENTRY_DSN"); dsn != "" {
@@ -270,6 +320,9 @@ Get these from https://console.twilio.com (see README for full setup).
 	http.HandleFunc("/auth/email/reset", server.handleEmailReset)
 	http.HandleFunc("/auth/email/magic-link", server.handleMagicLink)
 	http.HandleFunc("/auth/email/magic-verify", server.handleMagicLinkVerify)
+	// Rally sign-in (Clerk satellite). Dark behind CLERK_ENABLED: answers 404
+	// until the flag is on. The four legacy auth routes above are untouched.
+	http.HandleFunc("/auth/clerk/exchange", server.handleClerkExchange)
 	http.HandleFunc("/auth/logout", server.handleLogout)
 	http.HandleFunc("/auth/me", server.handleMe)
 	http.HandleFunc("/api/me/sms-consent", server.handleSmsConsent)
@@ -515,7 +568,7 @@ Get these from https://console.twilio.com (see README for full setup).
 
 		// Embed routes: allow framing by approved origins; all other routes: DENY
 		if strings.HasPrefix(r.URL.Path, "/embed") {
-			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://www.google-analytics.com https://www.googletagmanager.com; frame-src https://accounts.google.com; frame-ancestors 'self' https://vibeflourishing.com https://vibeflourishing-production.up.railway.app https://deck.groflo.io https://deck.thrift.ly https://localhost:5173")
+			w.Header().Set("Content-Security-Policy", cspHeader(r.URL.Path))
 			// Dynamic CORS origin for approved embed hosts
 			origin := r.Header.Get("Origin")
 			allowedOrigins := map[string]bool{"https://vibeflourishing.com": true, "https://deck.groflo.io": true, "https://deck.thrift.ly": true}
@@ -533,7 +586,7 @@ Get these from https://console.twilio.com (see README for full setup).
 			}
 		} else {
 			w.Header().Set("X-Frame-Options", "DENY")
-			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://*.ingest.us.sentry.io https://us.i.posthog.com https://www.google-analytics.com https://www.googletagmanager.com https://penny.rallytasks.com; frame-src https://accounts.google.com; frame-ancestors 'self' https://penny.rallytasks.com; font-src 'self'")
+			w.Header().Set("Content-Security-Policy", cspHeader(r.URL.Path))
 		}
 		if server.config.SecureCookies {
 			w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
@@ -560,6 +613,7 @@ Get these from https://console.twilio.com (see README for full setup).
 			pruneTimeLimiter(&server.otpIPLimiter, 10*time.Minute)
 			pruneTimeLimiter(&server.emailLoginIPLimiter, 10*time.Minute)
 			pruneTimeLimiter(&server.passwordResetIPLimiter, 15*time.Minute)
+			pruneTimeLimiter(&server.clerkExchangeIPLimiter, clerkExchangeWindow)
 			pruneBucketLimiter(&server.parseLimiter, time.Hour)
 			pruneBucketLimiter(&server.earningsUploadLimiter, time.Hour)
 			pruneBucketLimiter(&server.npsSubmitLimiter, time.Hour)

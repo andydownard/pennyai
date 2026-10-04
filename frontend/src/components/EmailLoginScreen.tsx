@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import { PennyAvatar } from './PennyAvatar'
 import { FloatingLabelField } from './FloatingLabelField'
 import { LegalLinks } from './LegalLinks'
@@ -6,6 +6,10 @@ import {
   FONT, FONT_SM, FONT_BASE,
   authStyles, pageStyles, layout,
 } from '../styles'
+import { clerkActive } from '../auth/clerkToken'
+
+// Lazy: see PhoneScreen.
+const ClerkSignInButton = lazy(() => import('../auth/ClerkSignInButton'))
 
 interface EmailLoginScreenProps {
   emailInput: string
@@ -15,6 +19,8 @@ interface EmailLoginScreenProps {
   magicLinkSent: boolean
   loginPennyText: string
   googleClientId: string
+  /** Server-side flag from /api/config. Default false leaves this screen as-is. */
+  clerkEnabled?: boolean
   onEmailChange: (v: string) => void
   onPasswordChange: (v: string) => void
   onLogin: () => void
@@ -26,6 +32,7 @@ interface EmailLoginScreenProps {
 
 export function EmailLoginScreen({
   emailInput, passwordInput, loading, error, magicLinkSent, loginPennyText, googleClientId,
+  clerkEnabled = false,
   onEmailChange, onPasswordChange, onLogin, onMagicLink, onNavigate, setError, setMagicLinkSent,
 }: EmailLoginScreenProps) {
   const [showPassword, setShowPassword] = useState(false)
@@ -104,6 +111,12 @@ export function EmailLoginScreen({
 
         {googleClientId && (
           <div id="google-signin-btn" style={{ ...layout.rowCenter, width: '100%', marginBottom: '12px' }} />
+        )}
+
+        {clerkEnabled && clerkActive() && (
+          <Suspense fallback={null}>
+            <ClerkSignInButton />
+          </Suspense>
         )}
 
         <button onClick={() => { setError(''); onNavigate('phone') }} style={authStyles.subtleLink}>Use phone number instead</button>

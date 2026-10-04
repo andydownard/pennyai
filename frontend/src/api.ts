@@ -5,6 +5,8 @@
 // with automatic 401 session expiry handling.
 // =============================================================================
 
+import { clerkActive, getClerkToken } from './auth/clerkToken'
+
 type SessionExpiredHandler = () => void
 
 let onSessionExpired: SessionExpiredHandler = () => {}
@@ -12,6 +14,27 @@ let onSessionExpired: SessionExpiredHandler = () => {}
 /** Register a callback for 401 session expiry. Call once at app init. */
 export function setSessionExpiredHandler(handler: SessionExpiredHandler) {
   onSessionExpired = handler
+}
+
+/**
+ * Attach the Clerk session token as a Bearer header when Rally sign-in is built
+ * into this bundle and a token is available.
+ *
+ * With Clerk off this returns the caller's options object UNCHANGED — not a copy
+ * — and never awaits a getter, so requests are byte-for-byte what they are
+ * today. A caller-supplied Authorization header is never overwritten.
+ */
+async function withAuthHeader(options?: RequestInit): Promise<RequestInit | undefined> {
+  if (!clerkActive()) return options
+
+  const headers = new Headers(options?.headers)
+  if (headers.has('Authorization')) return options
+
+  const token = await getClerkToken()
+  if (!token) return options
+
+  headers.set('Authorization', `Bearer ${token}`)
+  return { ...options, headers }
 }
 
 /**
@@ -24,7 +47,7 @@ export async function fetchAPI<T = Record<string, unknown>>(
 ): Promise<T | null> {
   let res: Response
   try {
-    res = await fetch(url, options)
+    res = await fetch(url, await withAuthHeader(options))
   } catch {
     return null // network error
   }
@@ -53,7 +76,7 @@ export async function fetchAction(
 ): Promise<ActionResult> {
   let res: Response
   try {
-    res = await fetch(url, options)
+    res = await fetch(url, await withAuthHeader(options))
   } catch {
     return { ok: false, status: 0, error: 'Network error' }
   }

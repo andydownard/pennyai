@@ -53,6 +53,8 @@ lists := db.QueryContext(ctx,
 
 Groflo supports four auth methods: **phone + SMS** (Twilio Verify), **Google OAuth**, **email + password** (bcrypt), **magic link** (single-use, 15-min expiry). No single method can be weakened or removed.
 
+A fifth method, **Rally sign-in (Clerk satellite)**, ships dark behind `CLERK_ENABLED` (default off). It is strictly additive: it takes nothing away from the four above.
+
 ### Phone + SMS (Twilio Verify)
 - Rate limit: **5 verify attempts per phone per hour**. Enforced server-side, not client.
 - Valid phone numbers only (E.164 format, country code required).
@@ -75,6 +77,20 @@ Groflo supports four auth methods: **phone + SMS** (Twilio Verify), **Google OAu
 - Token is a UUID v4, stored as `sha256(token)` in database.
 - After use, token is deleted. No replay.
 - Rate limit: **3 magic link requests per email per 10 minutes**.
+
+### Rally Sign-in (Clerk Satellite) — ships dark behind `CLERK_ENABLED`
+
+pennyai is a Clerk **satellite daughter** of the Rally primary instance that lives in timpager. The primary owns the credential UI; pennyai only verifies.
+
+- **No Clerk secret, ever.** Verification uses the primary's **public** JWKS (`CLERK_JWT_ISSUER` + `/.well-known/jwks.json`), fetched with plain HTTP and cached per issuer. Clerk's Backend API is never called. The server **refuses to start** if `CLERK_SECRET_KEY` or `CLERK_WEBHOOK_SIGNING_SECRET` is set — independent of `CLERK_ENABLED`, because holding the secret is itself the misconfiguration. Webhooks and secrets live in timpager only.
+- **Bearer only; cookie-blind.** Only `Authorization: Bearer <jwt>` counts. Clerk's `__session` cookie is **never read**, so a cookie minted for another Rally app on the shared apex cannot authenticate anyone here. (This is also why the vibe101 `__session` cookie-bleed class of bug does not apply to pennyai: there is no code path that reads that cookie.)
+- **Checks beyond the SDK.** `clerk-sdk-go`'s `jwt.Verify` checks the signature, `exp`/`nbf` (10s leeway) and `azp`, but its issuer check is only a *pattern* and it does not require `exp` or `sub` to be present. pennyai adds: an RS256-and-`kid` header pre-check **before any key lookup** (defeats `alg: none` and HS256 confusion for free), JWK pinning (`kty` RSA, `use` sig, `alg` RS256), **exact** issuer equality, and `exp`/`sub` presence.
+- **azp allowlist is mandatory.** `CLERK_AUTHORIZED_PARTIES` must be non-empty or verification is refused outright; a token with no `azp` is always rejected.
+- **The authority decides identity.** `POST /auth/clerk/exchange` resolves every Clerk identity against timpager's `POST /api/v1/identity/resolve` (service key as `X-API-Key`, end-user JWT as `Authorization: Bearer`). `users.id` **is** the `rally_user_id`; pennyai never mints an id of its own for a Clerk user. If the authority is unreachable or rejects the token, nothing is created — fail closed.
+- **No account takeover.** A `users` row already bound to one `clerk_user_id` is never rebound to another: the bind is an atomic conditional `UPDATE … WHERE clerk_user_id IS NULL`, and losing that race returns **409**, mints no session, and writes nothing. A partial unique index (`idx_users_clerk_user_id`) is the database-level backstop.
+- **Mapping order** for adopting an existing account: `clerk_user_id` → `google_sub` (custom claim, if the primary emits one) → phone → email. Email is last, and only because the authority has verified it; soft-deleted rows (`name LIKE '[merged into user%'`) are never adopted.
+- **Session** is the ordinary pennyai session: 256-bit token, HttpOnly cookie, 30-day expiry. Nothing about session handling is special-cased for Clerk.
+- **Logging.** Only `sub` and `rally_user_id` are logged. Never a token, an email, or a phone.
 
 **Session Management:**
 - 256-bit random session tokens (`crypto.randomBytes(32).toString('hex')`).
@@ -149,6 +165,7 @@ User input reaches Claude in shopping list items, household notes, and feedback.
 | Auth (SMS verify) | 5 per hour | per phone |
 | Auth (magic link) | 3 per 10 minutes | per email |
 | Auth (OAuth callback) | 3 per minute | per IP |
+| Rally sign-in exchange | 20 per 10 minutes | per IP |
 | Household invite | 10 per day | per user |
 | Notification (SMS) | 5 per hour | per user |
 | Notification (email) | 10 per day | per user |

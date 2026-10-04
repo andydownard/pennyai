@@ -1014,7 +1014,7 @@ function AppInner() {
     checking, setChecking, isOffline,
     emailInput, setEmailInput, passwordInput, setPasswordInput,
     confirmPassword, setConfirmPassword, nameInput, setNameInput,
-    lastNameInput, setLastNameInput, googleClientId,
+    lastNameInput, setLastNameInput, googleClientId, clerkEnabled,
     resetSent, setResetSent, magicLinkSent, setMagicLinkSent,
     smsOptIn, setSmsOptIn, loginPennyText,
     phoneInputRef, codeInputRefs,
@@ -2152,7 +2152,7 @@ function AppInner() {
     return (
       <PhoneScreen
         phone={phone} smsOptIn={smsOptIn} loading={loading} error={error}
-        loginPennyText={loginPennyText} googleClientId={googleClientId}
+        loginPennyText={loginPennyText} googleClientId={googleClientId} clerkEnabled={clerkEnabled}
         phoneInputRef={phoneInputRef}
         onPhoneChange={handlePhoneChange}
         onSmsOptInChange={v => setSmsOptIn(v)}
@@ -2172,7 +2172,7 @@ function AppInner() {
       <EmailLoginScreen
         emailInput={emailInput} passwordInput={passwordInput}
         loading={loading} error={error} magicLinkSent={magicLinkSent}
-        loginPennyText={loginPennyText} googleClientId={googleClientId}
+        loginPennyText={loginPennyText} googleClientId={googleClientId} clerkEnabled={clerkEnabled}
         onEmailChange={v => setEmailInput(v)} onPasswordChange={v => setPasswordInput(v)}
         onLogin={handleEmailLogin} onMagicLink={handleMagicLink}
         onNavigate={s => setScreen(s as Screen)}

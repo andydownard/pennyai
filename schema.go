@@ -79,9 +79,21 @@ func initDB(db *sql.DB) error {
 		{"daily_digest_enabled", "INTEGER NOT NULL DEFAULT 0"},
 		{"daily_digest_opted_in_at", "TIMESTAMPTZ"},
 		{"daily_digest_last_sent", "TIMESTAMPTZ"},
+		// Rally sign-in (Clerk satellite): the `sub` claim of a verified Clerk
+		// session JWT. Nullable with no default — every legacy row keeps a NULL
+		// and nothing about the existing four auth methods changes.
+		{"clerk_user_id", "TEXT"},
 	} {
 		addColumnIfNotExists(db, "users", c.col, c.def)
 	}
+
+	// One Clerk identity maps to at most one local user. A PARTIAL unique index
+	// (not a column UNIQUE constraint) so unlimited NULLs coexist — a column
+	// constraint would be a table-shape change and could fail on a database
+	// that already has rows. Works on Postgres and the SQLite test tier alike.
+	// This index, not application code, is the real backstop against two rows
+	// claiming one Clerk identity under concurrent first logins.
+	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_clerk_user_id ON users(clerk_user_id) WHERE clerk_user_id IS NOT NULL")
 
 	// =========================================================================
 	// SESSIONS TABLE — owned by pennyai
