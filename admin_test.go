@@ -3217,8 +3217,11 @@ func TestProcessUserCohorts_UserWithSwaps(t *testing.T) {
 
 	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, ?, 'accepted')", userID, dealID, itemID)
 
+	var swapEventID int
+	server.db.QueryRow("SELECT id FROM swap_events WHERE user_id = ? ORDER BY id DESC LIMIT 1", userID).Scan(&swapEventID)
+
 	// Create a rebate
-	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, 1, ?, 100, 'pending')", userID, dealID)
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, ?, ?, 100, 'pending')", userID, swapEventID, dealID)
 
 	server.processUserCohorts()
 
