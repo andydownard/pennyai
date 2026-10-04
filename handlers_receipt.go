@@ -191,7 +191,7 @@ func (s *Server) handleReceiptConfirm(w http.ResponseWriter, r *http.Request) {
 				s.db.QueryRow("SELECT store_name FROM receipts WHERE id = ?", receiptID).Scan(&storeName)
 				s.db.Exec(`INSERT INTO retailer_abbreviations (abbreviation, full_name, retailer, confirmations)
 					VALUES (?, ?, ?, 1)
-					ON CONFLICT(abbreviation, retailer) DO UPDATE SET confirmations = confirmations + 1`,
+					ON CONFLICT(abbreviation, retailer) DO UPDATE SET confirmations = retailer_abbreviations.confirmations + 1`,
 					strings.ToUpper(rawText), c.MatchedName, storeName)
 			}
 		} else {

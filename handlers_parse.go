@@ -258,7 +258,7 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 		s.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, decline_reason, time_to_action_ms, why_tapped) VALUES (?, ?, ?, 'declined', ?, ?, ?)",
 			session.UserID, req.SwapDealID, req.SwapItemID, req.DeclineReason, req.TimeToActionMs, declineWhyTapped)
 		s.db.Exec(`INSERT INTO swap_suppressions (user_id, deal_id, decline_count) VALUES (?, ?, 1)
-			ON CONFLICT(user_id, deal_id) DO UPDATE SET decline_count = decline_count + 1`,
+			ON CONFLICT(user_id, deal_id) DO UPDATE SET decline_count = swap_suppressions.decline_count + 1`,
 			session.UserID, req.SwapDealID)
 
 		go s.recordSignal(session.UserID, "swap_declined", "", req.DeclineReason, map[string]interface{}{
