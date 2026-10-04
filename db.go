@@ -126,7 +126,7 @@ func getDietaryBrandDefault(db dbExecer, category string, diets []string) (strin
 	args = append(args, category)
 	likes := make([]string, len(diets))
 	for i, diet := range diets {
-		likes[i] = "dp.diets ILIKE ?"
+		likes[i] = "CAST(dp.diets AS TEXT) ILIKE ?" // diets is JSONB on Postgres; ILIKE needs text
 		args = append(args, "%"+strings.ToLower(diet)+"%")
 	}
 
