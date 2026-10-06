@@ -15,7 +15,7 @@ import (
 // =============================================================================
 
 func TestBuildDigestMessage_SingleItem(t *testing.T) {
-	msg := buildDigestMessage("Alice Smith", []string{"milk"})
+	msg := buildDigestMessage("https://groflo.rallytasks.com", "Alice Smith", []string{"milk"})
 	if !strings.Contains(msg, "Hey Alice") {
 		t.Errorf("Expected 'Hey Alice' in message, got: %s", msg)
 	}
@@ -25,13 +25,13 @@ func TestBuildDigestMessage_SingleItem(t *testing.T) {
 	if !strings.Contains(msg, "milk") {
 		t.Errorf("Expected 'milk' in message, got: %s", msg)
 	}
-	if !strings.Contains(msg, "https://app.groflo.io") {
+	if !strings.Contains(msg, "https://groflo.rallytasks.com") {
 		t.Errorf("Expected link in message, got: %s", msg)
 	}
 }
 
 func TestBuildDigestMessage_MultipleItems(t *testing.T) {
-	msg := buildDigestMessage("Bob", []string{"milk", "eggs", "bread"})
+	msg := buildDigestMessage("https://groflo.rallytasks.com", "Bob", []string{"milk", "eggs", "bread"})
 	if !strings.Contains(msg, "Hey Bob") {
 		t.Errorf("Expected 'Hey Bob' in message, got: %s", msg)
 	}
@@ -45,7 +45,7 @@ func TestBuildDigestMessage_MultipleItems(t *testing.T) {
 
 func TestBuildDigestMessage_TruncatesAfter5(t *testing.T) {
 	items := []string{"milk", "eggs", "bread", "butter", "cheese", "yogurt", "apples"}
-	msg := buildDigestMessage("Carol", items)
+	msg := buildDigestMessage("https://groflo.rallytasks.com", "Carol", items)
 	if !strings.Contains(msg, "7 items were") {
 		t.Errorf("Expected '7 items were' in message, got: %s", msg)
 	}
@@ -59,7 +59,7 @@ func TestBuildDigestMessage_TruncatesAfter5(t *testing.T) {
 }
 
 func TestBuildDigestMessage_EmptyName(t *testing.T) {
-	msg := buildDigestMessage("", []string{"milk"})
+	msg := buildDigestMessage("https://groflo.rallytasks.com", "", []string{"milk"})
 	if !strings.HasPrefix(msg, "Hey,") {
 		t.Errorf("Expected message to start with 'Hey,' for empty name, got: %s", msg)
 	}

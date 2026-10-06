@@ -19,7 +19,7 @@ jobs:
       - name: Check app health
         id: health
         run: |
-          HTTP_CODE=$(curl -s -o /tmp/health_response -w "%{http_code}" --max-time 10 https://app.groflo.io/health || echo "000")
+          HTTP_CODE=$(curl -s -o /tmp/health_response -w "%{http_code}" --max-time 10 https://groflo.rallytasks.com/health || echo "000")
           echo "http_code=$HTTP_CODE" >> $GITHUB_OUTPUT
           if [ "$HTTP_CODE" = "200" ]; then
             echo "✅ App is healthy (HTTP $HTTP_CODE)"
@@ -35,7 +35,7 @@ jobs:
         run: |
           echo "Waiting 30s before retry..."
           sleep 30
-          HTTP_CODE=$(curl -s -o /tmp/health_retry -w "%{http_code}" --max-time 10 https://app.groflo.io/health || echo "000")
+          HTTP_CODE=$(curl -s -o /tmp/health_retry -w "%{http_code}" --max-time 10 https://groflo.rallytasks.com/health || echo "000")
           echo "http_code=$HTTP_CODE" >> $GITHUB_OUTPUT
           if [ "$HTTP_CODE" = "200" ]; then
             echo "✅ App recovered on retry (HTTP $HTTP_CODE)"
@@ -63,7 +63,7 @@ jobs:
           echo ""
           echo "Redeploy triggered. Waiting 90s for it to come up..."
           sleep 90
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://app.groflo.io/health || echo "000")
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://groflo.rallytasks.com/health || echo "000")
           if [ "$HTTP_CODE" = "200" ]; then
             echo "✅ App recovered after redeploy"
           else
@@ -96,7 +96,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 title: `🚨 App down — ${new Date().toISOString()}`,
-                body: `The uptime monitor detected that https://app.groflo.io/health is not returning 200.\n\nAn automatic redeploy was attempted.\n\nPlease investigate Railway logs.`,
+                body: `The uptime monitor detected that https://groflo.rallytasks.com/health is not returning 200.\n\nAn automatic redeploy was attempted.\n\nPlease investigate Railway logs.`,
                 labels: ['downtime']
               });
             }

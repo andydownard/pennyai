@@ -1386,7 +1386,7 @@ func newTestServer(t *testing.T, mock *MockTwilioClient) *Server {
 	_, pgdb := openTestDB(t)
 
 	server := &Server{
-		config:   Config{Port: "8080", AnthropicAPIKey: "test-key", TwilioPhoneNumber: "+10000000000", AdminPhone: "3104861833", FeedbackPhones: []string{"5551234567"}, BcryptCost: 4},
+		config:   Config{Port: "8080", AppBaseURL: "https://groflo.rallytasks.com", AnthropicAPIKey: "test-key", TwilioPhoneNumber: "+10000000000", AdminPhone: "3104861833", FeedbackPhones: []string{"5551234567"}, BcryptCost: 4},
 		db:       pgdb,
 		sessions: NewSessionStore(pgdb),
 		twilio:   mock,

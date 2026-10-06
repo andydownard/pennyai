@@ -101,7 +101,7 @@ func (s *Server) processDailyDigest() {
 		}
 
 		// Build the SMS message
-		msg := buildDigestMessage(u.Name, items)
+		msg := buildDigestMessage(s.config.AppBaseURL, u.Name, items)
 
 		// SAFETY: Update dedup flag BEFORE sending SMS. If SMS fails, user misses
 		// one digest (recoverable). If we sent first and UPDATE failed, user gets
@@ -188,7 +188,7 @@ func (s *Server) getDigestItems(userID string, since string) []string {
 }
 
 // buildDigestMessage constructs the SMS body for the daily digest.
-func buildDigestMessage(userName string, items []string) string {
+func buildDigestMessage(appURL, userName string, items []string) string {
 	firstName := strings.TrimSpace(strings.SplitN(userName, " ", 2)[0])
 	if firstName == "" {
 		firstName = "Hey"
@@ -217,6 +217,6 @@ func buildDigestMessage(userName string, items []string) string {
 		noun = "item was"
 	}
 
-	return fmt.Sprintf("%s, %d %s added to your list today: %s. Open: https://app.groflo.io",
-		firstName, count, noun, itemList)
+	return fmt.Sprintf("%s, %d %s added to your list today: %s. Open: %s",
+		firstName, count, noun, itemList, appURL)
 }

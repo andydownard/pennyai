@@ -229,7 +229,7 @@ func (s *Server) handleMilestoneCheck(w http.ResponseWriter, r *http.Request) {
 		"milestone": map[string]interface{}{
 			"cents":      unacked.cents,
 			"dollars":    dollars,
-			"share_text": shareText + "\n\nGet Groflo: https://app.groflo.io",
+			"share_text": shareText + "\n\nGet Groflo: " + s.config.AppBaseURL,
 			"total_cents": totalCents,
 		},
 	})

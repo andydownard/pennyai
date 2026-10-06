@@ -141,9 +141,9 @@ func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 		inviterName = strings.TrimSpace(inviterName)
 		var smsBody string
 		if inviterName != "" {
-			smsBody = fmt.Sprintf("%s invited you to their grocery list on Groflo! Tap to join: https://app.groflo.io/join/%s", inviterName, code)
+			smsBody = fmt.Sprintf("%s invited you to their grocery list on Groflo! Tap to join: %s/join/%s", inviterName, s.config.AppBaseURL, code)
 		} else {
-			smsBody = fmt.Sprintf("You've been invited to a shared grocery list on Groflo! Tap to join: https://app.groflo.io/join/%s", code)
+			smsBody = fmt.Sprintf("You've been invited to a shared grocery list on Groflo! Tap to join: %s/join/%s", s.config.AppBaseURL, code)
 		}
 		if err := s.twilio.SendSMS(s.config.TwilioPhoneNumber, e164, smsBody); err != nil {
 			log.Printf("[invite] error sending SMS to %s: %v", e164, err)
@@ -153,7 +153,7 @@ func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	link := fmt.Sprintf("https://app.groflo.io/join/%s", code)
+	link := fmt.Sprintf("%s/join/%s", s.config.AppBaseURL, code)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"code":    code,
