@@ -540,12 +540,15 @@ func (s *Server) processLearnings() {
 		}
 	}
 	for uid := range userIDSet {
-		ctx := s.buildLearningContext(uid)
+		ctx := s.rebuildLearningContext(uid)
 		if ctx != "" {
-			s.db.Exec(`INSERT INTO penny_context_cache (user_id, context_json, computed_at)
+			enc := encodeContextCache(ctx)
+			if _, err := s.db.Exec(`INSERT INTO penny_context_cache (user_id, context_json, computed_at)
 				VALUES (?, ?, datetime('now'))
 				ON CONFLICT(user_id) DO UPDATE SET context_json = ?, computed_at = datetime('now')`,
-				uid, ctx, ctx)
+				uid, enc, enc); err != nil {
+				log.Printf("[learning] could not cache context for user %s: %v", uid, err)
+			}
 		}
 	}
 
