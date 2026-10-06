@@ -12,7 +12,7 @@ import (
 // the transaction, so carrying on and committing would lose or half-apply the
 // writes; the handler must return an error and roll back instead.
 func TestSwaps_AcceptSwap_MidTransactionFailureRollsBackEverything(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
