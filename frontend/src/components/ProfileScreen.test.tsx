@@ -15,7 +15,7 @@ function renderProfile() {
       onFirstNameChange={vi.fn()} onLastNameChange={vi.fn()} onEmailChange={vi.fn()} onAddressChange={vi.fn()}
       onAutoSave={vi.fn()}
       currentUserId={null} isAdmin={false}
-      onNavigate={vi.fn()} onLogout={vi.fn()} showToast={vi.fn()} onSessionExpired={vi.fn()}
+      onNavigate={vi.fn()} showToast={vi.fn()} onSessionExpired={vi.fn()}
       placesReady={false} darkMode={false} onToggleDarkMode={vi.fn()}
       renderHeader={() => null} transitionStyle={{}}
     />,
@@ -45,7 +45,7 @@ describe('ProfileScreen', () => {
     expect(screen.getByPlaceholderText(/Start typing your address/)).toBeInTheDocument()
     expect(screen.getByText('Need Help?')).toBeInTheDocument()
     expect(screen.getByText('Dark mode')).toBeInTheDocument()
-    expect(screen.getByText('Sign Out')).toBeInTheDocument()
+    expect(screen.queryByText(/sign out/i)).not.toBeInTheDocument()
   })
 
   it('makes no network call on render', () => {

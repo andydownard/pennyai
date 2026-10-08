@@ -3,6 +3,7 @@ import { FloatingLabelField } from './FloatingLabelField'
 import { ToggleSwitch } from './ToggleSwitch'
 import { ScreenTransition } from './ScreenTransition'
 import { fetchAPI } from '../api'
+import { useAvatarVersion, bumpAvatarVersion, initialsOf } from '../avatarStore'
 import {
   FONT, FONT_2XS, FONT_SM, FONT_BASE, pageStyles,
 } from '../styles'
@@ -25,7 +26,6 @@ interface ProfileScreenProps {
   isAdmin: boolean
   // Shared callbacks
   onNavigate: (screen: string) => void
-  onLogout: () => void
   showToast: (msg: string, type?: 'success' | 'error') => void
   onSessionExpired: () => void
   // Address autocomplete
@@ -44,13 +44,13 @@ export function ProfileScreen({
   onFirstNameChange, onLastNameChange, onEmailChange, onAddressChange,
   onAutoSave,
   currentUserId, isAdmin,
-  onNavigate, onLogout, showToast, onSessionExpired,
+  onNavigate, showToast, onSessionExpired,
   placesReady,
   darkMode, onToggleDarkMode,
   renderHeader, transitionStyle,
 }: ProfileScreenProps) {
   // Avatar state (profile-only)
-  const [avatarVersion, setAvatarVersion] = useState(0)
+  const avatarVersion = useAvatarVersion()
   const [avatarUploading, setAvatarUploading] = useState(false)
   const [avatarError, setAvatarError] = useState(false)
 
@@ -59,7 +59,7 @@ export function ProfileScreen({
   const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
   const addressSuggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const initials = [firstName, lastName].map(n => (n || '')[0]?.toUpperCase() || '').filter(Boolean).join('')
+  const initials = initialsOf(firstName, lastName)
   const avatarUrl = currentUserId ? `/api/avatar/${currentUserId}?v=${avatarVersion}` : null
 
   const handleAvatarPick = () => {
@@ -86,7 +86,7 @@ export function ProfileScreen({
         const res = await fetch('/api/avatar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ photo: base64 }) })
         if (res.status === 401) { onSessionExpired(); return }
         if (res.ok) {
-          setAvatarVersion(v => v + 1)
+          bumpAvatarVersion()
           showToast('Photo updated!')
         } else {
           const data = await res.json().catch(() => ({}))
@@ -283,12 +283,6 @@ export function ProfileScreen({
 
           <div style={{ height: '1px', backgroundColor: 'var(--border)', margin: '8px 0' }} />
 
-          {/* Sign out */}
-          <button onClick={onLogout} style={{
-            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-            fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 500, color: 'var(--error)',
-            textAlign: 'left' as const,
-          }}>Sign Out</button>
 
         </div>
       </div>

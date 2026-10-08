@@ -1,4 +1,5 @@
 import { PennyAvatar } from './PennyAvatar'
+import { UserAvatar } from './UserAvatar'
 import { FONT, FONT_BASE, FONT_SM, FONT_2XS } from '../styles'
 
 export type NavScreen = 'home' | 'saved-lists' | 'penny' | 'settings-share' | 'profile' | 'admin'
@@ -7,7 +8,11 @@ interface NavMenuProps {
   open: boolean
   active: NavScreen
   isAdmin?: boolean
+  userId: number | null
+  initials: string
+  displayName: string
   onNavigate: (screen: NavScreen) => void
+  onLogout: () => void
   onClose: () => void
 }
 
@@ -28,10 +33,6 @@ const menuItems: { key: NavScreen; label: string; icon: (color: string) => JSX.E
     key: 'settings-share', label: 'Share & Earn',
     icon: (c) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>,
   },
-  {
-    key: 'profile', label: 'Profile',
-    icon: (c) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
-  },
 ]
 
 const adminItem: typeof menuItems[0] = {
@@ -39,7 +40,7 @@ const adminItem: typeof menuItems[0] = {
   icon: (c) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/></svg>,
 }
 
-export function NavMenu({ open, active, isAdmin, onNavigate, onClose }: NavMenuProps) {
+export function NavMenu({ open, active, isAdmin, userId, initials, displayName, onNavigate, onLogout, onClose }: NavMenuProps) {
   if (!open) return null
 
   const items = isAdmin ? [...menuItems, adminItem] : menuItems
@@ -97,6 +98,29 @@ export function NavMenu({ open, active, isAdmin, onNavigate, onClose }: NavMenuP
           </div>
         </div>
 
+        {/* Profile: first */}
+        <button
+          onClick={() => { onNavigate('profile'); onClose() }}
+          aria-current={active === 'profile' ? 'page' : undefined}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '14px',
+            width: '100%', padding: '16px 20px',
+            fontFamily: FONT, border: 'none', cursor: 'pointer', textAlign: 'left',
+            color: 'var(--text)',
+            backgroundColor: active === 'profile' ? 'var(--bg)' : 'transparent',
+            borderLeft: active === 'profile' ? '3px solid var(--brand)' : '3px solid transparent',
+            borderBottom: '1px solid var(--border)',
+          }}
+        >
+          <UserAvatar userId={userId} initials={initials} size={48} />
+          <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <span style={{ fontSize: FONT_BASE, fontWeight: 600 }}>Profile</span>
+            {displayName && (
+              <span style={{ fontSize: FONT_SM, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span>
+            )}
+          </span>
+        </button>
+
         {/* Nav items */}
         <div style={{ flex: 1, padding: '8px 0', overflowY: 'auto' }}>
           {items.map(item => {
@@ -147,15 +171,20 @@ export function NavMenu({ open, active, isAdmin, onNavigate, onClose }: NavMenuP
           </svg>
         </a>
 
-        {/* Close hint */}
-        <div style={{
-          padding: '12px 20px',
-          borderTop: '1px solid var(--border)',
-        }}>
-          <span style={{
-            fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)',
-          }}>Tap outside to close</span>
-        </div>
+        {/* Sign out: last */}
+        <button
+          onClick={() => { onClose(); onLogout() }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '14px',
+            width: '100%', minHeight: '44px', padding: '14px 20px',
+            fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 500,
+            color: 'var(--error)', backgroundColor: 'transparent',
+            border: 'none', borderTop: '1px solid var(--border)', cursor: 'pointer', textAlign: 'left',
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Sign out
+        </button>
       </nav>
 
       {/* Slide-in animation */}
@@ -169,12 +198,16 @@ export function NavMenu({ open, active, isAdmin, onNavigate, onClose }: NavMenuP
   )
 }
 
-/** Hamburger icon button for the header */
-export function HamburgerButton({ onClick }: { onClick: () => void }) {
+/** Header menu trigger: the signed-in user's avatar. */
+export function AvatarMenuButton({ onClick, expanded, userId, initials }: {
+  onClick: () => void; expanded: boolean; userId: number | null; initials: string
+}) {
   return (
     <button
       onClick={onClick}
-      aria-label="Open navigation menu"
+      aria-label="Open menu"
+      aria-haspopup="true"
+      aria-expanded={expanded}
       style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         minWidth: '44px', minHeight: '44px',
@@ -182,11 +215,7 @@ export function HamburgerButton({ onClick }: { onClick: () => void }) {
         marginLeft: '-8px', marginRight: '4px',
       }}
     >
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--text)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="3" y1="6" x2="21" y2="6"/>
-        <line x1="3" y1="12" x2="21" y2="12"/>
-        <line x1="3" y1="18" x2="21" y2="18"/>
-      </svg>
+      <UserAvatar userId={userId} initials={initials} size={36} />
     </button>
   )
 }

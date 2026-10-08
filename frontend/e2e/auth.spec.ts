@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { login, loginScreen, homeInput } from './helpers'
+import { login, loginScreen, homeInput, signOutViaMenu } from './helpers'
 
 // Rally (Clerk) is the only way in. The Rally primary cannot be driven from a
 // local test, so these cover what Groflo owns: the login screen, the session,
@@ -90,9 +90,7 @@ test.describe('Session', () => {
 
   test('sign out returns to the login screen and stays there', async ({ page }) => {
     await login(page)
-    await page.goto('/profile')
-    await expect(page.getByText('Sign Out')).toBeVisible({ timeout: 10_000 })
-    await page.getByText('Sign Out').click()
+    await signOutViaMenu(page)
 
     await expect(loginScreen(page)).toBeVisible({ timeout: 10_000 })
 
