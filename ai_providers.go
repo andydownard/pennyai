@@ -31,15 +31,15 @@ const (
 
 // Model mapping per provider and complexity tier.
 var anthropicModels = map[Complexity]string{
-	Simple: "claude-haiku-4-5-20251001",
-	Medium: "claude-sonnet-4-5-20250514",
-	Hard:   "claude-opus-4-20250514",
+	Simple: "claude-haiku-4-5",
+	Medium: "claude-sonnet-5-5",
+	Hard:   "claude-opus-5-5",
 }
 
 var geminiModels = map[Complexity]string{
 	Simple: "gemini-2.0-flash-lite",
 	Medium: "gemini-2.0-flash",
-	Hard:   "gemini-2.5-pro-preview-06-05",
+	Hard:   "gemini-2.5-pro",
 }
 
 var openaiModels = map[Complexity]string{
@@ -49,116 +49,121 @@ var openaiModels = map[Complexity]string{
 }
 
 // aiHTTPClient is shared across all AI provider calls.
-var aiHTTPClient = &http.Client{Timeout: 60 * time.Second}
+// 90s stays under Cloudflare's 100s proxy limit in front of the app.
+var aiHTTPClient = &http.Client{Timeout: 90 * time.Second}
 
 // =============================================================================
 // ANTHROPIC (Claude)
 // =============================================================================
 
-func callAnthropic(apiKey, model, system string, content interface{}, maxTokens int) (string, error) {
-	reqBody := map[string]interface{}{
-		"model":      model,
-		"max_tokens": maxTokens,
-		"messages": []map[string]interface{}{
-			{"role": "user", "content": content},
-		},
-	}
-	if system != "" {
-		reqBody["system"] = system
-	}
-	bodyBytes, err := json.Marshal(reqBody)
-	if err != nil {
-		return "", fmt.Errorf("marshaling request: %w", err)
-	}
-	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", strings.NewReader(string(bodyBytes)))
-	if err != nil {
-		return "", fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-
-	resp, err := aiHTTPClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("calling Anthropic: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("anthropic %s returned %d: %s", model, resp.StatusCode, string(body))
-	}
-
-	var apiResp struct {
-		Content []struct {
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return "", fmt.Errorf("decoding response: %w", err)
-	}
-	if len(apiResp.Content) == 0 {
-		return "", fmt.Errorf("empty response from Claude %s", model)
-	}
-	return strings.TrimSpace(apiResp.Content[0].Text), nil
+// anthropicThinks reports whether a model thinks by default. Thinking tokens
+// count against max_tokens, so these models need room beyond the answer.
+func anthropicThinks(model string) bool {
+	return !strings.HasPrefix(model, "claude-haiku")
 }
 
-func callAnthropicWithSearch(apiKey, model, system string, content interface{}, maxTokens int) (string, error) {
-	reqBody := map[string]interface{}{
+// anthropicMinTokensThinking keeps a thinking model from spending the whole
+// max_tokens on reasoning and returning no answer.
+const anthropicMinTokensThinking = 16000
+
+// anthropicRequestBody builds a Messages API request. Current Opus and Sonnet
+// models always think; effort "low" keeps extraction fast and cheap, and
+// fallbacks "default" re-serves a safety-classifier refusal on another model.
+func anthropicRequestBody(model, system string, content interface{}, maxTokens int, tools []map[string]interface{}) map[string]interface{} {
+	body := map[string]interface{}{
 		"model":      model,
 		"max_tokens": maxTokens,
 		"messages": []map[string]interface{}{
 			{"role": "user", "content": content},
 		},
-		"tools": []map[string]interface{}{
-			{"type": "web_search_20250305", "name": "web_search", "max_uses": 3},
-		},
 	}
 	if system != "" {
-		reqBody["system"] = system
+		body["system"] = system
 	}
-	bodyBytes, err := json.Marshal(reqBody)
-	if err != nil {
-		return "", fmt.Errorf("marshaling request: %w", err)
+	if len(tools) > 0 {
+		body["tools"] = tools
 	}
-	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", strings.NewReader(string(bodyBytes)))
-	if err != nil {
-		return "", fmt.Errorf("creating request: %w", err)
+	if anthropicThinks(model) {
+		if maxTokens < anthropicMinTokensThinking {
+			body["max_tokens"] = anthropicMinTokensThinking
+		}
+		body["output_config"] = map[string]interface{}{"effort": "low"}
+		body["fallbacks"] = "default"
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
+	return body
+}
 
-	resp, err := aiHTTPClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("calling Anthropic: %w", err)
-	}
-	defer resp.Body.Close()
+// anthropicResponse is the subset of a Messages API response we read.
+type anthropicResponse struct {
+	Content []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"content"`
+	StopReason string `json:"stop_reason"`
+}
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("anthropic search %s returned %d: %s", model, resp.StatusCode, string(body))
-	}
-
-	var apiResp struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return "", fmt.Errorf("decoding response: %w", err)
+// anthropicText joins the text blocks of a response. Thinking blocks come
+// first on current models, so the first block is not the answer.
+func anthropicText(model string, r anthropicResponse) (string, error) {
+	if r.StopReason == "refusal" {
+		return "", fmt.Errorf("claude %s declined the request", model)
 	}
 	var texts []string
-	for _, block := range apiResp.Content {
+	for _, block := range r.Content {
 		if block.Type == "text" && block.Text != "" {
 			texts = append(texts, block.Text)
 		}
 	}
 	if len(texts) == 0 {
-		return "", fmt.Errorf("no text content in search response")
+		return "", fmt.Errorf("empty response from Claude %s (stop_reason %s)", model, r.StopReason)
 	}
 	return strings.TrimSpace(strings.Join(texts, "\n")), nil
+}
+
+// anthropicBaseURL is a variable so tests can point it at a local server.
+var anthropicBaseURL = "https://api.anthropic.com"
+
+func postAnthropic(apiKey, model string, body map[string]interface{}) (string, error) {
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return "", fmt.Errorf("marshaling request: %w", err)
+	}
+	req, err := http.NewRequest("POST", anthropicBaseURL+"/v1/messages", strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return "", fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	if _, ok := body["fallbacks"]; ok {
+		req.Header.Set("anthropic-beta", "server-side-fallback-2026-07-01")
+	}
+
+	resp, err := aiHTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("calling Anthropic: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return "", fmt.Errorf("anthropic %s returned %d: %s", model, resp.StatusCode, string(b))
+	}
+	var apiResp anthropicResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return "", fmt.Errorf("decoding response: %w", err)
+	}
+	return anthropicText(model, apiResp)
+}
+
+func callAnthropic(apiKey, model, system string, content interface{}, maxTokens int) (string, error) {
+	return postAnthropic(apiKey, model, anthropicRequestBody(model, system, content, maxTokens, nil))
+}
+
+func callAnthropicWithSearch(apiKey, model, system string, content interface{}, maxTokens int) (string, error) {
+	tools := []map[string]interface{}{
+		{"type": "web_search_20260209", "name": "web_search", "max_uses": 3},
+	}
+	return postAnthropic(apiKey, model, anthropicRequestBody(model, system, content, maxTokens, tools))
 }
 
 // =============================================================================
@@ -272,9 +277,10 @@ func callOpenAI(apiKey, model, system string, content interface{}, maxTokens int
 	messages = append(messages, map[string]interface{}{"role": "user", "content": openaiContent})
 
 	reqBody := map[string]interface{}{
-		"model":      model,
-		"messages":   messages,
-		"max_tokens": maxTokens,
+		"model":    model,
+		"messages": messages,
+		// o-series models reject max_tokens; max_completion_tokens works for all.
+		"max_completion_tokens": maxTokens,
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)
