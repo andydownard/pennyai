@@ -46,7 +46,7 @@ export async function signOutViaMenu(page: Page): Promise<void> {
 
 /**
  * Navigate to a screen via the avatar menu. Pass the menu item's label:
- * 'Shopping List', 'My Lists', 'Penny', 'Share & Earn' or 'Profile'.
+ * 'Shopping List', 'My Lists', 'Penny' or 'Profile'.
  * The menu closes itself after a selection.
  */
 export async function navigateTo(page: Page, menuItemText: string | RegExp): Promise<void> {

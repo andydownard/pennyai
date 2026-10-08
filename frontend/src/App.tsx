@@ -316,15 +316,6 @@ function AppInner() {
   const [installPrompt, setInstallPrompt] = useState<any>(null)
   const [showInstallBanner, setShowInstallBanner] = useState(false)
 
-  // One-time Groflo rebrand banner — shown to existing Thriftly users on
-  // their next visit so the name change isn't a surprise. Per panel R7
-  // (Nadia): "Penny is now part of Groflo. Same Penny, same list, same
-  // household." Dismissed once and persisted; never re-shown.
-  const [showRebrandBanner, setShowRebrandBanner] = useState(() => {
-    if (typeof window === 'undefined') return false
-    return localStorage.getItem('groflo_rebrand_banner_dismissed') !== '1'
-  })
-
   // Shared list deep link state
   const [sharedCode, setSharedCode] = useState<string | null>(null)
   const [sharedData, setSharedData] = useState<{ items: { name: string; quantity: number; checked: boolean }[]; sharer_name: string; expires_at: string; invite_code?: string } | null>(null)
@@ -456,7 +447,7 @@ function AppInner() {
   const {
     settingsFirstName, setSettingsFirstName,
     settingsLastName, setSettingsLastName,
-    settingsEmail, setSettingsEmail,
+    settingsEmail,
     settingsAddress, setSettingsAddress,
     placesReady,
     settingsMembers,
@@ -2057,6 +2048,7 @@ function AppInner() {
       userId={currentUserId}
       initials={initialsOf(settingsFirstName, settingsLastName)}
       displayName={[settingsFirstName, settingsLastName].filter(Boolean).join(' ')}
+      email={settingsEmail}
       onNavigate={(s) => setScreen(s as Screen)}
       onLogout={handleLogout}
       onClose={() => setNavMenuOpen(false)}
@@ -2227,11 +2219,9 @@ function AppInner() {
       <><ProfileScreen
         firstName={settingsFirstName}
         lastName={settingsLastName}
-        email={settingsEmail}
         address={settingsAddress}
         onFirstNameChange={setSettingsFirstName}
         onLastNameChange={setSettingsLastName}
-        onEmailChange={setSettingsEmail}
         onAddressChange={setSettingsAddress}
         onAutoSave={handleSettingsAutoSave}
         currentUserId={currentUserId}
@@ -2668,28 +2658,6 @@ function AppInner() {
           {pendingToggleCount > 0
             ? `You're offline — ${pendingToggleCount} change${pendingToggleCount > 1 ? 's' : ''} will sync when you're back`
             : "You're offline — changes will sync when you're back"}
-        </div>
-      )}
-
-      {/* One-time rebrand announcement (panel R7 — Nadia) */}
-      {showRebrandBanner && screen === 'home' && (
-        <div role="status" style={{
-          ...layout.row, flexShrink: 0, padding: '10px 16px', gap: '12px',
-          backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)',
-          borderBottom: '1px solid var(--border)',
-        }}>
-          <span style={{ flex: 1, fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text)', lineHeight: 1.45 }}>
-            <strong>Penny is now part of Groflo.</strong> Same Penny, same list, same household.
-          </span>
-          <button
-            aria-label="Dismiss rebrand announcement"
-            onClick={() => {
-              setShowRebrandBanner(false)
-              try { localStorage.setItem('groflo_rebrand_banner_dismissed', '1') } catch {}
-              track('rebrand_banner_dismissed')
-            }}
-            style={{ ...buttons.reset, color: 'var(--text-secondary)', fontSize: FONT_SM, padding: '4px 8px' }}
-          >×</button>
         </div>
       )}
 

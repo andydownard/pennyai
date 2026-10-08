@@ -18,6 +18,12 @@ export function useAvatarVersion(): number {
   )
 }
 
+// Up to two initials: first letter of the first word and of the last word,
+// across first and last name. "Andy Downard" → "AD"; "Mary Ann Smith" → "MS".
 export function initialsOf(firstName?: string, lastName?: string): string {
-  return [firstName, lastName].map(n => (n || '')[0]?.toUpperCase() || '').filter(Boolean).join('')
+  const words = `${firstName || ''} ${lastName || ''}`.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return ''
+  const first = words[0][0]
+  const last = words.length > 1 ? words[words.length - 1][0] : ''
+  return (first + last).toUpperCase()
 }

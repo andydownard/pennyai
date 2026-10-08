@@ -41,11 +41,11 @@ describe('AvatarMenuButton', () => {
 
 describe('NavMenu', () => {
   it('puts Profile first and Sign out last', () => {
-    renderMenu({ isAdmin: true })
+    renderMenu({ isAdmin: true, email: 'tamika@example.com' })
     const labels = within(screen.getByRole('navigation')).getAllByRole('button').map(b => b.textContent || '')
-    expect(labels[0]).toContain('Profile')
     expect(labels[0]).toContain('Tamika Jones')
-    expect(labels.slice(1, -1)).toEqual(['Shopping List', 'My Lists', 'Penny', 'Share & Earn', 'Dashboard'])
+    expect(labels[0]).toContain('tamika@example.com')
+    expect(labels.slice(1, -1)).toEqual(['Shopping List', 'My Lists', 'Penny', 'Dashboard'])
     expect(labels[labels.length - 1]).toBe('Sign out')
   })
 
@@ -62,5 +62,19 @@ describe('NavMenu brand portal link', () => {
     renderMenu()
     expect(screen.queryByText('For Brands')).toBeNull()
     expect(screen.getByRole('button', { name: /sign out/i })).toBeInTheDocument()
+  })
+})
+
+describe('NavMenu header and items', () => {
+  it('has no Groflo brand header and no Share & Earn item', () => {
+    renderMenu()
+    expect(screen.queryByText('Groflo')).toBeNull()
+    expect(screen.queryByText(/Share & Earn/)).toBeNull()
+  })
+
+  it('falls back to "Profile" when the user has no name', () => {
+    renderMenu({ displayName: '', email: '' })
+    const first = within(screen.getByRole('navigation')).getAllByRole('button')[0]
+    expect(first.textContent).toContain('Profile')
   })
 })

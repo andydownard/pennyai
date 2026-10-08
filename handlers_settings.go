@@ -8,7 +8,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/mail"
 	"strconv"
 	"strings"
 	"time"
@@ -350,23 +349,9 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Validate email before making any changes
-	var email string
-	if req.Email != nil {
-		email = strings.TrimSpace(strings.ToLower(*req.Email))
-		if email != "" {
-			if _, err := mail.ParseAddress(email); err != nil {
-				writeBadRequest(w, "Invalid email format")
-				return
-			}
-			var existingID string
-			err := s.db.QueryRow("SELECT id FROM users WHERE email = ? AND id != ?", email, session.UserID).Scan(&existingID)
-			if err == nil {
-				writeConflict(w, "Email already in use")
-				return
-			}
-		}
-	}
+	// Email comes from the user's Rally account (set at every sign-in), so an
+	// "email" field in the request body is ignored. Inbound email-to-Penny
+	// matches on this address, so a user must not be able to claim another's.
 
 	// Build a single UPDATE with all provided fields
 	setClauses := []string{}
@@ -377,9 +362,6 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	if req.Name != nil {
 		addSetClause(&setClauses, &args, "name", strings.TrimSpace(*req.Name))
 		addSetClause(&setClauses, &args, "name_source", "manual")
-	}
-	if req.Email != nil {
-		addSetClause(&setClauses, &args, "email", email)
 	}
 	// Groflo holds no phone numbers: a "phone" field in the request body is
 	// ignored.

@@ -11,8 +11,8 @@ vi.stubGlobal('fetch', fetchMock)
 function renderProfile() {
   return render(
     <ProfileScreen
-      firstName="Tamika" lastName="Jones" email="t@example.com" address=""
-      onFirstNameChange={vi.fn()} onLastNameChange={vi.fn()} onEmailChange={vi.fn()} onAddressChange={vi.fn()}
+      firstName="Tamika" lastName="Jones" address=""
+      onFirstNameChange={vi.fn()} onLastNameChange={vi.fn()} onAddressChange={vi.fn()}
       onAutoSave={vi.fn()}
       currentUserId={null} isAdmin={false}
       onNavigate={vi.fn()} showToast={vi.fn()} onSessionExpired={vi.fn()}
@@ -41,7 +41,8 @@ describe('ProfileScreen', () => {
   it('keeps the rest of the profile', () => {
     renderProfile()
     expect(screen.getByPlaceholderText('First')).toHaveValue('Tamika')
-    expect(screen.getByPlaceholderText('your@email.com')).toHaveValue('t@example.com')
+    // Email comes from the Rally account; there is no field for it.
+    expect(screen.queryByPlaceholderText('your@email.com')).toBeNull()
     expect(screen.getByPlaceholderText(/Start typing your address/)).toBeInTheDocument()
     expect(screen.getByText('Need Help?')).toBeInTheDocument()
     expect(screen.getByText('Dark mode')).toBeInTheDocument()

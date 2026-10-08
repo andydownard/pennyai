@@ -132,7 +132,7 @@ export function useSettingsState(options: UseSettingsStateOptions) {
       await fetchAPI('/api/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: [settingsFirstNameRef.current.trim(), settingsLastNameRef.current.trim()].filter(Boolean).join(' '), email: settingsEmailRef.current.trim(), address: settingsAddressRef.current.trim() }),
+        body: JSON.stringify({ name: [settingsFirstNameRef.current.trim(), settingsLastNameRef.current.trim()].filter(Boolean).join(' '), address: settingsAddressRef.current.trim() }),
       })
     } catch { showToastRef.current('Something went wrong. Try again.', 'error') }
     settingsSaving.current = false
