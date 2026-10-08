@@ -171,16 +171,6 @@ export function NavMenu({ open, active, isAdmin, userId, initials, displayName, 
           </svg>
         </a>
 
-        {/* Close hint */}
-        <div style={{
-          padding: '12px 20px',
-          borderTop: '1px solid var(--border)',
-        }}>
-          <span style={{
-            fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)',
-          }}>Tap outside to close</span>
-        </div>
-
         {/* Sign out: last */}
         <button
           onClick={() => { onClose(); onLogout() }}
