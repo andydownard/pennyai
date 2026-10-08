@@ -173,7 +173,7 @@ describe('useAuthState', () => {
 
   describe('sign-in', () => {
     it('hands /auth/me to the app once the exchange succeeds', async () => {
-      const body: MeResponse = { logged_in: true, user_id: 7, name: 'Tamika Jones', needs_sms_consent: true, phone_number: '2125550101' }
+      const body: MeResponse = { logged_in: true, user_id: 7, name: 'Tamika Jones' }
       me = { status: 200, body }
       const { onSignedIn } = setup()
 

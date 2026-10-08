@@ -7,7 +7,7 @@ import { login, addItemViaAPI, getSessionCookie } from './helpers'
  * Swap tests:
  *   The swap matching engine requires brand_deals in the DB, which are seeded
  *   via the admin-only POST /api/admin/deals endpoint. Since E2E test users
- *   are not admin (no ADMIN_PHONE set), we test the swap accept/decline API
+ *   are not admin (no admin Clerk id is set), we test the swap accept/decline API
  *   contract directly — verifying correct status codes, response shapes, and
  *   idempotency guards. The SwapCard UI component is covered by the Go unit
  *   tests which can seed deals directly.

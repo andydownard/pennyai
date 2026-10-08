@@ -21,8 +21,7 @@ interface LoginScreenProps {
 /**
  * The one sign-in screen: Penny, "Continue with Rally", legal links.
  *
- * It collects no credentials — Rally hosts those. SMS consent is not asked
- * here either; SmsConsentModal asks after sign-in.
+ * It collects no credentials — Rally hosts those.
  */
 export function LoginScreen({ loginPennyText, clerkEnabled, error = '' }: LoginScreenProps) {
   const rallyReady = useContext(RallyReadyContext)

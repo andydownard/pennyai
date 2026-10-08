@@ -20,7 +20,7 @@ test.describe('Login screen', () => {
     await expect(loginScreen(page)).toBeVisible({ timeout: 10_000 })
     await expect(page.locator(CREDENTIAL_INPUTS)).toHaveCount(0)
     await expect(page.locator('#google-signin-btn')).toHaveCount(0)
-    await expect(page.getByText(/Use email instead|Use phone number instead|Forgot password/)).toHaveCount(0)
+    await expect(page.getByText(/Use email instead|Forgot password/)).toHaveCount(0)
   })
 
   test('login screen offers Rally, or says sign-in is unavailable — never blank', async ({ page }) => {
@@ -78,13 +78,14 @@ test.describe('Session', () => {
   })
 
   test('/auth/me reports the signed-in user', async ({ page }) => {
-    const phone = await login(page)
+    await login(page)
     const res = await page.request.get('/auth/me')
     expect(res.status()).toBe(200)
     const me = await res.json()
     expect(me.logged_in).toBe(true)
     expect(me.user_id).toBeTruthy()
-    expect(String(me.phone_number).replace(/\D/g, '')).toContain(phone)
+    expect(me).not.toHaveProperty('phone_number')
+    expect(me).not.toHaveProperty('needs_sms_consent')
   })
 
   test('sign out returns to the login screen and stays there', async ({ page }) => {
@@ -104,10 +105,11 @@ test.describe('Session', () => {
     expect((await page.request.get('/auth/me')).status()).toBe(401)
   })
 
-  test('test-login rejects a malformed phone number', async ({ page }) => {
+  test('test-login ignores a phone number', async ({ page }) => {
     const res = await page.request.post('/auth/test-login', { data: { phone_number: '123' } })
-    expect(res.status()).toBeGreaterThanOrEqual(400)
-    expect(res.status()).toBeLessThan(500)
+    expect(res.status()).toBe(200)
+    const me = await (await page.request.get('/auth/me')).json()
+    expect(me).not.toHaveProperty('phone_number')
   })
 })
 
@@ -140,4 +142,15 @@ test.describe('Retired sign-in endpoints', () => {
     expect(cookies.find(c => c.name === 'session')).toBeUndefined()
     expect((await page.request.get('/auth/me')).status()).toBe(401)
   })
+})
+
+test.describe('Retired texting endpoints', () => {
+  for (const path of ['/api/sms', '/api/me/sms-consent', '/api/penny.vcf']) {
+    for (const method of ['get', 'post'] as const) {
+      test(`${method.toUpperCase()} ${path} answers 410 Gone`, async ({ page }) => {
+        const res = method === 'get' ? await page.request.get(path) : await page.request.post(path, { data: {} })
+        expect(res.status()).toBe(410)
+      })
+    }
+  }
 })

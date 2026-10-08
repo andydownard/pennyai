@@ -2,13 +2,13 @@
 // useSettingsState — Custom hook for settings-related state, handlers, and effects
 //
 // Extracted from App.tsx to reduce file size. Contains:
-//   - Settings form state (name, email, address, phone, etc.)
-//   - Penny configuration state (slider, autotune, deals, store order, digest)
+//   - Settings form state (name, email, address, etc.)
+//   - Penny configuration state (slider, autotune, store order)
 //   - Household member & invite state
 //   - Referral state
 //   - Settings load/save handlers
-//   - Invite handlers (SMS, share link)
-//   - Toggle handlers (autotune, deals, store order, daily digest)
+//   - Invite handler (share link)
+//   - Toggle handlers (autotune, store order)
 //   - Effects for loading settings/referral data on screen change
 // =============================================================================
 
@@ -43,16 +43,12 @@ export function useSettingsState(options: UseSettingsStateOptions) {
   const [settingsEmail, setSettingsEmail] = useState('')
   const [settingsAddress, setSettingsAddress] = useState('')
   const [placesReady, setPlacesReady] = useState(false)
-  const [settingsMembers, setSettingsMembers] = useState<{ name: string; phone: string }[]>([])
+  const [settingsMembers, setSettingsMembers] = useState<{ name: string }[]>([])
   const [listName, setListName] = useState('')
   const [editingListName, setEditingListName] = useState(false)
   const [listNameDraft, setListNameDraft] = useState('')
-  const [settingsPennyPhone, setSettingsPennyPhone] = useState('')
-  const [settingsUserPhone, setSettingsUserPhone] = useState('')
   const [inviteLoading, setInviteLoading] = useState(false)
   const [showInviteSheet, setShowInviteSheet] = useState(false)
-  const [invitePhone, setInvitePhone] = useState('')
-  const [inviteSent, setInviteSent] = useState(false)
 
   // --- Referral state ---
   const [referralCode, setReferralCode] = useState('')
@@ -61,9 +57,7 @@ export function useSettingsState(options: UseSettingsStateOptions) {
   // --- Penny configuration state ---
   const [pennySlider, setPennySlider] = useState(35)
   const [pennyAutotune, setPennyAutotune] = useState(true)
-  const [pennyDeals, setPennyDeals] = useState(false)
   const [storeOrderEnabled, setStoreOrderEnabled] = useState(true)
-  const [dailyDigestEnabled, setDailyDigestEnabled] = useState(false)
 
   // --- Auto-save refs ---
   const settingsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -92,14 +86,10 @@ export function useSettingsState(options: UseSettingsStateOptions) {
           setSettingsEmail((data.email as string) || '')
           setSettingsAddress((data.address as string) || '')
           if (data.google_places_ready) setPlacesReady(true)
-          if (data.phone) setSettingsUserPhone(data.phone as string)
-          if (data.penny_phone) setSettingsPennyPhone(data.penny_phone as string)
-          setSettingsMembers((data.household_members as { name: string; phone: string }[]) || [])
+          setSettingsMembers((data.household_members as { name: string }[]) || [])
           if (data.penny_slider != null) setPennySlider(data.penny_slider as number)
           if (data.penny_autotune != null) setPennyAutotune(data.penny_autotune as boolean)
-          if (data.penny_deals != null) setPennyDeals(data.penny_deals as boolean)
           if (data.store_order_enabled != null) setStoreOrderEnabled(data.store_order_enabled as boolean)
-          if (data.daily_digest_enabled != null) setDailyDigestEnabled(data.daily_digest_enabled as boolean)
           if (data.swap_credits_cents != null) {
             onEarningsTotalCentsRef.current?.(data.swap_credits_cents as number)
           }
@@ -159,31 +149,7 @@ export function useSettingsState(options: UseSettingsStateOptions) {
   // =========================================================================
 
   const handleOpenInviteSheet = () => {
-    setInvitePhone('')
-    setInviteSent(false)
     setShowInviteSheet(true)
-  }
-
-  const handleSendSMSInvite = async () => {
-    const digits = invitePhone.replace(/\D/g, '')
-    if (digits.length < 10) { showToastRef.current('Enter a valid phone number', 'error'); return }
-    setInviteLoading(true)
-    try {
-      const data = await fetchAPI('/api/settings/invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: digits }),
-      })
-      if (data && !Array.isArray(data) && data.link) {
-        track('invite_shared', { method: 'sms_direct' })
-        setInviteSent(true)
-        showToastRef.current('Invite sent!')
-        setTimeout(() => setShowInviteSheet(false), 1500)
-      } else {
-        showToastRef.current('Couldn\'t send invite — please try again', 'error')
-      }
-    } catch { showToastRef.current('Couldn\'t connect — check your connection and try again', 'error') }
-    finally { setInviteLoading(false) }
   }
 
   const handleShareInviteLink = async () => {
@@ -192,7 +158,7 @@ export function useSettingsState(options: UseSettingsStateOptions) {
       const data = await fetchAPI('/api/settings/invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: '' }),
+        body: JSON.stringify({}),
       })
       if (!data || Array.isArray(data) || !data.link) {
         showToastRef.current('Couldn\'t create invite link — please try again', 'error')
@@ -204,12 +170,12 @@ export function useSettingsState(options: UseSettingsStateOptions) {
         track('invite_shared', { method: 'native_share' })
         try { await navigator.share({ title: 'Join my Groflo list', text: message, url: link }); setShowInviteSheet(false); return } catch { /* fall through */ }
       }
-      const isMobile = /Mobi|Android/i.test(navigator.userAgent)
-      track('invite_shared', { method: isMobile ? 'sms' : 'clipboard' })
-      if (isMobile) {
-        window.location.href = `sms:?&body=${encodeURIComponent(message)}`
-      } else {
-        try { await navigator.clipboard.writeText(link); showToastRef.current('Invite link copied!') } catch { window.location.href = `sms:?&body=${encodeURIComponent(message)}` }
+      track('invite_shared', { method: 'clipboard' })
+      try {
+        await navigator.clipboard.writeText(link)
+        showToastRef.current('Invite link copied!')
+      } catch {
+        window.prompt('Copy this invite link', link)
       }
       setShowInviteSheet(false)
     } catch { showToastRef.current('Couldn\'t connect — check your connection and try again', 'error') }
@@ -230,16 +196,6 @@ export function useSettingsState(options: UseSettingsStateOptions) {
     }).catch(() => { setPennyAutotune(!next); showToastRef.current('Something went wrong. Try again.', 'error') })
   }
 
-  const toggleDeals = () => {
-    const next = !pennyDeals
-    setPennyDeals(next)
-    fetchAPI('/api/settings', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ penny_deals: next }),
-    }).catch(() => { setPennyDeals(!next); showToastRef.current('Something went wrong. Try again.', 'error') })
-  }
-
   const toggleStoreOrder = () => {
     const next = !storeOrderEnabled
     setStoreOrderEnabled(next)
@@ -248,16 +204,6 @@ export function useSettingsState(options: UseSettingsStateOptions) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ store_order_enabled: next }),
     }).catch(() => { setStoreOrderEnabled(!next); showToastRef.current('Something went wrong. Try again.', 'error') })
-  }
-
-  const toggleDailyDigest = () => {
-    const next = !dailyDigestEnabled
-    setDailyDigestEnabled(next)
-    fetchAPI('/api/settings', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ daily_digest_enabled: next }),
-    }).catch(() => { setDailyDigestEnabled(!next); showToastRef.current('Something went wrong. Try again.', 'error') })
   }
 
   // =========================================================================
@@ -289,14 +235,10 @@ export function useSettingsState(options: UseSettingsStateOptions) {
     listName, setListName,
     editingListName, setEditingListName,
     listNameDraft, setListNameDraft,
-    settingsPennyPhone,
-    settingsUserPhone, setSettingsUserPhone,
 
     // Invite state
     inviteLoading,
     showInviteSheet, setShowInviteSheet,
-    invitePhone, setInvitePhone,
-    inviteSent,
 
     // Referral state
     referralCode,
@@ -305,9 +247,7 @@ export function useSettingsState(options: UseSettingsStateOptions) {
     // Penny configuration state
     pennySlider, setPennySlider,
     pennyAutotune,
-    pennyDeals,
     storeOrderEnabled,
-    dailyDigestEnabled,
 
     // Handlers
     loadSettings,
@@ -315,11 +255,8 @@ export function useSettingsState(options: UseSettingsStateOptions) {
     doSettingsSave,
     handleSettingsAutoSave,
     handleOpenInviteSheet,
-    handleSendSMSInvite,
     handleShareInviteLink,
     toggleAutotune,
-    toggleDeals,
     toggleStoreOrder,
-    toggleDailyDigest,
   }
 }

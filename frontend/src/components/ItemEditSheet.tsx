@@ -237,7 +237,7 @@ export function ItemEditSheet({
             <SectionHeader label="History" />
             {itemHistory.map((mod, i) => {
               const name = mod.user_name || 'Someone'
-              const via = mod.source === 'sms' ? ' via text' : mod.source === 'email' ? ' via email' : ''
+              const via = mod.source === 'email' ? ' via email' : ''
               const ago = mod.created_at ? (() => {
                 const diff = Date.now() - new Date(mod.created_at).getTime()
                 const mins = Math.floor(diff / 60000)

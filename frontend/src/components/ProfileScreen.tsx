@@ -4,7 +4,7 @@ import { ToggleSwitch } from './ToggleSwitch'
 import { ScreenTransition } from './ScreenTransition'
 import { fetchAPI } from '../api'
 import {
-  FONT, FONT_2XS, FONT_SM, FONT_BASE, pageStyles, formatPhone,
+  FONT, FONT_2XS, FONT_SM, FONT_BASE, pageStyles,
 } from '../styles'
 
 interface ProfileScreenProps {
@@ -13,7 +13,6 @@ interface ProfileScreenProps {
   lastName: string
   email: string
   /** From the Rally account, when Rally has verified one. Read-only here. */
-  phone: string
   address: string
   // Settings setters
   onFirstNameChange: (v: string) => void
@@ -41,7 +40,7 @@ interface ProfileScreenProps {
 }
 
 export function ProfileScreen({
-  firstName, lastName, email, phone, address,
+  firstName, lastName, email, address,
   onFirstNameChange, onLastNameChange, onEmailChange, onAddressChange,
   onAutoSave,
   currentUserId, isAdmin,
@@ -208,24 +207,6 @@ export function ProfileScreen({
             <p style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '4px', paddingLeft: '4px' }}>
               Once set, forward any recipe or list to penny@list.groflo.io and Penny will add it for you.
             </p>
-          </div>
-          <div>
-            {phone ? (
-              <>
-                <FloatingLabelField label="Cell phone">
-                  <div data-testid="profile-phone" style={{ ...pageStyles.floatingInput, color: 'var(--text-secondary)' }}>
-                    {formatPhone(phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''))}
-                  </div>
-                </FloatingLabelField>
-                <p style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '4px', paddingLeft: '4px' }}>
-                  From your Rally account. Text Penny your list anytime.
-                </p>
-              </>
-            ) : (
-              <p style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', margin: 0, paddingLeft: '4px' }}>
-                To text Penny your list, add a mobile number to your Rally account.
-              </p>
-            )}
           </div>
           <div style={{ position: 'relative' }}>
             <FloatingLabelField label="Address">

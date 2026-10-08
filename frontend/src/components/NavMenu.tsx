@@ -93,7 +93,7 @@ export function NavMenu({ open, active, isAdmin, onNavigate, onClose }: NavMenuP
             <p style={{
               fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)',
               margin: '2px 0 0', lineHeight: 1.3,
-            }}>Text Penny. She handles the rest.</p>
+            }}>Tell Penny. She handles the rest.</p>
           </div>
         </div>
 
