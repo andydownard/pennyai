@@ -92,3 +92,17 @@ test.describe('Navigation', () => {
     await expect(nav.getByRole('button', { name: 'Shopping List' })).not.toHaveAttribute('aria-current', 'page')
   })
 })
+
+test.describe('Menu name row', () => {
+  test('a typical full name fits beside the Profile arrow', async ({ page }) => {
+    // Regression: the arrow added in #130 took 32px from the name, so with
+    // Chrome's "Large" text setting (20px base; Groflo sizes text in rem) a
+    // 12-letter name like this one ended in "..." in the 260px menu.
+    await login(page, 'Andy Downard')
+    await page.addStyleTag({ content: 'html { font-size: 20px }' })
+    const nav = await openNavMenu(page)
+    const name = nav.getByRole('button', { name: 'Profile, Andy Downard' }).getByText('Andy Downard')
+    const fit = await name.evaluate(el => ({ needs: el.scrollWidth, has: el.clientWidth }))
+    expect(fit.needs, `name needs ${fit.needs}px but has ${fit.has}px`).toBeLessThanOrEqual(fit.has)
+  })
+})
