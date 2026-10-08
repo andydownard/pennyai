@@ -453,7 +453,7 @@ func TestParseAndAdd_LoadSavedList_NoLists(t *testing.T) {
 
 func TestParseAndAdd_DeleteSavedList(t *testing.T) {
 	// Note: The delete_saved_list path with a matching list has a latent issue
-	// with SQLite single-connection pools — rows cursor held open during DELETE.
+	// with small connection pools — rows cursor held open during DELETE.
 	// This test verifies the "not found" and "no name" branches which don't deadlock.
 	// The happy-path delete is tested via the saved_lists REST API tests instead.
 	t.Run("no_name", func(t *testing.T) {

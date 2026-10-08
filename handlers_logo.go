@@ -59,7 +59,7 @@ func (s *Server) handleLogoProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Layer 2: SQLite BLOB
+	// Layer 2: database BLOB
 	var logoData []byte
 	var contentType string
 	err := s.db.QueryRow(
@@ -81,7 +81,7 @@ func (s *Server) handleLogoProxy(w http.ResponseWriter, r *http.Request) {
 
 	logoData, contentType = fetchBrandLogo(domain, s.config.LogoDevSecret, s.config.LogoDevToken)
 	if logoData != nil {
-		// Store in SQLite if brand exists (async)
+		// Store in the database if brand exists (async)
 		if brandID > 0 {
 			go func(id int, data []byte, ct string) {
 				s.db.Exec(

@@ -24,9 +24,6 @@ func pgSchemaCounts(t *testing.T, db *sql.DB) (tables, columns, indexes int) {
 // A server restart re-runs initDB against the live database. It must succeed
 // every time and must not add, drop or duplicate anything.
 func TestPostgres_InitDB_RunsRepeatedlyWithStableSchema(t *testing.T) {
-	if postgresTestURL() == "" {
-		t.Skip("Postgres tier only (TEST_DATABASE_URL)")
-	}
 	raw, _ := openTestDB(t)
 
 	if _, err := raw.Exec("INSERT INTO users (id, phone) VALUES (?, ?)", "u-keep", "5550009999"); err != nil {

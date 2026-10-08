@@ -6,7 +6,7 @@ import (
 )
 
 // processSwapPredictions computes per-user acceptance rates by category and brand.
-// Uses the collect-then-write pattern to avoid SQLite lock contention.
+// Uses the collect-then-write pattern so no rows cursor is held open during writes.
 func (s *Server) processSwapPredictions() {
 	// Collect: aggregate swap_events joined with brand_deals for category info
 	rows, err := s.db.Query(`

@@ -7,38 +7,10 @@ on:
     branches: [main]
 
 jobs:
+  # Production runs on PostgreSQL, and so do the tests: PostgreSQL is the only
+  # database anywhere. The suite clones a per-test database from a template, so
+  # the service user needs CREATE DATABASE (the postgres superuser has it).
   test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      # pipefail matters: without it the grep's exit status replaced the test
-      # run's, and a trailing "|| true" meant this step could never fail.
-      - name: Run tests (SQLite tier)
-        run: |
-          set -o pipefail
-          go test -count=1 -race -timeout 20m ./... 2>&1 | tee test-output.txt | grep -E '^(--- FAIL|FAIL|ok|panic)' || {
-            status=${PIPESTATUS[0]}
-            tail -200 test-output.txt
-            exit "${status:-1}"
-          }
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Build
-        run: go build ./...
-
-      - name: Check test-to-code ratio
-        run: bash scripts/check-test-ratio.sh --ci
-
-  # Production runs on PostgreSQL. This job runs the same suite against a real
-  # server so SQL that only breaks there fails the build.
-  test-postgres:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -61,14 +33,25 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Run tests (PostgreSQL tier)
-        run: scripts/test-postgres.sh "$RUNNER_TEMP/pg-tier"
-
-      - name: Show failures
-        if: failure()
+      # pipefail matters: without it the grep's exit status replaced the test
+      # run's, and a trailing "|| true" meant this step could never fail.
+      - name: Run tests
         run: |
-          cat "$RUNNER_TEMP/pg-tier/fails.txt" || true
-          grep -E -B2 -A12 '^(--- FAIL|panic)' "$RUNNER_TEMP/pg-tier/all.log" | tail -300 || true
+          set -o pipefail
+          go test -count=1 -race -timeout 20m ./... 2>&1 | tee test-output.txt | grep -E '^(--- FAIL|FAIL|ok|panic)' || {
+            status=${PIPESTATUS[0]}
+            tail -200 test-output.txt
+            exit "${status:-1}"
+          }
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Check test-to-code ratio
+        run: bash scripts/check-test-ratio.sh --ci
 
   frontend:
     runs-on: ubuntu-latest

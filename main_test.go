@@ -284,14 +284,6 @@ func TestInitDB_MigrationCascade(t *testing.T) {
 }
 
 
-func TestInitDB_MigrationPath(t *testing.T) {
-	t.Skip("SQLite-specific migration test — not applicable after PostgreSQL migration")
-}
-
-
-func TestInitDB_MigratesExistingDB(t *testing.T) {
-	t.Skip("SQLite-specific migration test — not applicable after PostgreSQL migration")
-}
 
 
 func TestInitDB_CreatesAllTables(t *testing.T) {
@@ -724,7 +716,7 @@ func TestLogo_MemoryCacheIsCaseInsensitive(t *testing.T) {
 }
 
 
-func TestLogo_SQLiteCacheHit(t *testing.T) {
+func TestLogo_DatabaseCacheHit(t *testing.T) {
 	server := newTestServer(t)
 	// Insert a brand and logo into the database
 	// Use a unique brand name to avoid conflict with seedBrands
@@ -733,7 +725,7 @@ func TestLogo_SQLiteCacheHit(t *testing.T) {
 		t.Fatalf("Failed to insert brand: %v", err)
 	}
 	brandID, _ := res.LastInsertId()
-	fakeData := []byte("SQLITE_LOGO_DATA_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
+	fakeData := []byte("DB_LOGO_DATA_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 	server.db.Exec("INSERT INTO brand_logos (brand_id, logo_data, content_type) VALUES (?, ?, 'image/png')", brandID, fakeData)
 
 	rr := doRequest(server.handleLogoProxy, "GET", "/api/logo?domain=testbrandxyz.com", nil, nil)
@@ -745,7 +737,7 @@ func TestLogo_SQLiteCacheHit(t *testing.T) {
 	}
 	// Verify it was cached in memory
 	if _, ok := server.logoCache.Load("testbrandxyz.com"); !ok {
-		t.Error("Expected logo to be stored in memory cache after SQLite hit")
+		t.Error("Expected logo to be stored in memory cache after database hit")
 	}
 }
 

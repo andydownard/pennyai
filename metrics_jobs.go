@@ -14,7 +14,7 @@ import (
 // processDailyMetrics computes deal_performance_daily, category_swap_insights,
 // and business_metrics_daily for the given date string (YYYY-MM-DD format).
 // Uses the collect-then-write pattern: read all data into slices, close rows,
-// then write. This is CRITICAL for SQLite with MaxOpenConns=1.
+// then write. This keeps connections free while writing.
 func (s *Server) processDailyMetrics(dateStr string) {
 	start := time.Now()
 

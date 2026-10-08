@@ -46,9 +46,7 @@ func upsertClerkUser(db *PGDB, id ClerkIdentity) (User, string, error) {
 	// Done lazily inside a transaction it needs a second connection while
 	// holding the first, which deadlocks the pool under concurrent first
 	// sign-ins. main() does this at boot; this keeps the function safe alone.
-	if !db.skipConversion {
-		db.loadSerialTables()
-	}
+	db.loadSerialTables()
 
 	user, mappedBy, err := upsertClerkUserOnce(db, id)
 	if errors.Is(err, errClerkAccountConflict) {

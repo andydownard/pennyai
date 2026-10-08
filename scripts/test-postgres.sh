@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs the whole Go suite against a real PostgreSQL server, in parallel chunks
+# Runs the whole Go suite (PostgreSQL is the only test database) in parallel chunks
 # so one panicking test cannot hide the rest.
 #
 #   scripts/test-postgres.sh [outdir]

@@ -43,17 +43,17 @@ Visit **http://localhost:8080** — you should see the login screen.
 
 ## Running tests
 
-Tests don't need Clerk credentials. The Go suite has two tiers:
+Tests don't need Clerk credentials. The Go suite runs on real PostgreSQL (the only database). Each test gets its own database cloned from a template built by the production schema. It needs a local server where your user may CREATE DATABASE; set `TEST_DATABASE_URL` to point elsewhere (default `postgres://localhost:5432/postgres?sslmode=disable`):
 
 ```bash
-go test -count=1 ./...        # SQLite tier (default, in-memory)
-scripts/test-postgres.sh      # PostgreSQL tier (needs a local Postgres)
-# or: TEST_DATABASE_URL=postgres://localhost:5432/postgres?sslmode=disable go test .
+go test -count=1 ./...        # whole suite, one process
+scripts/test-postgres.sh      # same suite in parallel chunks (faster; used locally to find panics)
+# or: TEST_DATABASE_URL=postgres://user:pass@host:5432/postgres?sslmode=disable go test -count=1 ./...
 go test -race                 # detect concurrency bugs
 cd frontend && npx playwright test   # end-to-end; uses a throwaway local Postgres database and TEST_MODE=true
 ```
 
-CI runs both Go tiers (the `test` and `test-postgres` jobs) and the frontend checks.
+CI runs the Go suite against a `postgres:16` service container, plus the frontend checks.
 
 ## How your API keys stay safe
 
@@ -77,8 +77,8 @@ If someone hacks into your GitHub repo, they won't find any secrets because `.en
 thriftly/
 ├── server.go, handlers_*.go, ...  ← Go backend (package main; run with `go run .`)
 ├── clerk*.go          ← Clerk token verification and local user upsert
-├── pgcompat.go        ← SQLite-to-PostgreSQL SQL wrapper
-├── *_test.go          ← Go tests (SQLite tier by default; PostgreSQL tier via scripts/test-postgres.sh)
+├── pgcompat.go        ← legacy-SQL-dialect-to-PostgreSQL SQL wrapper
+├── *_test.go          ← Go tests (run on PostgreSQL; see Running tests)
 ├── go.mod             ← Go dependencies (module is still named thriftly)
 ├── .env.example       ← Template — copy to .env and fill in
 ├── Dockerfile         ← Builds the frontends and the Go binary; takes VITE_* build args

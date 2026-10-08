@@ -382,7 +382,6 @@ func TestAdminBackup_AdminCanTrigger(t *testing.T) {
 
 func TestAdminBackup_WithFileDB(t *testing.T) {
 	t.Skip("Backup endpoint stubbed for PostgreSQL — VACUUM INTO not applicable")
-	// Use in-memory SQLite test DB (VACUUM INTO won't work but we test the handler path)
 	_, pgdb := openTestDB(t)
 
 	server := &Server{
@@ -2816,8 +2815,8 @@ func TestProcessChurnSignals_DaysInactive(t *testing.T) {
 		t.Fatal("No session found for user")
 	}
 
-	// The JULIANDAY function in SQLite may not parse Go's time format (RFC3339 with timezone offset).
-	// Update the session's created_at to a SQLite-native format so the query works.
+	// The age calculation may not parse Go's time format (RFC3339 with timezone offset).
+	// Update the session's created_at to a plain format so the query works.
 	server.db.Exec("UPDATE sessions SET created_at = datetime('now') WHERE user_id = ?", userID)
 
 	server.processChurnSignals()

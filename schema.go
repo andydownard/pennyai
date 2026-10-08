@@ -9,8 +9,8 @@ import (
 )
 
 // addColumnIfNotExists safely adds a column to a table, ignoring the error
-// if the column already exists (Postgres raises an error unlike SQLite which
-// silently ignores duplicate ALTER TABLE ADD COLUMN).
+// if the column already exists (Postgres raises an error on a duplicate
+// ALTER TABLE ADD COLUMN, which is expected on every re-run).
 func addColumnIfNotExists(db dbExecer, table, column, definition string) {
 	_, err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition))
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
@@ -88,7 +88,7 @@ func initDB(db *sql.DB) error {
 	// One Clerk identity maps to at most one local user. A PARTIAL unique index
 	// (not a column UNIQUE constraint) so unlimited NULLs coexist — a column
 	// constraint would be a table-shape change and could fail on a database
-	// that already has rows. Works on Postgres and the SQLite test tier alike.
+	// that already has rows. Safe to re-run.
 	// This index, not application code, is the real backstop against two rows
 	// claiming one Clerk identity under concurrent first logins.
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_clerk_user_id ON users(clerk_user_id) WHERE clerk_user_id IS NOT NULL")

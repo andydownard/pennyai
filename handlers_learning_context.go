@@ -179,7 +179,7 @@ type RepurchaseNudge struct {
 
 // getRepurchaseNudges queries penny_learnings for repurchase_cycle insights
 // and checks if any items are "due" (last added + cycle days <= now).
-// Uses collect-then-write pattern for SQLite (MaxOpenConns=1).
+// Uses collect-then-write pattern (no rows cursor held open during writes).
 func (s *Server) getRepurchaseNudges(userID string) []RepurchaseNudge {
 	// Step 1: Collect all repurchase_cycle learnings for this user
 	type cycleInfo struct {
@@ -453,7 +453,7 @@ func (s *Server) checkHouseholdDuplicates(userID string, addedItems []ListItem) 
 // processSwapPropagations detects organic brand adoption within households.
 // When user A accepts a swap for brand X, and later user B in the same household
 // adds brand X items manually (not via swap), that's organic propagation.
-// Uses collect-then-write pattern for SQLite safety.
+// Uses collect-then-write pattern (no rows cursor held open during writes).
 func (s *Server) processSwapPropagations() {
 	// Step 1: Collect all accepted swaps with household context
 	type acceptedSwap struct {

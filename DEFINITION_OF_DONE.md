@@ -6,7 +6,7 @@ A feature is DONE when it passes both tiers. Tier 1 (GATE) blocks every commit. 
 
 All must pass before code reaches main.
 
-- [ ] **Go tests pass.** `go test -count=1 ./...` exits 0 (SQLite tier), and `scripts/test-postgres.sh` exits 0 (PostgreSQL tier). All new/modified tests pass. No skipped tests.
+- [ ] **Go tests pass.** `go test -count=1 ./...` exits 0 (the suite runs on PostgreSQL; set `TEST_DATABASE_URL` if not on the local default). All new/modified tests pass. No skipped tests.
 - [ ] **Frontend tests pass.** `cd frontend && npx playwright test` exits 0. All new/modified tests pass.
 - [ ] **No secrets in code.** Grep for API keys, tokens, phone numbers. Check .env, logs, comments, URLs. Secrets only in env vars.
 - [ ] **No DROP TABLE or table recreation.** Use ALTER TABLE ADD COLUMN only. All migrations backward-compatible.

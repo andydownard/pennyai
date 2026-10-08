@@ -11,7 +11,7 @@ import (
 //   - a TIMESTAMPTZ column scanned straight into a string arrives as RFC 3339
 //   - the same column cast to TEXT (what pgcompat does inside COALESCE(x, ''))
 //     arrives as "2006-01-02 15:04:05.999999+00"
-//   - SQLite (the default test database) stores "2006-01-02 15:04:05"
+//   - a plain wall-clock string arrives as "2006-01-02 15:04:05"
 var dbTimeLayouts = []string{
 	time.RFC3339Nano,
 	"2006-01-02 15:04:05.999999999Z07:00",
@@ -23,7 +23,7 @@ var dbTimeLayouts = []string{
 
 // parseDBTime parses a timestamp string read from the database. Every caller
 // that compares a stored time against now must use this; parsing with a single
-// SQLite layout fails on PostgreSQL, and the callers treat a failed parse as
+// plain layout fails on PostgreSQL, and the callers treat a failed parse as
 // "no timestamp", which silently switches off dedup windows and cooling
 // periods.
 func parseDBTime(s string) (time.Time, error) {
