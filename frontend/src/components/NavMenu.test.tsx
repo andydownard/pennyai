@@ -76,5 +76,30 @@ describe('NavMenu header and items', () => {
     renderMenu({ displayName: '', email: '' })
     const first = within(screen.getByRole('navigation')).getAllByRole('button')[0]
     expect(first.textContent).toContain('Profile')
+    expect(first).toHaveAccessibleName('Profile')
+  })
+})
+
+describe('NavMenu profile row', () => {
+  it('tells screen readers the name row opens Profile', () => {
+    const p = renderMenu({ email: 'tamika@example.com' })
+    fireEvent.click(screen.getByRole('button', { name: 'Profile, Tamika Jones' }))
+    expect(p.onNavigate).toHaveBeenCalledWith('profile')
+    expect(p.onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows an arrow that screen readers skip', () => {
+    renderMenu()
+    const row = screen.getByRole('button', { name: 'Profile, Tamika Jones' })
+    const arrow = row.querySelector('[data-testid="profile-arrow"]')
+    expect(arrow).not.toBeNull()
+    expect(arrow).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  it('keeps a long name truncating beside the arrow', () => {
+    renderMenu({ displayName: 'Tamika Alexandria Jones-Washington', email: 'tamika.alexandria.jones@example.com' })
+    const row = screen.getByRole('button', { name: /^Profile, / })
+    const text = row.querySelector('[data-testid="profile-text"]') as HTMLElement
+    expect(text).toHaveStyle({ flex: '1', minWidth: '0' })
   })
 })
