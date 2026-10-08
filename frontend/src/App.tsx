@@ -61,7 +61,8 @@ import { ItemEditSheet } from './components/ItemEditSheet'
 import { ReviewSheet } from './components/ReviewSheet'
 import { WrappedCard } from './components/WrappedCard'
 import { MilestoneCard } from './components/MilestoneCard'
-import { NavMenu, HamburgerButton, type NavScreen } from './components/NavMenu'
+import { initialsOf } from './avatarStore'
+import { NavMenu, AvatarMenuButton, type NavScreen } from './components/NavMenu'
 import { ScreenTransition, useScreenTransition } from './components/ScreenTransition'
 import { LoginScreen } from './components/LoginScreen'
 import { JOIN_CODE_KEY, REFERRAL_CODE_KEY, consumeLanding, rememberDestination, stashInviteLink, stashShareInvite } from './auth/pendingLinks'
@@ -2053,8 +2054,21 @@ function AppInner() {
       open={navMenuOpen}
       active={getActiveNav(screen)}
       isAdmin={isAdmin}
+      userId={currentUserId}
+      initials={initialsOf(settingsFirstName, settingsLastName)}
+      displayName={[settingsFirstName, settingsLastName].filter(Boolean).join(' ')}
       onNavigate={(s) => setScreen(s as Screen)}
+      onLogout={handleLogout}
       onClose={() => setNavMenuOpen(false)}
+    />
+  )
+
+  const renderAvatarButton = () => (
+    <AvatarMenuButton
+      onClick={() => setNavMenuOpen(true)}
+      expanded={navMenuOpen}
+      userId={currentUserId}
+      initials={initialsOf(settingsFirstName, settingsLastName)}
     />
   )
 
@@ -2125,7 +2139,7 @@ function AppInner() {
               </svg>
             </button>
           ) : (
-            <HamburgerButton onClick={() => setNavMenuOpen(true)} />
+            renderAvatarButton()
           )}
           <span style={{
             fontFamily: FONT,
@@ -2223,7 +2237,6 @@ function AppInner() {
         currentUserId={currentUserId}
         isAdmin={isAdmin}
         onNavigate={(s: string) => setScreen(s as Screen)}
-        onLogout={handleLogout}
         showToast={showToast}
         onSessionExpired={handleSessionExpired}
 
@@ -2501,7 +2514,7 @@ function AppInner() {
       {/* Fixed header — compact */}
       <div style={{ flexShrink: 0, backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
         <div style={{ ...layout.row, padding: '12px 20px' }}>
-          <HamburgerButton onClick={() => setNavMenuOpen(true)} />
+          {renderAvatarButton()}
           {editingListName ? (
             <input
               autoFocus

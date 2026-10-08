@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { login, navigateTo, openNavMenu } from './helpers'
+import { login, loginScreen, navigateTo, openNavMenu } from './helpers'
 
 test.describe('Navigation', () => {
   test.beforeEach(async ({ page }) => {
@@ -26,7 +26,19 @@ test.describe('Navigation', () => {
   test('navigate to Profile', async ({ page }) => {
     await navigateTo(page, 'Profile')
     await expect(page.getByPlaceholder('First')).toBeVisible()
-    await expect(page.getByText('Sign Out')).toBeVisible()
+  })
+
+  test('menu opens from the avatar: Profile first, Sign out last, Sign out leaves', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.screenshot({ path: 'test-results/avatar-menu-header.png', clip: { x: 0, y: 0, width: 390, height: 120 } })
+    const nav = await openNavMenu(page)
+    const buttons = nav.getByRole('button')
+    await expect(buttons.first()).toContainText('Profile')
+    await expect(buttons.last()).toHaveText('Sign out')
+    await page.waitForTimeout(400) // let the slide-in finish
+    await page.screenshot({ path: 'test-results/avatar-menu-open.png' })
+    await buttons.last().click()
+    await expect(loginScreen(page)).toBeVisible({ timeout: 10_000 })
   })
 
   test('browser back button works', async ({ page }) => {

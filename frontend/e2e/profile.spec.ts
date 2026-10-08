@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { login, loginScreen } from './helpers'
+import { login, loginScreen, signOutViaMenu } from './helpers'
 
 test.describe('Profile screen', () => {
   test.beforeEach(async ({ page }) => {
@@ -31,18 +31,20 @@ test.describe('Profile screen', () => {
   })
 
   test('sign out returns to login screen', async ({ page }) => {
-    await page.goto('/profile')
-    await expect(page.getByText('Sign Out')).toBeVisible({ timeout: 10_000 })
-    await page.getByText('Sign Out').click()
+    await signOutViaMenu(page)
 
     // Should be back on login
     await expect(loginScreen(page)).toBeVisible({ timeout: 10_000 })
   })
 
-  test('sign out clears session cookie', async ({ page }) => {
+  test('profile has no sign out button', async ({ page }) => {
     await page.goto('/profile')
-    await expect(page.getByText('Sign Out')).toBeVisible({ timeout: 10_000 })
-    await page.getByText('Sign Out').click()
+    await expect(page.getByPlaceholder('First')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText(/sign out/i)).toHaveCount(0)
+  })
+
+  test('sign out clears session cookie', async ({ page }) => {
+    await signOutViaMenu(page)
     await expect(loginScreen(page)).toBeVisible({ timeout: 10_000 })
 
     // Session cookie should be gone

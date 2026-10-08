@@ -30,16 +30,22 @@ export async function login(page: Page, name?: string): Promise<void> {
   await expect(homeInput(page)).toBeVisible({ timeout: 10_000 })
 }
 
-/** Open the slide-in navigation menu (the hamburger in the header). */
+/** Open the slide-in navigation menu (the avatar button in the header). */
 export async function openNavMenu(page: Page) {
-  await page.getByRole('button', { name: 'Open navigation menu' }).click()
+  await page.getByRole('button', { name: 'Open menu' }).click()
   const nav = page.getByRole('navigation', { name: 'Main navigation' })
   await expect(nav).toBeVisible()
   return nav
 }
 
+/** Sign out from the bottom of the avatar menu. */
+export async function signOutViaMenu(page: Page): Promise<void> {
+  const nav = await openNavMenu(page)
+  await nav.getByRole('button', { name: 'Sign out' }).click()
+}
+
 /**
- * Navigate to a screen via the hamburger menu. Pass the menu item's label:
+ * Navigate to a screen via the avatar menu. Pass the menu item's label:
  * 'Shopping List', 'My Lists', 'Penny', 'Share & Earn' or 'Profile'.
  * The menu closes itself after a selection.
  */
