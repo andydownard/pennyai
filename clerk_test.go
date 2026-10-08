@@ -117,7 +117,7 @@ func TestVerifyClerkToken_ValidTokenYieldsIdentity(t *testing.T) {
 	if id.AuthorizedParty != testClerkAZP {
 		t.Errorf("AuthorizedParty: got %q want %q", id.AuthorizedParty, testClerkAZP)
 	}
-	if id.Email != "" || id.Phone != "" || id.PhoneVerified || id.Name != "" {
+	if id.Email != "" || id.Name != "" {
 		t.Errorf("default Clerk session token carries no custom claims; got %+v", id)
 	}
 	if id.Claims == nil {
@@ -147,17 +147,11 @@ func TestVerifyClerkToken_OptionalCustomClaimsSurface(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !id.PhoneVerified {
-		t.Error("PhoneVerified: got false want true")
-	}
 	if id.Name != "Tamika" {
 		t.Errorf("Name: got %q want Tamika", id.Name)
 	}
 	if id.Email != "Tamika@Example.com" {
 		t.Errorf("Email: got %q (normalization happens at the resolve/upsert layer)", id.Email)
-	}
-	if id.Phone != "+15551234567" {
-		t.Errorf("Phone: got %q", id.Phone)
 	}
 }
 
@@ -844,34 +838,3 @@ func TestClerkIsEnabled(t *testing.T) {
 	}
 }
 
-func TestVerifyClerkToken_PhoneVerifiedAcceptsBoolOrString(t *testing.T) {
-	priv := newTestKeypair(t)
-	withClerkSatelliteEnv(t, priv, nil)
-
-	cases := []struct {
-		name string
-		val  any
-		want bool
-	}{
-		{"bool true", true, true},
-		{"string true", "true", true},
-		{"bool false", false, false},
-		{"string false", "false", false},
-		{"unexpected string", "yes", false},
-		{"number", 1, false},
-		{"null", nil, false},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			o := defaultClerkTokenOpts()
-			o.extra = map[string]any{"phone": "+15551234567", "phone_verified": c.val}
-			id, err := VerifyClerkToken(context.Background(), mintClerkTestJWT(t, priv, o))
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if id.PhoneVerified != c.want {
-				t.Errorf("PhoneVerified: got %v want %v", id.PhoneVerified, c.want)
-			}
-		})
-	}
-}

@@ -14,46 +14,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
+	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
-
-// =============================================================================
-// MOCK TWILIO CLIENT
-// =============================================================================
-
-type MockTwilioClient struct {
-	mu          sync.Mutex
-	LastSMSTo   string
-	LastSMSBody string
-	SMSCount    int
-
-	SMSErr error
-}
-
-func (m *MockTwilioClient) SendSMS(from, to, body string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.LastSMSTo = to
-	m.LastSMSBody = body
-	m.SMSCount++
-	return m.SMSErr
-}
-
-// GetSMSCount returns the total number of SMS messages sent.
-func (m *MockTwilioClient) GetSMSCount() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.SMSCount
-}
-
-// GetLastSMS returns the last SMS recipient and body in a thread-safe way.
-func (m *MockTwilioClient) GetLastSMS() (string, string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.LastSMSTo, m.LastSMSBody
-}
 
 // =============================================================================
 // TEST DATABASE SETUP
@@ -1377,24 +1341,21 @@ func hammer(t *testing.T, n int, fn func(i int)) {
 // TEST HELPERS
 // =============================================================================
 
-// newTestServer creates a Server with a mock Twilio client and an in-memory
-// SQLite database. Each test gets a fresh database -- no leaking state between
+// newTestServer creates a Server with an in-memory SQLite database. Each test gets a fresh database -- no leaking state between
 // tests.
-func newTestServer(t *testing.T, mock *MockTwilioClient) *Server {
+func newTestServer(t *testing.T) *Server {
 	t.Helper() // marks this as a helper so errors show the caller's line number
 
 	_, pgdb := openTestDB(t)
 
 	server := &Server{
-		config:   Config{Port: "8080", AppBaseURL: "https://groflo.rallytasks.com", AnthropicAPIKey: "test-key", TwilioPhoneNumber: "+10000000000", AdminPhone: "3104861833", FeedbackPhones: []string{"5551234567"}, BcryptCost: 4},
+		config:   Config{Port: "8080", AppBaseURL: "https://groflo.rallytasks.com", AnthropicAPIKey: "test-key", AdminClerkUserIDs: []string{testAdminClerkID}, BcryptCost: 4},
 		db:       pgdb,
 		sessions: NewSessionStore(pgdb),
-		twilio:   mock,
 		parseItems: func(apiKey, text string, images []string) ([]ParsedItem, error) {
 			// Default mock parser: returns nothing. Tests can override.
 			return nil, nil
 		},
-		smsBuffer: newMessageBuffer(50 * time.Millisecond),
 	}
 	// Default parseCommand wraps parseItems so existing tests work
 	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
@@ -1471,6 +1432,61 @@ func newTestSessionStore(t *testing.T) *SessionStore {
 	return NewSessionStore(pgdb)
 }
 
+// upsertUser is a TEST FIXTURE: it creates (or finds) a user keyed by the legacy
+// users.phone column and returns it. Production code has no phone-keyed
+// upsert; the column survives only so existing rows and tests keep a stable
+// per-user key.
+func upsertUser(db *PGDB, phone string) (User, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return User{}, fmt.Errorf("starting transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	newID := uuid.New().String()
+	if _, err = tx.Exec("INSERT OR IGNORE INTO users (id, phone) VALUES (?, ?)", newID, phone); err != nil {
+		return User{}, fmt.Errorf("upserting user: %w", err)
+	}
+
+	if phone == testAdminPhone {
+		// The admin test user is admin by Clerk id, never by phone.
+		if _, err := tx.Exec("UPDATE users SET clerk_user_id = ? WHERE phone = ? AND clerk_user_id IS NULL", testAdminClerkID, phone); err != nil {
+			return User{}, fmt.Errorf("binding admin clerk id: %w", err)
+		}
+	}
+
+	var user User
+	var householdID sql.NullInt64
+	var name, email sql.NullString
+	err = tx.QueryRow(
+		"SELECT id, COALESCE(name,''), COALESCE(email,''), household_id, created_at FROM users WHERE phone = ?",
+		phone,
+	).Scan(&user.ID, &name, &email, &householdID, &user.CreatedAt)
+	if err != nil {
+		return User{}, fmt.Errorf("fetching user: %w", err)
+	}
+	user.Name = name.String
+	user.Email = email.String
+	if householdID.Valid {
+		user.HouseholdID = int(householdID.Int64)
+	}
+	if _, err := tx.Exec("UPDATE users SET last_active = CURRENT_TIMESTAMP, login_count = login_count + 1 WHERE id = ?", user.ID); err != nil {
+		log.Printf("[warn] failed to update login count for user %s: %v", user.ID, err)
+	}
+	if !householdID.Valid {
+		hID, err := createSoloHouseholdTx(tx, user.ID)
+		if err != nil {
+			return User{}, err
+		}
+		user.HouseholdID = hID
+	}
+	tx.Exec("INSERT OR IGNORE INTO auth_methods (user_id, provider, provider_id) VALUES (?, 'phone', ?)", user.ID, phone)
+	if err := tx.Commit(); err != nil {
+		return User{}, fmt.Errorf("committing upsert: %w", err)
+	}
+	return user, nil
+}
+
 // loginUser creates a user in the DB and returns a session cookie for that user.
 func loginUser(t *testing.T, server *Server, phone string) (*http.Cookie, string) {
 	t.Helper()
@@ -1483,21 +1499,6 @@ func loginUser(t *testing.T, server *Server, phone string) (*http.Cookie, string
 		t.Fatalf("CreateSession: %v", err)
 	}
 	return &http.Cookie{Name: "session", Value: token}, user.ID
-}
-
-// doSMSRequest sends a Twilio-style form POST to the SMS webhook handler.
-func doSMSRequest(handler http.HandlerFunc, from, body string, numMedia int) *httptest.ResponseRecorder {
-	form := url.Values{}
-	form.Set("From", from)
-	form.Set("Body", body)
-	form.Set("NumMedia", fmt.Sprintf("%d", numMedia))
-
-	req := httptest.NewRequest("POST", "/api/sms", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	rr := httptest.NewRecorder()
-	handler(rr, req)
-	return rr
 }
 
 // doEmailRequest sends a multipart form request mimicking SendGrid Inbound Parse.
@@ -1627,10 +1628,19 @@ func createTestDeal(t *testing.T, server *Server, cookie *http.Cookie) int {
 	return dealID
 }
 
-// loginAdmin logs in the admin user (phone matches config.AdminPhone = "3104861833").
+// testAdminClerkID is the Clerk user id that newTestServer lists in
+// ADMIN_CLERK_USER_IDS. loginAdmin binds it to the admin test user.
+const testAdminClerkID = "user_test_admin"
+
+// testAdminPhone is the phone the admin test user is created under. The phone
+// grants nothing: admin is decided by the Clerk id alone.
+const testAdminPhone = "3104861833"
+
+// loginAdmin logs in the admin user: the user whose Clerk id is in
+// config.AdminClerkUserIDs.
 func loginAdmin(t *testing.T, server *Server) *http.Cookie {
 	t.Helper()
-	cookie, _ := loginUser(t, server, server.config.AdminPhone)
+	cookie, _ := loginUser(t, server, testAdminPhone) // upsertUser binds the admin Clerk id
 	return cookie
 }
 

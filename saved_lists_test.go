@@ -11,7 +11,7 @@ import (
 
 
 func TestInvalidID_SavedListEndpoints(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	tests := []struct {
@@ -52,7 +52,7 @@ func TestInvalidID_SavedListEndpoints(t *testing.T) {
 // =============================================================================
 
 func TestSavedLists_GetEmpty(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSavedLists, "GET", "/api/saved-lists", nil, []*http.Cookie{cookie})
@@ -68,7 +68,7 @@ func TestSavedLists_GetEmpty(t *testing.T) {
 }
 
 func TestSavedLists_CreateAndGet(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add some items to the list
@@ -110,7 +110,7 @@ func TestSavedLists_CreateAndGet(t *testing.T) {
 }
 
 func TestSavedLists_CreateEmptyName(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, ?, ?)",
@@ -126,7 +126,7 @@ func TestSavedLists_CreateEmptyName(t *testing.T) {
 }
 
 func TestSavedLists_CreateNoItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// No items at all on the list
@@ -140,7 +140,7 @@ func TestSavedLists_CreateNoItems(t *testing.T) {
 }
 
 func TestSavedLists_CreateSavesAllItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec("INSERT INTO list_items (user_id, name, department, checked) VALUES (?, ?, ?, 0)",
@@ -163,7 +163,7 @@ func TestSavedLists_CreateSavesAllItems(t *testing.T) {
 }
 
 func TestSavedLists_Delete(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, ?, ?)",
@@ -200,7 +200,7 @@ func TestSavedLists_Delete(t *testing.T) {
 }
 
 func TestSavedLists_DeleteNonexistent(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSavedLists, "DELETE", "/api/saved-lists/99999",
@@ -211,7 +211,7 @@ func TestSavedLists_DeleteNonexistent(t *testing.T) {
 }
 
 func TestSavedLists_Update(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add items and create saved list
@@ -252,7 +252,7 @@ func TestSavedLists_Update(t *testing.T) {
 }
 
 func TestSavedLists_UpdateNonexistent(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, ?, ?)",
@@ -266,7 +266,7 @@ func TestSavedLists_UpdateNonexistent(t *testing.T) {
 }
 
 func TestSavedLists_Load(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add items and create saved list
@@ -305,7 +305,7 @@ func TestSavedLists_Load(t *testing.T) {
 }
 
 func TestSavedLists_LoadNonexistent(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists/99999/load",
@@ -316,7 +316,7 @@ func TestSavedLists_LoadNonexistent(t *testing.T) {
 }
 
 func TestSavedLists_CrossUserIsolation(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, userID1 := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -361,7 +361,7 @@ func TestSavedLists_CrossUserIsolation(t *testing.T) {
 }
 
 func TestSavedLists_InvalidID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSavedLists, "DELETE", "/api/saved-lists/abc", nil, []*http.Cookie{cookie})
@@ -371,7 +371,7 @@ func TestSavedLists_InvalidID(t *testing.T) {
 }
 
 func TestSavedLists_LoadOverwrite(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add items and create saved list
@@ -410,7 +410,7 @@ func TestSavedLists_LoadOverwrite(t *testing.T) {
 }
 
 func TestSavedLists_LoadMergesWithExisting(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add items and create saved list
@@ -442,15 +442,8 @@ func TestSavedLists_LoadMergesWithExisting(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// SMS WEBHOOK TESTS
-// =============================================================================
-
-// doSMSRequest sends a Twilio-style form POST to the SMS webhook handler.
-
-
 func TestSavedListSharedAcrossHousehold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, userID1 := loginUser(t, server, "5551111111")
 	cookie2, userID2 := loginUser(t, server, "5552222222")
 
@@ -498,7 +491,7 @@ func TestSavedListSharedAcrossHousehold(t *testing.T) {
 }
 
 func TestRequireSavedListAccess_NotFound(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5551234567")
 
 	rr := httptest.NewRecorder()
@@ -512,7 +505,7 @@ func TestRequireSavedListAccess_NotFound(t *testing.T) {
 }
 
 func TestRequireSavedListAccess_WrongHousehold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID1 := loginUser(t, server, "5551111111")
 	_, userID2 := loginUser(t, server, "5552222222")
 
@@ -532,7 +525,7 @@ func TestRequireSavedListAccess_WrongHousehold(t *testing.T) {
 // --- Saved list handler edge cases ---
 
 func TestSavedListsCreate_NoItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists",
@@ -544,7 +537,7 @@ func TestSavedListsCreate_NoItems(t *testing.T) {
 }
 
 func TestSavedListsCreate_EmptyName(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists",
@@ -556,7 +549,7 @@ func TestSavedListsCreate_EmptyName(t *testing.T) {
 }
 
 func TestSavedListUpdate_NoItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Create a saved list with items
@@ -576,7 +569,7 @@ func TestSavedListUpdate_NoItems(t *testing.T) {
 }
 
 func TestSavedListUpdate_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Create saved list
@@ -599,7 +592,7 @@ func TestSavedListUpdate_Success(t *testing.T) {
 }
 
 func TestSavedListUpdate_WrongHousehold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID1 := loginUser(t, server, "5551111111")
 	cookie2, userID2 := loginUser(t, server, "5552222222")
 
@@ -618,7 +611,7 @@ func TestSavedListUpdate_WrongHousehold(t *testing.T) {
 }
 
 func TestSavedListLoad_Overwrite(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Create saved list with items
@@ -648,7 +641,7 @@ func TestSavedListLoad_Overwrite(t *testing.T) {
 }
 
 func TestSavedListLoad_Merge(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Create saved list with items
@@ -674,7 +667,7 @@ func TestSavedListLoad_Merge(t *testing.T) {
 }
 
 func TestSavedListLoad_WrongHousehold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID1 := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -689,7 +682,7 @@ func TestSavedListLoad_WrongHousehold(t *testing.T) {
 }
 
 func TestSavedListDelete_WrongHousehold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID1 := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -710,7 +703,7 @@ func TestSavedListDelete_WrongHousehold(t *testing.T) {
 // --- handleSavedListsGet tests ---
 
 func TestSavedListsGet_Empty(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSavedLists, "GET", "/api/saved-lists", nil, []*http.Cookie{cookie})
@@ -724,7 +717,7 @@ func TestSavedListsGet_Empty(t *testing.T) {
 }
 
 func TestSavedListsGet_WithLists(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, 'Weekly')", userID)
@@ -745,7 +738,7 @@ func TestSavedListsGet_WithLists(t *testing.T) {
 // --- handleSavedLists routing tests ---
 
 func TestSavedLists_Unauthorized(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleSavedLists, "GET", "/api/saved-lists", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -758,7 +751,7 @@ func TestSavedLists_Unauthorized(t *testing.T) {
 // --- handleSavedListLoad error paths ---
 
 func TestSavedListLoad_QueryError(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Create a saved list
@@ -778,7 +771,7 @@ func TestSavedListLoad_QueryError(t *testing.T) {
 // --- handleSavedListsCreate with items ---
 
 func TestSavedListsCreate_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add items to list
@@ -804,7 +797,7 @@ func TestSavedListsCreate_Success(t *testing.T) {
 // --- handleSavedListDelete success ---
 
 func TestSavedListDelete_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	result, _ := server.db.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, 'ToDelete')", userID)
@@ -829,7 +822,7 @@ func TestSavedListDelete_Success(t *testing.T) {
 // --- handleSavedListsCreate invalid JSON ---
 
 func TestSavedListsCreate_InvalidJSON(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	req := httptest.NewRequest("POST", "/api/saved-lists", strings.NewReader("not json"))
@@ -846,7 +839,7 @@ func TestSavedListsCreate_InvalidJSON(t *testing.T) {
 // --- handleVCard success ---
 
 func TestSavedListsGet_DBError(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 	server.db.Close()
 
@@ -857,7 +850,7 @@ func TestSavedListsGet_DBError(t *testing.T) {
 }
 
 func TestSavedListsCreate_DBError(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 	server.db.Exec("INSERT INTO list_items (user_id, name, department, quantity) VALUES (?, 'Milk', 'Dairy', 1)", userID)
 	server.db.Close()
@@ -872,7 +865,7 @@ func TestSavedListsCreate_DBError(t *testing.T) {
 }
 
 func TestSavedListUpdate_DBError(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 	result, _ := server.db.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, 'Test')", userID)
 	listID, _ := result.LastInsertId()
@@ -887,7 +880,7 @@ func TestSavedListUpdate_DBError(t *testing.T) {
 }
 
 func TestSavedListDelete_DBError(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 	result, _ := server.db.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, 'Test')", userID)
 	listID, _ := result.LastInsertId()
@@ -901,7 +894,7 @@ func TestSavedListDelete_DBError(t *testing.T) {
 }
 
 func TestSavedListLoad_DBError(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 	result, _ := server.db.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, 'Test')", userID)
 	listID, _ := result.LastInsertId()
@@ -915,7 +908,7 @@ func TestSavedListLoad_DBError(t *testing.T) {
 }
 
 func TestSavedListLoad_OverwriteClearsOldItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add items to active list
@@ -948,7 +941,7 @@ func TestSavedListLoad_OverwriteClearsOldItems(t *testing.T) {
 }
 
 func TestSavedListLoad_MergeKeepsBothItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add items to active list
@@ -978,7 +971,7 @@ func TestSavedListLoad_MergeKeepsBothItems(t *testing.T) {
 // =============================================================================
 
 func TestSavedListsGet_Sorted(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add items and create two saved lists
@@ -1001,7 +994,7 @@ func TestSavedListsGet_Sorted(t *testing.T) {
 }
 
 func TestSavedListLoad_MergeMode(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add current items
@@ -1028,7 +1021,7 @@ func TestSavedListLoad_MergeMode(t *testing.T) {
 }
 
 func TestSavedListLoad_OverwriteMode(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add current items
@@ -1055,7 +1048,7 @@ func TestSavedListLoad_OverwriteMode(t *testing.T) {
 }
 
 func TestSavedListsCreate_WithMultipleItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add multiple items
@@ -1076,7 +1069,7 @@ func TestSavedListsCreate_WithMultipleItems(t *testing.T) {
 }
 
 func TestSavedListUpdate_WithNewItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Create saved list with one item
@@ -1097,7 +1090,7 @@ func TestSavedListUpdate_WithNewItems(t *testing.T) {
 }
 
 func TestSavedListDelete_Success_Cascade(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, 'Milk', 'Dairy')", userID)
@@ -1121,7 +1114,7 @@ func TestSavedListDelete_Success_Cascade(t *testing.T) {
 }
 
 func TestSavedLists_NotFoundRoute(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// PATCH on a saved list ID is not a valid route
@@ -1132,7 +1125,7 @@ func TestSavedLists_NotFoundRoute(t *testing.T) {
 }
 
 func TestSavedListUpdate_FullFlow(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add items to current list
@@ -1166,7 +1159,7 @@ func TestSavedListUpdate_FullFlow(t *testing.T) {
 }
 
 func TestSavedListsGet_WithItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add item and create saved list
@@ -1187,7 +1180,7 @@ func TestSavedListsGet_WithItems(t *testing.T) {
 }
 
 func TestSavedListLoad_OverwriteWithExisting(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add items and create saved list
@@ -1213,7 +1206,7 @@ func TestSavedListLoad_OverwriteWithExisting(t *testing.T) {
 }
 
 func TestSavedLists_InvalidIDFormat(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Non-numeric IDs should return 400
@@ -1234,7 +1227,7 @@ func TestSavedLists_InvalidIDFormat(t *testing.T) {
 // =============================================================================
 
 func TestSavedLists_RootPUT_Returns405(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSavedLists, "PUT", "/api/saved-lists",
@@ -1245,7 +1238,7 @@ func TestSavedLists_RootPUT_Returns405(t *testing.T) {
 }
 
 func TestSavedLists_RootDELETE_Returns405(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSavedLists, "DELETE", "/api/saved-lists",
@@ -1260,8 +1253,7 @@ func TestSavedLists_RootDELETE_Returns405(t *testing.T) {
 // =============================================================================
 
 func TestSavedListLoad_OverwriteClearsExisting(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 
 	user, _ := upsertUser(server.db, "5551234567")
 	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
@@ -1308,8 +1300,7 @@ func TestSavedListLoad_OverwriteClearsExisting(t *testing.T) {
 }
 
 func TestSavedListUpdate_EmptyList(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 
 	user, _ := upsertUser(server.db, "5551234567")
 	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
@@ -1340,7 +1331,7 @@ func TestSavedListUpdate_EmptyList(t *testing.T) {
 // =============================================================================
 
 func TestRequireSavedListAccess_MissingList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5559990030")
 
 	rr := httptest.NewRecorder()
@@ -1355,7 +1346,7 @@ func TestRequireSavedListAccess_MissingList(t *testing.T) {
 }
 
 func TestRequireSavedListAccess_OtherUsersListDenied(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, user1ID := loginUser(t, server, "5559990031")
 	_, user2ID := loginUser(t, server, "5559990032")
 
@@ -1380,7 +1371,7 @@ func TestRequireSavedListAccess_OtherUsersListDenied(t *testing.T) {
 }
 
 func TestRequireSavedListAccess_OwnerCanAccess(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5559990033")
 
 	// Create a saved list belonging to the user
@@ -1406,7 +1397,7 @@ func TestRequireSavedListAccess_OwnerCanAccess(t *testing.T) {
 // =============================================================================
 
 func TestSavedLists_EdgeCase_WhitespaceOnlyName(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Whitespace-only name should be rejected (trimmed to empty)
@@ -1422,7 +1413,7 @@ func TestSavedLists_EdgeCase_WhitespaceOnlyName(t *testing.T) {
 }
 
 func TestSavedLists_EdgeCase_VeryLongName(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add an item so save can succeed
@@ -1443,7 +1434,7 @@ func TestSavedLists_EdgeCase_VeryLongName(t *testing.T) {
 }
 
 func TestSavedLists_EdgeCase_LoadNonexistentList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Loading a saved list that doesn't exist should return 404
@@ -1454,7 +1445,7 @@ func TestSavedLists_EdgeCase_LoadNonexistentList(t *testing.T) {
 }
 
 func TestSavedLists_EdgeCase_DeleteNonexistentList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Deleting a saved list that doesn't exist should return 404
@@ -1469,7 +1460,7 @@ func TestSavedLists_EdgeCase_DeleteNonexistentList(t *testing.T) {
 }
 
 func TestSavedLists_EdgeCase_UpdateNonexistentList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Updating a saved list that doesn't exist should return 404
@@ -1480,7 +1471,7 @@ func TestSavedLists_EdgeCase_UpdateNonexistentList(t *testing.T) {
 }
 
 func TestSavedLists_EdgeCase_LoadEmptySavedList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Create an item so saved list can be created
@@ -1511,7 +1502,7 @@ func TestSavedLists_EdgeCase_LoadEmptySavedList(t *testing.T) {
 }
 
 func TestSavedLists_EdgeCase_SpecialCharsInName(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	createListItem(t, server.db, userID, "Eggs", "Dairy")
@@ -1531,7 +1522,7 @@ func TestSavedLists_EdgeCase_SpecialCharsInName(t *testing.T) {
 }
 
 func TestSavedLists_EdgeCase_CreateWithInvalidJSON(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Send nil body — decodeJSON should reject it
@@ -1542,7 +1533,7 @@ func TestSavedLists_EdgeCase_CreateWithInvalidJSON(t *testing.T) {
 }
 
 func TestSavedLists_EdgeCase_DoubleDelete(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	createListItem(t, server.db, userID, "Butter", "Dairy")
@@ -1569,7 +1560,7 @@ func TestSavedLists_EdgeCase_DoubleDelete(t *testing.T) {
 }
 
 func TestSavedListMerge_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Create a saved list with one item
@@ -1605,7 +1596,7 @@ func TestSavedListMerge_Success(t *testing.T) {
 }
 
 func TestSavedListMerge_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists/1/merge",
 		map[string]interface{}{"items": []map[string]interface{}{}}, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -1614,7 +1605,7 @@ func TestSavedListMerge_RequiresAuth(t *testing.T) {
 }
 
 func TestSavedListMerge_CrossUserBlocked(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, _ := loginUser(t, server, "5551234567")
 	cookie2, _ := loginUser(t, server, "5559999999")
 
@@ -1648,7 +1639,7 @@ func TestSavedListMerge_CrossUserBlocked(t *testing.T) {
 // =============================================================================
 
 func TestSavedLists_CreateWithStoreName(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec("INSERT INTO list_items (user_id, name, department) VALUES (?, ?, ?)",
@@ -1673,7 +1664,7 @@ func TestSavedLists_CreateWithStoreName(t *testing.T) {
 }
 
 func TestSavedLists_GetReturnsStoreNameAndIsMaster(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Insert a saved list with store_name directly
@@ -1721,7 +1712,7 @@ func TestSavedLists_GetReturnsStoreNameAndIsMaster(t *testing.T) {
 }
 
 func TestSavedLists_GetFilterByStore(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec("INSERT INTO saved_lists (user_id, name, store_name) VALUES (?, ?, ?)",
@@ -1748,7 +1739,7 @@ func TestSavedLists_GetFilterByStore(t *testing.T) {
 }
 
 func TestSavedLists_GetFilterByStoreCaseInsensitive(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec("INSERT INTO saved_lists (user_id, name, store_name) VALUES (?, ?, ?)",
@@ -1764,7 +1755,7 @@ func TestSavedLists_GetFilterByStoreCaseInsensitive(t *testing.T) {
 }
 
 func TestSavedLists_GetNoStoreFilter_ReturnsAll(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec("INSERT INTO saved_lists (user_id, name, store_name) VALUES (?, ?, ?)",
@@ -1781,7 +1772,7 @@ func TestSavedLists_GetNoStoreFilter_ReturnsAll(t *testing.T) {
 }
 
 func TestParseAndAdd_SaveWithStoreName(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add items to save
@@ -1818,7 +1809,7 @@ func TestParseAndAdd_SaveWithStoreName(t *testing.T) {
 }
 
 func TestParseAndAdd_LoadSavedListByStore(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Create a saved list with store_name and items
@@ -1855,7 +1846,7 @@ func TestParseAndAdd_LoadSavedListByStore(t *testing.T) {
 }
 
 func TestParseAndAdd_LoadSavedListByStoreOnly_SingleList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Create a single saved list for Costco
@@ -1889,7 +1880,7 @@ func TestParseAndAdd_LoadSavedListByStoreOnly_SingleList(t *testing.T) {
 }
 
 func TestParseAndAdd_LoadSavedListByStore_NoLists(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// No saved lists at all
@@ -1924,7 +1915,7 @@ func TestParseAndAdd_LoadSavedListByStore_NoLists(t *testing.T) {
 // =============================================================================
 
 func TestSavedListMerge_Success_Items(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Create a saved list with one item
@@ -1956,7 +1947,7 @@ func TestSavedListMerge_Success_Items(t *testing.T) {
 }
 
 func TestSavedListMerge_DeduplicatesExisting(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	result, _ := server.db.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, ?)", userID, "My List")
@@ -1984,7 +1975,7 @@ func TestSavedListMerge_DeduplicatesExisting(t *testing.T) {
 }
 
 func TestSavedListMerge_RequiresAuth_Merge(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists/1/merge",
 		map[string]interface{}{"items": []map[string]string{}}, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -1993,7 +1984,7 @@ func TestSavedListMerge_RequiresAuth_Merge(t *testing.T) {
 }
 
 func TestSavedListMerge_NotFound(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists/99999/merge",
@@ -2010,7 +2001,7 @@ func TestSavedListMerge_NotFound(t *testing.T) {
 // =============================================================================
 
 func TestSavedListShare_CreatesShareCode(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	result, _ := server.db.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, ?)", userID, "Share Test")
@@ -2037,7 +2028,7 @@ func TestSavedListShare_CreatesShareCode(t *testing.T) {
 }
 
 func TestSavedListShare_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists/1/share", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Status: got %d, want 401", rr.Code)
@@ -2045,7 +2036,7 @@ func TestSavedListShare_Unauthenticated(t *testing.T) {
 }
 
 func TestSavedListShare_NonexistentList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists/99999/share", nil, []*http.Cookie{cookie})

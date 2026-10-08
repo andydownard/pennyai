@@ -121,7 +121,7 @@ func TestPG_InsertOrIgnore_ConflictReportsZeroRows(t *testing.T) {
 // straight to Postgres: a syntax error on every sign-in.
 func TestPG_SessionStore_CreateGetDelete(t *testing.T) {
 	requirePostgresTier(t)
-	s := newTestServer(t, &MockTwilioClient{})
+	s := newTestServer(t)
 	s.db.Exec("INSERT INTO users (id, phone) VALUES (?, ?)", "u-sess", "2125550005")
 
 	token, err := s.sessions.CreateSession("u-sess", "2125550005", "clerk")

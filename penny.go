@@ -24,7 +24,6 @@ import (
 // hung goroutines from accumulating if the API is slow or unresponsive.
 // Image parsing can be slower, so 45s gives headroom over 30s.
 var claudeHTTPClient = &http.Client{Timeout: 45 * time.Second}
-var twilioHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
 // parseCacheEntry caches LLM parse results for common text-only inputs.
 type parseCacheEntry struct {
@@ -792,8 +791,7 @@ var pennyFallbackQuotes = map[string][]string{
 		"I make sure you get the right amount of the right things — no more, no less.",
 		"I find the best deals so you can spend less time comparing and more time living.",
 		"I keep your list organized by aisle so you can breeze through the store.",
-		"Text me anytime — I'll handle it.",
-		"You can text or email me — I'll add it to your list!",
+		"Email me and I'll add it to your list.",
 	},
 	"chime": {
 		"Looking good!", "Almost there!", "Nice work!", "On a roll!", "Keep going!",

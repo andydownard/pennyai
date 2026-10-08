@@ -105,7 +105,7 @@ var errNoClerkToken = errors.New("no clerk token on request")
 // ClerkIdentity is a VERIFIED Clerk identity. Every field came out of a token
 // whose signature, issuer, authorized party and lifetime have been checked.
 //
-// Email, Phone, PhoneVerified and Name are only populated when the primary
+// Email and Name are only populated when the primary
 // instance is configured to add those custom claims to its session token;
 // Clerk's default session JWT carries none of them. Downstream code must treat them as
 // best-effort and work when they are empty.
@@ -114,8 +114,6 @@ type ClerkIdentity struct {
 	SessionID       string // `sid`
 	AuthorizedParty string // `azp`
 	Email           string // optional custom claim
-	Phone           string // optional custom claim
-	PhoneVerified   bool   // optional custom claim; Phone is trusted only when true
 	Name            string // optional custom claim
 	Claims          *clerk.SessionClaims
 }
@@ -128,24 +126,8 @@ type LocalUserResolver func(id ClerkIdentity) (*Session, error)
 // clerkCustomClaims is the optional custom-claim schema. Absent claims stay
 // empty strings.
 type clerkCustomClaims struct {
-	Email         string         `json:"email"`
-	Phone         string         `json:"phone"`
-	PhoneVerified clerkLooseBool `json:"phone_verified"`
-	Name          string         `json:"name"`
-}
-
-// clerkLooseBool decodes a JSON bool or the strings "true"/"false", because a
-// Clerk token template can emit either. Anything else (null, a number, other
-// strings) decodes to false: absence of proof is not proof.
-type clerkLooseBool bool
-
-func (b *clerkLooseBool) UnmarshalJSON(data []byte) error {
-	*b = false
-	switch strings.TrimSpace(string(data)) {
-	case "true", `"true"`:
-		*b = true
-	}
-	return nil
+	Email string `json:"email"`
+	Name  string `json:"name"`
 }
 
 // -------- Configuration --------
@@ -484,8 +466,6 @@ func VerifyClerkToken(ctx context.Context, token string) (*ClerkIdentity, error)
 	}
 	if custom, ok := claims.Custom.(*clerkCustomClaims); ok && custom != nil {
 		id.Email = custom.Email
-		id.Phone = custom.Phone
-		id.PhoneVerified = bool(custom.PhoneVerified)
 		id.Name = custom.Name
 	}
 	return id, nil

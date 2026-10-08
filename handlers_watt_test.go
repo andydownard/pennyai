@@ -95,7 +95,7 @@ func wattEndpoints() []wattEndpoint {
 func TestWattEndpoints_NonAdminForbidden(t *testing.T) {
 	for _, ep := range wattEndpoints() {
 		t.Run(ep.name, func(t *testing.T) {
-			server := newTestServer(t, &MockTwilioClient{})
+			server := newTestServer(t)
 			// Key is set so the 403 proves auth runs before the config check.
 			server.config.WattAPIKey = "watt_test_key"
 
@@ -114,7 +114,7 @@ func TestWattEndpoints_NonAdminForbidden(t *testing.T) {
 func TestWattEndpoints_NoSessionUnauthorized(t *testing.T) {
 	for _, ep := range wattEndpoints() {
 		t.Run(ep.name, func(t *testing.T) {
-			server := newTestServer(t, &MockTwilioClient{})
+			server := newTestServer(t)
 			server.config.WattAPIKey = "watt_test_key"
 
 			rr := doRequest(ep.handler(server), "POST", ep.path, ep.body, nil)
@@ -131,7 +131,7 @@ func TestWattEndpoints_NoSessionUnauthorized(t *testing.T) {
 func TestWattEndpoints_MissingConfig(t *testing.T) {
 	for _, ep := range wattEndpoints() {
 		t.Run(ep.name, func(t *testing.T) {
-			server := newTestServer(t, &MockTwilioClient{})
+			server := newTestServer(t)
 			server.config.WattAPIKey = "" // default, but assert it explicitly
 
 			cookie := loginAdmin(t, server)
@@ -174,7 +174,7 @@ func TestWattEndpoints_EmptyInputBadRequest(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			server := newTestServer(t, &MockTwilioClient{})
+			server := newTestServer(t)
 			server.config.WattAPIKey = "watt_test_key"
 
 			cookie := loginAdmin(t, server)
@@ -192,7 +192,7 @@ func TestWattEndpoints_EmptyInputBadRequest(t *testing.T) {
 func TestWattEndpoints_WrongMethod(t *testing.T) {
 	for _, ep := range wattEndpoints() {
 		t.Run(ep.name, func(t *testing.T) {
-			server := newTestServer(t, &MockTwilioClient{})
+			server := newTestServer(t)
 			server.config.WattAPIKey = "watt_test_key"
 
 			rr := doRequest(ep.handler(server), "GET", ep.path, nil, nil)
@@ -207,7 +207,7 @@ func TestWattEndpoints_WrongMethod(t *testing.T) {
 // --- Happy paths: prove the mocked outbound flow returns 200 for an admin ---
 
 func TestWattTraitSearch_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.config.WattAPIKey = "watt_test_key"
 
 	restore := mockWattServer(t, map[string]string{
@@ -228,7 +228,7 @@ func TestWattTraitSearch_Success(t *testing.T) {
 }
 
 func TestWattEntityResolve_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.config.WattAPIKey = "watt_test_key"
 
 	restore := mockWattServer(t, map[string]string{
@@ -251,7 +251,7 @@ func TestWattEntityResolve_Success(t *testing.T) {
 }
 
 func TestWattBrandSearch_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.config.WattAPIKey = "watt_test_key"
 
 	restore := mockWattServer(t, map[string]string{
@@ -279,7 +279,7 @@ func TestWattBrandSearch_Success(t *testing.T) {
 // --- Empty-result path: entity_find returns nothing, no enrich call needed ---
 
 func TestWattBrandSearch_NoMatches(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.config.WattAPIKey = "watt_test_key"
 
 	restore := mockWattServer(t, map[string]string{

@@ -7,46 +7,16 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 )
-
-// =============================================================================
-// VCARD ENDPOINT
-// =============================================================================
-
-// handleVCard handles GET /api/penny.vcf
-func (s *Server) handleVCard(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodGet) {
-		return
-	}
-
-	phoneNumber := s.config.TwilioPhoneNumber
-	if phoneNumber == "" {
-		phoneNumber = "+10000000000"
-	}
-
-	vcard := fmt.Sprintf(`BEGIN:VCARD
-VERSION:3.0
-N:AI;Penny;;;
-FN:Penny AI
-ORG:Groflo
-TITLE:Shopping Assistant
-TEL;TYPE=CELL:%s
-EMAIL:penny@list.groflo.io
-END:VCARD`, phoneNumber)
-
-	w.Header().Set("Content-Type", "text/vcard")
-	w.Header().Set("Content-Disposition", "attachment; filename=\"penny.vcf\"")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, vcard)
-}
 
 // =============================================================================
 // FAMILY INVITE FLOW
 // =============================================================================
 
-// handleInvite handles POST /api/settings/invite
+// handleInvite handles POST /api/settings/invite. It creates an invite code and
+// returns the join link for the caller to share. It sends nothing; any body
+// fields are ignored.
 func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPost) {
 		return
@@ -55,25 +25,6 @@ func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 	session, ok := s.requireSession(w, r)
 	if !ok {
 		return
-	}
-
-	var req struct {
-		Phone string `json:"phone"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-
-	// Phone is optional — if provided, validate it
-	var e164 string
-	hasPhone := strings.TrimSpace(req.Phone) != ""
-	if hasPhone {
-		var phoneOK bool
-		e164, phoneOK = normalizePhone(req.Phone)
-		if !phoneOK {
-			writeBadRequest(w, "Invalid phone number")
-			return
-		}
 	}
 
 	// Get user's household
@@ -89,29 +40,12 @@ func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 		invHID = int64(hID)
 	}
 
-	// Outbound-SMS guards, checked before the invite row is written so a refused
-	// text does not leave a stray invite behind. Only invites that would text
-	// someone are limited; a link-only invite sends nothing.
-	//
-	// Two keys: one caps how many invite texts an inviter may send in a day, the
-	// other makes a second text to the same number from the same household a
-	// no-op. Without them any authenticated user could loop this endpoint against
-	// arbitrary phones, each call firing a Twilio SMS carrying the inviter's name
-	// (CLAUDE.md damage risk #1: unwanted outbound messages).
-	smsAllowed := hasPhone
-	if hasPhone {
-		if checkRateLimit(&s.inviteLimiter, "inviter:"+session.UserID, inviteSMSWindow, inviteSMSPerInviterPerDay) {
-			writeJSON(w, http.StatusTooManyRequests, map[string]string{
-				"error": "You've sent a lot of invites today. Try again tomorrow.",
-			})
-			return
-		}
-		// Already texted from this household recently: still create the invite so
-		// the caller gets a link to share another way, but send no second SMS.
-		if checkRateLimit(&s.inviteLimiter, fmt.Sprintf("dest:%d:%s", invHID, e164), inviteSMSWindow, 1) {
-			log.Printf("[invite] skipping duplicate SMS to %s for household %d", maskPhone(e164), invHID)
-			smsAllowed = false
-		}
+	// One user may mint a limited number of invite links per day.
+	if checkRateLimit(&s.inviteLimiter, "inviter:"+session.UserID, inviteLinkWindow, inviteLinksPerInviterPerDay) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{
+			"error": "You've made a lot of invites today. Try again tomorrow.",
+		})
+		return
 	}
 
 	// Generate random invite code
@@ -131,26 +65,6 @@ func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		dbError(w, err, "Failed to create invite")
 		return
-	}
-
-	// Send SMS invite only if a phone was provided and the guards above allowed it
-	if smsAllowed {
-		// Personalize with inviter's name if available
-		var inviterName string
-		s.db.QueryRow("SELECT COALESCE(name,'') FROM users WHERE id = ?", session.UserID).Scan(&inviterName)
-		inviterName = strings.TrimSpace(inviterName)
-		var smsBody string
-		if inviterName != "" {
-			smsBody = fmt.Sprintf("%s invited you to their grocery list on Groflo! Tap to join: %s/join/%s", inviterName, s.config.AppBaseURL, code)
-		} else {
-			smsBody = fmt.Sprintf("You've been invited to a shared grocery list on Groflo! Tap to join: %s/join/%s", s.config.AppBaseURL, code)
-		}
-		if err := s.twilio.SendSMS(s.config.TwilioPhoneNumber, e164, smsBody); err != nil {
-			log.Printf("[invite] error sending SMS to %s: %v", e164, err)
-			// Still return success — invite is created, SMS delivery is best-effort
-		} else {
-			log.Printf("[invite] SMS sent to %s for invite %s", e164, code)
-		}
 	}
 
 	link := fmt.Sprintf("%s/join/%s", s.config.AppBaseURL, code)
@@ -319,31 +233,6 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 	}
 	// M2d: Track referral source
 	s.db.Exec("UPDATE users SET referral_source = 'invite' WHERE id = ? AND referral_source = ''", session.UserID)
-
-	// M2a: Notify inviter via SMS (dedup via notified flag)
-	if s.config.TwilioPhoneNumber != "" {
-		var inviterPhone sql.NullString
-		var inviterName string
-		s.db.QueryRow("SELECT COALESCE(u.phone,''), COALESCE(u.name,'') FROM users u WHERE u.id = ?", createdBy).Scan(&inviterPhone, &inviterName)
-		var joinerName string
-		s.db.QueryRow("SELECT COALESCE(name,'') FROM users WHERE id = ?", session.UserID).Scan(&joinerName)
-		if inviterPhone.Valid && inviterPhone.String != "" {
-			// Atomically set notified=1 — only sends if not already notified
-			res, _ := s.db.Exec("UPDATE invites SET notified = 1 WHERE id = ? AND notified = 0", inviteID)
-			if rows, _ := res.RowsAffected(); rows > 0 {
-				who := joinerName
-				if who == "" {
-					who = "Someone"
-				}
-				smsBody := fmt.Sprintf("%s just joined your Groflo list!", who)
-				if err := s.twilio.SendSMS(s.config.TwilioPhoneNumber, inviterPhone.String, smsBody); err != nil {
-					log.Printf("[join] failed to notify inviter %s: %v", createdBy, err)
-				} else {
-					log.Printf("[join] notified inviter %s that user %s joined", createdBy, session.UserID)
-				}
-			}
-		}
-	}
 
 	// M2b: Penny acknowledges new household member
 	var joinerName string

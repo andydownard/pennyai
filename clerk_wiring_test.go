@@ -28,7 +28,7 @@ import (
 // lookup-only resolver can find them, without going through the exchange.
 func clerkSessionHarness(t *testing.T) (*Server, string, string) {
 	t.Helper()
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	user, err := upsertUser(server.db, "5551230000")
 	if err != nil {
 		t.Fatalf("seeding user: %v", err)
@@ -118,7 +118,7 @@ func TestRequireSession_DarkBuildIgnoresBearerEntirely(t *testing.T) {
 
 func TestRequireSession_CookieWinsOverGarbageBearer(t *testing.T) {
 	// The legacy path must never be degraded by the presence of a bad Bearer.
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	priv := newTestKeypair(t)
 	jwks := withClerkSatelliteEnv(t, priv, nil)
 	cookie, userID := loginUser(t, server, "5559990000")
@@ -139,7 +139,7 @@ func TestRequireSession_CookieWinsOverGarbageBearer(t *testing.T) {
 func TestRequireSession_BearerIgnoredForUnboundClerkUser(t *testing.T) {
 	// A verified Clerk user who has never completed an exchange has no local
 	// row, so they are anonymous — not a 500.
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	priv := newTestKeypair(t)
 	withClerkSatelliteEnv(t, priv, nil)
 
@@ -151,7 +151,7 @@ func TestRequireSession_BearerIgnoredForUnboundClerkUser(t *testing.T) {
 func TestRequireSession_PreservesLegacy401Messages(t *testing.T) {
 	// The Bearer fallback must not change what an unauthenticated legacy request
 	// is told: "Not logged in" with no cookie, "Session expired" with a stale one.
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	t.Setenv("CLERK_ENABLED", "")
 
 	noCookie := clerkGetList(server, "")
@@ -188,7 +188,7 @@ const (
 )
 
 func TestAPIConfig_ShapeIsClerkEnabledOnly(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	t.Run("flag off reports false and nothing else", func(t *testing.T) {
 		t.Setenv("CLERK_ENABLED", "")
@@ -309,7 +309,7 @@ func cspDirective(csp, name string) string {
 func TestCSPHeader_NoCredentialsHeaderOnAppPaths(t *testing.T) {
 	// Access-Control-Allow-Credentials must stay absent: Rally sign-in uses a
 	// Bearer header, not a cross-origin cookie, so nothing here needs it.
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleAPIConfig, http.MethodGet, "/api/config", nil, nil)
 	if v := rr.Header().Get("Access-Control-Allow-Credentials"); v != "" {
 		t.Errorf("Access-Control-Allow-Credentials should not be set; got %q", v)

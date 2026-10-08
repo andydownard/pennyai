@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -22,7 +21,7 @@ import (
 // =============================================================================
 
 func TestNoSession_AllEndpoints(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	cases := []struct {
 		name    string
@@ -65,7 +64,7 @@ func TestNoSession_AllEndpoints(t *testing.T) {
 
 
 func TestMethodNotAllowed_AllEndpoints(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	cases := []struct {
@@ -80,10 +79,8 @@ func TestMethodNotAllowed_AllEndpoints(t *testing.T) {
 		{"LeaveHousehold_GET", server.handleLeaveHousehold, "GET", "/api/settings/leave-household"},
 		{"Join_GET", server.handleJoin, "GET", "/api/join"},
 		{"Invite_GET", server.handleInvite, "GET", "/api/settings/invite"},
-		{"VCard_POST", server.handleVCard, "POST", "/api/penny.vcf"},
 		{"Settings_DELETE", server.handleSettings, "DELETE", "/api/settings"},
 		{"ListClear_GET", server.handleListClear, "GET", "/api/list/clear"},
-		{"SMSWebhook_GET", server.handleSMSWebhook, "GET", "/sms"},
 		{"EmailWebhook_GET", server.handleEmailWebhook, "GET", "/api/email-webhook"},
 		{"ReferralClaim_GET", server.handleReferralClaim, "GET", "/api/referral/claim"},
 		{"ReferralRedeem_GET", server.handleReferralRedeem, "GET", "/api/referral/redeem"},
@@ -107,102 +104,8 @@ func TestMethodNotAllowed_AllEndpoints(t *testing.T) {
 }
 
 // =============================================================================
-// PHONE NUMBER NORMALIZATION TESTS
-// =============================================================================
-
-func TestNormalizePhone(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		wantE164 string
-		wantOK   bool
-	}{
-		// --- Valid: raw digits ---
-		{"10 raw digits", "5551234567", "+15551234567", true},
-
-		// --- Valid: with formatting ---
-		{"parens and dash", "(555) 123-4567", "+15551234567", true},
-		{"dashes only", "555-123-4567", "+15551234567", true},
-		{"dots", "555.123.4567", "+15551234567", true},
-		{"spaces", "555 123 4567", "+15551234567", true},
-
-		// --- Valid: leading country code stripped ---
-		{"11 digits with leading 1", "15551234567", "+15551234567", true},
-		{"formatted with leading 1", "1 (555) 123-4567", "+15551234567", true},
-		{"+1 prefix stripped", "+15551234567", "+15551234567", true},
-		{"1-555-123-4567", "1-555-123-4567", "+15551234567", true},
-
-		// --- Invalid ---
-		{"too short (9 digits)", "555123456", "", false},
-		{"too long (12 digits)", "125551234567", "", false},
-		{"empty string", "", "", false},
-		{"all letters", "abcdefghij", "", false},
-		{"5 digits", "55512", "", false},
-		{"leading 2 with 11 digits", "25551234567", "", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, ok := normalizePhone(tt.input)
-			if ok != tt.wantOK {
-				t.Errorf("normalizePhone(%q): ok = %v, want %v", tt.input, ok, tt.wantOK)
-				return
-			}
-			if ok && got != tt.wantE164 {
-				t.Errorf("normalizePhone(%q) = %q, want %q", tt.input, got, tt.wantE164)
-			}
-		})
-	}
-}
-
-// =============================================================================
 // DATABASE TESTS
 // =============================================================================
-
-func TestUpsertUser_CreatesNewUser(t *testing.T) {
-	_, pgdb := openTestDB(t)
-
-	user, err := upsertUser(pgdb, "5551234567")
-	if err != nil {
-		t.Fatalf("upsertUser: %v", err)
-	}
-
-	if user.ID == "" {
-		t.Error("Expected non-empty user ID")
-	}
-	if user.PhoneNumber != "5551234567" {
-		t.Errorf("Phone: got %s, want 5551234567", user.PhoneNumber)
-	}
-	if user.CreatedAt == "" {
-		t.Error("Expected non-empty CreatedAt")
-	}
-}
-
-
-func TestUpsertUser_SamePhoneTwice(t *testing.T) {
-	_, pgdb := openTestDB(t)
-
-	first, _ := upsertUser(pgdb, "5551234567")
-	second, _ := upsertUser(pgdb, "5551234567")
-
-	// Same phone should return the same user — not create a duplicate
-	if first.ID != second.ID {
-		t.Errorf("Same phone created two users: ID %s and %s", first.ID, second.ID)
-	}
-}
-
-
-func TestUpsertUser_DifferentPhones(t *testing.T) {
-	_, pgdb := openTestDB(t)
-
-	u1, _ := upsertUser(pgdb, "5551111111")
-	u2, _ := upsertUser(pgdb, "5552222222")
-
-	if u1.ID == u2.ID {
-		t.Error("Different phones got the same user ID")
-	}
-}
-
 
 func TestInitDB_CreatesTable(t *testing.T) {
 	_, pgdb := openTestDB(t)
@@ -344,52 +247,16 @@ func TestTermsAndConditions_Returns200(t *testing.T) {
 	if !strings.Contains(body, "Terms") {
 		t.Error("Expected page to contain 'Terms'")
 	}
-	if !strings.Contains(body, "STOP") {
-		t.Error("Expected terms to mention STOP opt-out")
-	}
-	if !strings.Contains(body, "HELP") {
-		t.Error("Expected terms to mention HELP")
-	}
-	if !strings.Contains(body, "data rates") {
-		t.Error("Expected terms to mention data rates")
+	for _, gone := range []string{"STOP", "data rates", "SMS", "Twilio"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("terms must not describe texting; found %q", gone)
+		}
 	}
 }
 
 // =============================================================================
 // LAST_ACTIVE TRACKING
 // =============================================================================
-
-func TestUpsertUser_SetsLastActive(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-
-	upsertUser(server.db, "5551234567")
-
-	var lastActive sql.NullString
-	server.db.QueryRow("SELECT last_active FROM users WHERE phone = '5551234567'").Scan(&lastActive)
-	if !lastActive.Valid {
-		t.Error("Expected last_active to be set after upsertUser")
-	}
-}
-
-
-func TestUpsertUser_UpdatesLastActive(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-
-	upsertUser(server.db, "5551234567")
-
-	var first sql.NullString
-	server.db.QueryRow("SELECT last_active FROM users WHERE phone = '5551234567'").Scan(&first)
-
-	// Second login should update last_active
-	upsertUser(server.db, "5551234567")
-
-	var second sql.NullString
-	server.db.QueryRow("SELECT last_active FROM users WHERE phone = '5551234567'").Scan(&second)
-
-	if !second.Valid {
-		t.Error("Expected last_active to be set on second login")
-	}
-}
 
 // =============================================================================
 // REQUIRE ADMIN HELPER
@@ -448,7 +315,7 @@ func TestInitDB_CreatesAllTables(t *testing.T) {
 // =============================================================================
 
 func TestBrands_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Insert test brands
 	server.db.Exec("INSERT INTO brands (name, domain) VALUES (?, ?)", "Cheerios", "cheerios.com")
@@ -478,7 +345,7 @@ func TestBrands_Success(t *testing.T) {
 
 
 func TestBrands_ReturnsSeedData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleBrands, "GET", "/api/brands", nil, nil)
 	if rr.Code != http.StatusOK {
@@ -502,7 +369,7 @@ func TestBrands_ReturnsSeedData(t *testing.T) {
 
 
 func TestBrands_CaseInsensitive(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	server.db.Exec("INSERT INTO brands (name, domain) VALUES (?, ?)", "Cheerios", "cheerios.com")
 
@@ -524,7 +391,7 @@ func TestBrands_CaseInsensitive(t *testing.T) {
 // =============================================================================
 
 func TestGlobalBrandDefault_NoData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	brand, ok := getGlobalBrandDefault(server.db, "yogurt")
 	if ok {
 		t.Errorf("Expected no default, got %q", brand)
@@ -533,7 +400,7 @@ func TestGlobalBrandDefault_NoData(t *testing.T) {
 
 
 func TestGlobalBrandDefault_SinglePick(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5551000001")
 	// Only 1 pick — below the threshold of 2
 	server.db.Exec("INSERT INTO brand_choices (user_id, product_category, brand) VALUES (?, 'yogurt', 'Fage')", userID)
@@ -546,7 +413,7 @@ func TestGlobalBrandDefault_SinglePick(t *testing.T) {
 
 
 func TestGlobalBrandDefault_ClearWinner(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	// Create multiple users, each picks Fage
 	for i := 0; i < 5; i++ {
 		_, uid := loginUser(t, server, fmt.Sprintf("555200%04d", i))
@@ -567,7 +434,7 @@ func TestGlobalBrandDefault_ClearWinner(t *testing.T) {
 
 
 func TestGlobalBrandDefault_NoMajority(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	// Even split: 3 each → top has 50% (above 40% threshold), should return
 	for i := 0; i < 3; i++ {
 		_, uid := loginUser(t, server, fmt.Sprintf("555400%04d", i))
@@ -589,7 +456,7 @@ func TestGlobalBrandDefault_NoMajority(t *testing.T) {
 
 
 func TestGlobalBrandDefault_CaseInsensitive(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	for i := 0; i < 3; i++ {
 		_, uid := loginUser(t, server, fmt.Sprintf("555600%04d", i))
 		server.db.Exec("INSERT INTO brand_choices (user_id, product_category, brand) VALUES (?, 'milk', 'Organic Valley')", uid)
@@ -614,7 +481,7 @@ func TestGlobalBrandDefault_EmptyCategory(t *testing.T) {
 
 
 func TestDietaryBrandDefault_PrefersDietaryMatch(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	// Create 5 "vegan" users who all pick Oatly for milk
 	for i := 0; i < 5; i++ {
 		_, uid := loginUser(t, server, fmt.Sprintf("555700%04d", i))
@@ -648,7 +515,7 @@ func TestDietaryBrandDefault_PrefersDietaryMatch(t *testing.T) {
 
 
 func TestDietaryBrandDefault_FallsBackToGlobal(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	// Create 5 users with no dietary profile who all pick Heinz for ketchup
 	for i := 0; i < 5; i++ {
 		_, uid := loginUser(t, server, fmt.Sprintf("555720%04d", i))
@@ -667,7 +534,7 @@ func TestDietaryBrandDefault_FallsBackToGlobal(t *testing.T) {
 
 
 func TestDietaryBrandDefault_NoDiets(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	for i := 0; i < 3; i++ {
 		_, uid := loginUser(t, server, fmt.Sprintf("555730%04d", i))
 		server.db.Exec("INSERT INTO brand_choices (user_id, product_category, brand) VALUES (?, 'bread', 'Dave''s')", uid)
@@ -684,7 +551,7 @@ func TestDietaryBrandDefault_NoDiets(t *testing.T) {
 
 
 func TestDietaryBrandDefault_MultipleDiets(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	// Create users with organic diet who prefer Organic Valley
 	for i := 0; i < 4; i++ {
 		_, uid := loginUser(t, server, fmt.Sprintf("555740%04d", i))
@@ -703,7 +570,7 @@ func TestDietaryBrandDefault_MultipleDiets(t *testing.T) {
 
 
 func TestGetUserDiets_NilWhenNoProfile(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, uid := loginUser(t, server, "5557500001")
 	diets := getUserDiets(server.db, uid)
 	if diets != nil {
@@ -713,7 +580,7 @@ func TestGetUserDiets_NilWhenNoProfile(t *testing.T) {
 
 
 func TestGetUserDiets_ReturnsProfile(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, uid := loginUser(t, server, "5557600001")
 	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES (?, '["peanuts"]', '["vegan","gluten-free"]')`, uid)
 	diets := getUserDiets(server.db, uid)
@@ -731,7 +598,7 @@ func TestGetUserDiets_ReturnsProfile(t *testing.T) {
 
 
 func TestDecodeJSON_RequestTooLarge(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Create a body larger than 10MB
@@ -797,7 +664,7 @@ func TestRequireMethod_Denied(t *testing.T) {
 // =============================================================================
 
 func TestLogo_MissingDomain(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleLogoProxy, "GET", "/api/logo", nil, nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("Expected 400, got %d", rr.Code)
@@ -806,7 +673,7 @@ func TestLogo_MissingDomain(t *testing.T) {
 
 
 func TestLogo_InvalidDomain(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleLogoProxy, "GET", "/api/logo?domain=evil%3Cscript%3E.com", nil, nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("Expected 400, got %d", rr.Code)
@@ -815,7 +682,7 @@ func TestLogo_InvalidDomain(t *testing.T) {
 
 
 func TestLogo_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleLogoProxy, "POST", "/api/logo?domain=kraft.com", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("Expected 405, got %d", rr.Code)
@@ -824,7 +691,7 @@ func TestLogo_WrongMethod(t *testing.T) {
 
 
 func TestLogo_MemoryCacheHit(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	// Pre-populate memory cache
 	fakeData := []byte("PNG_FAKE_DATA_LARGE_ENOUGH_TO_PASS_CHECK_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 	server.logoCache.Store("kraft.com", &cachedLogo{data: fakeData, contentType: "image/png"})
@@ -846,7 +713,7 @@ func TestLogo_MemoryCacheHit(t *testing.T) {
 
 
 func TestLogo_MemoryCacheIsCaseInsensitive(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	fakeData := []byte("PNG_FAKE_DATA_LARGE_ENOUGH_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 	server.logoCache.Store("kraft.com", &cachedLogo{data: fakeData, contentType: "image/png"})
 
@@ -858,7 +725,7 @@ func TestLogo_MemoryCacheIsCaseInsensitive(t *testing.T) {
 
 
 func TestLogo_SQLiteCacheHit(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	// Insert a brand and logo into the database
 	// Use a unique brand name to avoid conflict with seedBrands
 	res, err := server.db.Exec("INSERT INTO brands (name, domain) VALUES ('TestBrandXYZ', 'testbrandxyz.com')")
@@ -884,7 +751,7 @@ func TestLogo_SQLiteCacheHit(t *testing.T) {
 
 
 func TestLogo_PlaceholderFallback(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	// No token, no cache → should get 404 so frontend falls back to emoji
 	server.config.LogoDevToken = ""
 
@@ -896,7 +763,7 @@ func TestLogo_PlaceholderFallback(t *testing.T) {
 
 
 func TestLogo_PlaceholderUseBrandName(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.config.LogoDevToken = ""
 	// Insert a brand so the handler can use its name for initials
 	server.db.Exec("INSERT OR IGNORE INTO brands (name, domain) VALUES ('Zesty Foods', 'zestyfoods.com')")
@@ -953,7 +820,7 @@ func TestFetchBrandLogo_EmptyToken(t *testing.T) {
 
 
 func TestLogo_DomainSanitization(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	// Valid domains
 	validDomains := []string{"kraft.com", "ben-jerrys.com", "Mr.Clean.com", "a1steak.com"}
 	for _, d := range validDomains {
@@ -1127,88 +994,6 @@ func TestSPARouting_UnknownPathsFallbackToIndex(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// MASK PHONE TESTS
-// =============================================================================
-
-func TestMaskPhone_TenDigits(t *testing.T) {
-	// 10-digit domestic format: show first 3 and last 3, mask middle
-	got := maskPhone("5551234567")
-	want := "555***567"
-	if got != want {
-		t.Errorf("maskPhone(%q) = %q, want %q", "5551234567", got, want)
-	}
-}
-
-
-func TestMaskPhone_E164Format(t *testing.T) {
-	// E.164 (+15551234567): show prefix and last 3, mask middle
-	got := maskPhone("+15551234567")
-	if got == "+15551234567" {
-		t.Error("maskPhone should not return the full E.164 number unmasked")
-	}
-	if !strings.Contains(got, "***") {
-		t.Errorf("maskPhone(%q) = %q: expected *** in output", "+15551234567", got)
-	}
-}
-
-
-func TestMaskPhone_ShortString(t *testing.T) {
-	// Very short strings should return "***"
-	got := maskPhone("12")
-	if got != "***" {
-		t.Errorf("maskPhone(%q) = %q, want ***", "12", got)
-	}
-}
-
-
-func TestMaskPhone_FourDigits(t *testing.T) {
-	// Exactly 4 digits — boundary: should return "***"
-	got := maskPhone("1234")
-	if got != "***" {
-		t.Errorf("maskPhone(%q) = %q, want ***", "1234", got)
-	}
-}
-
-
-func TestMaskPhone_FiveDigits(t *testing.T) {
-	// 5 digits falls to the default case: first 2 + "***" + last 2
-	got := maskPhone("12345")
-	if !strings.Contains(got, "***") {
-		t.Errorf("maskPhone(%q) = %q: expected *** in output", "12345", got)
-	}
-}
-
-// =============================================================================
-// RESOLVE OR CREATE USER TESTS
-// =============================================================================
-
-
-func TestMaskPhone_TenDigit(t *testing.T) {
-	got := maskPhone("3101234567")
-	// phone[:3] + "***" + phone[7:] => "310" + "***" + "567"
-	if got != "310***567" {
-		t.Errorf("maskPhone 10-digit: got %q, want %q", got, "310***567")
-	}
-}
-
-
-func TestMaskPhone_E164(t *testing.T) {
-	got := maskPhone("+13101234567")
-	// Should mask middle digits
-	if len(got) == 0 || got == "+13101234567" {
-		t.Errorf("maskPhone E.164: expected masking, got %q", got)
-	}
-}
-
-
-func TestMaskPhone_Short(t *testing.T) {
-	got := maskPhone("123")
-	if got != "***" {
-		t.Errorf("maskPhone short: got %q, want %q", got, "***")
-	}
-}
-
 
 func TestLogoInitials_Empty(t *testing.T) {
 	got := logoInitials("")
@@ -1346,7 +1131,7 @@ func TestStripCodeFence_PlainFence(t *testing.T) {
 
 
 func TestLogoCacheHeader_Format(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	testData := []byte("<svg>test</svg>")
 	server.logoCache.Store("example.com", &cachedLogo{data: testData, contentType: "image/svg+xml"})
@@ -1367,16 +1152,8 @@ func TestLogoCacheHeader_Format(t *testing.T) {
 }
 
 
-func TestNormalizePhone_EmptyString(t *testing.T) {
-	_, ok := normalizePhone("")
-	if ok {
-		t.Error("expected ok=false for empty string")
-	}
-}
-
-
 func TestAvatar_UploadJPEG(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	jpegData := makeJPEG(100)
@@ -1406,7 +1183,7 @@ func TestAvatar_UploadJPEG(t *testing.T) {
 
 
 func TestAvatar_UploadPNG(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	pngData := makePNG(200)
@@ -1420,7 +1197,7 @@ func TestAvatar_UploadPNG(t *testing.T) {
 
 
 func TestAvatar_RejectInvalid(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// GIF magic bytes (not allowed)
@@ -1439,7 +1216,7 @@ func TestAvatar_RejectInvalid(t *testing.T) {
 
 
 func TestAvatar_RejectTooLarge(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// 3MB JPEG — exceeds 2MB limit
@@ -1458,7 +1235,7 @@ func TestAvatar_RejectTooLarge(t *testing.T) {
 
 
 func TestAvatar_RejectEmpty(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Empty photo field
@@ -1476,7 +1253,7 @@ func TestAvatar_RejectEmpty(t *testing.T) {
 
 
 func TestAvatar_Upsert(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Upload first photo (JPEG, 100 bytes)
@@ -1508,7 +1285,7 @@ func TestAvatar_Upsert(t *testing.T) {
 
 
 func TestAvatar_Delete(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Upload
@@ -1530,7 +1307,7 @@ func TestAvatar_Delete(t *testing.T) {
 
 
 func TestAvatar_NotFound(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// GET for user without photo
 	rr := doRequest(server.handleAvatar, "GET", "/api/avatar/99999", nil, nil)
@@ -1541,7 +1318,7 @@ func TestAvatar_NotFound(t *testing.T) {
 
 
 func TestAvatar_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	jpeg := makeJPEG(100)
 	b64 := base64.StdEncoding.EncodeToString(jpeg)
@@ -1570,7 +1347,7 @@ func TestAvatar_Unauthenticated(t *testing.T) {
 // =============================================================================
 
 func TestAPIConfig_NoCredentialLeak(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleAPIConfig, "GET", "/api/config", nil, nil)
 	if rr.Code != 200 {

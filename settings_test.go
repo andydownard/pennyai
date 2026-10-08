@@ -51,7 +51,7 @@ func TestHouseholdAutoCreation(t *testing.T) {
 }
 
 func TestHouseholdSharedList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, userID1 := loginUser(t, server, "5551111111")
 	cookie2, userID2 := loginUser(t, server, "5552222222")
 
@@ -99,7 +99,7 @@ func TestHouseholdSharedList(t *testing.T) {
 // =============================================================================
 
 func TestSettingsGetUpdate(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// GET initial settings
@@ -108,8 +108,10 @@ func TestSettingsGetUpdate(t *testing.T) {
 		t.Fatalf("GET status: got %d, want 200", rr.Code)
 	}
 	body := parseJSON(rr)
-	if body["phone"] != "5551234567" {
-		t.Errorf("phone: got %v, want 5551234567", body["phone"])
+	for _, k := range []string{"phone", "penny_phone", "daily_digest_enabled"} {
+		if _, present := body[k]; present {
+			t.Errorf("settings must not carry %q, got %v", k, body[k])
+		}
 	}
 
 	// PATCH name and email
@@ -138,8 +140,7 @@ func TestSettingsGetUpdate(t *testing.T) {
 // =============================================================================
 
 func TestInviteCreate(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551111111")
 
 	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
@@ -159,18 +160,15 @@ func TestInviteCreate(t *testing.T) {
 		t.Error("Expected non-empty invite code")
 	}
 
-	// SMS should have been sent
-	if mock.LastSMSTo != "+15552222222" {
-		t.Errorf("SMS to: got %q, want +15552222222", mock.LastSMSTo)
-	}
-	if !strings.Contains(mock.LastSMSBody, code) {
-		t.Error("SMS body should contain invite code")
+	// The response carries the share link; a phone field is ignored.
+	want := server.config.AppBaseURL + "/join/" + code
+	if body["link"] != want {
+		t.Errorf("link: got %v, want %s", body["link"], want)
 	}
 }
 
 func TestJoinHousehold(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 	cookie1, userID1 := loginUser(t, server, "5551111111")
 	cookie2, userID2 := loginUser(t, server, "5552222222")
 
@@ -199,7 +197,7 @@ func TestJoinHousehold(t *testing.T) {
 }
 
 func TestJoinExpiredInvite(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID1 := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -221,52 +219,6 @@ func TestJoinExpiredInvite(t *testing.T) {
 }
 
 // =============================================================================
-// VCARD TEST
-// =============================================================================
-
-func TestVCard(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-
-	req := httptest.NewRequest("GET", "/api/penny.vcf", nil)
-	rr := httptest.NewRecorder()
-	server.handleVCard(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("Status: got %d, want 200", rr.Code)
-	}
-
-	ct := rr.Header().Get("Content-Type")
-	if ct != "text/vcard" {
-		t.Errorf("Content-Type: got %q, want text/vcard", ct)
-	}
-
-	cd := rr.Header().Get("Content-Disposition")
-	if !strings.Contains(cd, "penny.vcf") {
-		t.Errorf("Content-Disposition: got %q, want to contain penny.vcf", cd)
-	}
-
-	body := rr.Body.String()
-	if !strings.Contains(body, "BEGIN:VCARD") {
-		t.Error("Body should contain BEGIN:VCARD")
-	}
-	if !strings.Contains(body, "penny@list.groflo.io") {
-		t.Error("Body should contain penny@list.groflo.io")
-	}
-	if !strings.Contains(body, "N:AI;Penny") {
-		t.Error("Body should contain N:AI;Penny")
-	}
-	if !strings.Contains(body, "ORG:Groflo") {
-		t.Error("Body should contain ORG:Groflo")
-	}
-	if !strings.Contains(body, "TITLE:Shopping Assistant") {
-		t.Error("Body should contain TITLE:Shopping Assistant")
-	}
-	if !strings.Contains(body, "FN:Penny AI") {
-		t.Error("Body should contain FN:Penny AI")
-	}
-}
-
-// =============================================================================
 // EMAIL WEBHOOK TESTS
 // =============================================================================
 
@@ -274,8 +226,7 @@ func TestVCard(t *testing.T) {
 
 
 func TestInviteWithoutPhone(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551111111")
 
 	// Invite with empty phone
@@ -302,11 +253,6 @@ func TestInviteWithoutPhone(t *testing.T) {
 	if !strings.Contains(link, code) {
 		t.Error("Link should contain the code")
 	}
-
-	// SMS should NOT have been sent
-	if mock.LastSMSTo != "" {
-		t.Errorf("SMS should not be sent for empty phone, but sent to %q", mock.LastSMSTo)
-	}
 }
 
 // =============================================================================
@@ -314,8 +260,7 @@ func TestInviteWithoutPhone(t *testing.T) {
 // =============================================================================
 
 func TestInviteAutoCreatesHousehold(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 
 	// Create a user directly (without household) to simulate legacy user
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-invite-1', ?)", "5551234567")
@@ -364,7 +309,7 @@ func TestInviteAutoCreatesHousehold(t *testing.T) {
 // =============================================================================
 
 func TestSettingsUpdateName(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	name := "Alice"
@@ -383,7 +328,7 @@ func TestSettingsUpdateName(t *testing.T) {
 }
 
 func TestSettingsUpdateEmail(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	email := "alice@example.com"
@@ -407,30 +352,12 @@ func TestSettingsUpdateEmail(t *testing.T) {
 // SETTINGS GET — PENNY PHONE
 // =============================================================================
 
-func TestSettingsGet_IncludesPennyPhone(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, _ := loginUser(t, server, "5551234567")
-
-	rr := doRequest(server.handleSettings, "GET", "/api/settings", nil, []*http.Cookie{cookie})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("GET status: got %d, want 200", rr.Code)
-	}
-	body := parseJSON(rr)
-	pennyPhone, ok := body["penny_phone"].(string)
-	if !ok || pennyPhone == "" {
-		t.Error("Expected non-empty penny_phone field")
-	}
-	if pennyPhone != "+10000000000" {
-		t.Errorf("penny_phone: got %q, want +10000000000", pennyPhone)
-	}
-}
-
 // =============================================================================
 // LEAVE HOUSEHOLD
 // =============================================================================
 
 func TestLeaveHousehold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create two users in the same household
 	cookie1, userID1 := loginUser(t, server, "5551111111")
@@ -486,7 +413,7 @@ func TestLeaveHousehold(t *testing.T) {
 }
 
 func TestLeaveHousehold_AlreadySolo(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551111111")
 
 	// User is already solo — leave should still work
@@ -515,7 +442,7 @@ func TestLeaveHousehold_AlreadySolo(t *testing.T) {
 // =============================================================================
 
 func TestSettingsGet_HouseholdMembers(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, userID1 := loginUser(t, server, "5551111111")
 	_, userID2 := loginUser(t, server, "5552222222")
 
@@ -554,7 +481,7 @@ func TestSettingsGet_HouseholdMembers(t *testing.T) {
 // =============================================================================
 
 func TestSettingsUpdate_DuplicateEmail(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, _ := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -576,7 +503,7 @@ func TestSettingsUpdate_DuplicateEmail(t *testing.T) {
 }
 
 func TestSettingsUpdate_ClearEmail(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551111111")
 
 	// Set email
@@ -601,7 +528,7 @@ func TestSettingsUpdate_ClearEmail(t *testing.T) {
 }
 
 func TestSettingsUpdate_InvalidBody(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551111111")
 
 	req := httptest.NewRequest("PATCH", "/api/settings", strings.NewReader("not json"))
@@ -620,7 +547,7 @@ func TestSettingsUpdate_InvalidBody(t *testing.T) {
 // =============================================================================
 
 func TestJoin_InvalidCode(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551111111")
 
 	rr := doRequest(server.handleJoin, "POST", "/api/join",
@@ -632,7 +559,7 @@ func TestJoin_InvalidCode(t *testing.T) {
 }
 
 func TestJoin_EmptyCode(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551111111")
 
 	rr := doRequest(server.handleJoin, "POST", "/api/join",
@@ -644,7 +571,7 @@ func TestJoin_EmptyCode(t *testing.T) {
 }
 
 func TestJoin_AlreadyUsed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, _ := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 	cookie3, _ := loginUser(t, server, "5553333333")
@@ -678,7 +605,7 @@ func TestJoin_AlreadyUsed(t *testing.T) {
 // =============================================================================
 
 func TestInvite_NoPhone(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551111111")
 
 	// Invite without phone number — should still create link
@@ -692,18 +619,6 @@ func TestInvite_NoPhone(t *testing.T) {
 	link, ok := body["link"].(string)
 	if !ok || link == "" {
 		t.Error("Expected non-empty link")
-	}
-}
-
-func TestInvite_InvalidPhone(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, _ := loginUser(t, server, "5551111111")
-
-	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
-		map[string]string{"phone": "123"},
-		[]*http.Cookie{cookie})
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("Status: got %d, want 400", rr.Code)
 	}
 }
 
@@ -722,7 +637,7 @@ func TestInvite_InvalidPhone(t *testing.T) {
 // =============================================================================
 
 func TestCreateSoloHousehold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5551111111")
 
 	// Clear existing household
@@ -762,8 +677,7 @@ func TestCreateSoloHousehold(t *testing.T) {
 // --- handleInvite edge cases ---
 
 func TestInvite_WithValidPhone(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551111111")
 
 	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
@@ -776,29 +690,11 @@ func TestInvite_WithValidPhone(t *testing.T) {
 	if body["link"] == nil || body["link"] == "" {
 		t.Error("Expected non-empty link")
 	}
-	// Should have sent SMS
-	smsTo, _ := mock.GetLastSMS()
-	if smsTo != "+15559998888" {
-		t.Errorf("SMS to: got %q, want +15559998888", smsTo)
-	}
 }
 
-func TestInvite_SMSSendError(t *testing.T) {
-	mock := &MockTwilioClient{SMSErr: fmt.Errorf("SMS failed")}
-	server := newTestServer(t, mock)
-	cookie, _ := loginUser(t, server, "5551111111")
-
-	// Should still succeed (SMS is best-effort)
-	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
-		map[string]string{"phone": "5559998888"},
-		[]*http.Cookie{cookie})
-	if rr.Code != http.StatusOK {
-		t.Errorf("Status: got %d, want 200 (SMS failure is best-effort)", rr.Code)
-	}
-}
-
-func TestInvite_InvalidJSON(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+// The invite takes no input, so a body that is not JSON is ignored.
+func TestInvite_BodyIsIgnored(t *testing.T) {
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551111111")
 
 	req := httptest.NewRequest("POST", "/api/settings/invite", strings.NewReader("not json"))
@@ -807,8 +703,8 @@ func TestInvite_InvalidJSON(t *testing.T) {
 	rr := httptest.NewRecorder()
 	server.handleInvite(rr, req)
 
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("Status: got %d, want 400", rr.Code)
+	if rr.Code != http.StatusOK {
+		t.Errorf("Status: got %d, want 200", rr.Code)
 	}
 }
 
@@ -819,7 +715,7 @@ func TestInvite_InvalidJSON(t *testing.T) {
 // --- handleSettingsUpdate name and email together ---
 
 func TestSettingsUpdate_NameAndEmail(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
@@ -848,7 +744,7 @@ func TestSettingsUpdate_NameAndEmail(t *testing.T) {
 // --- handleJoin expired invite ---
 
 func TestJoin_ExpiredCode(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, userID1 := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -872,7 +768,7 @@ func TestJoin_ExpiredCode(t *testing.T) {
 // --- handleJoin self-join (join your own household) ---
 
 func TestJoin_SelfHousehold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551111111")
 
 	// Create invite
@@ -891,29 +787,10 @@ func TestJoin_SelfHousehold(t *testing.T) {
 	}
 }
 
-// --- SMS form parse error ---
-
-// --- handleVCard success ---
-
-func TestVCard_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-
-	req := httptest.NewRequest("GET", "/api/penny.vcf", nil)
-	rr := httptest.NewRecorder()
-	server.handleVCard(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("Status: got %d, want 200", rr.Code)
-	}
-	if !strings.Contains(rr.Body.String(), "BEGIN:VCARD") {
-		t.Error("Expected VCard content")
-	}
-}
-
 // --- Tests that trigger DB error paths by closing the DB ---
 
 func TestSettingsGet_DBError(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 	server.db.Close()
 
@@ -924,7 +801,7 @@ func TestSettingsGet_DBError(t *testing.T) {
 }
 
 func TestSettingsUpdate_NameDBError(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 	server.db.Close()
 
@@ -937,7 +814,7 @@ func TestSettingsUpdate_NameDBError(t *testing.T) {
 }
 
 func TestSettingsUpdate_EmailDBError(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 	server.db.Close()
 
@@ -950,7 +827,7 @@ func TestSettingsUpdate_EmailDBError(t *testing.T) {
 }
 
 func TestInvite_DBError(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 	server.db.Close()
 
@@ -963,7 +840,7 @@ func TestInvite_DBError(t *testing.T) {
 }
 
 func TestLeaveHousehold_DBError(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 	server.db.Close()
 
@@ -974,7 +851,7 @@ func TestLeaveHousehold_DBError(t *testing.T) {
 }
 
 func TestJoin_DBError(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 	server.db.Close()
 
@@ -987,7 +864,7 @@ func TestJoin_DBError(t *testing.T) {
 }
 
 func TestInvite_NullHousehold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551111111")
 
 	// Remove user from household to simulate legacy user
@@ -1011,8 +888,7 @@ func TestInvite_NullHousehold(t *testing.T) {
 // =============================================================================
 
 func TestReferral_GetGeneratesCode(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551111111")
 
 	rr := doRequest(server.handleReferral, "GET", "/api/referral", nil, []*http.Cookie{cookie})
@@ -1038,8 +914,7 @@ func TestReferral_GetGeneratesCode(t *testing.T) {
 }
 
 func TestReferral_ClaimAwardsPoints(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 
 	// Create referrer and get their code
 	cookieA, _ := loginUser(t, server, "5551111111")
@@ -1066,8 +941,7 @@ func TestReferral_ClaimAwardsPoints(t *testing.T) {
 }
 
 func TestReferral_ClaimIdempotent(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 
 	cookieA, _ := loginUser(t, server, "5551111111")
 	rr := doRequest(server.handleReferral, "GET", "/api/referral", nil, []*http.Cookie{cookieA})
@@ -1094,7 +968,7 @@ func TestReferral_ClaimIdempotent(t *testing.T) {
 // UPDATE ran regardless of whether the referral row was actually created.
 // referral_points convert to a $10 Venmo payout, so this is money.
 func TestReferral_ConcurrentClaimCreditsOnce(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	cookieA, referrerID := loginUser(t, server, "5551111111")
 	rr := doRequest(server.handleReferral, "GET", "/api/referral", nil, []*http.Cookie{cookieA})
@@ -1136,7 +1010,7 @@ func TestReferral_ConcurrentClaimCreditsOnce(t *testing.T) {
 // to the hammer test: the referral row already exists, so the claim must report
 // success and credit no further points.
 func TestReferral_ClaimWithPreSeededRowCreditsNothing(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	cookieA, referrerID := loginUser(t, server, "5551111111")
 	rr := doRequest(server.handleReferral, "GET", "/api/referral", nil, []*http.Cookie{cookieA})
@@ -1173,7 +1047,7 @@ func TestReferral_ClaimWithPreSeededRowCreditsNothing(t *testing.T) {
 // test schema did not, so the referral idempotency tests were passing against
 // code that would double-credit.
 func TestReferral_UniqueIndexInTestSchema(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('ref-a', '5551110000')")
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('ref-b', '5552220000')")
 
@@ -1186,117 +1060,78 @@ func TestReferral_UniqueIndexInTestSchema(t *testing.T) {
 }
 
 // =============================================================================
-// INVITE SMS GUARDS
+// INVITE LINK GUARDS
 // =============================================================================
 
-// TestInvite_PerInviterRateLimit: an authenticated user could POST
-// /api/settings/invite in a loop with arbitrary phone numbers, and every call
-// fired a Twilio SMS carrying the inviter's name. Unwanted outbound SMS is
-// CLAUDE.md damage risk #1, and this is also a harassment vector and an A2P
-// 10DLC reputation risk. Every other send site in the codebase is guarded.
-func TestInvite_PerInviterRateLimit(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
-	cookie, _ := loginUser(t, server, "5551111111")
+// An invite sends nothing and takes no phone: it returns the join link. A phone
+// field in the body, valid or not, is ignored.
+func TestInvite_IgnoresPhoneAndReturnsLink(t *testing.T) {
+	server := newTestServer(t)
+	cookie, userID := loginUser(t, server, "5551111111")
 
-	// A different destination each time, so the per-destination guard is not
-	// what is under test here.
-	sent := 0
-	for i := 0; i < inviteSMSPerInviterPerDay; i++ {
+	for _, phone := range []string{"5559998888", "not a phone", ""} {
 		rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
-			map[string]string{"phone": fmt.Sprintf("555200%04d", i)}, []*http.Cookie{cookie})
+			map[string]string{"phone": phone}, []*http.Cookie{cookie})
+		if rr.Code != http.StatusOK {
+			t.Fatalf("phone %q: expected 200, got %d: %s", phone, rr.Code, rr.Body.String())
+		}
+		body := parseJSON(rr)
+		code, _ := body["code"].(string)
+		if code == "" || body["link"] != server.config.AppBaseURL+"/join/"+code {
+			t.Errorf("phone %q: bad code/link: %v", phone, body)
+		}
+	}
+	if n := countRows(t, server, "SELECT COUNT(*) FROM invites WHERE created_by = ?", userID); n != 3 {
+		t.Errorf("invites created: got %d, want 3", n)
+	}
+	// No other user rows came into being: nothing was addressed to a phone.
+	if n := countRows(t, server, "SELECT COUNT(*) FROM users"); n != 1 {
+		t.Errorf("users: got %d, want 1", n)
+	}
+}
+
+// One user may mint inviteLinksPerInviterPerDay links a day; the next is refused
+// and creates no invite row.
+func TestInvite_PerInviterRateLimit(t *testing.T) {
+	server := newTestServer(t)
+	cookie, userID := loginUser(t, server, "5551111111")
+
+	for i := 0; i < inviteLinksPerInviterPerDay; i++ {
+		rr := doRequest(server.handleInvite, "POST", "/api/settings/invite", nil, []*http.Cookie{cookie})
 		if rr.Code != http.StatusOK {
 			t.Fatalf("invite %d: expected 200, got %d: %s", i, rr.Code, rr.Body.String())
 		}
-		sent++
 	}
-	if got := mock.GetSMSCount(); got != sent {
-		t.Fatalf("SMS sent within the limit: got %d, want %d", got, sent)
-	}
-
-	// One past the limit must be refused, and must send nothing.
-	before := mock.GetSMSCount()
-	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
-		map[string]string{"phone": "5552009999"}, []*http.Cookie{cookie})
+	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusTooManyRequests {
 		t.Errorf("invite past the daily limit: expected 429, got %d: %s", rr.Code, rr.Body.String())
 	}
-	if after := mock.GetSMSCount(); after != before {
-		t.Errorf("SMS sent past the limit: count went %d -> %d, want no change", before, after)
+	if n := countRows(t, server, "SELECT COUNT(*) FROM invites WHERE created_by = ?", userID); n != inviteLinksPerInviterPerDay {
+		t.Errorf("invites: got %d, want %d", n, inviteLinksPerInviterPerDay)
+	}
+
+	// Another user is not affected.
+	other, _ := loginUser(t, server, "5552222222")
+	if rr := doRequest(server.handleInvite, "POST", "/api/settings/invite", nil, []*http.Cookie{other}); rr.Code != http.StatusOK {
+		t.Errorf("other inviter: expected 200, got %d", rr.Code)
 	}
 }
 
-// TestInvite_PerDestinationDedup: inviting the same phone twice from one
-// household must text that person once. Nothing stopped a loop against a single
-// number before.
-func TestInvite_PerDestinationDedup(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
-	cookie, _ := loginUser(t, server, "5551111111")
+// Concurrent invites from one user never exceed the daily limit.
+func TestInvite_ConcurrentInvitesStayWithinLimit(t *testing.T) {
+	server := newTestServer(t)
+	cookie, userID := loginUser(t, server, "5551111111")
 
-	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
-		map[string]string{"phone": "5553334444"}, []*http.Cookie{cookie})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("first invite: expected 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if got := mock.GetSMSCount(); got != 1 {
-		t.Fatalf("after first invite: got %d SMS, want 1", got)
-	}
-
-	// Same destination again: the invite is still created (the caller gets a
-	// fresh link to share by other means) but no second SMS goes out.
-	rr = doRequest(server.handleInvite, "POST", "/api/settings/invite",
-		map[string]string{"phone": "5553334444"}, []*http.Cookie{cookie})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("repeat invite: expected 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if got := mock.GetSMSCount(); got != 1 {
-		t.Errorf("after repeat invite to the same phone: got %d SMS, want 1", got)
-	}
-	if parseJSON(rr)["code"] == nil {
-		t.Error("repeat invite should still return a usable invite code")
-	}
-}
-
-// TestInvite_ConcurrentSameDestinationSendsOnce hammers one destination from one
-// inviter: still exactly one SMS.
-func TestInvite_ConcurrentSameDestinationSendsOnce(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
-	cookie, _ := loginUser(t, server, "5551111111")
-
-	hammer(t, 8, func(int) {
-		doRequest(server.handleInvite, "POST", "/api/settings/invite",
-			map[string]string{"phone": "5557778888"}, []*http.Cookie{cookie})
+	hammer(t, inviteLinksPerInviterPerDay*2, func(int) {
+		doRequest(server.handleInvite, "POST", "/api/settings/invite", nil, []*http.Cookie{cookie})
 	})
-
-	if got := mock.GetSMSCount(); got != 1 {
-		t.Errorf("concurrent invites to one phone: got %d SMS, want 1", got)
-	}
-}
-
-// TestInvite_WithoutPhoneIsNotRateLimited: link-only invites send no SMS, so
-// they must not consume the SMS quota.
-func TestInvite_WithoutPhoneIsNotRateLimited(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
-	cookie, _ := loginUser(t, server, "5551111111")
-
-	for i := 0; i < inviteSMSPerInviterPerDay+5; i++ {
-		rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
-			map[string]string{"phone": ""}, []*http.Cookie{cookie})
-		if rr.Code != http.StatusOK {
-			t.Fatalf("link-only invite %d: expected 200, got %d: %s", i, rr.Code, rr.Body.String())
-		}
-	}
-	if got := mock.GetSMSCount(); got != 0 {
-		t.Errorf("link-only invites sent %d SMS, want 0", got)
+	if n := countRows(t, server, "SELECT COUNT(*) FROM invites WHERE created_by = ?", userID); n > inviteLinksPerInviterPerDay {
+		t.Errorf("concurrent invites created %d rows, limit %d", n, inviteLinksPerInviterPerDay)
 	}
 }
 
 func TestReferral_CannotSelfRefer(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 
 	cookie, _ := loginUser(t, server, "5551111111")
 	rr := doRequest(server.handleReferral, "GET", "/api/referral", nil, []*http.Cookie{cookie})
@@ -1310,8 +1145,7 @@ func TestReferral_CannotSelfRefer(t *testing.T) {
 }
 
 func TestReferral_RedeemRequires100Points(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 
 	cookie, userID := loginUser(t, server, "5551111111")
 
@@ -1350,8 +1184,7 @@ func TestReferral_RedeemRequires100Points(t *testing.T) {
 }
 
 func TestReferral_InvalidCode(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 
 	cookie, _ := loginUser(t, server, "5551111111")
 	rr := doRequest(server.handleReferralClaim, "POST", "/api/referral/claim",
@@ -1362,8 +1195,7 @@ func TestReferral_InvalidCode(t *testing.T) {
 }
 
 func TestReferral_RequiresAuth(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleReferral, "GET", "/api/referral", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -1376,8 +1208,7 @@ func TestReferral_RequiresAuth(t *testing.T) {
 // =============================================================================
 
 func TestReferralClaim_FullFlow(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 
 	// Create referrer and referred users
 	cookieReferrer, _ := loginUser(t, server, "5551111111")
@@ -1402,8 +1233,7 @@ func TestReferralClaim_FullFlow(t *testing.T) {
 }
 
 func TestReferralClaim_EmptyCode(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551111111")
 
 	rr := doRequest(server.handleReferralClaim, "POST", "/api/referral/claim",
@@ -1414,8 +1244,7 @@ func TestReferralClaim_EmptyCode(t *testing.T) {
 }
 
 func TestLeaveHousehold_FullFlow(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 
 	// Create two users in the same household
 	cookie1, userID1 := loginUser(t, server, "5551111111")
@@ -1457,7 +1286,7 @@ func TestLeaveHousehold_FullFlow(t *testing.T) {
 }
 
 func TestSettingsUpdate_SMSOptIn(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
@@ -1469,7 +1298,7 @@ func TestSettingsUpdate_SMSOptIn(t *testing.T) {
 }
 
 func TestSettingsUpdate_EmailConflict(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, _ := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -1488,7 +1317,7 @@ func TestSettingsUpdate_EmailConflict(t *testing.T) {
 }
 
 func TestSettingsUpdate_InvalidJSON(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	req := httptest.NewRequest("PATCH", "/api/settings", strings.NewReader("not json"))
@@ -1502,7 +1331,7 @@ func TestSettingsUpdate_InvalidJSON(t *testing.T) {
 }
 
 func TestSettingsGet_WithData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551111111")
 
 	// Set name and email
@@ -1521,7 +1350,7 @@ func TestSettingsGet_WithData(t *testing.T) {
 }
 
 func TestInvite_CreatesHouseholdIfNeeded(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// User starts with no household
@@ -1576,7 +1405,7 @@ func TestCreateSoloHousehold_Success(t *testing.T) {
 }
 
 func TestSettingsGet_WithHouseholdMembers(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, _ := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -1606,21 +1435,8 @@ func TestSettingsGet_WithHouseholdMembers(t *testing.T) {
 	}
 }
 
-func TestVCard_EmptyPhoneNumber(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	server.config.TwilioPhoneNumber = ""
-	rr := doRequest(server.handleVCard, "GET", "/api/penny.vcf", nil, nil)
-	if rr.Code != http.StatusOK {
-		t.Errorf("Status: got %d, want 200", rr.Code)
-	}
-	body := rr.Body.String()
-	if !strings.Contains(body, "+10000000000") {
-		t.Error("Expected fallback phone number in vCard")
-	}
-}
-
 func TestReferral_GetWithFriends(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, userID1 := loginUser(t, server, "5551111111")
 	_, userID2 := loginUser(t, server, "5552222222")
 
@@ -1649,8 +1465,7 @@ func TestReferral_GetWithFriends(t *testing.T) {
 }
 
 func TestInvite_WithPhone(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551111111")
 
 	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
@@ -1665,8 +1480,7 @@ func TestInvite_WithPhone(t *testing.T) {
 }
 
 func TestJoin_SuccessFlow(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 	cookie1, _ := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -1689,7 +1503,7 @@ func TestJoin_SuccessFlow(t *testing.T) {
 }
 
 func TestSettingsUpdate_NameOnly(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSettingsUpdate, "PATCH", "/api/settings",
@@ -1707,7 +1521,7 @@ func TestSettingsUpdate_NameOnly(t *testing.T) {
 }
 
 func TestSettingsUpdate_EmailOnly(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	email := "test@example.com"
@@ -1719,7 +1533,7 @@ func TestSettingsUpdate_EmailOnly(t *testing.T) {
 }
 
 func TestReferralClaim_SelfRefer(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551111111")
 
 	server.db.Exec("UPDATE users SET referral_code = 'mycode' WHERE id = ?", userID)
@@ -1732,7 +1546,7 @@ func TestReferralClaim_SelfRefer(t *testing.T) {
 }
 
 func TestReferralClaim_Idempotent(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, userID1 := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -1762,7 +1576,7 @@ func TestReferralClaim_Idempotent(t *testing.T) {
 }
 
 func TestSettingsUpdate_EmailUniqueCheck(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, _ := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -1784,7 +1598,7 @@ func TestSettingsUpdate_EmailUniqueCheck(t *testing.T) {
 // =============================================================================
 
 func TestReferralRedeem_InsufficientPoints(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec("UPDATE users SET referral_points = 50 WHERE id = ?", userID)
@@ -1802,7 +1616,7 @@ func TestReferralRedeem_InsufficientPoints(t *testing.T) {
 }
 
 func TestReferralRedeem_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec("UPDATE users SET referral_points = 150 WHERE id = ?", userID)
@@ -1829,7 +1643,7 @@ func TestReferralRedeem_Success(t *testing.T) {
 }
 
 func TestReferralRedeem_ZeroPoints(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleReferralRedeem, "POST", "/api/referral/redeem",
@@ -1846,7 +1660,7 @@ func TestReferralRedeem_ZeroPoints(t *testing.T) {
 // =============================================================================
 
 func TestSettingsUpdate_EmailLowercased(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
@@ -1863,7 +1677,7 @@ func TestSettingsUpdate_EmailLowercased(t *testing.T) {
 }
 
 func TestSettingsUpdate_InvalidEmailFormat(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
@@ -1992,7 +1806,7 @@ func TestHouseholdItemsWhereClause_MultiMember(t *testing.T) {
 // =============================================================================
 
 func TestTrips_CreateAndGet(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Create a trip
@@ -2022,7 +1836,7 @@ func TestTrips_CreateAndGet(t *testing.T) {
 }
 
 func TestTrips_DeleteTrip(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Create
@@ -2046,7 +1860,7 @@ func TestTrips_DeleteTrip(t *testing.T) {
 }
 
 func TestTrips_ReplaceExisting(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Create first trip
@@ -2076,7 +1890,7 @@ func TestTrips_ReplaceExisting(t *testing.T) {
 // =============================================================================
 
 func TestSettingsGet_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleSettingsGet, "GET", "/api/settings", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Status: got %d, want 401", rr.Code)
@@ -2084,7 +1898,7 @@ func TestSettingsGet_RequiresAuth(t *testing.T) {
 }
 
 func TestSettingsGet_ReturnsData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559990001")
 
 	rr := doRequest(server.handleSettingsGet, "GET", "/api/settings", nil, []*http.Cookie{cookie})
@@ -2099,7 +1913,7 @@ func TestSettingsGet_ReturnsData(t *testing.T) {
 }
 
 func TestSettingsUpdate_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleSettingsUpdate, "PATCH", "/api/settings",
 		map[string]string{"name": "Alice"}, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -2108,7 +1922,7 @@ func TestSettingsUpdate_RequiresAuth(t *testing.T) {
 }
 
 func TestSettingsUpdate_Name(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5559990002")
 
 	rr := doRequest(server.handleSettingsUpdate, "PATCH", "/api/settings",
@@ -2126,7 +1940,7 @@ func TestSettingsUpdate_Name(t *testing.T) {
 }
 
 func TestSettings_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559990003")
 	rr := doRequest(server.handleSettings, "DELETE", "/api/settings", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusMethodNotAllowed {
@@ -2139,7 +1953,7 @@ func TestSettings_WrongMethod(t *testing.T) {
 // =============================================================================
 
 func TestTrips_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleTrips, "GET", "/api/trips", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Status: got %d, want 401", rr.Code)
@@ -2147,7 +1961,7 @@ func TestTrips_RequiresAuth(t *testing.T) {
 }
 
 func TestTrips_GetEmptyList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559990010")
 
 	rr := doRequest(server.handleTrips, "GET", "/api/trips", nil, []*http.Cookie{cookie})
@@ -2165,7 +1979,7 @@ func TestTrips_GetEmptyList(t *testing.T) {
 }
 
 func TestTrips_PostAndRetrieve(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559990011")
 
 	// POST a new trip
@@ -2193,7 +2007,7 @@ func TestTrips_PostAndRetrieve(t *testing.T) {
 }
 
 func TestTrips_Delete(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559990012")
 
 	// Create a trip
@@ -2210,41 +2024,11 @@ func TestTrips_Delete(t *testing.T) {
 
 // =============================================================================
 // NPS HANDLER TESTS
-// =============================================================================
-// VCARD HANDLER TESTS
-// =============================================================================
-
-func TestVCard_ReturnsVCardContentType(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	rr := doRequest(server.handleVCard, "GET", "/api/penny.vcf", nil, nil)
-	if rr.Code != http.StatusOK {
-		t.Errorf("Status: got %d, want 200", rr.Code)
-	}
-	ct := rr.Header().Get("Content-Type")
-	if ct != "text/vcard" {
-		t.Errorf("Content-Type: got %q, want %q", ct, "text/vcard")
-	}
-	if !strings.Contains(rr.Body.String(), "BEGIN:VCARD") {
-		t.Error("Expected vCard body to contain BEGIN:VCARD")
-	}
-}
-
-func TestVCard_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	rr := doRequest(server.handleVCard, "POST", "/api/penny.vcf", nil, nil)
-	if rr.Code != http.StatusMethodNotAllowed {
-		t.Errorf("Status: got %d, want 405", rr.Code)
-	}
-}
-
-// =============================================================================
-// VALIDATE TWILIO SIGNATURE TESTS
-// =============================================================================
 // REFERRAL HANDLER TESTS
 // =============================================================================
 
 func TestReferralClaim_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleReferralClaim, "POST", "/api/referral/claim", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Status: got %d, want 401", rr.Code)
@@ -2252,7 +2036,7 @@ func TestReferralClaim_RequiresAuth(t *testing.T) {
 }
 
 func TestReferral_GetCode(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559990040")
 
 	rr := doRequest(server.handleReferral, "GET", "/api/referral", nil, []*http.Cookie{cookie})
@@ -2270,7 +2054,7 @@ func TestReferral_GetCode(t *testing.T) {
 // =============================================================================
 
 func TestReferralConstants_RedeemThreshold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec("UPDATE users SET referral_points = ? WHERE id = ?", referralRedeemThreshold-1, userID)
@@ -2287,7 +2071,7 @@ func TestReferralConstants_RedeemThreshold(t *testing.T) {
 }
 
 func TestReferralConstants_PointsAwardedPerInvite(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	cookie1, inviterID := loginUser(t, server, "5551111111")
 
@@ -2316,7 +2100,7 @@ func TestReferralConstants_PointsAwardedPerInvite(t *testing.T) {
 }
 
 func TestSettingsUpdate_AddressField(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	update := map[string]interface{}{
@@ -2337,7 +2121,7 @@ func TestSettingsUpdate_AddressField(t *testing.T) {
 }
 
 func TestSettingsUpdate_AddressClearedByEmpty(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	doRequest(server.handleSettings, "PATCH", "/api/settings", map[string]interface{}{"address": "123 Main St"}, []*http.Cookie{cookie})
@@ -2355,7 +2139,7 @@ func TestSettingsUpdate_AddressClearedByEmpty(t *testing.T) {
 // =============================================================================
 
 func TestSettings_EdgeCase_PennySliderNegative(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Negative slider value should be clamped to 0
@@ -2374,7 +2158,7 @@ func TestSettings_EdgeCase_PennySliderNegative(t *testing.T) {
 }
 
 func TestSettings_EdgeCase_PennySliderOver100(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Slider > 100 should be clamped to 100
@@ -2392,7 +2176,7 @@ func TestSettings_EdgeCase_PennySliderOver100(t *testing.T) {
 }
 
 func TestSettings_EdgeCase_PennySliderBoundary0(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Exactly 0 should be accepted as-is
@@ -2411,7 +2195,7 @@ func TestSettings_EdgeCase_PennySliderBoundary0(t *testing.T) {
 }
 
 func TestSettings_EdgeCase_PennySliderBoundary100(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
@@ -2428,7 +2212,7 @@ func TestSettings_EdgeCase_PennySliderBoundary100(t *testing.T) {
 }
 
 func TestSettings_EdgeCase_InvalidBrandMode(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Invalid brand mode should return 400
@@ -2446,7 +2230,7 @@ func TestSettings_EdgeCase_InvalidBrandMode(t *testing.T) {
 }
 
 func TestSettings_EdgeCase_ValidBrandModes(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	validModes := []string{"auto", "ask", "deals"}
@@ -2466,7 +2250,7 @@ func TestSettings_EdgeCase_ValidBrandModes(t *testing.T) {
 }
 
 func TestSettings_EdgeCase_EmptyBody(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Empty JSON object — no fields to update, should succeed as no-op
@@ -2478,7 +2262,7 @@ func TestSettings_EdgeCase_EmptyBody(t *testing.T) {
 }
 
 func TestSettings_EdgeCase_PennyAutotuneToggle(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Set autotune to false
@@ -2508,7 +2292,7 @@ func TestSettings_EdgeCase_PennyAutotuneToggle(t *testing.T) {
 }
 
 func TestSettings_EdgeCase_PennyDealsToggle(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Set deals to true
@@ -2538,7 +2322,7 @@ func TestSettings_EdgeCase_PennyDealsToggle(t *testing.T) {
 }
 
 func TestSettings_EdgeCase_MultipleFieldsAtOnce(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Update slider, autotune, brand mode, and name all at once
@@ -2571,7 +2355,7 @@ func TestSettings_EdgeCase_MultipleFieldsAtOnce(t *testing.T) {
 }
 
 func TestSettings_EdgeCase_WhitespaceNameTrimmed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
@@ -2588,7 +2372,7 @@ func TestSettings_EdgeCase_WhitespaceNameTrimmed(t *testing.T) {
 }
 
 func TestSettings_EdgeCase_WhitespaceBrandModeTrimmed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Whitespace-padded but valid mode should be trimmed and accepted
@@ -2606,7 +2390,7 @@ func TestSettings_EdgeCase_WhitespaceBrandModeTrimmed(t *testing.T) {
 }
 
 func TestSettings_EdgeCase_GetReflectsClampedSlider(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Set slider to a clamped value
@@ -2631,7 +2415,7 @@ func TestSettings_EdgeCase_GetReflectsClampedSlider(t *testing.T) {
 // =============================================================================
 
 func TestTrips_EdgeCase_InvalidDateFormat(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	badDates := []struct {
@@ -2658,7 +2442,7 @@ func TestTrips_EdgeCase_InvalidDateFormat(t *testing.T) {
 }
 
 func TestTrips_EdgeCase_MissingTripDate(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// No trip_date field at all
@@ -2674,7 +2458,7 @@ func TestTrips_EdgeCase_MissingTripDate(t *testing.T) {
 }
 
 func TestTrips_EdgeCase_EmptyBodyPost(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Empty JSON body — trip_date missing
@@ -2686,7 +2470,7 @@ func TestTrips_EdgeCase_EmptyBodyPost(t *testing.T) {
 }
 
 func TestTrips_EdgeCase_DeleteWhenNoTrips(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Delete with no trips should still succeed (idempotent)
@@ -2701,7 +2485,7 @@ func TestTrips_EdgeCase_DeleteWhenNoTrips(t *testing.T) {
 }
 
 func TestTrips_EdgeCase_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleTrips, "PATCH", "/api/trips", nil, []*http.Cookie{cookie})
@@ -2711,7 +2495,7 @@ func TestTrips_EdgeCase_MethodNotAllowed(t *testing.T) {
 }
 
 func TestTrips_EdgeCase_WithTimeLabel(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Create trip with time_label
@@ -2741,7 +2525,7 @@ func TestTrips_EdgeCase_WithTimeLabel(t *testing.T) {
 }
 
 func TestTrips_EdgeCase_EmptyTripDateString(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Explicit empty string for trip_date
@@ -2753,7 +2537,7 @@ func TestTrips_EdgeCase_EmptyTripDateString(t *testing.T) {
 }
 
 func TestTrips_EdgeCase_NilBody(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// nil body should fail gracefully
@@ -2764,7 +2548,7 @@ func TestTrips_EdgeCase_NilBody(t *testing.T) {
 }
 
 func TestTrips_EdgeCase_GetEmptyReturnsArray(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleTrips, "GET", "/api/trips", nil, []*http.Cookie{cookie})
@@ -2797,7 +2581,7 @@ func TestTrips_EdgeCase_GetEmptyReturnsArray(t *testing.T) {
 // =============================================================================
 
 func TestDietaryProfile_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleDietaryPreferences, "GET", "/api/preferences", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Status: got %d, want 401", rr.Code)
@@ -2805,7 +2589,7 @@ func TestDietaryProfile_Unauthenticated(t *testing.T) {
 }
 
 func TestDietaryProfile_Empty(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleDietaryPreferences, "GET", "/api/preferences", nil, []*http.Cookie{cookie})
@@ -2838,7 +2622,7 @@ func TestDietaryProfile_Empty(t *testing.T) {
 }
 
 func TestDietaryProfile_SetAndGet(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// PATCH to set allergens and diets
@@ -2881,7 +2665,7 @@ func TestDietaryProfile_SetAndGet(t *testing.T) {
 }
 
 func TestDietaryProfile_UpdatePartial(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Set initial profile with allergens and diets
@@ -2921,7 +2705,7 @@ func TestDietaryProfile_UpdatePartial(t *testing.T) {
 }
 
 func TestDietaryProfile_InvalidJSON(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Send invalid JSON body
@@ -2937,7 +2721,7 @@ func TestDietaryProfile_InvalidJSON(t *testing.T) {
 }
 
 func TestGetHouseholdAllergens_Union(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create 2 users in the same household
 	server.db.Exec("INSERT INTO users (id, phone, name, household_id) VALUES ('user-100', '+15551111111', 'Alice', 1)")
@@ -2965,7 +2749,7 @@ func TestGetHouseholdAllergens_Union(t *testing.T) {
 }
 
 func TestGetHouseholdAllergens_NoHousehold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-100', '+15551234567')")
 	server.db.Exec(`INSERT INTO user_dietary_profiles (user_id, allergens, diets) VALUES ('user-100', '["gluten"]', '[]')`)
 
@@ -2976,7 +2760,7 @@ func TestGetHouseholdAllergens_NoHousehold(t *testing.T) {
 }
 
 func TestHouseholdDietary_Endpoint(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create household
 	server.db.Exec("INSERT INTO users (id, phone, name, household_id) VALUES ('user-100', '+15551111111', 'Alice', 1)")
@@ -3004,7 +2788,7 @@ func TestHouseholdDietary_Endpoint(t *testing.T) {
 }
 
 func TestHouseholdDietary_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleHouseholdDietary, "GET", "/api/household/dietary", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Expected 401, got %d", rr.Code)
@@ -3012,7 +2796,7 @@ func TestHouseholdDietary_Unauthenticated(t *testing.T) {
 }
 
 func TestHouseholdDuplicateDetection(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create 2 users in the same household
 	server.db.Exec("INSERT INTO users (id, phone, name, household_id) VALUES ('user-100', '+15551111111', 'Alice', 1)")
@@ -3048,7 +2832,7 @@ func TestHouseholdDuplicateDetection(t *testing.T) {
 // =============================================================================
 
 func TestShoppingRole_PrimaryShopper(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create a household with two users
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
@@ -3089,7 +2873,7 @@ func TestShoppingRole_PrimaryShopper(t *testing.T) {
 }
 
 func TestShoppingRole_ListBuilder(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create a household with two users
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
@@ -3130,7 +2914,7 @@ func TestShoppingRole_ListBuilder(t *testing.T) {
 }
 
 func TestShoppingRole_Occasional(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create a household with two users
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
@@ -3171,7 +2955,7 @@ func TestShoppingRole_Occasional(t *testing.T) {
 }
 
 func TestShoppingRole_Confidence(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create household
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
@@ -3207,7 +2991,7 @@ func TestShoppingRole_Confidence(t *testing.T) {
 }
 
 func TestShoppingRole_NoHousehold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// User without household — should NOT get a shopping role
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-500', '+15559999999')")
@@ -3226,7 +3010,7 @@ func TestShoppingRole_NoHousehold(t *testing.T) {
 }
 
 func TestShoppingRole_InLearningContext(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create user with autotune enabled
 	server.db.Exec("INSERT INTO users (id, phone, penny_autotune, household_id) VALUES ('user-600', '+15550001111', 1, 1)")
@@ -3246,7 +3030,7 @@ func TestShoppingRole_InLearningContext(t *testing.T) {
 }
 
 func TestShoppingRole_ListBuilderInContext(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	server.db.Exec("INSERT INTO users (id, phone, penny_autotune, household_id) VALUES ('user-700', '+15550002222', 1, 1)")
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
@@ -3261,7 +3045,7 @@ func TestShoppingRole_ListBuilderInContext(t *testing.T) {
 }
 
 func TestShoppingRole_OccasionalInContext(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	server.db.Exec("INSERT INTO users (id, phone, penny_autotune, household_id) VALUES ('user-800', '+15550003333', 1, 1)")
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
@@ -3276,7 +3060,7 @@ func TestShoppingRole_OccasionalInContext(t *testing.T) {
 }
 
 func TestShoppingRole_ThreePersonHousehold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create a 3-person household
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
@@ -3332,7 +3116,7 @@ func TestShoppingRole_ThreePersonHousehold(t *testing.T) {
 }
 
 func TestShoppingRole_Idempotent(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
 	server.db.Exec("INSERT INTO users (id, phone, household_id) VALUES ('user-1000', '+15550007777', 1)")
@@ -3365,7 +3149,7 @@ func TestShoppingRole_Idempotent(t *testing.T) {
 // =============================================================================
 
 func TestSettingsUpdate_SetsNameSourceManual(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "+15550001234")
 
 	// Verify initial name_source is 'auto'
@@ -3394,7 +3178,7 @@ func TestSettingsUpdate_SetsNameSourceManual(t *testing.T) {
 // =============================================================================
 
 func TestCrossUser_CannotToggleOtherUsersItem(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userA := loginUser(t, server, "+15550001000")
 	cookieB, _ := loginUser(t, server, "+15550002000")
 
@@ -3413,7 +3197,7 @@ func TestCrossUser_CannotToggleOtherUsersItem(t *testing.T) {
 }
 
 func TestCrossUser_CannotDeleteOtherUsersItem(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userA := loginUser(t, server, "+15550003000")
 	cookieB, _ := loginUser(t, server, "+15550004000")
 
@@ -3431,7 +3215,7 @@ func TestCrossUser_CannotDeleteOtherUsersItem(t *testing.T) {
 }
 
 func TestCrossUser_CannotEditOtherUsersItem(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userA := loginUser(t, server, "+15550005000")
 	cookieB, _ := loginUser(t, server, "+15550006000")
 
@@ -3450,7 +3234,7 @@ func TestCrossUser_CannotEditOtherUsersItem(t *testing.T) {
 }
 
 func TestCrossUser_CannotClaimOtherUsersItem(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userA := loginUser(t, server, "+15550007000")
 	cookieB, _ := loginUser(t, server, "+15550008000")
 
@@ -3468,7 +3252,7 @@ func TestCrossUser_CannotClaimOtherUsersItem(t *testing.T) {
 }
 
 func TestCrossUser_CannotMarkOtherUsersItemUrgent(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userA := loginUser(t, server, "+15550009000")
 	cookieB, _ := loginUser(t, server, "+15550010000")
 
@@ -3486,7 +3270,7 @@ func TestCrossUser_CannotMarkOtherUsersItemUrgent(t *testing.T) {
 }
 
 func TestCrossUser_HouseholdMembersCanSeeSharedItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookieA, userA := loginUser(t, server, "+15550011000")
 	cookieB, userB := loginUser(t, server, "+15550012000")
 
@@ -3522,7 +3306,7 @@ func TestCrossUser_HouseholdMembersCanSeeSharedItems(t *testing.T) {
 }
 
 func TestCrossUser_HouseholdMemberCanToggleSharedItem(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userA := loginUser(t, server, "+15550013000")
 	cookieB, userB := loginUser(t, server, "+15550014000")
 
@@ -3554,7 +3338,7 @@ func TestCrossUser_HouseholdMemberCanToggleSharedItem(t *testing.T) {
 // =============================================================================
 
 func TestPlacesAutocomplete_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handlePlacesAutocomplete, "GET", "/api/places/autocomplete?input=123+Main", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401 without session, got %d", rr.Code)
@@ -3562,7 +3346,7 @@ func TestPlacesAutocomplete_RequiresAuth(t *testing.T) {
 }
 
 func TestPlacesAutocomplete_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handlePlacesAutocomplete, "POST", "/api/places/autocomplete", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 for POST, got %d", rr.Code)
@@ -3570,7 +3354,7 @@ func TestPlacesAutocomplete_WrongMethod(t *testing.T) {
 }
 
 func TestPlacesAutocomplete_ShortInput(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	user, _ := upsertUser(server.db, "5551234567")
 	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -3586,7 +3370,7 @@ func TestPlacesAutocomplete_ShortInput(t *testing.T) {
 }
 
 func TestPlacesAutocomplete_EmptyInput(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	user, _ := upsertUser(server.db, "5551234567")
 	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -3598,7 +3382,7 @@ func TestPlacesAutocomplete_EmptyInput(t *testing.T) {
 }
 
 func TestPlacesDetail_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handlePlacesDetail, "GET", "/api/places/detail?place_id=abc", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401 without session, got %d", rr.Code)
@@ -3606,7 +3390,7 @@ func TestPlacesDetail_RequiresAuth(t *testing.T) {
 }
 
 func TestPlacesDetail_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handlePlacesDetail, "POST", "/api/places/detail", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 for POST, got %d", rr.Code)
@@ -3614,7 +3398,7 @@ func TestPlacesDetail_WrongMethod(t *testing.T) {
 }
 
 func TestPlacesDetail_MissingPlaceID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	user, _ := upsertUser(server.db, "5551234567")
 	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -3635,7 +3419,7 @@ func TestPlacesDetail_MissingPlaceID(t *testing.T) {
 // =============================================================================
 
 func TestLeaveHousehold_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5553330001")
 
 	rr := doRequest(server.handleLeaveHousehold, "GET", "/api/settings/leave-household", nil, []*http.Cookie{cookie})
@@ -3645,7 +3429,7 @@ func TestLeaveHousehold_WrongMethod(t *testing.T) {
 }
 
 func TestLeaveHousehold_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleLeaveHousehold, "POST", "/api/settings/leave-household", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("No session should return 401, got %d", rr.Code)
@@ -3653,7 +3437,7 @@ func TestLeaveHousehold_Unauthenticated(t *testing.T) {
 }
 
 func TestLeaveHousehold_VerifiesNewHousehold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5553330002")
 
 	// Get current household ID
@@ -3688,7 +3472,7 @@ func TestLeaveHousehold_VerifiesNewHousehold(t *testing.T) {
 // =============================================================================
 
 func TestAvatarUpload_Success_JPEG(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	jpegData := makeJPEG(100)
@@ -3709,7 +3493,7 @@ func TestAvatarUpload_Success_JPEG(t *testing.T) {
 }
 
 func TestAvatarUpload_Success_PNG(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	pngData := makePNG(100)
@@ -3725,7 +3509,7 @@ func TestAvatarUpload_Success_PNG(t *testing.T) {
 }
 
 func TestAvatarUpload_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleAvatar, "POST", "/api/avatar", map[string]string{
 		"photo": "dGVzdA==",
 	}, nil)
@@ -3735,7 +3519,7 @@ func TestAvatarUpload_RequiresAuth(t *testing.T) {
 }
 
 func TestAvatarUpload_EmptyPhoto(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleAvatar, "POST", "/api/avatar", map[string]string{
@@ -3748,7 +3532,7 @@ func TestAvatarUpload_EmptyPhoto(t *testing.T) {
 }
 
 func TestAvatarUpload_InvalidFormat(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// GIF-like data (not JPEG or PNG)
@@ -3769,7 +3553,7 @@ func TestAvatarUpload_InvalidFormat(t *testing.T) {
 // =============================================================================
 
 func TestAvatarGet_NotFound(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleAvatarGet, "GET", "/api/avatar/99999", nil, nil)
 	if rr.Code != http.StatusNotFound {
@@ -3778,7 +3562,7 @@ func TestAvatarGet_NotFound(t *testing.T) {
 }
 
 func TestAvatarGet_EmptyID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleAvatarGet, "GET", "/api/avatar/", nil, nil)
 	if rr.Code != http.StatusBadRequest {
@@ -3791,7 +3575,7 @@ func TestAvatarGet_EmptyID(t *testing.T) {
 // =============================================================================
 
 func TestAvatarDelete_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Insert a photo first
@@ -3812,7 +3596,7 @@ func TestAvatarDelete_Success(t *testing.T) {
 }
 
 func TestAvatarDelete_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleAvatar, "DELETE", "/api/avatar", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Status: got %d, want 401", rr.Code)
@@ -3820,11 +3604,33 @@ func TestAvatarDelete_RequiresAuth(t *testing.T) {
 }
 
 func TestAvatar_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleAvatar, "PUT", "/api/avatar", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("Status: got %d, want 405", rr.Code)
+	}
+}
+
+// The daily digest was a text. Its setting is gone: PATCH ignores the field and
+// GET no longer returns it.
+func TestSettingsPatch_DailyDigestFieldIsIgnored(t *testing.T) {
+	server := newTestServer(t)
+	cookie, userID := loginUser(t, server, "5551234567")
+
+	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
+		map[string]interface{}{"daily_digest_enabled": true, "name": "Pat"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH status: got %d, want 200", rr.Code)
+	}
+	var enabled int
+	var name string
+	server.db.QueryRow("SELECT daily_digest_enabled, name FROM users WHERE id = ?", userID).Scan(&enabled, &name)
+	if enabled != 0 {
+		t.Errorf("daily_digest_enabled: got %d, want 0 (field ignored)", enabled)
+	}
+	if name != "Pat" {
+		t.Errorf("other fields still update; name=%q", name)
 	}
 }

@@ -10,11 +10,7 @@ import (
 // =============================================================================
 
 type Config struct {
-	TwilioAccountSID    string
-	TwilioAuthToken     string
-	TwilioPhoneNumber   string
 	AnthropicAPIKey     string
-	AdminPhone          string
 	LogoDevToken        string
 	LogoDevSecret       string
 	GooglePlacesAPIKey  string
@@ -22,19 +18,19 @@ type Config struct {
 	Port                string
 	DatabaseURL         string
 	WebhookBaseURL      string
+	EmailWebhookSecret  string // EMAIL_WEBHOOK_SECRET: must match ?secret= on the SendGrid Inbound Parse URL
 	AppBaseURL          string // public app address (APP_BASE_URL, else WEBHOOK_BASE_URL, else default), no trailing slash
 	SecureCookies       bool
 	TestMode            bool
 	SendGridAPIKey      string
 	BlueCartAPIKey      string
-	FeedbackPhones      []string // phone numbers allowed to submit feedback
 	GitHubPAT           string   // personal access token for creating issues
 	GitHubRepo          string   // "owner/repo" format
 	StripeSecretKey     string   // Stripe secret key (sk_live_... or sk_test_...)
 	StripeWebhookSecret string   // Stripe webhook signing secret (whsec_...)
 	WattAPIKey          string   // Watt Data API key (watt_...) for CPG brand manager lookup
 	BcryptCost          int      // bcrypt cost factor (0 = DefaultCost, set to 4 in tests for speed)
-	AdminClerkUserIDs   []string // ADMIN_CLERK_USER_IDS: Clerk user ids that are admins without a phone
+	AdminClerkUserIDs   []string // ADMIN_CLERK_USER_IDS: Clerk user ids that are admins
 	GeminiAPIKey        string   // Google Gemini API key
 	OpenAIAPIKey        string   // OpenAI API key
 }
@@ -52,7 +48,6 @@ type FeedbackRequest struct {
 	CreatedAt      string `json:"created_at"`
 	UpdatedAt      string `json:"updated_at,omitempty"`
 	UserName       string `json:"user_name,omitempty"`
-	UserPhone      string `json:"user_phone,omitempty"`
 }
 
 // =============================================================================
@@ -62,7 +57,6 @@ type FeedbackRequest struct {
 // User represents a row in the users table.
 type User struct {
 	ID          string
-	PhoneNumber string
 	Name        string
 	Email       string
 	HouseholdID int
@@ -72,7 +66,7 @@ type User struct {
 // Session represents an authenticated user session.
 type Session struct {
 	UserID      string
-	PhoneNumber string // may be empty for non-phone auth
+	PhoneNumber string // legacy: sessions minted before phones were removed may carry one; never used
 	AuthMethod  string // "clerk" (Rally sign-in) or "test"
 	CreatedAt   time.Time
 }
@@ -91,7 +85,6 @@ type ListItem struct {
 	Urgent        bool   `json:"urgent"`
 	CreatedAt     string `json:"created_at"`
 	AddedByName   string `json:"added_by_name"`
-	AddedByPhone  string `json:"added_by_phone"`
 	ClaimedByID      *string `json:"claimed_by_id"`
 	ClaimedByName    string `json:"claimed_by_name"`
 	SwapSavingsCents int    `json:"swap_savings_cents"`
@@ -175,11 +168,9 @@ type Server struct {
 	db           *PGDB // PostgreSQL-compatible wrapper (see pgcompat.go)
 	// NOTE: reportDB removed — reporting queries now use the same Postgres db.
 	sessions     *SessionStore
-	twilio       TwilioClient
 	parseItems   func(apiKey, text string, images []string) ([]ParsedItem, error)
 	parseCommand func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error)
 	parseReceipt func(apiKey string, images []string, currentItems []ListItem) ([]string, error)
-	smsBuffer    *messageBuffer
 	logoCache    sync.Map // domain -> *cachedLogo
 	parseCache   sync.Map // normalized text -> *parseCacheEntry
 
@@ -197,11 +188,8 @@ type Server struct {
 	earningsUploadLimiter sync.Map
 	// Per-user NPS submit rate limiter: userID -> *rateBucket (3 submissions/hour)
 	npsSubmitLimiter sync.Map
-	// Household invite SMS limiter: holds two kinds of key, both -> []time.Time.
-	//   "inviter:<userID>"            -> 10 invite texts per 24h
-	//   "dest:<householdID>:<e164>"   -> 1 invite text per 24h
-	// Keeps an authenticated user from looping /api/settings/invite to text
-	// arbitrary numbers (CLAUDE.md damage risk #1).
+	// Household invite limiter: "inviter:<userID>" -> []time.Time. Caps how many
+	// invite links one user can mint per day.
 	inviteLimiter sync.Map
 	// Per-IP Rally sign-in exchange limiter: IP -> []time.Time (20 req/10min)
 	clerkExchangeIPLimiter sync.Map

@@ -32,7 +32,7 @@ type clerkExchangeHarness struct {
 // switch ON for this test only. Nothing reaches a network.
 func newClerkExchangeHarness(t *testing.T) *clerkExchangeHarness {
 	t.Helper()
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	priv := newTestKeypair(t)
 	jwks := withClerkSatelliteEnv(t, priv, nil)
 	return &clerkExchangeHarness{server: server, priv: priv, jwks: jwks}
@@ -170,60 +170,6 @@ func TestClerkExchange_Positive_NewClerkUser(t *testing.T) {
 	}
 	if sess, ok := h.server.sessions.GetSession(cookie.Value); !ok || sess.UserID != u.ID {
 		t.Errorf("cookie must resolve to the new user: %+v ok=%v", sess, ok)
-	}
-}
-
-func TestClerkExchange_Positive_VerifiedPhoneIsStoredAsTenDigits(t *testing.T) {
-	h := newClerkExchangeHarness(t)
-	rr := h.post(h.token(t, "user_ph", map[string]any{"phone": "+15551234567", "phone_verified": true}))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status: got %d (%s)", rr.Code, rr.Body.String())
-	}
-	if got := h.userByClerkID(t, "user_ph").Phone; got != "5551234567" {
-		t.Errorf("phone: got %q want 5551234567", got)
-	}
-	h.assertCounts(t, 1, 1, 1, 1, 1)
-}
-
-func TestClerkExchange_Positive_SessionCarriesCurrentPhone(t *testing.T) {
-	h := newClerkExchangeHarness(t)
-	rr := h.post(h.token(t, "user_ph2", map[string]any{"phone": "5559990000", "phone_verified": "true"}))
-	cookie := getSessionCookie(rr)
-	if cookie == nil {
-		t.Fatalf("no cookie (status %d)", rr.Code)
-	}
-	sess, ok := h.server.sessions.GetSession(cookie.Value)
-	if !ok || sess.PhoneNumber != "5559990000" {
-		t.Errorf("session phone: got %+v ok=%v want 5559990000", sess, ok)
-	}
-}
-
-func TestClerkExchange_Positive_PhoneNotStoredUnlessVerified(t *testing.T) {
-	cases := []struct {
-		name  string
-		extra map[string]any
-	}{
-		{"verified false", map[string]any{"phone": "+15551234567", "phone_verified": false}},
-		{"verified absent", map[string]any{"phone": "+15551234567"}},
-		{"verified string false", map[string]any{"phone": "+15551234567", "phone_verified": "false"}},
-		{"verified but malformed", map[string]any{"phone": "12345", "phone_verified": true}},
-		{"verified but empty", map[string]any{"phone": "", "phone_verified": true}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			h := newClerkExchangeHarness(t)
-			rr := h.post(h.token(t, "user_np", c.extra))
-			if rr.Code != http.StatusOK {
-				t.Fatalf("status: got %d (%s)", rr.Code, rr.Body.String())
-			}
-			if got := h.userByClerkID(t, "user_np").Phone; got != "" {
-				t.Errorf("phone must not be stored; got %q", got)
-			}
-			if got := h.count(t, "SELECT COUNT(*) FROM users WHERE phone IS NOT NULL AND phone != ''"); got != 0 {
-				t.Errorf("rows holding a phone: got %d want 0", got)
-			}
-			h.assertCounts(t, 1, 1, 1, 1, 1)
-		})
 	}
 }
 
@@ -438,73 +384,74 @@ func TestClerkExchange_Idempotent_ConcurrentFirstSignIn(t *testing.T) {
 // adoption and isolation
 // -----------------------------------------------------------------------
 
-// A phone-only row, as created by an inbound text, is adopted by a Clerk user
-// presenting that VERIFIED phone.
-func TestClerkExchange_Adoption_PhoneOnlyRowIsBound(t *testing.T) {
+// Email is never a matching signal: an existing row with the same email is not
+// adopted, whether or not the phone matches nothing.
+// Phone claims are ignored entirely. A token carrying phone + phone_verified:true
+// stores no phone, and the session carries none.
+func TestClerkExchange_PhoneClaimsAreIgnored(t *testing.T) {
 	h := newClerkExchangeHarness(t)
-	texted, err := upsertUser(h.server.db, "5551110000")
-	if err != nil {
-		t.Fatalf("seeding phone-only user: %v", err)
+	rr := h.post(h.token(t, "user_ph", map[string]any{"phone": "+15551234567", "phone_verified": true}))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d (%s)", rr.Code, rr.Body.String())
 	}
-	createListItem(t, h.server.db, texted.ID, "texted milk", "Dairy")
+	if got := h.userByClerkID(t, "user_ph").Phone; got != "" {
+		t.Errorf("phone must not be stored; got %q", got)
+	}
+	if got := h.count(t, "SELECT COUNT(*) FROM users WHERE phone IS NOT NULL AND phone != ''"); got != 0 {
+		t.Errorf("rows holding a phone: got %d want 0", got)
+	}
+	cookie := getSessionCookie(rr)
+	if cookie == nil {
+		t.Fatalf("no cookie (status %d)", rr.Code)
+	}
+	if sess, ok := h.server.sessions.GetSession(cookie.Value); !ok || sess.PhoneNumber != "" {
+		t.Errorf("session must carry no phone: %+v ok=%v", sess, ok)
+	}
+	h.assertCounts(t, 1, 1, 1, 1, 1)
+}
+
+// A legacy row holds a phone. A token presenting the same VERIFIED phone does
+// not adopt it: the Clerk user gets a new row and the legacy row stays unbound.
+func TestClerkExchange_VerifiedPhoneAdoptsNoExistingRow(t *testing.T) {
+	h := newClerkExchangeHarness(t)
+	legacy, err := upsertUser(h.server.db, "5551110000")
+	if err != nil {
+		t.Fatalf("seeding legacy user: %v", err)
+	}
+	createListItem(t, h.server.db, legacy.ID, "old milk", "Dairy")
 
 	rr := h.post(h.token(t, "user_S1", map[string]any{"phone": "+15551110000", "phone_verified": true}))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status: got %d (%s)", rr.Code, rr.Body.String())
 	}
-	if parseJSON(rr)["user_id"] != texted.ID {
-		t.Errorf("user_id: got %v want the texted user %s", parseJSON(rr)["user_id"], texted.ID)
-	}
-	h.assertCounts(t, 1, 1, 1, 1, 1)
-	if got := h.userByClerkID(t, "user_S1").ID; got != texted.ID {
-		t.Errorf("the existing row must be bound; got %s", got)
-	}
-
-	// The household's list is reachable through the new session.
-	list := doRequest(h.server.handleList, http.MethodGet, "/api/list", nil, []*http.Cookie{getSessionCookie(rr)})
-	if !strings.Contains(list.Body.String(), "texted milk") {
-		t.Error("the adopted account must keep its list")
-	}
-}
-
-func TestClerkExchange_Adoption_UnverifiedPhoneIsNotAdopted(t *testing.T) {
-	h := newClerkExchangeHarness(t)
-	texted, err := upsertUser(h.server.db, "5552220000")
-	if err != nil {
-		t.Fatalf("seeding: %v", err)
-	}
-
-	rr := h.post(h.token(t, "user_S2", map[string]any{"phone": "+15552220000", "phone_verified": false}))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status: got %d (%s)", rr.Code, rr.Body.String())
-	}
-	// 2 users, 2 households, 2 members; only the Clerk user has a clerk auth_methods row.
-	h.assertCounts(t, 2, 2, 2, 1, 1)
-	u := h.userByClerkID(t, "user_S2")
-	if u.ID == texted.ID {
-		t.Fatal("an unverified phone must never adopt an existing row")
+	u := h.userByClerkID(t, "user_S1")
+	if u.ID == legacy.ID {
+		t.Fatal("a phone must never adopt an existing row")
 	}
 	if u.Phone != "" {
 		t.Errorf("the new row must be phone-less; got %q", u.Phone)
 	}
-	if got := clerkIDOf(t, h.server, texted.ID); got != "" {
-		t.Errorf("the texted row must stay unbound; got %q", got)
+	if got := clerkIDOf(t, h.server, legacy.ID); got != "" {
+		t.Errorf("the legacy row must stay unbound; got %q", got)
 	}
+	// The new session cannot see the legacy user's list.
+	list := doRequest(h.server.handleList, http.MethodGet, "/api/list", nil, []*http.Cookie{getSessionCookie(rr)})
+	if strings.Contains(list.Body.String(), "old milk") {
+		t.Error("the new account must not see the legacy user's list")
+	}
+	h.assertCounts(t, 2, 2, 2, 1, 1)
 }
 
-// Phone row already bound to Clerk user A; Clerk user B presents the same
-// verified phone. B gets their own phone-less row and A is untouched.
-func TestClerkExchange_NoTakeover_BoundPhoneRowIsNeverRebound(t *testing.T) {
+// Two Clerk users presenting the same claims each get their own row; A's row is
+// never rebound to B.
+func TestClerkExchange_NoTakeover_SameClaimsTwoUsers(t *testing.T) {
 	h := newClerkExchangeHarness(t)
-	claims := map[string]any{"phone": "+15553330000", "phone_verified": true}
+	claims := map[string]any{"phone": "+15553330000", "phone_verified": true, "email": "same@example.com"}
 
 	if rr := h.post(h.token(t, "user_A", claims)); rr.Code != http.StatusOK {
 		t.Fatalf("A: status %d (%s)", rr.Code, rr.Body.String())
 	}
 	a := h.userByClerkID(t, "user_A")
-	if a.Phone != "5553330000" {
-		t.Fatalf("A should hold the phone; got %q", a.Phone)
-	}
 
 	rr := h.post(h.token(t, "user_B", claims))
 	if rr.Code != http.StatusOK {
@@ -514,18 +461,12 @@ func TestClerkExchange_NoTakeover_BoundPhoneRowIsNeverRebound(t *testing.T) {
 	if b.ID == a.ID {
 		t.Fatal("B must not be bound to A's row")
 	}
-	if b.Phone != "" {
-		t.Errorf("B must not receive A's phone; got %q", b.Phone)
-	}
-	after := h.userByClerkID(t, "user_A")
-	if after != a {
+	if after := h.userByClerkID(t, "user_A"); after != a {
 		t.Errorf("A's row changed: before %+v after %+v", a, after)
 	}
 	h.assertCounts(t, 2, 2, 2, 2, 2)
 }
 
-// Email is never a matching signal: an existing row with the same email is not
-// adopted, whether or not the phone matches nothing.
 func TestClerkExchange_EmailIsNeverAMatchingSignal(t *testing.T) {
 	h := newClerkExchangeHarness(t)
 	if _, err := h.server.db.Exec("INSERT INTO users (id, email, name) VALUES (?, ?, ?)", "existing-email-user", "same@example.com", "Old"); err != nil {
@@ -590,7 +531,7 @@ func clerkIDOf(t *testing.T, s *Server, userID string) string {
 
 func TestResolveClerkSession(t *testing.T) {
 	t.Run("unknown clerk identity is anonymous", func(t *testing.T) {
-		server := newTestServer(t, &MockTwilioClient{})
+		server := newTestServer(t)
 		sess, err := server.resolveClerkSession(ClerkIdentity{ClerkUserID: "user_nobody"})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -601,7 +542,7 @@ func TestResolveClerkSession(t *testing.T) {
 	})
 
 	t.Run("known identity yields a clerk session", func(t *testing.T) {
-		server := newTestServer(t, &MockTwilioClient{})
+		server := newTestServer(t)
 		if _, err := server.db.Exec(
 			"INSERT INTO users (id, phone, clerk_user_id) VALUES (?, ?, ?)",
 			"local-1", "5551234567", "user_known",
@@ -615,16 +556,16 @@ func TestResolveClerkSession(t *testing.T) {
 		if sess == nil {
 			t.Fatal("want a session")
 		}
-		if sess.UserID != "local-1" || sess.PhoneNumber != "5551234567" || sess.AuthMethod != "clerk" {
+		if sess.UserID != "local-1" || sess.PhoneNumber != "" || sess.AuthMethod != "clerk" {
 			t.Errorf("session: got %+v", sess)
 		}
 	})
 
 	t.Run("it never provisions", func(t *testing.T) {
-		server := newTestServer(t, &MockTwilioClient{})
+		server := newTestServer(t)
 		var before int
 		server.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&before)
-		server.resolveClerkSession(ClerkIdentity{ClerkUserID: "user_nobody", Email: "a@b.com", Phone: "5551234567", PhoneVerified: true})
+		server.resolveClerkSession(ClerkIdentity{ClerkUserID: "user_nobody", Email: "a@b.com"})
 		var after int
 		server.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&after)
 		if before != after {
@@ -633,7 +574,7 @@ func TestResolveClerkSession(t *testing.T) {
 	})
 
 	t.Run("empty clerk id is anonymous", func(t *testing.T) {
-		server := newTestServer(t, &MockTwilioClient{})
+		server := newTestServer(t)
 		sess, err := server.resolveClerkSession(ClerkIdentity{})
 		if err != nil || sess != nil {
 			t.Fatalf("want (nil, nil); got %+v, %v", sess, err)

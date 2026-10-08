@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 )
 
 // dbExecer abstracts *sql.DB and *sql.Tx so functions can run inside
@@ -323,62 +322,6 @@ func resolveBrandAlternatives(db dbExecer, userID string, pennyBrandMode string,
 	return disambiguations
 }
 
-func upsertUser(db *PGDB, phone string) (User, error) {
-	tx, err := db.Begin()
-	if err != nil {
-		return User{}, fmt.Errorf("starting transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	newID := uuid.New().String()
-	_, err = tx.Exec(
-		"INSERT OR IGNORE INTO users (id, phone) VALUES (?, ?)",
-		newID, phone,
-	)
-	if err != nil {
-		return User{}, fmt.Errorf("upserting user: %w", err)
-	}
-
-	var user User
-	var householdID sql.NullInt64
-	var name, email sql.NullString
-	err = tx.QueryRow(
-		"SELECT id, COALESCE(phone,''), COALESCE(name,''), COALESCE(email,''), household_id, created_at FROM users WHERE phone = ?",
-		phone,
-	).Scan(&user.ID, &user.PhoneNumber, &name, &email, &householdID, &user.CreatedAt)
-	if err != nil {
-		return User{}, fmt.Errorf("fetching user: %w", err)
-	}
-	user.Name = name.String
-	user.Email = email.String
-	if householdID.Valid {
-		user.HouseholdID = int(householdID.Int64)
-	}
-
-	// Track login activity and increment login count
-	if _, err := tx.Exec("UPDATE users SET last_active = CURRENT_TIMESTAMP, login_count = login_count + 1 WHERE id = ?", user.ID); err != nil {
-		log.Printf("[warn] failed to update login count for user %s: %v", user.ID, err)
-	}
-
-	// Auto-create household if user doesn't have one
-	if !householdID.Valid {
-		hID, err := createSoloHouseholdTx(tx, user.ID)
-		if err != nil {
-			return User{}, err
-		}
-		user.HouseholdID = hID
-	}
-
-	// Ensure auth_methods row exists for phone login
-	tx.Exec("INSERT OR IGNORE INTO auth_methods (user_id, provider, provider_id) VALUES (?, 'phone', ?)", user.ID, phone)
-
-	if err := tx.Commit(); err != nil {
-		return User{}, fmt.Errorf("committing upsert: %w", err)
-	}
-
-	return user, nil
-}
-
 // createSoloHouseholdTx creates a new household with the given user as owner
 // using the provided transaction or db handle.
 func createSoloHouseholdTx(ex dbExecer, userID string) (int, error) {
@@ -481,38 +424,22 @@ func insertSavedListItems(tx dbExecer, savedListID int64, items []itemData) erro
 func scanListItem(scanner interface{ Scan(dest ...interface{}) error }) (ListItem, error) {
 	var item ListItem
 	var checked, urgent int
-	var addedByName, addedByPhone sql.NullString
+	var addedByName sql.NullString
 	var claimedByID sql.NullString
 	var claimedByName sql.NullString
-	err := scanner.Scan(&item.ID, &item.Name, &item.Brand, &item.Department, &item.Quantity, &item.Size, &item.Notes, &item.Source, &checked, &urgent, &item.CreatedAt, &addedByName, &addedByPhone, &claimedByID, &claimedByName, &item.SwapSavingsCents, &item.Emoji)
+	err := scanner.Scan(&item.ID, &item.Name, &item.Brand, &item.Department, &item.Quantity, &item.Size, &item.Notes, &item.Source, &checked, &urgent, &item.CreatedAt, &addedByName, &claimedByID, &claimedByName, &item.SwapSavingsCents, &item.Emoji)
 	if err != nil {
 		return ListItem{}, err
 	}
 	item.Checked = checked == 1
 	item.Urgent = urgent == 1
 	item.AddedByName = addedByName.String
-	item.AddedByPhone = addedByPhone.String
 	if claimedByID.Valid {
 		id := claimedByID.String
 		item.ClaimedByID = &id
 		item.ClaimedByName = claimedByName.String
 	}
 	return item, nil
-}
-
-// maskPhone masks a phone number: "3101234567" → "310***567"
-func maskPhone(phone string) string {
-	if len(phone) == 10 {
-		return phone[:3] + "***" + phone[7:]
-	}
-	// E.164 format like +15551234567
-	if len(phone) >= 12 && phone[0] == '+' {
-		return phone[:5] + "***" + phone[8:]
-	}
-	if len(phone) <= 4 {
-		return "***"
-	}
-	return phone[:2] + "***" + phone[len(phone)-2:]
 }
 
 // getItemByID fetches a single list item belonging to a household.
@@ -629,9 +556,9 @@ func upsertListItem(db *PGDB, userID string, name, brand, department, size strin
 			detail := fmt.Sprintf("quantity %d → %d", existingQty, newQty)
 			recordModification(tx, existingID, userID, "quantity_changed", detail, source)
 			itemID = existingID
-			// For SMS/email sources, report as "added" (not skipped) since the user
+			// For email sources, report as "added" (not skipped) since the user
 			// can't interactively dedupe via one-way communication.
-			isNew = source == "sms" || source == "email"
+			isNew = source == "email"
 		}
 	} else {
 		// No match — insert new (attributed to the requesting user)

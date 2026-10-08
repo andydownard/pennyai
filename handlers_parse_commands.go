@@ -122,7 +122,7 @@ func (s *Server) handleTextCommand(w http.ResponseWriter, r *http.Request, sessi
 		return
 	}
 
-	// Synchronous path (tests, SMS/email webhooks, clients without SSE)
+	// Synchronous path (tests, email webhook, clients without SSE)
 	resp := s.buildSlowPathResponse(session, text, hhIDs, start)
 	writeJSON(w, http.StatusCreated, resp)
 	go s.broadcastListUpdate(getUserHouseholdID(s.db, session.UserID), session.UserID)

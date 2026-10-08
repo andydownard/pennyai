@@ -16,7 +16,7 @@ import (
 // =============================================================================
 
 func TestAdminDashboard_Unauthorized(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// No session cookie
 	rr := doRequest(server.handleAdminDashboard, "GET", "/api/admin/dashboard", nil, nil)
@@ -26,7 +26,7 @@ func TestAdminDashboard_Unauthorized(t *testing.T) {
 }
 
 func TestAdminDashboard_ForbiddenForNonAdmin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create a non-admin user session
 	user, _ := upsertUser(server.db, "5551234567")
@@ -40,7 +40,7 @@ func TestAdminDashboard_ForbiddenForNonAdmin(t *testing.T) {
 }
 
 func TestAdminDashboard_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create admin user
 	user, _ := upsertUser(server.db, "3104861833")
@@ -77,15 +77,15 @@ func TestAdminDashboard_Success(t *testing.T) {
 	}
 	if len(leaderboard) > 0 {
 		entry := leaderboard[0].(map[string]interface{})
-		// Phone should be masked
-		if entry["phone"] != "310***833" {
-			t.Errorf("Expected masked phone 310***833, got %v", entry["phone"])
+		// The leaderboard carries no phone at all.
+		if _, present := entry["phone"]; present {
+			t.Errorf("leaderboard entry must not carry a phone, got %v", entry["phone"])
 		}
 	}
 }
 
 func TestAdminDashboard_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleAdminDashboard, "POST", "/api/admin/dashboard", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
@@ -94,7 +94,7 @@ func TestAdminDashboard_WrongMethod(t *testing.T) {
 }
 
 func TestAdminDashboard_MultipleNonAdminPhones(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Try several different phone numbers — all should be forbidden
 	phones := []string{"5551234567", "3104861834", "3104861832", "0000000000"}
@@ -111,7 +111,7 @@ func TestAdminDashboard_MultipleNonAdminPhones(t *testing.T) {
 }
 
 func TestAdminDashboard_OnlyExactPhoneAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// The exact admin phone should succeed
 	user, _ := upsertUser(server.db, "3104861833")
@@ -135,7 +135,7 @@ func TestAdminDashboard_OnlyExactPhoneAllowed(t *testing.T) {
 }
 
 func TestAdminDashboard_CustomDaysParam(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	user, _ := upsertUser(server.db, "3104861833")
 	token, _ := server.sessions.CreateSession(user.ID, "3104861833", "phone")
@@ -156,7 +156,7 @@ func TestAdminDashboard_CustomDaysParam(t *testing.T) {
 }
 
 func TestAdminDashboard_InvalidDaysDefaultsTo30(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	user, _ := upsertUser(server.db, "3104861833")
 	token, _ := server.sessions.CreateSession(user.ID, "3104861833", "phone")
@@ -173,7 +173,7 @@ func TestAdminDashboard_InvalidDaysDefaultsTo30(t *testing.T) {
 }
 
 func TestAdminDashboard_ActiveUsersCount(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create admin and some users
 	admin, _ := upsertUser(server.db, "3104861833")
@@ -200,7 +200,7 @@ func TestAdminDashboard_ActiveUsersCount(t *testing.T) {
 }
 
 func TestAdminDashboard_KFactor(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	admin, _ := upsertUser(server.db, "3104861833")
 	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
@@ -225,7 +225,7 @@ func TestAdminDashboard_KFactor(t *testing.T) {
 }
 
 func TestAdminDashboard_EmptyLeaderboard(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	admin, _ := upsertUser(server.db, "3104861833")
 	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
@@ -241,10 +241,9 @@ func TestAdminDashboard_EmptyLeaderboard(t *testing.T) {
 }
 
 func TestAdminDashboard_IncludesSwapStats(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 
-	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '3104861833')")
+	server.db.Exec("INSERT INTO users (id, phone, clerk_user_id) VALUES ('user-1', '3104861833', 'user_test_admin')")
 	token, _ := server.sessions.CreateSession("user-1", "3104861833", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
@@ -268,10 +267,9 @@ func TestAdminDashboard_IncludesSwapStats(t *testing.T) {
 }
 
 func TestAdminDashboard_IncludesRebateStats(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 
-	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '3104861833')")
+	server.db.Exec("INSERT INTO users (id, phone, clerk_user_id) VALUES ('user-1', '3104861833', 'user_test_admin')")
 	token, _ := server.sessions.CreateSession("user-1", "3104861833", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
@@ -312,7 +310,7 @@ func TestAdminDashboard_IncludesRebateStats(t *testing.T) {
 // =============================================================================
 
 func TestAdminBackup_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleAdminBackup, "POST", "/api/admin/backup", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -321,7 +319,7 @@ func TestAdminBackup_Unauthenticated(t *testing.T) {
 }
 
 func TestAdminBackup_ForbiddenForNonAdmin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create a non-admin user session
 	user, _ := upsertUser(server.db, "5551234567")
@@ -335,7 +333,7 @@ func TestAdminBackup_ForbiddenForNonAdmin(t *testing.T) {
 }
 
 func TestAdminBackup_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleAdminBackup, "GET", "/api/admin/backup", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
@@ -345,7 +343,7 @@ func TestAdminBackup_MethodNotAllowed(t *testing.T) {
 
 func TestAdminBackup_AdminCanTrigger(t *testing.T) {
 	t.Skip("Backup endpoint stubbed for PostgreSQL — VACUUM INTO not applicable")
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create admin user (phone matches AdminPhone "3104861833")
 	user, _ := upsertUser(server.db, "3104861833")
@@ -388,14 +386,12 @@ func TestAdminBackup_WithFileDB(t *testing.T) {
 	_, pgdb := openTestDB(t)
 
 	server := &Server{
-		config:   Config{Port: "8080", AnthropicAPIKey: "test-key", TwilioPhoneNumber: "+10000000000", AdminPhone: "3104861833", DatabaseURL: "test"},
+		config:   Config{Port: "8080", AnthropicAPIKey: "test-key", DatabaseURL: "test"},
 		db:       pgdb,
 		sessions: NewSessionStore(pgdb),
-		twilio:   &MockTwilioClient{},
 		parseItems: func(apiKey, text string, images []string) ([]ParsedItem, error) {
 			return nil, nil
 		},
-		smsBuffer: newMessageBuffer(50 * time.Millisecond),
 	}
 	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
 		parsed, err := server.parseItems(apiKey, text, nil)
@@ -438,7 +434,7 @@ func TestAdminBackup_WithFileDB(t *testing.T) {
 // =============================================================================
 
 func TestProcessDailyMetrics(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create users
 	user1, _ := upsertUser(server.db, "5551111111")
@@ -552,7 +548,7 @@ func TestProcessDailyMetrics(t *testing.T) {
 }
 
 func TestBusinessMetrics_AdminOnly(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Unauthenticated: should get 401
 	rr := doRequest(server.handleBusinessMetrics, "GET", "/api/admin/business-metrics", nil, nil)
@@ -576,7 +572,7 @@ func TestBusinessMetrics_AdminOnly(t *testing.T) {
 }
 
 func TestBusinessMetrics_WithData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create admin session
 	adminCookie, _ := loginUser(t, server, "3104861833")
@@ -631,7 +627,7 @@ func TestBusinessMetrics_WithData(t *testing.T) {
 // =============================================================================
 
 func TestProcessChurnSignals(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create user with old session (inactive)
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-100', '+15551234567')")
@@ -652,7 +648,7 @@ func TestProcessChurnSignals(t *testing.T) {
 }
 
 func TestProcessUserCohorts(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	server.db.Exec("INSERT INTO users (id, phone, created_at) VALUES ('user-100', '+15551234567', '2026-03-01 10:00:00')")
 
@@ -669,7 +665,7 @@ func TestProcessUserCohorts(t *testing.T) {
 }
 
 func TestChurnRisk_AdminOnly(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleChurnRisk, "GET", "/api/admin/churn-risk", nil, []*http.Cookie{cookie})
@@ -679,7 +675,7 @@ func TestChurnRisk_AdminOnly(t *testing.T) {
 }
 
 func TestCohortAnalysis_AdminOnly(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleCohortAnalysis, "GET", "/api/admin/cohort-analysis", nil, []*http.Cookie{cookie})
@@ -693,7 +689,7 @@ func TestCohortAnalysis_AdminOnly(t *testing.T) {
 // =============================================================================
 
 func TestProcessMarketplaceHealth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Seed some deals and sessions to produce non-zero scores
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-100', '+15551234567')")
@@ -726,7 +722,7 @@ func TestProcessMarketplaceHealth(t *testing.T) {
 }
 
 func TestMarketplaceHealth_AdminOnly(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleMarketplaceHealth, "GET", "/api/admin/marketplace-health", nil, []*http.Cookie{cookie})
@@ -736,7 +732,7 @@ func TestMarketplaceHealth_AdminOnly(t *testing.T) {
 }
 
 func TestMarketplaceHealth_AdminSuccess(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Seed data
@@ -762,7 +758,7 @@ func TestMarketplaceHealth_AdminSuccess(t *testing.T) {
 // =============================================================================
 
 func TestSegmentAnalysis_AdminOnly(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Unauthenticated: should get 401
 	rr := doRequest(server.handleSegmentAnalysis, "GET", "/api/admin/segment-analysis", nil, nil)
@@ -800,7 +796,7 @@ func TestSegmentAnalysis_AdminOnly(t *testing.T) {
 }
 
 func TestProcessSegmentAnalysis(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create users with different price sensitivities
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-100', '+15551000001')")
@@ -876,7 +872,7 @@ func TestProcessSegmentAnalysis(t *testing.T) {
 // =============================================================================
 
 func TestCategoryInsights_AdminOnly(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Unauthenticated: should get 401
 	rr := doRequest(server.handleCategoryInsights, "GET", "/api/admin/category-insights", nil, nil)
@@ -948,7 +944,7 @@ func TestCategoryInsights_AdminOnly(t *testing.T) {
 // =============================================================================
 
 func TestCategories_ListAll(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Categories are seeded by initDB — test that the endpoint returns them grouped
 	rr := doRequest(server.handleCategories, "GET", "/api/categories", nil, nil)
@@ -996,7 +992,7 @@ func TestCategories_ListAll(t *testing.T) {
 }
 
 func TestCategories_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleCategories, "POST", "/api/categories", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
@@ -1005,7 +1001,7 @@ func TestCategories_MethodNotAllowed(t *testing.T) {
 }
 
 func TestCategorizeProduct(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	tests := []struct {
 		name        string
@@ -1036,7 +1032,7 @@ func TestCategorizeProduct(t *testing.T) {
 }
 
 func TestCategorySeed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Verify categories were seeded
 	var count int
@@ -1072,7 +1068,7 @@ func TestCategorySeed(t *testing.T) {
 }
 
 func TestCategories_NoAuthRequired(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Should work without any session cookie
 	rr := doRequest(server.handleCategories, "GET", "/api/categories", nil, nil)
@@ -1100,7 +1096,7 @@ func TestStores_TableExists(t *testing.T) {
 }
 
 func TestUpsertStore_CreateAndFind(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	id1, err := server.upsertStore("Kroger #123", "Kroger", "100 Main St", "Austin", "TX", "78701", "", nil, nil)
 	if err != nil {
@@ -1128,7 +1124,7 @@ func TestUpsertStore_CreateAndFind(t *testing.T) {
 }
 
 func TestUpsertStore_WithCoordinates(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	lat, lng := 30.2672, -97.7431
 	id, err := server.upsertStore("HEB #5", "HEB", "300 Elm St", "Austin", "TX", "78703", "ChIJ123", &lat, &lng)
@@ -1144,7 +1140,7 @@ func TestUpsertStore_WithCoordinates(t *testing.T) {
 }
 
 func TestRecordStorePrice(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	id, _ := server.upsertStore("TestStore", "TestChain", "1 Test St", "City", "ST", "00000", "", nil, nil)
 	server.recordStorePrice(id, "Whole Milk 1gal", "DairyPure", 399, 1, "receipt")
@@ -1157,7 +1153,7 @@ func TestRecordStorePrice(t *testing.T) {
 }
 
 func TestRecordStorePrice_SkipsInvalid(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	server.recordStorePrice(0, "Product", "Brand", 100, 0, "receipt")
 	var count int
@@ -1175,7 +1171,7 @@ func TestRecordStorePrice_SkipsInvalid(t *testing.T) {
 }
 
 func TestHandleStores_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleStores, "GET", "/api/stores", nil, nil)
 	if rr.Code == http.StatusOK {
@@ -1184,7 +1180,7 @@ func TestHandleStores_RequiresAuth(t *testing.T) {
 }
 
 func TestHandleStores_ReturnsStores(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	server.upsertStore("Kroger #1", "Kroger", "100 Main St", "Austin", "TX", "78701", "", nil, nil)
@@ -1203,7 +1199,7 @@ func TestHandleStores_ReturnsStores(t *testing.T) {
 }
 
 func TestHandleStores_Search(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	server.upsertStore("Kroger #1", "Kroger", "100 Main St", "Austin", "TX", "78701", "", nil, nil)
@@ -1227,7 +1223,7 @@ func TestHandleStores_Search(t *testing.T) {
 }
 
 func TestHandleStorePrices_ReturnsHistory(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	id, _ := server.upsertStore("TestStore", "Chain", "Addr", "City", "ST", "00000", "", nil, nil)
@@ -1246,7 +1242,7 @@ func TestHandleStorePrices_ReturnsHistory(t *testing.T) {
 }
 
 func TestAdminStoreStats_AdminOnly(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	cookie, _ := loginUser(t, server, "5559999999")
 	rr := doRequest(server.handleAdminStoreStats, "GET", "/api/admin/store-stats", nil, []*http.Cookie{cookie})
@@ -1274,7 +1270,7 @@ func TestCategoryAlerts_TableExists(t *testing.T) {
 }
 
 func TestProcessCategoryAlerts_NoData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	// Should not panic with no swap events
 	server.processCategoryAlerts()
 
@@ -1286,7 +1282,7 @@ func TestProcessCategoryAlerts_NoData(t *testing.T) {
 }
 
 func TestCategoryAlerts_AdminEndpoint(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Non-admin gets 403
 	cookie, _ := loginUser(t, server, "5559999999")
@@ -1304,7 +1300,7 @@ func TestCategoryAlerts_AdminEndpoint(t *testing.T) {
 }
 
 func TestCategoryAlerts_BrandEndpoint(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "alerts@brand.com", "password1234", "AlertsCo")
 
 	rr := doRequest(server.handleCategoryAlerts, "GET", "/brand/category-alerts", nil, []*http.Cookie{cookie})
@@ -1314,7 +1310,7 @@ func TestCategoryAlerts_BrandEndpoint(t *testing.T) {
 }
 
 func TestProcessCategoryAlerts_DetectsRisingStar(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, uid := loginUser(t, server, "5551234567")
 
 	// Create a deal
@@ -1367,7 +1363,7 @@ func TestProcessCategoryAlerts_DetectsRisingStar(t *testing.T) {
 // =============================================================================
 
 func TestGetUserActiveStoreID_NoTrips(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
 
 	storeID := server.getUserActiveStoreID("user-1")
@@ -1377,7 +1373,7 @@ func TestGetUserActiveStoreID_NoTrips(t *testing.T) {
 }
 
 func TestStoreSubroute_InvalidPath(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
@@ -1395,8 +1391,8 @@ func TestStoreSubroute_InvalidPath(t *testing.T) {
 // =============================================================================
 
 func TestFeedback_SubmitSuccess(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, _ := loginUser(t, server, "5551234567")
+	server := newTestServer(t)
+	cookie, _ := loginUser(t, server, testAdminPhone)
 
 	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
 		map[string]string{"body": "Please add dark mode", "type": "feature", "urgency": "normal"}, []*http.Cookie{cookie})
@@ -1414,8 +1410,8 @@ func TestFeedback_SubmitSuccess(t *testing.T) {
 }
 
 func TestFeedback_SubmitEmptyBody(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, _ := loginUser(t, server, "5551234567")
+	server := newTestServer(t)
+	cookie, _ := loginUser(t, server, testAdminPhone)
 
 	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
 		map[string]string{"body": "", "type": "bug"}, []*http.Cookie{cookie})
@@ -1425,8 +1421,8 @@ func TestFeedback_SubmitEmptyBody(t *testing.T) {
 }
 
 func TestFeedback_SubmitWhitespaceBody(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, _ := loginUser(t, server, "5551234567")
+	server := newTestServer(t)
+	cookie, _ := loginUser(t, server, testAdminPhone)
 
 	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
 		map[string]string{"body": "   \n\t  ", "type": "bug"}, []*http.Cookie{cookie})
@@ -1436,8 +1432,8 @@ func TestFeedback_SubmitWhitespaceBody(t *testing.T) {
 }
 
 func TestFeedback_SubmitTooLong(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, _ := loginUser(t, server, "5551234567")
+	server := newTestServer(t)
+	cookie, _ := loginUser(t, server, testAdminPhone)
 
 	longBody := strings.Repeat("a", 10001)
 	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
@@ -1448,7 +1444,7 @@ func TestFeedback_SubmitTooLong(t *testing.T) {
 }
 
 func TestFeedback_SubmitNoAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
 		map[string]string{"body": "test"}, nil)
@@ -1457,9 +1453,9 @@ func TestFeedback_SubmitNoAuth(t *testing.T) {
 	}
 }
 
-func TestFeedback_SubmitForbiddenForNonApprovedPhone(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, _ := loginUser(t, server, "5559999999") // not in FeedbackPhones
+func TestFeedback_SubmitForbiddenForNonAdmin(t *testing.T) {
+	server := newTestServer(t)
+	cookie, _ := loginUser(t, server, "5559999999") // not an admin
 
 	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
 		map[string]string{"body": "test", "type": "bug"}, []*http.Cookie{cookie})
@@ -1469,8 +1465,8 @@ func TestFeedback_SubmitForbiddenForNonApprovedPhone(t *testing.T) {
 }
 
 func TestFeedback_DefaultTypeAndUrgency(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, userID := loginUser(t, server, "5551234567")
+	server := newTestServer(t)
+	cookie, userID := loginUser(t, server, testAdminPhone)
 
 	// Submit with no type or urgency
 	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
@@ -1490,8 +1486,8 @@ func TestFeedback_DefaultTypeAndUrgency(t *testing.T) {
 }
 
 func TestFeedback_InvalidTypeDefaultsToFeature(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, userID := loginUser(t, server, "5551234567")
+	server := newTestServer(t)
+	cookie, userID := loginUser(t, server, testAdminPhone)
 
 	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
 		map[string]string{"body": "test", "type": "invalid_type"}, []*http.Cookie{cookie})
@@ -1507,8 +1503,8 @@ func TestFeedback_InvalidTypeDefaultsToFeature(t *testing.T) {
 }
 
 func TestFeedback_RateLimit(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, userID := loginUser(t, server, "5551234567")
+	server := newTestServer(t)
+	cookie, userID := loginUser(t, server, testAdminPhone)
 
 	// Pre-insert 10 feedback requests in the last hour
 	for i := 0; i < 10; i++ {
@@ -1524,8 +1520,8 @@ func TestFeedback_RateLimit(t *testing.T) {
 }
 
 func TestFeedback_ListOwnSubmissions(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, userID := loginUser(t, server, "5551234567")
+	server := newTestServer(t)
+	cookie, userID := loginUser(t, server, testAdminPhone)
 
 	// Create some feedback
 	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'fix login', 'bug', 'high')", userID)
@@ -1552,7 +1548,7 @@ func TestFeedback_ListOwnSubmissions(t *testing.T) {
 }
 
 func TestFeedback_ListNoAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleFeedbackRoutes, "GET", "/api/feedback", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -1561,7 +1557,7 @@ func TestFeedback_ListNoAuth(t *testing.T) {
 }
 
 func TestFeedback_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleFeedbackRoutes, "DELETE", "/api/feedback", nil, []*http.Cookie{cookie})
@@ -1571,7 +1567,7 @@ func TestFeedback_MethodNotAllowed(t *testing.T) {
 }
 
 func TestAdminFeedback_Unauthorized(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleAdminFeedback, "GET", "/api/admin/feedback", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -1580,7 +1576,7 @@ func TestAdminFeedback_Unauthorized(t *testing.T) {
 }
 
 func TestAdminFeedback_ForbiddenForNonAdmin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleAdminFeedback, "GET", "/api/admin/feedback", nil, []*http.Cookie{cookie})
@@ -1590,7 +1586,7 @@ func TestAdminFeedback_ForbiddenForNonAdmin(t *testing.T) {
 }
 
 func TestAdminFeedback_ListAll(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create admin user (uses AdminPhone from config: 3104861833)
 	adminUser, _ := upsertUser(server.db, "3104861833")
@@ -1615,7 +1611,7 @@ func TestAdminFeedback_ListAll(t *testing.T) {
 }
 
 func TestAdminFeedback_FilterByStatus(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	adminUser, _ := upsertUser(server.db, "3104861833")
 	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
@@ -1641,7 +1637,7 @@ func TestAdminFeedback_FilterByStatus(t *testing.T) {
 }
 
 func TestAdminFeedback_FilterByType(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	adminUser, _ := upsertUser(server.db, "3104861833")
 	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
@@ -1664,7 +1660,7 @@ func TestAdminFeedback_FilterByType(t *testing.T) {
 }
 
 func TestAdminFeedbackTriage_UpdateStatus(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	adminUser, _ := upsertUser(server.db, "3104861833")
 	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
@@ -1692,7 +1688,7 @@ func TestAdminFeedbackTriage_UpdateStatus(t *testing.T) {
 }
 
 func TestAdminFeedbackTriage_InvalidStatus(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	adminUser, _ := upsertUser(server.db, "3104861833")
 	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
@@ -1710,7 +1706,7 @@ func TestAdminFeedbackTriage_InvalidStatus(t *testing.T) {
 }
 
 func TestAdminFeedbackTriage_NotFound(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	adminUser, _ := upsertUser(server.db, "3104861833")
 	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
@@ -1725,7 +1721,7 @@ func TestAdminFeedbackTriage_NotFound(t *testing.T) {
 }
 
 func TestAdminFeedbackTriage_NoFields(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	adminUser, _ := upsertUser(server.db, "3104861833")
 	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
@@ -1742,7 +1738,7 @@ func TestAdminFeedbackTriage_NoFields(t *testing.T) {
 }
 
 func TestAdminFeedbackTriage_Unauthorized(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	status := "reviewed"
 	rr := doRequest(server.handleAdminFeedbackByID, "PUT", "/api/admin/feedback/1",
@@ -1772,8 +1768,8 @@ func TestTruncateRunes(t *testing.T) {
 }
 
 func TestFeedback_SpecialCharacters(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, _ := loginUser(t, server, "5551234567")
+	server := newTestServer(t)
+	cookie, _ := loginUser(t, server, testAdminPhone)
 
 	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
 		map[string]string{"body": "I love <script>alert('xss')</script> & 'quotes' \"double\" `backtick`", "type": "bug"},
@@ -1784,8 +1780,8 @@ func TestFeedback_SpecialCharacters(t *testing.T) {
 }
 
 func TestFeedback_SQLInjection(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, _ := loginUser(t, server, "5551234567")
+	server := newTestServer(t)
+	cookie, _ := loginUser(t, server, testAdminPhone)
 
 	rr := doRequest(server.handleFeedbackRoutes, "POST", "/api/feedback",
 		map[string]string{"body": "'; DROP TABLE feedback_requests; --", "type": "bug"},
@@ -1805,30 +1801,28 @@ func TestFeedback_SQLInjection(t *testing.T) {
 	}
 }
 
-func TestIsFeedbackUser(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+func TestCanSubmitFeedback_AdminOnly(t *testing.T) {
+	server := newTestServer(t)
 
-	// Approved phone number
-	if !server.isFeedbackUser(Session{UserID: "user-1", PhoneNumber: "5551234567"}) {
-		t.Error("expected true for approved phone number")
+	adminCookie := loginAdmin(t, server)
+	rr := doRequest(server.handleMe, "GET", "/auth/me", nil, []*http.Cookie{adminCookie})
+	var resp map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	if resp["can_submit_feedback"] != true {
+		t.Errorf("admin: can_submit_feedback = %v, want true", resp["can_submit_feedback"])
 	}
-	// Non-approved phone number
-	if server.isFeedbackUser(Session{UserID: "user-1", PhoneNumber: "5559999999"}) {
-		t.Error("expected false for non-approved phone number")
+
+	// A user with the old feedback-allowlist phone is not an admin: no widget.
+	cookie, _ := loginUser(t, server, "5551234567")
+	rr = doRequest(server.handleMe, "GET", "/auth/me", nil, []*http.Cookie{cookie})
+	resp = map[string]interface{}{}
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	if resp["can_submit_feedback"] != false {
+		t.Errorf("non-admin: can_submit_feedback = %v, want false", resp["can_submit_feedback"])
 	}
-	// No phone number
-	if server.isFeedbackUser(Session{UserID: "user-1"}) {
-		t.Error("expected false for user with no phone number")
-	}
-	// No user
-	if server.isFeedbackUser(Session{UserID: ""}) {
-		t.Error("expected false for user with empty ID")
-	}
-	// No feedback phones configured
-	server2 := newTestServer(t, &MockTwilioClient{})
-	server2.config.FeedbackPhones = nil
-	if server2.isFeedbackUser(Session{UserID: "user-1", PhoneNumber: "5551234567"}) {
-		t.Error("expected false when no feedback phones configured")
+
+	if server.isAdmin(Session{UserID: ""}) {
+		t.Error("empty session must not be admin")
 	}
 }
 
@@ -1839,7 +1833,7 @@ func TestIsFeedbackUser(t *testing.T) {
 // =============================================================================
 
 func TestAdminAnalytics_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleAdminAnalytics, "GET", "/api/admin/analytics", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -1848,7 +1842,7 @@ func TestAdminAnalytics_RequiresAuth(t *testing.T) {
 }
 
 func TestAdminAnalytics_ForbiddenForNonAdmin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "+15559990001")
 
 	rr := doRequest(server.handleAdminAnalytics, "GET", "/api/admin/analytics", nil, []*http.Cookie{cookie})
@@ -1858,7 +1852,7 @@ func TestAdminAnalytics_ForbiddenForNonAdmin(t *testing.T) {
 }
 
 func TestAdminAnalytics_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Admin user
 	user, _ := upsertUser(server.db, "3104861833")
@@ -1889,7 +1883,7 @@ func TestAdminAnalytics_Success(t *testing.T) {
 }
 
 func TestAdminAnalytics_CustomDays(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	user, _ := upsertUser(server.db, "3104861833")
 	token, _ := server.sessions.CreateSession(user.ID, "3104861833", "phone")
@@ -1902,7 +1896,7 @@ func TestAdminAnalytics_CustomDays(t *testing.T) {
 }
 
 func TestAdminAnalytics_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleAdminAnalytics, "POST", "/api/admin/analytics", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
@@ -1915,7 +1909,7 @@ func TestAdminAnalytics_MethodNotAllowed(t *testing.T) {
 // =============================================================================
 
 func TestAdminPayouts_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleAdminPayouts, "GET", "/api/admin/payouts", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -1924,7 +1918,7 @@ func TestAdminPayouts_RequiresAuth(t *testing.T) {
 }
 
 func TestAdminPayouts_ForbiddenForNonAdmin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "+15559990002")
 
 	rr := doRequest(server.handleAdminPayouts, "GET", "/api/admin/payouts", nil, []*http.Cookie{cookie})
@@ -1934,7 +1928,7 @@ func TestAdminPayouts_ForbiddenForNonAdmin(t *testing.T) {
 }
 
 func TestAdminPayouts_GetEmpty(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	user, _ := upsertUser(server.db, "3104861833")
 	token, _ := server.sessions.CreateSession(user.ID, "3104861833", "phone")
@@ -1953,7 +1947,7 @@ func TestAdminPayouts_GetEmpty(t *testing.T) {
 }
 
 func TestAdminPayouts_GetWithPendingRebates(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	adminUser, _ := upsertUser(server.db, "3104861833")
 	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
@@ -1990,7 +1984,7 @@ func TestAdminPayouts_GetWithPendingRebates(t *testing.T) {
 }
 
 func TestAdminPayouts_PostMarksIssued(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	adminUser, _ := upsertUser(server.db, "3104861833")
 	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
@@ -2026,7 +2020,7 @@ func TestAdminPayouts_PostMarksIssued(t *testing.T) {
 }
 
 func TestAdminPayouts_PostMissingUserID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	adminUser, _ := upsertUser(server.db, "3104861833")
 	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
@@ -2046,7 +2040,7 @@ func TestAdminPayouts_PostMissingUserID(t *testing.T) {
 // =============================================================================
 
 func TestABGetVariant_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(handleGetVariant(server), "GET", "/api/ab/variant?test=onboarding_v2", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401 without session, got %d", rr.Code)
@@ -2054,7 +2048,7 @@ func TestABGetVariant_RequiresAuth(t *testing.T) {
 }
 
 func TestABGetVariant_MissingTestParam(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	user, _ := upsertUser(server.db, "5551234567")
 	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -2066,7 +2060,7 @@ func TestABGetVariant_MissingTestParam(t *testing.T) {
 }
 
 func TestABGetVariant_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create a test first
 	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct)
@@ -2088,7 +2082,7 @@ func TestABGetVariant_Success(t *testing.T) {
 }
 
 func TestABGetVariant_Deterministic(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct)
 		VALUES ('det_test', 'desc', '["control","variant"]', 'conversion', 100, 7, 100)`)
 
@@ -2108,7 +2102,7 @@ func TestABGetVariant_Deterministic(t *testing.T) {
 }
 
 func TestABTrackEvent_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(handleTrackABEvent(server), "POST", "/api/ab/event",
 		map[string]interface{}{"test": "t", "event": "e"}, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -2117,7 +2111,7 @@ func TestABTrackEvent_RequiresAuth(t *testing.T) {
 }
 
 func TestABTrackEvent_MissingFields(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	user, _ := upsertUser(server.db, "5551234567")
 	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -2130,7 +2124,7 @@ func TestABTrackEvent_MissingFields(t *testing.T) {
 }
 
 func TestABTrackEvent_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	user, _ := upsertUser(server.db, "5551234567")
 	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -2143,7 +2137,7 @@ func TestABTrackEvent_Success(t *testing.T) {
 }
 
 func TestABTrackEvent_DefaultValue(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	user, _ := upsertUser(server.db, "5551234567")
 	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -2157,7 +2151,7 @@ func TestABTrackEvent_DefaultValue(t *testing.T) {
 }
 
 func TestABCreateTest_RequiresAdmin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// No auth
 	rr := doRequest(handleCreateABTest(server), "POST", "/api/admin/ab-tests",
@@ -2179,7 +2173,7 @@ func TestABCreateTest_RequiresAdmin(t *testing.T) {
 }
 
 func TestABCreateTest_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	admin, _ := upsertUser(server.db, "3104861833")
 	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -2200,7 +2194,7 @@ func TestABCreateTest_Success(t *testing.T) {
 }
 
 func TestABCreateTest_MissingFields(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	admin, _ := upsertUser(server.db, "3104861833")
 	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -2213,7 +2207,7 @@ func TestABCreateTest_MissingFields(t *testing.T) {
 }
 
 func TestABCreateTest_DefaultVariants(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	admin, _ := upsertUser(server.db, "3104861833")
 	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -2227,7 +2221,7 @@ func TestABCreateTest_DefaultVariants(t *testing.T) {
 }
 
 func TestABListTests_RequiresAdmin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// No auth
 	rr := doRequest(handleListABTests(server), "GET", "/api/admin/ab-tests", nil, nil)
@@ -2247,7 +2241,7 @@ func TestABListTests_RequiresAdmin(t *testing.T) {
 }
 
 func TestABListTests_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	admin, _ := upsertUser(server.db, "3104861833")
 	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -2263,7 +2257,7 @@ func TestABListTests_Success(t *testing.T) {
 }
 
 func TestABResolveTest_RequiresAdmin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(handleResolveABTest(server), "POST", "/api/admin/ab-tests/test/resolve",
 		map[string]interface{}{"winner": "control"}, nil)
@@ -2273,7 +2267,7 @@ func TestABResolveTest_RequiresAdmin(t *testing.T) {
 }
 
 func TestABResolveTest_MissingWinner(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	admin, _ := upsertUser(server.db, "3104861833")
 	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -2286,7 +2280,7 @@ func TestABResolveTest_MissingWinner(t *testing.T) {
 }
 
 func TestABResults_RequiresAdmin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(handleABTestResults(server), "GET", "/api/admin/ab-tests/test/results", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -2299,7 +2293,7 @@ func TestABResults_RequiresAdmin(t *testing.T) {
 // =============================================================================
 
 func TestChurnRisk_RequiresAdmin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleChurnRisk, "GET", "/api/admin/churn-risk", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -2308,7 +2302,7 @@ func TestChurnRisk_RequiresAdmin(t *testing.T) {
 }
 
 func TestChurnRisk_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	rr := doRequest(server.handleChurnRisk, "POST", "/api/admin/churn-risk", nil, []*http.Cookie{cookie})
@@ -2318,7 +2312,7 @@ func TestChurnRisk_MethodNotAllowed(t *testing.T) {
 }
 
 func TestChurnRisk_EmptyResults(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	rr := doRequest(server.handleChurnRisk, "GET", "/api/admin/churn-risk", nil, []*http.Cookie{cookie})
@@ -2338,7 +2332,7 @@ func TestChurnRisk_EmptyResults(t *testing.T) {
 }
 
 func TestChurnRisk_WithSignals(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Create a test user with churn signals
@@ -2373,7 +2367,7 @@ func TestChurnRisk_WithSignals(t *testing.T) {
 }
 
 func TestChurnRisk_LowRiskFilteredOut(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	_, userID := loginUser(t, server, "5551112222")
@@ -2398,7 +2392,7 @@ func TestChurnRisk_LowRiskFilteredOut(t *testing.T) {
 // =============================================================================
 
 func TestCohortAnalysis_RequiresAdmin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleCohortAnalysis, "GET", "/api/admin/cohort-analysis", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -2407,7 +2401,7 @@ func TestCohortAnalysis_RequiresAdmin(t *testing.T) {
 }
 
 func TestCohortAnalysis_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	rr := doRequest(server.handleCohortAnalysis, "POST", "/api/admin/cohort-analysis", nil, []*http.Cookie{cookie})
@@ -2417,7 +2411,7 @@ func TestCohortAnalysis_MethodNotAllowed(t *testing.T) {
 }
 
 func TestCohortAnalysis_EmptyResults(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	rr := doRequest(server.handleCohortAnalysis, "GET", "/api/admin/cohort-analysis", nil, []*http.Cookie{cookie})
@@ -2434,7 +2428,7 @@ func TestCohortAnalysis_EmptyResults(t *testing.T) {
 }
 
 func TestCohortAnalysis_WithData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Create real users for the cohort data
@@ -2476,7 +2470,7 @@ func TestCohortAnalysis_WithData(t *testing.T) {
 // =============================================================================
 
 func TestMarketplaceHealth_RequiresAdmin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleMarketplaceHealth, "GET", "/api/admin/marketplace-health", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -2485,7 +2479,7 @@ func TestMarketplaceHealth_RequiresAdmin(t *testing.T) {
 }
 
 func TestMarketplaceHealth_EmptyResults(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	rr := doRequest(server.handleMarketplaceHealth, "GET", "/api/admin/marketplace-health", nil, []*http.Cookie{cookie})
@@ -2502,7 +2496,7 @@ func TestMarketplaceHealth_EmptyResults(t *testing.T) {
 }
 
 func TestMarketplaceHealth_WithData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Use relative dates so the test does not become a time bomb. The handler
@@ -2533,7 +2527,7 @@ func TestMarketplaceHealth_WithData(t *testing.T) {
 // =============================================================================
 
 func TestAnalyzeABTest_NotFound(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, err := analyzeABTest(server.db, "nonexistent_test")
 	if err == nil {
 		t.Error("Expected error for nonexistent test")
@@ -2541,7 +2535,7 @@ func TestAnalyzeABTest_NotFound(t *testing.T) {
 }
 
 func TestAnalyzeABTest_InsufficientData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create a test with high minimum sample
 	server.db.Exec(
@@ -2569,7 +2563,7 @@ func TestAnalyzeABTest_InsufficientData(t *testing.T) {
 }
 
 func TestAnalyzeABTest_SignificantLift(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create a test with low threshold so we can hit sufficient data
 	server.db.Exec(
@@ -2617,7 +2611,7 @@ func TestAnalyzeABTest_ControlWins(t *testing.T) {
 	// the lift is negative AND > 10% — which can happen with 3+ variants
 	// where the best non-control variant still has negative lift vs control.
 	// For now, test the "no significant difference" path when control == best.
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	server.db.Exec(
 		`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status, created_at)
@@ -2658,7 +2652,7 @@ func TestAnalyzeABTest_ControlWins(t *testing.T) {
 }
 
 func TestAnalyzeABTest_NoSignificantDifference(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	server.db.Exec(
 		`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status, created_at)
@@ -2693,7 +2687,7 @@ func TestAnalyzeABTest_NoSignificantDifference(t *testing.T) {
 }
 
 func TestAnalyzeABTest_ControlZeroEvents(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	server.db.Exec(
 		`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status, created_at)
@@ -2730,7 +2724,7 @@ func TestAnalyzeABTest_ControlZeroEvents(t *testing.T) {
 }
 
 func TestAnalyzeABTest_MeasurementPeriodNotReached(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Test started just now, needs 14 days
 	server.db.Exec(
@@ -2766,7 +2760,7 @@ func TestAnalyzeABTest_MeasurementPeriodNotReached(t *testing.T) {
 }
 
 func TestABResults_WithData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833") // admin phone
 
 	// Create a test
@@ -2812,7 +2806,7 @@ func TestABResults_WithData(t *testing.T) {
 // =============================================================================
 
 func TestProcessChurnSignals_DaysInactive(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5554450001")
 
 	// Verify session exists and check what created_at looks like
@@ -2845,7 +2839,7 @@ func TestProcessChurnSignals_DaysInactive(t *testing.T) {
 }
 
 func TestProcessChurnSignals_ListAbandonment(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5554450002")
 
 	// Add a list item so list_abandonment signal is computed
@@ -2867,7 +2861,7 @@ func TestProcessChurnSignals_ListAbandonment(t *testing.T) {
 }
 
 func TestProcessChurnSignals_DeclineStreak(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5554450003")
 
 	// Create swap events: 3 consecutive declines
@@ -2898,7 +2892,7 @@ func TestProcessChurnSignals_DeclineStreak(t *testing.T) {
 }
 
 func TestProcessChurnSignals_DeclineStreakBrokenByAccept(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5554450004")
 
 	// Create: decline, decline, accept, decline (streak should be 1 — only the most recent decline before accept)
@@ -2923,7 +2917,7 @@ func TestProcessChurnSignals_DeclineStreakBrokenByAccept(t *testing.T) {
 }
 
 func TestProcessChurnSignals_UpsertUpdatesExisting(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5554450005")
 
 	// Run twice — second run should update, not duplicate
@@ -2946,7 +2940,7 @@ func TestProcessChurnSignals_UpsertUpdatesExisting(t *testing.T) {
 // =============================================================================
 
 func TestSegmentAnalysis_RequiresAdmin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5554480001") // non-admin
 
 	rr := doRequest(server.handleSegmentAnalysis, "GET", "/api/admin/segment-analysis", nil, []*http.Cookie{cookie})
@@ -2956,7 +2950,7 @@ func TestSegmentAnalysis_RequiresAdmin(t *testing.T) {
 }
 
 func TestSegmentAnalysis_RequiresGET(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833") // admin
 
 	rr := doRequest(server.handleSegmentAnalysis, "POST", "/api/admin/segment-analysis", nil, []*http.Cookie{cookie})
@@ -2966,7 +2960,7 @@ func TestSegmentAnalysis_RequiresGET(t *testing.T) {
 }
 
 func TestSegmentAnalysis_EmptyResults(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833") // admin
 
 	rr := doRequest(server.handleSegmentAnalysis, "GET", "/api/admin/segment-analysis", nil, []*http.Cookie{cookie})
@@ -2986,7 +2980,7 @@ func TestSegmentAnalysis_EmptyResults(t *testing.T) {
 }
 
 func TestSegmentAnalysis_WithData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833") // admin
 
 	// Insert segment data
@@ -3026,7 +3020,7 @@ func TestSegmentAnalysis_WithData(t *testing.T) {
 // =============================================================================
 
 func TestBusinessMetrics_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 	rr := doRequest(server.handleBusinessMetrics, "POST", "/api/admin/business-metrics", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusMethodNotAllowed {
@@ -3035,7 +3029,7 @@ func TestBusinessMetrics_WrongMethod(t *testing.T) {
 }
 
 func TestBusinessMetrics_NoAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleBusinessMetrics, "GET", "/api/admin/business-metrics", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401 for no auth, got %d", rr.Code)
@@ -3043,7 +3037,7 @@ func TestBusinessMetrics_NoAuth(t *testing.T) {
 }
 
 func TestBusinessMetrics_NonAdmin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551114444")
 	rr := doRequest(server.handleBusinessMetrics, "GET", "/api/admin/business-metrics", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusForbidden {
@@ -3052,7 +3046,7 @@ func TestBusinessMetrics_NonAdmin(t *testing.T) {
 }
 
 func TestBusinessMetrics_DefaultDays(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 	rr := doRequest(server.handleBusinessMetrics, "GET", "/api/admin/business-metrics", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusOK {
@@ -3073,7 +3067,7 @@ func TestBusinessMetrics_DefaultDays(t *testing.T) {
 }
 
 func TestBusinessMetrics_CustomDays(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	req := httptest.NewRequest("GET", "/api/admin/business-metrics?days=7", nil)
@@ -3090,7 +3084,7 @@ func TestBusinessMetrics_CustomDays(t *testing.T) {
 }
 
 func TestBusinessMetrics_InvalidDays(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Non-numeric days should fall back to default 30
@@ -3108,7 +3102,7 @@ func TestBusinessMetrics_InvalidDays(t *testing.T) {
 }
 
 func TestBusinessMetrics_DaysOutOfRange(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// days=0 is out of range (<=0), should fall back to default 30
@@ -3136,7 +3130,7 @@ func TestBusinessMetrics_DaysOutOfRange(t *testing.T) {
 }
 
 func TestBusinessMetrics_WithDataRows(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Insert a metrics row
@@ -3168,7 +3162,7 @@ func TestBusinessMetrics_WithDataRows(t *testing.T) {
 // =============================================================================
 
 func TestProcessUserCohorts_EmptyDB(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	// Should not panic or error on empty database
 	server.processUserCohorts()
 
@@ -3180,7 +3174,7 @@ func TestProcessUserCohorts_EmptyDB(t *testing.T) {
 }
 
 func TestProcessUserCohorts_SingleUser(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5551115555")
 
 	server.processUserCohorts()
@@ -3202,7 +3196,7 @@ func TestProcessUserCohorts_SingleUser(t *testing.T) {
 }
 
 func TestProcessUserCohorts_UserWithSwaps(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5551116666")
 
 	// Create a deal and swap event
@@ -3236,7 +3230,7 @@ func TestProcessUserCohorts_UserWithSwaps(t *testing.T) {
 }
 
 func TestProcessUserCohorts_IdempotentUpsert(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5551117777")
 
 	// Run twice — should upsert, not create duplicate rows
@@ -3247,5 +3241,26 @@ func TestProcessUserCohorts_IdempotentUpsert(t *testing.T) {
 	server.db.QueryRow("SELECT COUNT(*) FROM user_cohorts WHERE user_id = ?", userID).Scan(&count)
 	if count != 1 {
 		t.Errorf("expected exactly 1 cohort row after double run, got %d", count)
+	}
+}
+
+// Admin is decided by the Clerk id alone. A session that carries the former
+// ADMIN_PHONE value, on a user with no allowlisted Clerk id, is not admin.
+func TestAdmin_FormerAdminPhoneGrantsNothing(t *testing.T) {
+	server := newTestServer(t)
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('phone-only', ?)", testAdminPhone)
+	token, err := server.sessions.CreateSession("phone-only", testAdminPhone, "test")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	cookie := &http.Cookie{Name: "session", Value: token}
+
+	rr := doRequest(server.handleAdminDashboard, "GET", "/api/admin/dashboard", nil, []*http.Cookie{cookie})
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("dashboard: got %d, want 403", rr.Code)
+	}
+	me := parseJSON(doRequest(server.handleMe, "GET", "/auth/me", nil, []*http.Cookie{cookie}))
+	if me["is_admin"] != false || me["can_submit_feedback"] != false {
+		t.Errorf("/auth/me: is_admin=%v can_submit_feedback=%v, want both false", me["is_admin"], me["can_submit_feedback"])
 	}
 }

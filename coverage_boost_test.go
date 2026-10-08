@@ -17,7 +17,7 @@ import (
 // =============================================================================
 
 func TestNewTests_AdminDeals_PostInvalidJSON(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833") // admin phone
 
 	// Send invalid JSON body
@@ -37,7 +37,7 @@ func TestNewTests_AdminDeals_PostInvalidJSON(t *testing.T) {
 }
 
 func TestNewTests_AdminDeals_PostMissingRequiredFields(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Missing competitor_product
@@ -83,7 +83,7 @@ func TestNewTests_AdminDeals_PostMissingRequiredFields(t *testing.T) {
 }
 
 func TestNewTests_AdminDeals_PostDefaultValues(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Create deal without status, deal_type, or quantity_offered
@@ -114,7 +114,7 @@ func TestNewTests_AdminDeals_PostDefaultValues(t *testing.T) {
 }
 
 func TestNewTests_AdminDeals_PostCustomDealType(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Create deal with explicit deal_type, status, and quantity_offered
@@ -154,7 +154,7 @@ func TestNewTests_AdminDeals_PostCustomDealType(t *testing.T) {
 }
 
 func TestNewTests_AdminDeals_PutInvalidJSON(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	req := httptest.NewRequest("PUT", "/api/admin/deals", bytes.NewReader([]byte("not-json")))
@@ -169,7 +169,7 @@ func TestNewTests_AdminDeals_PutInvalidJSON(t *testing.T) {
 }
 
 func TestNewTests_AdminDeals_PutMissingID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	rr := doRequest(server.handleAdminDeals, "PUT", "/api/admin/deals",
@@ -188,7 +188,7 @@ func TestNewTests_AdminDeals_PutMissingID(t *testing.T) {
 }
 
 func TestNewTests_AdminDeals_DeleteInvalidJSON(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	req := httptest.NewRequest("DELETE", "/api/admin/deals", bytes.NewReader([]byte("bad")))
@@ -203,7 +203,7 @@ func TestNewTests_AdminDeals_DeleteInvalidJSON(t *testing.T) {
 }
 
 func TestNewTests_AdminDeals_DeleteMissingID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	rr := doRequest(server.handleAdminDeals, "DELETE", "/api/admin/deals",
@@ -214,7 +214,7 @@ func TestNewTests_AdminDeals_DeleteMissingID(t *testing.T) {
 }
 
 func TestNewTests_AdminDeals_DeleteNonexistentDeal(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	rr := doRequest(server.handleAdminDeals, "DELETE", "/api/admin/deals",
@@ -229,7 +229,7 @@ func TestNewTests_AdminDeals_DeleteNonexistentDeal(t *testing.T) {
 }
 
 func TestNewTests_AdminDeals_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	rr := doRequest(server.handleAdminDeals, "PATCH", "/api/admin/deals", nil, []*http.Cookie{cookie})
@@ -239,7 +239,7 @@ func TestNewTests_AdminDeals_MethodNotAllowed(t *testing.T) {
 }
 
 func TestNewTests_AdminDeals_PostNegativePrices(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Negative offer_price_cents
@@ -272,7 +272,7 @@ func TestNewTests_AdminDeals_PostNegativePrices(t *testing.T) {
 // =============================================================================
 
 func TestNewTests_ABResolveTest_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Create a test to resolve
@@ -314,7 +314,7 @@ func TestNewTests_ABResolveTest_Success(t *testing.T) {
 }
 
 func TestNewTests_ABResolveTest_InvalidJSON(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	mux := http.NewServeMux()
@@ -332,7 +332,7 @@ func TestNewTests_ABResolveTest_InvalidJSON(t *testing.T) {
 }
 
 func TestNewTests_ABResolveTest_NonAdmin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559999001") // non-admin
 
 	mux := http.NewServeMux()
@@ -355,7 +355,7 @@ func TestNewTests_ABResolveTest_NonAdmin(t *testing.T) {
 // =============================================================================
 
 func TestNewTests_AdminPayouts_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	rr := doRequest(server.handleAdminPayouts, "DELETE", "/api/admin/payouts", nil, []*http.Cookie{cookie})
@@ -370,7 +370,7 @@ func TestNewTests_AdminPayouts_MethodNotAllowed(t *testing.T) {
 }
 
 func TestNewTests_AdminPayouts_PostNoNeedingRebates(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// POST for a user with no pending rebates — should succeed with 0 updated
@@ -387,7 +387,7 @@ func TestNewTests_AdminPayouts_PostNoNeedingRebates(t *testing.T) {
 }
 
 func TestNewTests_AdminPayouts_MultiplePendingRebates(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	adminUser, _ := upsertUser(server.db, "3104861833")
 	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
@@ -457,7 +457,7 @@ func TestNewTests_AdminPayouts_MultiplePendingRebates(t *testing.T) {
 }
 
 func TestNewTests_AdminPayouts_PostInvalidJSON(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Send request with wrong content type (decodeJSON checks Content-Type)
@@ -473,7 +473,7 @@ func TestNewTests_AdminPayouts_PostInvalidJSON(t *testing.T) {
 }
 
 func TestNewTests_AdminPayouts_MultipleUsersAggregation(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	adminUser, _ := upsertUser(server.db, "3104861833")
 	adminToken, _ := server.sessions.CreateSession(adminUser.ID, "3104861833", "phone")
@@ -524,7 +524,7 @@ func TestNewTests_AdminPayouts_MultipleUsersAggregation(t *testing.T) {
 // =============================================================================
 
 func TestNewTests_ABResults_MissingTestName(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Call handler directly without path routing — PathValue("name") returns ""
@@ -535,7 +535,7 @@ func TestNewTests_ABResults_MissingTestName(t *testing.T) {
 }
 
 func TestNewTests_ABResults_NonexistentTest(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	mux := http.NewServeMux()
@@ -552,7 +552,7 @@ func TestNewTests_ABResults_NonexistentTest(t *testing.T) {
 }
 
 func TestNewTests_ABResults_NonAdmin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559999002") // non-admin
 
 	mux := http.NewServeMux()
@@ -573,7 +573,7 @@ func TestNewTests_ABResults_NonAdmin(t *testing.T) {
 // =============================================================================
 
 func TestNewTests_TrackABEvent_NonexistentTest(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Track event for a test that doesn't exist — should silently succeed (no error)
 	err := trackABEvent(server.db, "nonexistent_test", "user-1", "conversion", 1.0)
@@ -590,7 +590,7 @@ func TestNewTests_TrackABEvent_NonexistentTest(t *testing.T) {
 }
 
 func TestNewTests_TrackABEvent_InactiveTest(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create a resolved (inactive) test
 	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
@@ -610,7 +610,7 @@ func TestNewTests_TrackABEvent_InactiveTest(t *testing.T) {
 }
 
 func TestNewTests_TrackABEvent_SuccessfulInsert(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create an active test with 100% traffic
 	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
@@ -634,7 +634,7 @@ func TestNewTests_TrackABEvent_SuccessfulInsert(t *testing.T) {
 }
 
 func TestNewTests_TrackABEvent_MultipleEvents(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
 		VALUES ('multi_track', 'desc', '["control","variant"]', 'click', 100, 7, 100, 'active')`)
@@ -659,7 +659,7 @@ func TestNewTests_TrackABEvent_MultipleEvents(t *testing.T) {
 // =============================================================================
 
 func TestNewTests_GetVariant_NonexistentTest(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559999003")
 
 	rr := doRequest(handleGetVariant(server), "GET", "/api/ab/variant?test=does_not_exist", nil, []*http.Cookie{cookie})
@@ -673,7 +673,7 @@ func TestNewTests_GetVariant_NonexistentTest(t *testing.T) {
 }
 
 func TestNewTests_GetVariant_InactiveTest(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559999004")
 
 	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
@@ -690,7 +690,7 @@ func TestNewTests_GetVariant_InactiveTest(t *testing.T) {
 }
 
 func TestNewTests_GetVariant_TrafficPercentage(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create test with only 10% traffic — users with bucket >= 10 get control
 	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
@@ -716,7 +716,7 @@ func TestNewTests_GetVariant_TrafficPercentage(t *testing.T) {
 }
 
 func TestNewTests_GetVariant_ThreeVariants(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create test with 3 variants and 100% traffic
 	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
@@ -745,7 +745,7 @@ func TestNewTests_GetVariant_ThreeVariants(t *testing.T) {
 // =============================================================================
 
 func TestNewTests_GetVariant_FunctionLevel_FewerThanTwoVariants(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create a test with only 1 variant (invalid but tests the error path)
 	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
@@ -761,7 +761,7 @@ func TestNewTests_GetVariant_FunctionLevel_FewerThanTwoVariants(t *testing.T) {
 }
 
 func TestNewTests_GetVariant_FunctionLevel_InvalidVariantsJSON(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create a test with invalid JSON in variants column
 	server.db.Exec(`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status)
@@ -778,7 +778,7 @@ func TestNewTests_GetVariant_FunctionLevel_InvalidVariantsJSON(t *testing.T) {
 // =============================================================================
 
 func TestNewTests_AnalyzeABTest_BothZeroEvents(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	server.db.Exec(
 		`INSERT INTO ab_tests (name, description, variants, key_metric, min_sample_per_variant, measurement_days, traffic_pct, status, created_at)
@@ -814,7 +814,7 @@ func TestNewTests_AnalyzeABTest_BothZeroEvents(t *testing.T) {
 }
 
 func TestNewTests_AnalyzeABTest_ResolvedStatus(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create a resolved test
 	server.db.Exec(
@@ -837,7 +837,7 @@ func TestNewTests_AnalyzeABTest_ResolvedStatus(t *testing.T) {
 // =============================================================================
 
 func TestNewTests_TrackABEventHandler_InvalidJSON(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559999010")
 
 	req := httptest.NewRequest("POST", "/api/ab/event", bytes.NewReader([]byte("{bad")))
@@ -856,7 +856,7 @@ func TestNewTests_TrackABEventHandler_InvalidJSON(t *testing.T) {
 }
 
 func TestNewTests_TrackABEventHandler_MissingTest(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559999011")
 
 	rr := doRequest(handleTrackABEvent(server), "POST", "/api/ab/event",
@@ -867,7 +867,7 @@ func TestNewTests_TrackABEventHandler_MissingTest(t *testing.T) {
 }
 
 func TestNewTests_TrackABEventHandler_MissingEvent(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559999012")
 
 	rr := doRequest(handleTrackABEvent(server), "POST", "/api/ab/event",
@@ -878,7 +878,7 @@ func TestNewTests_TrackABEventHandler_MissingEvent(t *testing.T) {
 }
 
 func TestNewTests_TrackABEventHandler_ActiveTestRecords(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5559999013")
 
 	// Create an active test
@@ -904,7 +904,7 @@ func TestNewTests_TrackABEventHandler_ActiveTestRecords(t *testing.T) {
 // =============================================================================
 
 func TestNewTests_ABCreateTest_InvalidJSON(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	req := httptest.NewRequest("POST", "/api/admin/ab-tests", bytes.NewReader([]byte("{bad json")))
@@ -919,7 +919,7 @@ func TestNewTests_ABCreateTest_InvalidJSON(t *testing.T) {
 }
 
 func TestNewTests_ABCreateTest_DuplicateName(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Create first test
@@ -938,7 +938,7 @@ func TestNewTests_ABCreateTest_DuplicateName(t *testing.T) {
 }
 
 func TestNewTests_ABCreateTest_DefaultsApplied(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Create with only required fields — other defaults should apply
@@ -978,7 +978,7 @@ func TestNewTests_ABCreateTest_DefaultsApplied(t *testing.T) {
 // =============================================================================
 
 func TestNewTests_ABListTests_FilterByStatus(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Create tests with different statuses
@@ -1017,7 +1017,7 @@ func TestNewTests_ABListTests_FilterByStatus(t *testing.T) {
 }
 
 func TestNewTests_ABListTests_EmptyResult(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Filter for a status that won't match any test
@@ -1038,7 +1038,7 @@ func TestNewTests_ABListTests_EmptyResult(t *testing.T) {
 // =============================================================================
 
 func TestNewTests_AdminDeals_GetEmptyAfterDeletingAll(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Soft-delete all seeded deals
@@ -1057,7 +1057,7 @@ func TestNewTests_AdminDeals_GetEmptyAfterDeletingAll(t *testing.T) {
 }
 
 func TestNewTests_AdminDeals_PostWithEndsAt(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Create deal with ends_at set
@@ -1092,7 +1092,7 @@ func TestNewTests_AdminDeals_PostWithEndsAt(t *testing.T) {
 }
 
 func TestNewTests_AdminDeals_PostWithEmptyEndsAt(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Create deal with empty ends_at — should be stored as NULL (via NULLIF)
@@ -1120,7 +1120,7 @@ func TestNewTests_AdminDeals_PostWithEmptyEndsAt(t *testing.T) {
 }
 
 func TestNewTests_AdminDeals_PutUpdatesAllFields(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "3104861833")
 
 	// Create a deal first
@@ -1198,7 +1198,7 @@ func TestNewTests_AdminDeals_PutUpdatesAllFields(t *testing.T) {
 // --- handleAPIConfig ---
 
 func TestCov_APIConfig_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleAPIConfig, "POST", "/api/config", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("Status: got %d, want 405", rr.Code)
@@ -1215,7 +1215,7 @@ func TestCov_APIConfig_WrongMethod(t *testing.T) {
 // household_members cleaned up, double-leave idempotency.
 
 func TestCov2_LeaveHousehold_NullHouseholdID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5557770001")
 
 	// Force household_id to NULL to simulate a legacy user
@@ -1236,7 +1236,7 @@ func TestCov2_LeaveHousehold_NullHouseholdID(t *testing.T) {
 }
 
 func TestCov2_LeaveHousehold_DoubleLeaveSameUser(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5557770002")
 
 	// Leave once
@@ -1263,7 +1263,7 @@ func TestCov2_LeaveHousehold_DoubleLeaveSameUser(t *testing.T) {
 }
 
 func TestCov2_LeaveHousehold_OldMembersCleanedUp(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID1 := loginUser(t, server, "5557770003")
 	cookie2, userID2 := loginUser(t, server, "5557770004")
 
@@ -1296,7 +1296,7 @@ func TestCov2_LeaveHousehold_OldMembersCleanedUp(t *testing.T) {
 }
 
 func TestCov2_LeaveHousehold_DBClosed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557770005")
 	server.db.Close()
 
@@ -1312,7 +1312,7 @@ func TestCov2_LeaveHousehold_DBClosed(t *testing.T) {
 // points deducted correctly after redeem, redemption record created.
 
 func TestCov2_ReferralRedeem_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557780001")
 
 	rr := doRequest(server.handleReferralRedeem, "GET", "/api/referral/redeem", nil, []*http.Cookie{cookie})
@@ -1322,7 +1322,7 @@ func TestCov2_ReferralRedeem_WrongMethod(t *testing.T) {
 }
 
 func TestCov2_ReferralRedeem_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleReferralRedeem, "POST", "/api/referral/redeem", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -1331,7 +1331,7 @@ func TestCov2_ReferralRedeem_Unauthenticated(t *testing.T) {
 }
 
 func TestCov2_ReferralRedeem_ZeroPoints(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5557780002")
 
 	// Ensure zero points
@@ -1344,7 +1344,7 @@ func TestCov2_ReferralRedeem_ZeroPoints(t *testing.T) {
 }
 
 func TestCov2_ReferralRedeem_PointsDeductedCorrectly(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5557780003")
 
 	// Give user 150 points (more than threshold)
@@ -1371,7 +1371,7 @@ func TestCov2_ReferralRedeem_PointsDeductedCorrectly(t *testing.T) {
 }
 
 func TestCov2_ReferralRedeem_DoubleRedeem(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5557780004")
 
 	// Give exactly threshold points
@@ -1391,7 +1391,7 @@ func TestCov2_ReferralRedeem_DoubleRedeem(t *testing.T) {
 }
 
 func TestCov2_ReferralRedeem_DBClosed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557780005")
 	server.db.Close()
 
@@ -1407,7 +1407,7 @@ func TestCov2_ReferralRedeem_DBClosed(t *testing.T) {
 // store with price data, store with no prices (empty result).
 
 func TestCov2_StorePrices_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557790001")
 
 	rr := doRequest(server.handleStorePrices, "POST", "/api/stores/1/prices", nil, []*http.Cookie{cookie})
@@ -1417,7 +1417,7 @@ func TestCov2_StorePrices_WrongMethod(t *testing.T) {
 }
 
 func TestCov2_StorePrices_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleStorePrices, "GET", "/api/stores/1/prices", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -1426,7 +1426,7 @@ func TestCov2_StorePrices_Unauthenticated(t *testing.T) {
 }
 
 func TestCov2_StorePrices_InvalidStoreID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557790002")
 
 	rr := doRequest(server.handleStorePrices, "GET", "/api/stores/abc/prices", nil, []*http.Cookie{cookie})
@@ -1436,7 +1436,7 @@ func TestCov2_StorePrices_InvalidStoreID(t *testing.T) {
 }
 
 func TestCov2_StorePrices_InvalidPath(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557790003")
 
 	rr := doRequest(server.handleStorePrices, "GET", "/api/stores/1/notprices", nil, []*http.Cookie{cookie})
@@ -1446,7 +1446,7 @@ func TestCov2_StorePrices_InvalidPath(t *testing.T) {
 }
 
 func TestCov2_StorePrices_WithData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557790004")
 
 	storeID, err := server.upsertStore("PriceTest Store", "TestChain", "123 Main", "City", "ST", "00000", "", nil, nil)
@@ -1471,7 +1471,7 @@ func TestCov2_StorePrices_WithData(t *testing.T) {
 }
 
 func TestCov2_StorePrices_EmptyStore(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557790005")
 
 	storeID, _ := server.upsertStore("Empty Store", "TestChain", "456 Oak", "City", "ST", "00000", "", nil, nil)
@@ -1494,7 +1494,7 @@ func TestCov2_StorePrices_EmptyStore(t *testing.T) {
 // Uncovered: brand filter, invalid store ID, wrong method, invalid path, both filters.
 
 func TestCov2_StorePriceAverages_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557800001")
 
 	rr := doRequest(server.handleStorePriceAverages, "POST", "/api/stores/1/price-averages", nil, []*http.Cookie{cookie})
@@ -1504,7 +1504,7 @@ func TestCov2_StorePriceAverages_WrongMethod(t *testing.T) {
 }
 
 func TestCov2_StorePriceAverages_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleStorePriceAverages, "GET", "/api/stores/1/price-averages", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -1513,7 +1513,7 @@ func TestCov2_StorePriceAverages_Unauthenticated(t *testing.T) {
 }
 
 func TestCov2_StorePriceAverages_InvalidStoreID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557800002")
 
 	rr := doRequest(server.handleStorePriceAverages, "GET", "/api/stores/xyz/price-averages", nil, []*http.Cookie{cookie})
@@ -1523,7 +1523,7 @@ func TestCov2_StorePriceAverages_InvalidStoreID(t *testing.T) {
 }
 
 func TestCov2_StorePriceAverages_InvalidPath(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557800003")
 
 	rr := doRequest(server.handleStorePriceAverages, "GET", "/api/stores/1/not-price-averages", nil, []*http.Cookie{cookie})
@@ -1533,7 +1533,7 @@ func TestCov2_StorePriceAverages_InvalidPath(t *testing.T) {
 }
 
 func TestCov2_StorePriceAverages_BrandFilter(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557800004")
 
 	storeID, _ := server.upsertStore("Avg Store", "AvgChain", "789 Pine", "City", "ST", "00000", "", nil, nil)
@@ -1555,7 +1555,7 @@ func TestCov2_StorePriceAverages_BrandFilter(t *testing.T) {
 }
 
 func TestCov2_StorePriceAverages_ProductAndBrandFilter(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557800005")
 
 	storeID, _ := server.upsertStore("Combo Store", "ComboChain", "999 Elm", "City", "ST", "00000", "", nil, nil)
@@ -1577,7 +1577,7 @@ func TestCov2_StorePriceAverages_ProductAndBrandFilter(t *testing.T) {
 }
 
 func TestCov2_StorePriceAverages_EmptyResults(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557800006")
 
 	storeID, _ := server.upsertStore("EmptyAvg Store", "EmptyChain", "100 Nowhere", "City", "ST", "00000", "", nil, nil)
@@ -1601,7 +1601,7 @@ func TestCov2_StorePriceAverages_EmptyResults(t *testing.T) {
 // user with shopping trips linking to stores, no matching prices.
 
 func TestCov2_PriceComparison_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557810001")
 
 	rr := doRequest(server.handlePriceComparison, "POST", "/api/price-compare?product=milk", nil, []*http.Cookie{cookie})
@@ -1611,7 +1611,7 @@ func TestCov2_PriceComparison_WrongMethod(t *testing.T) {
 }
 
 func TestCov2_PriceComparison_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handlePriceComparison, "GET", "/api/price-compare?product=milk", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -1620,7 +1620,7 @@ func TestCov2_PriceComparison_Unauthenticated(t *testing.T) {
 }
 
 func TestCov2_PriceComparison_NoMatchingPrices(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557810002")
 
 	rr := doRequest(server.handlePriceComparison, "GET",
@@ -1638,7 +1638,7 @@ func TestCov2_PriceComparison_NoMatchingPrices(t *testing.T) {
 }
 
 func TestCov2_PriceComparison_WithUserTrips(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5557810003")
 
 	// Create stores
@@ -1679,7 +1679,7 @@ func TestCov2_PriceComparison_WithUserTrips(t *testing.T) {
 }
 
 func TestCov2_PriceComparison_ProductOnlyNoBrand(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557810004")
 
 	store1, _ := server.upsertStore("NoBrand Store1", "Chain1", "10 A", "City", "ST", "00000", "", nil, nil)
@@ -1703,7 +1703,7 @@ func TestCov2_PriceComparison_ProductOnlyNoBrand(t *testing.T) {
 // Uncovered: wrong method, empty data, unknown region (no store link).
 
 func TestCov2_RegionalSwapPerformance_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	admin, _ := upsertUser(server.db, "3104861833")
 	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -1715,7 +1715,7 @@ func TestCov2_RegionalSwapPerformance_WrongMethod(t *testing.T) {
 }
 
 func TestCov2_RegionalSwapPerformance_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleRegionalSwapPerformance, "GET", "/api/admin/regional-swaps", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -1724,7 +1724,7 @@ func TestCov2_RegionalSwapPerformance_Unauthenticated(t *testing.T) {
 }
 
 func TestCov2_RegionalSwapPerformance_EmptyData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	admin, _ := upsertUser(server.db, "3104861833")
 	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -1742,7 +1742,7 @@ func TestCov2_RegionalSwapPerformance_EmptyData(t *testing.T) {
 }
 
 func TestCov2_RegionalSwapPerformance_UnknownRegion(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	admin, _ := upsertUser(server.db, "3104861833")
 	token, _ := server.sessions.CreateSession(admin.ID, "3104861833", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -1792,7 +1792,7 @@ func TestCov2_RegionalSwapPerformance_UnknownRegion(t *testing.T) {
 // Only 2 branches: reportDB is nil vs non-nil.
 
 func TestCov2_AdminDB_NilReportDB(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	// reportDB removed — adminDB() always returns the primary DB now
 	db := server.adminDB()
 	if db != server.db.DB {
@@ -1808,7 +1808,7 @@ func TestCov2_AdminDB_WithReportDB(t *testing.T) {
 // Uncovered: chain filter, search query filter, custom limit, stores with lat/lng.
 
 func TestCov2_Stores_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557820001")
 
 	rr := doRequest(server.handleStores, "POST", "/api/stores", nil, []*http.Cookie{cookie})
@@ -1818,7 +1818,7 @@ func TestCov2_Stores_WrongMethod(t *testing.T) {
 }
 
 func TestCov2_Stores_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleStores, "GET", "/api/stores", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -1827,7 +1827,7 @@ func TestCov2_Stores_Unauthenticated(t *testing.T) {
 }
 
 func TestCov2_Stores_EmptyList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557820002")
 
 	rr := doRequest(server.handleStores, "GET", "/api/stores", nil, []*http.Cookie{cookie})
@@ -1843,7 +1843,7 @@ func TestCov2_Stores_EmptyList(t *testing.T) {
 }
 
 func TestCov2_Stores_ChainFilter(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557820003")
 
 	server.upsertStore("Kroger #1", "Kroger", "1 A St", "City", "OH", "43215", "", nil, nil)
@@ -1863,7 +1863,7 @@ func TestCov2_Stores_ChainFilter(t *testing.T) {
 }
 
 func TestCov2_Stores_SearchQuery(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557820004")
 
 	server.upsertStore("Target Downtown", "Target", "100 Main", "Springfield", "IL", "62701", "", nil, nil)
@@ -1882,7 +1882,7 @@ func TestCov2_Stores_SearchQuery(t *testing.T) {
 }
 
 func TestCov2_Stores_CustomLimit(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557820005")
 
 	for i := 0; i < 5; i++ {
@@ -1902,7 +1902,7 @@ func TestCov2_Stores_CustomLimit(t *testing.T) {
 }
 
 func TestCov2_Stores_InvalidLimit(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557820006")
 
 	server.upsertStore("Only Store", "OnlyChain", "1 Only St", "City", "ST", "00000", "", nil, nil)
@@ -1921,7 +1921,7 @@ func TestCov2_Stores_InvalidLimit(t *testing.T) {
 }
 
 func TestCov2_Stores_WithLatLng(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557820007")
 
 	lat := 39.9612
@@ -1947,7 +1947,7 @@ func TestCov2_Stores_WithLatLng(t *testing.T) {
 }
 
 func TestCov2_Stores_SearchByAddress(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557820008")
 
 	server.upsertStore("Some Store", "SomeChain", "742 Evergreen Terrace", "Springfield", "IL", "62701", "", nil, nil)
@@ -1970,7 +1970,7 @@ func TestCov2_Stores_SearchByAddress(t *testing.T) {
 // self-referral, idempotent claim (already claimed), referral_source tracking.
 
 func TestCov2_ReferralClaim_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557830001")
 
 	rr := doRequest(server.handleReferralClaim, "GET", "/api/referral/claim", nil, []*http.Cookie{cookie})
@@ -1980,7 +1980,7 @@ func TestCov2_ReferralClaim_WrongMethod(t *testing.T) {
 }
 
 func TestCov2_ReferralClaim_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleReferralClaim, "POST", "/api/referral/claim",
 		map[string]string{"code": "abc123"}, nil)
@@ -1990,7 +1990,7 @@ func TestCov2_ReferralClaim_Unauthenticated(t *testing.T) {
 }
 
 func TestCov2_ReferralClaim_EmptyCode(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557830002")
 
 	rr := doRequest(server.handleReferralClaim, "POST", "/api/referral/claim",
@@ -2001,7 +2001,7 @@ func TestCov2_ReferralClaim_EmptyCode(t *testing.T) {
 }
 
 func TestCov2_ReferralClaim_InvalidCode(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5557830003")
 
 	rr := doRequest(server.handleReferralClaim, "POST", "/api/referral/claim",
@@ -2012,7 +2012,7 @@ func TestCov2_ReferralClaim_InvalidCode(t *testing.T) {
 }
 
 func TestCov2_ReferralClaim_SelfReferral(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5557830004")
 
 	// Generate referral code by calling GET /api/referral
@@ -2031,7 +2031,7 @@ func TestCov2_ReferralClaim_SelfReferral(t *testing.T) {
 }
 
 func TestCov2_ReferralClaim_IdempotentClaim(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, referrerID := loginUser(t, server, "5557830005")
 	cookie2, _ := loginUser(t, server, "5557830006")
 
@@ -2070,7 +2070,7 @@ func TestCov2_ReferralClaim_IdempotentClaim(t *testing.T) {
 }
 
 func TestCov2_ReferralClaim_SetsReferralSource(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, referrerID := loginUser(t, server, "5557830007")
 	cookie2, userID2 := loginUser(t, server, "5557830008")
 
@@ -2101,7 +2101,7 @@ func TestCov2_ReferralClaim_SetsReferralSource(t *testing.T) {
 }
 
 func TestCov2_ReferralClaim_PointsAwarded(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, referrerID := loginUser(t, server, "5557830009")
 	cookie2, _ := loginUser(t, server, "5557830010")
 
@@ -2133,7 +2133,7 @@ func TestCov2_ReferralClaim_PointsAwarded(t *testing.T) {
 // vs without name (penny message branch), SMS notification to inviter.
 
 func TestCov2_Join_AlreadyInTargetHousehold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, userID1 := loginUser(t, server, "5557840001")
 	cookie2, userID2 := loginUser(t, server, "5557840002")
 
@@ -2171,7 +2171,7 @@ func TestCov2_Join_AlreadyInTargetHousehold(t *testing.T) {
 }
 
 func TestCov2_Join_LeavePreviousHousehold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, _ := loginUser(t, server, "5557840003")
 	cookie2, userID2 := loginUser(t, server, "5557840004")
 	_, userID3 := loginUser(t, server, "5557840005")
@@ -2212,7 +2212,7 @@ func TestCov2_Join_LeavePreviousHousehold(t *testing.T) {
 }
 
 func TestCov2_Join_JoinerWithName(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, _ := loginUser(t, server, "5557840006")
 	cookie2, userID2 := loginUser(t, server, "5557840007")
 
@@ -2239,7 +2239,7 @@ func TestCov2_Join_JoinerWithName(t *testing.T) {
 }
 
 func TestCov2_Join_JoinerWithoutName(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, _ := loginUser(t, server, "5557840008")
 	cookie2, userID2 := loginUser(t, server, "5557840009")
 
@@ -2263,72 +2263,8 @@ func TestCov2_Join_JoinerWithoutName(t *testing.T) {
 	}
 }
 
-func TestCov2_Join_InviterSMSNotification(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
-	cookie1, userID1 := loginUser(t, server, "5557840010")
-	cookie2, userID2 := loginUser(t, server, "5557840011")
-
-	// Set joiner's name
-	server.db.Exec("UPDATE users SET name = 'Bob' WHERE id = ?", userID2)
-
-	// Create invite
-	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
-		map[string]string{"phone": ""}, []*http.Cookie{cookie1})
-	body := parseJSON(rr)
-	code := body["code"].(string)
-
-	// User2 joins — inviter should receive SMS notification
-	rr = doRequest(server.handleJoin, "POST", "/api/join",
-		map[string]string{"code": code}, []*http.Cookie{cookie2})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("Status: got %d, want 200; body=%s", rr.Code, rr.Body.String())
-	}
-
-	// Check that SMS was sent to inviter
-	smsTo, smsBody := mock.GetLastSMS()
-	if smsTo == "" {
-		t.Error("Expected SMS notification to inviter")
-	}
-	if !strings.Contains(smsBody, "Bob") {
-		t.Errorf("SMS should mention joiner name 'Bob', got %q", smsBody)
-	}
-	if !strings.Contains(smsBody, "joined") {
-		t.Errorf("SMS should mention joining, got %q", smsBody)
-	}
-
-	_ = userID1
-}
-
-func TestCov2_Join_InviterNotificationDedup(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
-	cookie1, _ := loginUser(t, server, "5557840012")
-	cookie2, _ := loginUser(t, server, "5557840013")
-
-	// Create invite
-	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
-		map[string]string{"phone": ""}, []*http.Cookie{cookie1})
-	body := parseJSON(rr)
-	code := body["code"].(string)
-
-	// User2 joins
-	rr = doRequest(server.handleJoin, "POST", "/api/join",
-		map[string]string{"code": code}, []*http.Cookie{cookie2})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("Status: got %d, want 200", rr.Code)
-	}
-
-	// Verify notified flag is set (preventing duplicate SMS)
-	var notified int
-	server.db.QueryRow("SELECT notified FROM invites WHERE code = ?", code).Scan(&notified)
-	if notified != 1 {
-		t.Errorf("Expected notified=1, got %d", notified)
-	}
-}
-
 func TestCov2_Join_SetsReferralSourceInvite(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, _ := loginUser(t, server, "5557840014")
 	cookie2, userID2 := loginUser(t, server, "5557840015")
 
@@ -2424,7 +2360,7 @@ func TestPruneBucketLimiter(t *testing.T) {
 }
 
 func TestCachePriceAndGetCachedPrice(t *testing.T) {
-	server := newTestServer(t, nil)
+	server := newTestServer(t)
 
 	// Ensure price_cache table exists
 	server.db.Exec(`CREATE TABLE IF NOT EXISTS price_cache (
@@ -2476,7 +2412,7 @@ func TestCachePriceAndGetCachedPrice(t *testing.T) {
 }
 
 func TestGetUserZip(t *testing.T) {
-	server := newTestServer(t, nil)
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551110001")
 
 	// Get user ID
@@ -2509,7 +2445,7 @@ func TestGetUserZip(t *testing.T) {
 // --- ReferralRedeem ---
 
 func TestReferralRedeem_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleReferralRedeem, "GET", "/api/referral/redeem", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d", rr.Code)
@@ -2517,7 +2453,7 @@ func TestReferralRedeem_WrongMethod(t *testing.T) {
 }
 
 func TestReferralRedeem_NoAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleReferralRedeem, "POST", "/api/referral/redeem", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", rr.Code)
@@ -2529,7 +2465,7 @@ func TestReferralRedeem_NoAuth(t *testing.T) {
 // =============================================================================
 
 func TestCov3_LeaveHousehold_ResponseBodyContainsSuccess(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5558880001")
 
 	rr := doRequest(server.handleLeaveHousehold, "POST", "/api/settings/leave-household", nil, []*http.Cookie{cookie})
@@ -2544,7 +2480,7 @@ func TestCov3_LeaveHousehold_ResponseBodyContainsSuccess(t *testing.T) {
 }
 
 func TestCov3_LeaveHousehold_MultiUserHousehold_LeaverGetsNewHousehold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, userID1 := loginUser(t, server, "5558880002")
 	cookie2, userID2 := loginUser(t, server, "5558880003")
 
@@ -2607,7 +2543,7 @@ func TestCov3_LeaveHousehold_MultiUserHousehold_LeaverGetsNewHousehold(t *testin
 }
 
 func TestCov3_LeaveHousehold_PUTMethodRejected(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5558880004")
 
 	rr := doRequest(server.handleLeaveHousehold, "PUT", "/api/settings/leave-household", nil, []*http.Cookie{cookie})
@@ -2617,7 +2553,7 @@ func TestCov3_LeaveHousehold_PUTMethodRejected(t *testing.T) {
 }
 
 func TestCov3_LeaveHousehold_DELETEMethodRejected(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5558880005")
 
 	rr := doRequest(server.handleLeaveHousehold, "DELETE", "/api/settings/leave-household", nil, []*http.Cookie{cookie})
@@ -2627,7 +2563,7 @@ func TestCov3_LeaveHousehold_DELETEMethodRejected(t *testing.T) {
 }
 
 func TestCov3_LeaveHousehold_InvalidSessionToken(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	fakeCookie := &http.Cookie{Name: "session", Value: "invalid_token_12345"}
 	rr := doRequest(server.handleLeaveHousehold, "POST", "/api/settings/leave-household", nil, []*http.Cookie{fakeCookie})
@@ -2637,7 +2573,7 @@ func TestCov3_LeaveHousehold_InvalidSessionToken(t *testing.T) {
 }
 
 func TestCov3_LeaveHousehold_ExpiredSession(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5558880006")
 
 	// Create an expired session
@@ -2658,7 +2594,7 @@ func TestCov3_LeaveHousehold_ExpiredSession(t *testing.T) {
 // =============================================================================
 
 func TestCov3_SavedListUpdate_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleSavedLists, "PUT", "/api/saved-lists/1", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -2667,7 +2603,7 @@ func TestCov3_SavedListUpdate_Unauthenticated(t *testing.T) {
 }
 
 func TestCov3_SavedListUpdate_NonexistentID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5558890001")
 
 	// Add items to the active list so "no items" is not the issue
@@ -2680,7 +2616,7 @@ func TestCov3_SavedListUpdate_NonexistentID(t *testing.T) {
 }
 
 func TestCov3_SavedListUpdate_InvalidID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5558890002")
 
 	rr := doRequest(server.handleSavedLists, "PUT", "/api/saved-lists/abc", nil, []*http.Cookie{cookie})
@@ -2690,7 +2626,7 @@ func TestCov3_SavedListUpdate_InvalidID(t *testing.T) {
 }
 
 func TestCov3_SavedListUpdate_EmptyActiveList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5558890003")
 
 	// Create a saved list with items
@@ -2718,7 +2654,7 @@ func TestCov3_SavedListUpdate_EmptyActiveList(t *testing.T) {
 }
 
 func TestCov3_SavedListUpdate_ReplacesOldItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5558890004")
 
 	// Create a saved list with initial items
@@ -2778,7 +2714,7 @@ func TestCov3_SavedListUpdate_ReplacesOldItems(t *testing.T) {
 }
 
 func TestCov3_SavedListUpdate_OtherUsersListBlocked(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID1 := loginUser(t, server, "5558890005")
 	cookie2, userID2 := loginUser(t, server, "5558890006")
 
@@ -2802,7 +2738,7 @@ func TestCov3_SavedListUpdate_OtherUsersListBlocked(t *testing.T) {
 }
 
 func TestCov3_SavedListUpdate_ResponseShape(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5558890007")
 
 	// Create saved list
@@ -2831,7 +2767,7 @@ func TestCov3_SavedListUpdate_ResponseShape(t *testing.T) {
 }
 
 func TestCov3_SavedListUpdate_InvalidSessionToken(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	fakeCookie := &http.Cookie{Name: "session", Value: "bogus_token_xyz"}
 	rr := doRequest(server.handleSavedLists, "PUT", "/api/saved-lists/1", nil, []*http.Cookie{fakeCookie})
@@ -2845,7 +2781,7 @@ func TestCov3_SavedListUpdate_InvalidSessionToken(t *testing.T) {
 // =============================================================================
 
 func TestCov3_ListClaim_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleList, "PATCH", "/api/list/1/claim", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -2854,7 +2790,7 @@ func TestCov3_ListClaim_Unauthenticated(t *testing.T) {
 }
 
 func TestCov3_ListClaim_InvalidSessionToken(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	fakeCookie := &http.Cookie{Name: "session", Value: "not_a_real_token"}
 	rr := doRequest(server.handleList, "PATCH", "/api/list/1/claim", nil, []*http.Cookie{fakeCookie})
@@ -2864,7 +2800,7 @@ func TestCov3_ListClaim_InvalidSessionToken(t *testing.T) {
 }
 
 func TestCov3_ListClaim_ClaimAndVerifyModificationRecord(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5558900001")
 
 	itemID := createListItem(t, server.db, userID, "Cheese", "Dairy & Eggs")
@@ -2887,7 +2823,7 @@ func TestCov3_ListClaim_ClaimAndVerifyModificationRecord(t *testing.T) {
 }
 
 func TestCov3_ListClaim_UnclaimVerifyModificationRecord(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5558900002")
 
 	itemID := createListItem(t, server.db, userID, "Yogurt", "Dairy & Eggs")
@@ -2908,7 +2844,7 @@ func TestCov3_ListClaim_UnclaimVerifyModificationRecord(t *testing.T) {
 }
 
 func TestCov3_ListClaim_ClaimResponseContainsClaimedByID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5558900003")
 
 	itemID := createListItem(t, server.db, userID, "Butter", "Dairy & Eggs")
@@ -2932,7 +2868,7 @@ func TestCov3_ListClaim_ClaimResponseContainsClaimedByID(t *testing.T) {
 }
 
 func TestCov3_ListClaim_UnclaimResponseClaimedByIDNil(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5558900004")
 
 	itemID := createListItem(t, server.db, userID, "Cream", "Dairy & Eggs")
@@ -2952,7 +2888,7 @@ func TestCov3_ListClaim_UnclaimResponseClaimedByIDNil(t *testing.T) {
 }
 
 func TestCov3_ListClaim_NonexistentItem(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5558900005")
 
 	rr := doRequest(server.handleList, "PATCH", "/api/list/999999/claim", nil, []*http.Cookie{cookie})
@@ -2962,7 +2898,7 @@ func TestCov3_ListClaim_NonexistentItem(t *testing.T) {
 }
 
 func TestCov3_ListClaim_CrossUserItemBlocked(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID1 := loginUser(t, server, "5558900006")
 	cookie2, _ := loginUser(t, server, "5558900007")
 
@@ -2977,7 +2913,7 @@ func TestCov3_ListClaim_CrossUserItemBlocked(t *testing.T) {
 }
 
 func TestCov3_ListClaim_OverrideRecordsClaimedModification(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create a household with two users
 	cookie1, userID1 := loginUser(t, server, "5558900008")
@@ -3022,7 +2958,7 @@ func TestCov3_ListClaim_OverrideRecordsClaimedModification(t *testing.T) {
 // =============================================================================
 
 func TestCov3_CleanExpired_NoSessions(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Delete all sessions so the table is empty
 	server.db.Exec("DELETE FROM sessions")
@@ -3038,7 +2974,7 @@ func TestCov3_CleanExpired_NoSessions(t *testing.T) {
 }
 
 func TestCov3_CleanExpired_MultipleExpiredSessions(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5558910001")
 
 	// Insert multiple expired sessions
@@ -3066,7 +3002,7 @@ func TestCov3_CleanExpired_MultipleExpiredSessions(t *testing.T) {
 }
 
 func TestCov3_CleanExpired_MixedUsers(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID1 := loginUser(t, server, "5558910002")
 	_, userID2 := loginUser(t, server, "5558910003")
 
@@ -3095,7 +3031,7 @@ func TestCov3_CleanExpired_MixedUsers(t *testing.T) {
 }
 
 func TestCov3_CleanExpired_JustExpiredSession(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5558910004")
 
 	// Insert a session that expired 1 second ago (boundary case)
@@ -3115,7 +3051,7 @@ func TestCov3_CleanExpired_JustExpiredSession(t *testing.T) {
 }
 
 func TestCov3_CleanExpired_DoesNotRemoveFutureSessions(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5558910005")
 
 	// Insert a session that expires far in the future
@@ -3138,7 +3074,7 @@ func TestCov3_CleanExpired_DoesNotRemoveFutureSessions(t *testing.T) {
 // =============================================================================
 
 func TestCov3_DeleteUserSessions_NoSessions(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create a user without any sessions
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-9999', '5558920001')")
@@ -3154,7 +3090,7 @@ func TestCov3_DeleteUserSessions_NoSessions(t *testing.T) {
 }
 
 func TestCov3_DeleteUserSessions_CacheInvalidated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5558920002")
 
 	// Verify session works before deletion
@@ -3174,7 +3110,7 @@ func TestCov3_DeleteUserSessions_CacheInvalidated(t *testing.T) {
 }
 
 func TestCov3_DeleteUserSessions_MultipleSessions(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5558920003")
 
 	// Create additional sessions (different auth methods)
@@ -3198,7 +3134,7 @@ func TestCov3_DeleteUserSessions_MultipleSessions(t *testing.T) {
 }
 
 func TestCov3_DeleteUserSessions_PreservesOtherUsers(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, userID1 := loginUser(t, server, "5558920004")
 	cookie2, userID2 := loginUser(t, server, "5558920005")
 
@@ -3237,7 +3173,7 @@ func TestCov3_DeleteUserSessions_PreservesOtherUsers(t *testing.T) {
 }
 
 func TestCov3_DeleteUserSessions_NonexistentUser(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Should not panic or error for a user that doesn't exist
 	server.sessions.DeleteUserSessions("user-999999")
@@ -3248,7 +3184,7 @@ func TestCov3_DeleteUserSessions_NonexistentUser(t *testing.T) {
 // =============================================================================
 
 func TestCov3_BrandResolve_WrongMethod_GET(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5558930001")
 
 	rr := doRequest(server.handleBrandResolve, "GET", "/api/list/brand-resolve", nil, []*http.Cookie{cookie})
@@ -3258,7 +3194,7 @@ func TestCov3_BrandResolve_WrongMethod_GET(t *testing.T) {
 }
 
 func TestCov3_BrandResolve_WrongMethod_PUT(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5558930002")
 
 	rr := doRequest(server.handleBrandResolve, "PUT", "/api/list/brand-resolve",
@@ -3270,7 +3206,7 @@ func TestCov3_BrandResolve_WrongMethod_PUT(t *testing.T) {
 }
 
 func TestCov3_BrandResolve_WrongMethod_DELETE(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5558930003")
 
 	rr := doRequest(server.handleBrandResolve, "DELETE", "/api/list/brand-resolve", nil, []*http.Cookie{cookie})
@@ -3280,7 +3216,7 @@ func TestCov3_BrandResolve_WrongMethod_DELETE(t *testing.T) {
 }
 
 func TestCov3_BrandResolve_NonexistentItem(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5558930004")
 
 	rr := doRequest(server.handleBrandResolve, "POST", "/api/list/brand-resolve",
@@ -3292,7 +3228,7 @@ func TestCov3_BrandResolve_NonexistentItem(t *testing.T) {
 }
 
 func TestCov3_BrandResolve_EmptyBrand(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5558930005")
 
 	rr := doRequest(server.handleBrandResolve, "POST", "/api/list/brand-resolve",
@@ -3304,7 +3240,7 @@ func TestCov3_BrandResolve_EmptyBrand(t *testing.T) {
 }
 
 func TestCov3_BrandResolve_ZeroItemID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5558930006")
 
 	rr := doRequest(server.handleBrandResolve, "POST", "/api/list/brand-resolve",
@@ -3316,7 +3252,7 @@ func TestCov3_BrandResolve_ZeroItemID(t *testing.T) {
 }
 
 func TestCov3_BrandResolve_WithoutProductCategory(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5558930007")
 
 	itemID := createListItem(t, server.db, userID, "Whole Milk", "Dairy & Eggs")
@@ -3345,7 +3281,7 @@ func TestCov3_BrandResolve_WithoutProductCategory(t *testing.T) {
 }
 
 func TestCov3_BrandResolve_ModificationRecorded(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5558930008")
 
 	itemID := createListItem(t, server.db, userID, "Greek Yogurt", "Dairy & Eggs")
@@ -3372,7 +3308,7 @@ func TestCov3_BrandResolve_ModificationRecorded(t *testing.T) {
 }
 
 func TestCov3_BrandResolve_InvalidSession(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	fakeCookie := &http.Cookie{Name: "session", Value: "totally_fake_session"}
 	rr := doRequest(server.handleBrandResolve, "POST", "/api/list/brand-resolve",
@@ -3384,7 +3320,7 @@ func TestCov3_BrandResolve_InvalidSession(t *testing.T) {
 }
 
 func TestCov3_BrandResolve_UpdatesExistingBrand(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5558930009")
 
 	itemID := createListItem(t, server.db, userID, "Ketchup", "Condiments")
@@ -3415,7 +3351,7 @@ func TestCov3_BrandResolve_UpdatesExistingBrand(t *testing.T) {
 }
 
 func TestCov3_BrandResolve_BrandPreferenceRecorded(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5558930010")
 
 	itemID := createListItem(t, server.db, userID, "Pasta Sauce", "Condiments")
@@ -3449,7 +3385,7 @@ func TestCov3_BrandResolve_BrandPreferenceRecorded(t *testing.T) {
 }
 
 func TestCov3_BrandResolve_InvalidJSON(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5558930011")
 
 	req := httptest.NewRequest("POST", "/api/list/brand-resolve", strings.NewReader("{invalid json"))

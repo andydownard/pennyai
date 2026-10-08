@@ -185,14 +185,13 @@ func (s *Server) handleChurnRisk(w http.ResponseWriter, r *http.Request) {
 	type userRisk struct {
 		UserID         string       `json:"user_id"`
 		Name           string       `json:"name"`
-		Phone          string       `json:"phone"`
 		Email          string       `json:"email"`
 		CompositeRisk  float64      `json:"composite_risk"`
 		Signals        []signalInfo `json:"signals"`
 	}
 
 	rows, err := s.db.Query(`
-		SELECT cs.user_id, COALESCE(u.name, ''), COALESCE(u.phone, ''), COALESCE(u.email, ''),
+		SELECT cs.user_id, COALESCE(u.name, ''), COALESCE(u.email, ''),
 			cs.signal_type, cs.signal_value, cs.risk_score, cs.computed_at
 		FROM churn_signals cs
 		JOIN users u ON u.id = cs.user_id
@@ -208,9 +207,9 @@ func (s *Server) handleChurnRisk(w http.ResponseWriter, r *http.Request) {
 	var order []string
 	for rows.Next() {
 		var userID string
-		var name, phone, email string
+		var name, email string
 		var si signalInfo
-		if err := rows.Scan(&userID, &name, &phone, &email, &si.SignalType, &si.SignalValue, &si.RiskScore, &si.ComputedAt); err != nil {
+		if err := rows.Scan(&userID, &name, &email, &si.SignalType, &si.SignalValue, &si.RiskScore, &si.ComputedAt); err != nil {
 			log.Printf("[churn-risk] scan: %v", err)
 			continue
 		}
@@ -219,7 +218,6 @@ func (s *Server) handleChurnRisk(w http.ResponseWriter, r *http.Request) {
 			ur = &userRisk{
 				UserID: userID,
 				Name:   name,
-				Phone:  phone,
 				Email:  email,
 			}
 			userMap[userID] = ur

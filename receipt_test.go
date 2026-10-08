@@ -18,8 +18,7 @@ import (
 // =============================================================================
 
 func TestReceipt_ProcessAndCheckOff(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
@@ -71,8 +70,7 @@ func TestReceipt_ProcessAndCheckOff(t *testing.T) {
 }
 
 func TestReceipt_DuplicateDedup(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
@@ -116,7 +114,7 @@ func TestReceipt_DuplicateDedup(t *testing.T) {
 // =============================================================================
 
 func TestGetReceipts_Empty(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleReceipts, "GET", "/api/receipts", nil, []*http.Cookie{cookie})
@@ -131,7 +129,7 @@ func TestGetReceipts_Empty(t *testing.T) {
 }
 
 func TestGetReceipts_ReturnsUserReceipts(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Insert a receipt directly (receipts table has no raw_text column)
@@ -159,7 +157,7 @@ func TestGetReceipts_ReturnsUserReceipts(t *testing.T) {
 }
 
 func TestGetReceipts_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleReceipts, "GET", "/api/receipts", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -168,7 +166,7 @@ func TestGetReceipts_RequiresAuth(t *testing.T) {
 }
 
 func TestGetReceiptItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Insert receipt and line items
@@ -207,7 +205,7 @@ func TestGetReceiptItems(t *testing.T) {
 }
 
 func TestGetReceiptItems_OtherUserCantAccess(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID1 := loginUser(t, server, "5551234567")
 	cookie2, _ := loginUser(t, server, "5559876543")
 
@@ -225,7 +223,7 @@ func TestGetReceiptItems_OtherUserCantAccess(t *testing.T) {
 }
 
 func TestReceiptConfirm(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Insert receipt and line item
@@ -262,7 +260,7 @@ func TestReceiptConfirm(t *testing.T) {
 }
 
 func TestReceiptConfirm_Reject(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	res, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status)
@@ -293,7 +291,7 @@ func TestReceiptConfirm_Reject(t *testing.T) {
 }
 
 func TestGetSwapClaims_Empty(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleReceiptRouting, "GET", "/api/receipts/claims", nil, []*http.Cookie{cookie})
@@ -308,7 +306,7 @@ func TestGetSwapClaims_Empty(t *testing.T) {
 }
 
 func TestReceiptRouting_InvalidPath(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleReceiptRouting, "GET", "/api/receipts/999/unknown", nil, []*http.Cookie{cookie})
@@ -322,7 +320,7 @@ func TestReceiptRouting_InvalidPath(t *testing.T) {
 // =============================================================================
 
 func TestGetReceipts_CrossUserIsolation(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie1, userID1 := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -344,7 +342,7 @@ func TestGetReceipts_CrossUserIsolation(t *testing.T) {
 }
 
 func TestGetReceiptItems_CrossUser(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID1 := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -360,7 +358,7 @@ func TestGetReceiptItems_CrossUser(t *testing.T) {
 }
 
 func TestGetReceipts_MultipleReturned(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec(`INSERT INTO receipts (user_id, image_hash, items_found, items_matched, store_name, total_cents, status, swaps_verified)
@@ -388,7 +386,7 @@ func TestGetReceipts_MultipleReturned(t *testing.T) {
 }
 
 func TestReceiptConfirm_FeedsAbbreviationDB(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	res, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status, store_name)
@@ -450,7 +448,7 @@ func TestReceipts_StoreIDColumn(t *testing.T) {
 // =============================================================================
 
 func TestGetSwapClaims_WithData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "+15550030005")
 
 	dealRes, _ := server.db.Exec(`INSERT INTO brand_deals (competitor_product, offer_brand, offer_product, discount_cents, daily_budget_cents, status)
@@ -488,7 +486,7 @@ func TestGetSwapClaims_WithData(t *testing.T) {
 }
 
 func TestGetSwapClaims_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleReceiptRouting, "GET", "/api/receipts/claims", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -497,7 +495,7 @@ func TestGetSwapClaims_RequiresAuth(t *testing.T) {
 }
 
 func TestGetSwapClaims_CrossUserIsolation(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userA := loginUser(t, server, "+15550030006")
 	cookieB, _ := loginUser(t, server, "+15550030007")
 
@@ -526,7 +524,7 @@ func TestGetSwapClaims_CrossUserIsolation(t *testing.T) {
 // =============================================================================
 
 func TestReceiptConfirm_CrossUserBlocked(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userA := loginUser(t, server, "+15550030008")
 	cookieB, _ := loginUser(t, server, "+15550030009")
 
@@ -556,7 +554,7 @@ func TestReceiptConfirm_CrossUserBlocked(t *testing.T) {
 // =============================================================================
 
 func TestReceiptConfirm_UpdatesMatchedCount(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "+15550030010")
 
 	receiptRes, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status, items_matched) VALUES (?, 'count_hash', 'processed', 0)`, userID)
@@ -605,7 +603,7 @@ func TestReceiptConfirm_UpdatesMatchedCount(t *testing.T) {
 // =============================================================================
 
 func TestReceiptConfirm_TriggersSwapVerification(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "+15550030011")
 
 	// Deal + accepted swap
@@ -693,7 +691,7 @@ func TestReceiptRateLimit_DifferentUsersIndependent(t *testing.T) {
 // =============================================================================
 
 func TestReceiptItems_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "+15550030012")
 
 	receiptRes, _ := server.db.Exec(`INSERT INTO receipts (user_id, image_hash, status) VALUES (?, 'method_hash', 'processed')`, userID)
@@ -707,7 +705,7 @@ func TestReceiptItems_MethodNotAllowed(t *testing.T) {
 }
 
 func TestSwapClaims_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "+15550030013")
 
 	rr := doRequest(server.handleReceiptRouting, "POST", "/api/receipts/claims", nil, []*http.Cookie{cookie})
@@ -721,8 +719,7 @@ func TestSwapClaims_MethodNotAllowed(t *testing.T) {
 // =============================================================================
 
 func TestReceipt_ForgeryDetected_ReturnsRejection(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
@@ -916,7 +913,7 @@ func writePNGChunk(buf *bytes.Buffer, chunkType string, data []byte) {
 // =============================================================================
 
 func TestReceiptItems_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Create a receipt
@@ -955,7 +952,7 @@ func TestReceiptItems_Success(t *testing.T) {
 }
 
 func TestReceiptItems_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleReceiptItems, "GET", "/api/receipts/1/items", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Status: got %d, want 401", rr.Code)
@@ -963,7 +960,7 @@ func TestReceiptItems_RequiresAuth(t *testing.T) {
 }
 
 func TestReceiptItems_NotOwned(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 	_, otherUserID := loginUser(t, server, "5559999999")
 
@@ -980,7 +977,7 @@ func TestReceiptItems_NotOwned(t *testing.T) {
 }
 
 func TestReceiptItems_MethodNotAllowed_POST(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleReceiptItems, "POST", "/api/receipts/1/items", nil, []*http.Cookie{cookie})
@@ -994,7 +991,7 @@ func TestReceiptItems_MethodNotAllowed_POST(t *testing.T) {
 // =============================================================================
 
 func TestReceiptConfirm_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Create receipt
@@ -1030,7 +1027,7 @@ func TestReceiptConfirm_Success(t *testing.T) {
 }
 
 func TestReceiptConfirm_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleReceiptConfirm, "POST", "/api/receipts/1/confirm",
 		map[string]interface{}{"confirmations": []interface{}{}}, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -1043,7 +1040,7 @@ func TestReceiptConfirm_RequiresAuth(t *testing.T) {
 // =============================================================================
 
 func TestSwapClaims_EmptyList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleReceiptRouting, "GET", "/api/receipts/claims", nil, []*http.Cookie{cookie})
@@ -1059,7 +1056,7 @@ func TestSwapClaims_EmptyList(t *testing.T) {
 }
 
 func TestSwapClaims_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleReceiptRouting, "GET", "/api/receipts/claims", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Status: got %d, want 401", rr.Code)
@@ -1067,7 +1064,7 @@ func TestSwapClaims_RequiresAuth(t *testing.T) {
 }
 
 func TestSwapClaims_MethodNotAllowed_POST(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSwapClaims, "POST", "/api/receipts/claims", nil, []*http.Cookie{cookie})

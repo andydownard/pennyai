@@ -12,7 +12,7 @@ import (
 // =============================================================================
 
 func TestFeedbackList_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// handleFeedbackRoutes dispatches; POST goes to handleFeedback, DELETE should be 405
 	rr := doRequest(server.handleFeedbackRoutes, "DELETE", "/api/feedback", nil, nil)
@@ -23,9 +23,9 @@ func TestFeedbackList_WrongMethod(t *testing.T) {
 }
 
 func TestFeedbackList_NonFeedbackUser(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
-	// Login with a phone NOT in FeedbackPhones
+	// A signed-in user who is not an admin
 	cookie, _ := loginUser(t, server, "5559999999")
 
 	rr := doRequest(server.handleFeedbackRoutes, "GET", "/api/feedback", nil, []*http.Cookie{cookie})
@@ -36,10 +36,10 @@ func TestFeedbackList_NonFeedbackUser(t *testing.T) {
 }
 
 func TestFeedbackList_EmptyList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
-	// Login with a phone that IS in FeedbackPhones (test server uses "5551234567")
-	cookie, _ := loginUser(t, server, "5551234567")
+	// Admins can submit and read feedback
+	cookie, _ := loginUser(t, server, testAdminPhone)
 
 	rr := doRequest(server.handleFeedbackRoutes, "GET", "/api/feedback", nil, []*http.Cookie{cookie})
 

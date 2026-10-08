@@ -22,7 +22,7 @@ import (
 // ---- INSERT OR IGNORE → ON CONFLICT idempotency ----
 
 func TestRegression_AuthMethodsInsertIsIdempotent(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-am', '5550000001')")
 
 	// Use the same conversion path the production handler uses.
@@ -45,7 +45,7 @@ func TestRegression_AuthMethodsInsertIsIdempotent(t *testing.T) {
 }
 
 func TestRegression_SavingsMilestonesInsertIsIdempotent(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-sm', '5550000002')")
 
 	stmt := "INSERT INTO savings_milestones (user_id, cents) VALUES (?, ?) ON CONFLICT (user_id, cents) DO NOTHING"
@@ -67,7 +67,7 @@ func TestRegression_SavingsMilestonesInsertIsIdempotent(t *testing.T) {
 }
 
 func TestRegression_SwapPropagationsInsertIsIdempotent(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-sp1', '5550000003'), ('user-sp2', '5550000004')")
 	server.db.Exec("INSERT INTO households (id) VALUES (5001)")
 	// Minimal brand_deal so deal_id FK is satisfied.
@@ -102,7 +102,7 @@ func TestRegression_SwapPropagationsInsertIsIdempotent(t *testing.T) {
 // ---- LOWER(col) LIKE → col ILIKE: case-insensitive search ----
 
 func TestRegression_StoreSearchIsCaseInsensitive(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5550000005")
 
 	// Seed with mixed-case data; SQLite LIKE was case-insensitive, PG LIKE is not.
@@ -126,7 +126,7 @@ func TestRegression_StoreSearchIsCaseInsensitive(t *testing.T) {
 // ---- handleAvatarGet accepts TEXT UUID (not int) ----
 
 func TestRegression_AvatarGetAcceptsUUIDPath(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	// Seed user + photo. UUID-shaped string (not numeric).
 	uid := "8e3c2a1b-4f5d-4e6a-b7c8-9d0e1f2a3b4c"
 	server.db.Exec("INSERT INTO users (id, phone) VALUES (?, '5550000006')", uid)

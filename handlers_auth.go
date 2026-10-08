@@ -1,12 +1,10 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 
@@ -58,12 +56,20 @@ func handleRetiredAuth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleRetiredTexting answers every retired texting endpoint with 410 Gone.
+func handleRetiredTexting(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusGone, map[string]string{
+		"error": "Texting is no longer part of Groflo.",
+	})
+}
+
 // handleTestLogin handles POST /auth/test-login. TEST MODE ONLY: it mints a
 // session with no credentials, for end-to-end tests. The route is registered
 // only when TestMode is on, and the handler refuses again on its own so a
 // future registration mistake cannot expose it.
 //
-// Request (both optional): {"phone_number":"2125550101","name":"Pat"}
+// Request (optional): {"name":"Pat"}. Every call mints a new user; any other
+// field, including a phone number, is ignored.
 func (s *Server) handleTestLogin(w http.ResponseWriter, r *http.Request) {
 	if !s.config.TestMode {
 		writeNotFound(w, "Not found")
@@ -74,8 +80,7 @@ func (s *Server) handleTestLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		PhoneNumber string `json:"phone_number"`
-		Name        string `json:"name"`
+		Name string `json:"name"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
@@ -84,48 +89,13 @@ func (s *Server) handleTestLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	name := strings.TrimSpace(req.Name)
 
-	var user User
-	if req.PhoneNumber != "" {
-		e164, ok := normalizePhone(req.PhoneNumber)
-		if !ok {
-			writeBadRequest(w, "Enter a 10-digit phone number")
-			return
-		}
-		u, err := upsertUser(s.db, strings.TrimPrefix(e164, "+1"))
-		if err != nil {
-			dbError(w, err, "Failed to sign in")
-			return
-		}
-		user = u
-		// Record SMS consent so /auth/me reports needs_sms_consent=false and the
-		// consent modal does not cover the app in browser tests. Idempotent.
-		ua := r.Header.Get("User-Agent")
-		if len(ua) > 500 {
-			ua = ua[:500]
-		}
-		if _, err := s.db.Exec(
-			"UPDATE users SET sms_consent_at = CURRENT_TIMESTAMP, sms_consent_ip = ?, sms_consent_user_agent = ? WHERE id = ? AND sms_consent_at IS NULL",
-			getClientIP(r), ua, user.ID,
-		); err != nil {
-			dbError(w, err, "Failed to sign in")
-			return
-		}
-		if name != "" {
-			if _, err := s.db.Exec("UPDATE users SET name = ? WHERE id = ? AND name = ''", name, user.ID); err != nil {
-				dbError(w, err, "Failed to sign in")
-				return
-			}
-		}
-	} else {
-		u, err := createPhonelessTestUser(s.db, name)
-		if err != nil {
-			dbError(w, err, "Failed to sign in")
-			return
-		}
-		user = u
+	user, err := createPhonelessTestUser(s.db, name)
+	if err != nil {
+		dbError(w, err, "Failed to sign in")
+		return
 	}
 
-	token, err := s.sessions.CreateSession(user.ID, user.PhoneNumber, "test")
+	token, err := s.sessions.CreateSession(user.ID, "", "test")
 	if err != nil {
 		dbError(w, err, "Failed to create session")
 		return
@@ -215,31 +185,20 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"user_id":              session.UserID,
 		"auth_method":          session.AuthMethod,
 		"is_admin":             s.isAdmin(session),
-		"can_submit_feedback":  s.isFeedbackUser(session),
-	}
-	if session.PhoneNumber != "" {
-		resp["phone_number"] = session.PhoneNumber
+		"can_submit_feedback":  s.isAdmin(session),
 	}
 
 	// Include login_count and name for onboarding flow
 	var loginCount int
 	var userName string
-	var smsConsentAt sql.NullString
-	var phoneNumber sql.NullString
 	s.db.QueryRow(
-		"SELECT login_count, name, sms_consent_at, phone FROM users WHERE id = ?",
+		"SELECT login_count, name FROM users WHERE id = ?",
 		session.UserID,
-	).Scan(&loginCount, &userName, &smsConsentAt, &phoneNumber)
+	).Scan(&loginCount, &userName)
 	resp["login_count"] = loginCount
 	if userName != "" {
 		resp["name"] = userName
 	}
-
-	// needs_sms_consent: existing user has a phone number on file but no
-	// recorded consent timestamp. Triggers the rebrand re-consent modal so
-	// Twilio A2P 10DLC has a provable consent record per user. Set once a
-	// user explicitly re-confirms via POST /api/me/sms-consent.
-	resp["needs_sms_consent"] = phoneNumber.Valid && phoneNumber.String != "" && !smsConsentAt.Valid
 
 	// Include auth_methods array
 	authMethods := []string{}
@@ -258,90 +217,8 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// handleSmsConsent handles POST /api/me/sms-consent
-// Records the authenticated user's SMS consent decision under the new Groflo
-// brand. Required for users whose accounts pre-date the rebrand and have a
-// NULL sms_consent_at column. Twilio A2P 10DLC vetting requires a provable
-// consent record per user.
-//
-// Request:  { "opted_in": true } or { "opted_in": false }
-// Response: { "success": true, "needs_sms_consent": false }
-//
-// opted_in=true:  records timestamp + IP + UA, future SMS will fire
-// opted_in=false: clears any prior consent timestamp; future outbound SMS
-//                 to this user will be skipped by canSendSMS()
-func (s *Server) handleSmsConsent(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodPost) {
-		return
-	}
-	session, ok := s.requireSession(w, r)
-	if !ok {
-		return
-	}
-
-	var req struct {
-		OptedIn bool `json:"opted_in"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-
-	clientIP := getClientIP(r)
-	userAgent := r.Header.Get("User-Agent")
-	if len(userAgent) > 500 {
-		userAgent = userAgent[:500]
-	}
-
-	if req.OptedIn {
-		if _, err := s.db.Exec(
-			`UPDATE users SET sms_consent_at = CURRENT_TIMESTAMP,
-			   sms_consent_ip = ?, sms_consent_user_agent = ?
-			 WHERE id = ?`,
-			clientIP, userAgent, session.UserID,
-		); err != nil {
-			dbError(w, err, "Failed to record consent")
-			return
-		}
-		log.Printf("[sms-consent] user %s opted in", session.UserID)
-		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"success":           true,
-			"needs_sms_consent": false,
-		})
-		return
-	}
-
-	// opted_in == false: clear any prior consent. Outbound SMS will stop.
-	if _, err := s.db.Exec(
-		`UPDATE users SET sms_consent_at = NULL WHERE id = ?`, session.UserID,
-	); err != nil {
-		dbError(w, err, "Failed to record opt-out")
-		return
-	}
-	log.Printf("[sms-consent] user %s opted out (pennySMS will be skipped)", session.UserID)
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"success":           true,
-		"needs_sms_consent": true,
-	})
-}
-
-// canSendSMS returns true if the user has a recorded SMS consent timestamp.
-// Wire this into every outbound SMS code path for Twilio A2P 10DLC compliance.
-// NULL consent = consent not yet captured (legacy users pre-rebrand) or user
-// explicitly opted out. Either way, do not send.
-func (s *Server) canSendSMS(userID string) bool {
-	var consentAt sql.NullString
-	err := s.db.QueryRow(
-		`SELECT sms_consent_at FROM users WHERE id = ?`, userID,
-	).Scan(&consentAt)
-	if err != nil {
-		log.Printf("[sms-consent] canSendSMS lookup failed for user %s: %v", userID, err)
-		return false
-	}
-	return consentAt.Valid
-}
-
 // listItemColumns is the shared SELECT column list for list_items queries.
-const listItemColumns = "li.id, li.name, li.brand, li.department, li.quantity, li.size, li.notes, li.source, li.checked, li.urgent, li.created_at, COALESCE(u.name,''), COALESCE(u.phone,''), li.claimed_by, COALESCE(cu.name,''), li.swap_savings_cents, li.emoji"
+const listItemColumns = "li.id, li.name, li.brand, li.department, li.quantity, li.size, li.notes, li.source, li.checked, li.urgent, li.created_at, COALESCE(u.name,''), li.claimed_by, COALESCE(cu.name,''), li.swap_savings_cents, li.emoji"
 
 // listItemJoins is the shared FROM/JOIN clause for list_items queries.
 const listItemJoins = "list_items li JOIN users u ON u.id = li.user_id LEFT JOIN users cu ON cu.id = li.claimed_by"

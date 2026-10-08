@@ -73,8 +73,7 @@ func (s *Server) handleClerkExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// user.PhoneNumber is the user's CURRENT users.phone, not a stale copy.
-	sessionToken, err := s.sessions.CreateSession(user.ID, user.PhoneNumber, "clerk")
+	sessionToken, err := s.sessions.CreateSession(user.ID, "", "clerk")
 	if err != nil {
 		dbError(w, err, "Failed to create session")
 		return
@@ -96,19 +95,18 @@ func (s *Server) resolveClerkSession(id ClerkIdentity) (*Session, error) {
 	if id.ClerkUserID == "" {
 		return nil, nil
 	}
-	var userID, phone string
+	var userID string
 	err := s.db.QueryRow(
-		"SELECT id, COALESCE(phone,'') FROM users WHERE clerk_user_id = ?",
+		"SELECT id FROM users WHERE clerk_user_id = ?",
 		id.ClerkUserID,
-	).Scan(&userID, &phone)
+	).Scan(&userID)
 	if err != nil {
 		// No row yet is not an error — the request is anonymous.
 		return nil, nil
 	}
 	return &Session{
-		UserID:      userID,
-		PhoneNumber: phone,
-		AuthMethod:  "clerk",
-		CreatedAt:   time.Now(),
+		UserID:     userID,
+		AuthMethod: "clerk",
+		CreatedAt:  time.Now(),
 	}, nil
 }
