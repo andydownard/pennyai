@@ -1,6 +1,6 @@
 import { PennyAvatar } from './PennyAvatar'
 import { UserAvatar } from './UserAvatar'
-import { FONT, FONT_BASE, FONT_SM, FONT_2XS } from '../styles'
+import { FONT, FONT_BASE, FONT_SM } from '../styles'
 
 const BRAND_PORTAL_URL = import.meta.env.VITE_BRAND_PORTAL_URL || ''
 
@@ -13,6 +13,7 @@ interface NavMenuProps {
   userId: number | null
   initials: string
   displayName: string
+  email?: string
   onNavigate: (screen: NavScreen) => void
   onLogout: () => void
   onClose: () => void
@@ -31,10 +32,6 @@ const menuItems: { key: NavScreen; label: string; icon: (color: string) => JSX.E
     key: 'penny', label: 'Penny',
     icon: () => <PennyAvatar size={20} />,
   },
-  {
-    key: 'settings-share', label: 'Share & Earn',
-    icon: (c) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>,
-  },
 ]
 
 const adminItem: typeof menuItems[0] = {
@@ -42,7 +39,7 @@ const adminItem: typeof menuItems[0] = {
   icon: (c) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/></svg>,
 }
 
-export function NavMenu({ open, active, isAdmin, userId, initials, displayName, onNavigate, onLogout, onClose }: NavMenuProps) {
+export function NavMenu({ open, active, isAdmin, userId, initials, displayName, email = '', onNavigate, onLogout, onClose }: NavMenuProps) {
   if (!open) return null
 
   const items = isAdmin ? [...menuItems, adminItem] : menuItems
@@ -69,37 +66,6 @@ export function NavMenu({ open, active, isAdmin, userId, initials, displayName, 
         onClick={e => e.stopPropagation()}
         aria-label="Main navigation"
       >
-        {/* Brand header */}
-        <div style={{
-          padding: '20px 20px 16px',
-          borderBottom: '1px solid var(--border)',
-          display: 'flex', alignItems: 'center', gap: '12px',
-        }}>
-          <svg width="36" height="36" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Groflo logo" style={{ flexShrink: 0 }}>
-            <rect x="12" y="10" width="42" height="52" rx="6" stroke="var(--brand)" strokeWidth="2.5" fill="var(--surface)" />
-            <rect x="25" y="4" width="16" height="10" rx="4" fill="var(--brand)" />
-            <rect x="29" y="7" width="8" height="4" rx="2" fill="var(--surface)" />
-            <path d="M20 27 L23 30 L28 24" stroke="var(--brand)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-            <line x1="33" y1="27" x2="46" y2="27" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" opacity="0.7" />
-            <path d="M20 37 L23 40 L28 34" stroke="var(--brand)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-            <line x1="33" y1="37" x2="42" y2="37" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" opacity="0.7" />
-            <circle cx="24" cy="47" r="2" fill="var(--brand)" opacity="0.3" />
-            <line x1="33" y1="47" x2="39" y2="47" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" opacity="0.3" />
-            <path d="M54 14 L56 19 L61 21 L56 23 L54 28 L52 23 L47 21 L52 19 Z" fill="var(--brand)" />
-            <path d="M60 6 L61 9 L64 10 L61 11 L60 14 L59 11 L56 10 L59 9 Z" fill="var(--brand)" opacity="0.5" />
-          </svg>
-          <div>
-            <span style={{
-              fontFamily: FONT, fontSize: '1.25rem', fontWeight: 700,
-              color: 'var(--brand)', letterSpacing: '-0.5px',
-            }}>Groflo</span>
-            <p style={{
-              fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)',
-              margin: '2px 0 0', lineHeight: 1.3,
-            }}>Tell Penny. She handles the rest.</p>
-          </div>
-        </div>
-
         {/* Profile: first */}
         <button
           onClick={() => { onNavigate('profile'); onClose() }}
@@ -116,9 +82,9 @@ export function NavMenu({ open, active, isAdmin, userId, initials, displayName, 
         >
           <UserAvatar userId={userId} initials={initials} size={48} />
           <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-            <span style={{ fontSize: FONT_BASE, fontWeight: 600 }}>Profile</span>
-            {displayName && (
-              <span style={{ fontSize: FONT_SM, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span>
+            <span style={{ fontSize: FONT_BASE, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName || 'Profile'}</span>
+            {email && (
+              <span style={{ fontSize: FONT_SM, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</span>
             )}
           </span>
         </button>

@@ -130,8 +130,8 @@ func TestSettingsGetUpdate(t *testing.T) {
 	if body["name"] != name {
 		t.Errorf("name: got %v, want %s", body["name"], name)
 	}
-	if body["email"] != email {
-		t.Errorf("email: got %v, want %s", body["email"], email)
+	if body["email"] == email {
+		t.Errorf("email must not be settable from the app (it comes from Rally), got %v", body["email"])
 	}
 }
 
@@ -327,22 +327,24 @@ func TestSettingsUpdateName(t *testing.T) {
 	}
 }
 
-func TestSettingsUpdateEmail(t *testing.T) {
+func TestSettingsUpdateEmail_IsIgnored(t *testing.T) {
 	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
+	server.db.Exec("UPDATE users SET email = ? WHERE id = ?", "rally@example.com", userID)
 
-	email := "alice@example.com"
 	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
-		map[string]interface{}{"email": email}, []*http.Cookie{cookie})
-
+		map[string]interface{}{"email": "someone-else@example.com", "name": "Pat"}, []*http.Cookie{cookie})
 	if rr.Code != http.StatusOK {
-		t.Errorf("Status: got %d, want 200", rr.Code)
+		t.Fatalf("Status: got %d, want 200", rr.Code)
 	}
 
-	var dbEmail string
-	server.db.QueryRow("SELECT email FROM users WHERE id = ?", userID).Scan(&dbEmail)
-	if dbEmail != email {
-		t.Errorf("Email: got %q, want %q", dbEmail, email)
+	var dbEmail, dbName string
+	server.db.QueryRow("SELECT email, name FROM users WHERE id = ?", userID).Scan(&dbEmail, &dbName)
+	if dbEmail != "rally@example.com" {
+		t.Errorf("email changed to %q; it must only come from Rally", dbEmail)
+	}
+	if dbName != "Pat" {
+		t.Errorf("other fields must still save: name = %q", dbName)
 	}
 }
 
@@ -480,25 +482,24 @@ func TestSettingsGet_HouseholdMembers(t *testing.T) {
 // SETTINGS UPDATE — EMAIL UNIQUENESS
 // =============================================================================
 
-func TestSettingsUpdate_DuplicateEmail(t *testing.T) {
+func TestSettingsUpdate_CannotClaimAnotherUsersEmail(t *testing.T) {
 	server := newTestServer(t)
-	cookie1, _ := loginUser(t, server, "5551111111")
-	cookie2, _ := loginUser(t, server, "5552222222")
+	_, user1 := loginUser(t, server, "5551111111")
+	cookie2, user2 := loginUser(t, server, "5552222222")
+	server.db.Exec("UPDATE users SET email = ? WHERE id = ?", "shared@example.com", user1)
 
-	// User1 sets email
+	// User 2 tries to take user 1's email. Inbound email matches on this
+	// address, so claiming it would route user 1's mail into user 2's list.
 	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
 		map[string]string{"email": "shared@example.com"},
-		[]*http.Cookie{cookie1})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("User1 PATCH: got %d, want 200", rr.Code)
-	}
-
-	// User2 tries the same email
-	rr = doRequest(server.handleSettings, "PATCH", "/api/settings",
-		map[string]string{"email": "shared@example.com"},
 		[]*http.Cookie{cookie2})
-	if rr.Code != http.StatusConflict {
-		t.Errorf("Duplicate email: got %d, want 409", rr.Code)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH: got %d, want 200 (email is ignored)", rr.Code)
+	}
+	var email2 string
+	server.db.QueryRow("SELECT email FROM users WHERE id = ?", user2).Scan(&email2)
+	if email2 == "shared@example.com" {
+		t.Error("user 2 claimed user 1's email through settings")
 	}
 }
 
@@ -714,7 +715,7 @@ func TestInvite_BodyIsIgnored(t *testing.T) {
 
 // --- handleSettingsUpdate name and email together ---
 
-func TestSettingsUpdate_NameAndEmail(t *testing.T) {
+func TestSettingsUpdate_NameSavesEmailIgnored(t *testing.T) {
 	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
@@ -730,8 +731,8 @@ func TestSettingsUpdate_NameAndEmail(t *testing.T) {
 	if name != "Alice" {
 		t.Errorf("Name: got %q, want Alice", name)
 	}
-	if email != "alice@example.com" {
-		t.Errorf("Email: got %q, want alice@example.com", email)
+	if email != "" {
+		t.Errorf("Email: got %q, want it unchanged (empty)", email)
 	}
 }
 
@@ -1295,24 +1296,6 @@ func TestSettingsUpdate_SMSOptIn(t *testing.T) {
 	}
 }
 
-func TestSettingsUpdate_EmailConflict(t *testing.T) {
-	server := newTestServer(t)
-	cookie1, _ := loginUser(t, server, "5551111111")
-	cookie2, _ := loginUser(t, server, "5552222222")
-
-	// Set email for user1
-	doRequest(server.handleSettings, "PATCH", "/api/settings",
-		map[string]interface{}{"email": "shared@test.com"},
-		[]*http.Cookie{cookie1})
-
-	// Try to set same email for user2
-	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
-		map[string]interface{}{"email": "shared@test.com"},
-		[]*http.Cookie{cookie2})
-	if rr.Code != http.StatusConflict {
-		t.Errorf("Expected 409 for duplicate email, got %d", rr.Code)
-	}
-}
 
 func TestSettingsUpdate_InvalidJSON(t *testing.T) {
 	server := newTestServer(t)
@@ -1332,10 +1315,11 @@ func TestSettingsGet_WithData(t *testing.T) {
 	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551111111")
 
-	// Set name and email
+	// Name from the app; email as Rally sign-in stores it.
 	doRequest(server.handleSettings, "PATCH", "/api/settings",
-		map[string]interface{}{"name": "Alice", "email": "alice@test.com"},
+		map[string]interface{}{"name": "Alice"},
 		[]*http.Cookie{cookie})
+	server.db.Exec("UPDATE users SET email = ? WHERE name = ?", "alice@test.com", "Alice")
 
 	rr := doRequest(server.handleSettings, "GET", "/api/settings", nil, []*http.Cookie{cookie})
 	body := parseJSON(rr)
@@ -1573,23 +1557,6 @@ func TestReferralClaim_Idempotent(t *testing.T) {
 	_ = cookie1
 }
 
-func TestSettingsUpdate_EmailUniqueCheck(t *testing.T) {
-	server := newTestServer(t)
-	cookie1, _ := loginUser(t, server, "5551111111")
-	cookie2, _ := loginUser(t, server, "5552222222")
-
-	// Set email on user1
-	email1 := "shared@example.com"
-	doRequest(server.handleSettingsUpdate, "PATCH", "/api/settings",
-		map[string]interface{}{"email": &email1}, []*http.Cookie{cookie1})
-
-	// Try to set same email on user2
-	rr := doRequest(server.handleSettingsUpdate, "PATCH", "/api/settings",
-		map[string]interface{}{"email": &email1}, []*http.Cookie{cookie2})
-	if rr.Code != http.StatusConflict {
-		t.Errorf("Expected 409 for duplicate email, got %d", rr.Code)
-	}
-}
 
 // =============================================================================
 // REFERRAL REDEEM TESTS
@@ -1657,33 +1624,7 @@ func TestReferralRedeem_ZeroPoints(t *testing.T) {
 // SETTINGS EDGE CASE TESTS
 // =============================================================================
 
-func TestSettingsUpdate_EmailLowercased(t *testing.T) {
-	server := newTestServer(t)
-	cookie, userID := loginUser(t, server, "5551234567")
 
-	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
-		map[string]string{"email": "TEST@EXAMPLE.COM"}, []*http.Cookie{cookie})
-	if rr.Code != http.StatusOK {
-		t.Errorf("Status: got %d, want 200", rr.Code)
-	}
-
-	var email sql.NullString
-	server.db.QueryRow("SELECT email FROM users WHERE id = ?", userID).Scan(&email)
-	if email.String != "test@example.com" {
-		t.Errorf("Email: got %q, want 'test@example.com'", email.String)
-	}
-}
-
-func TestSettingsUpdate_InvalidEmailFormat(t *testing.T) {
-	server := newTestServer(t)
-	cookie, _ := loginUser(t, server, "5551234567")
-
-	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
-		map[string]string{"email": "notanemail"}, []*http.Cookie{cookie})
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("Status: got %d, want 400", rr.Code)
-	}
-}
 
 func TestCreateSoloHousehold_VerifyMembership(t *testing.T) {
 	_, db := openTestDB(t)

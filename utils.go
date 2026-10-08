@@ -111,7 +111,14 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v interface{}) bool {
 
 // checkRateLimit checks a sync.Map-based sliding window rate limiter.
 // Values are stored as []time.Time. Returns true if the request should be blocked.
+// rateLimitMu makes checkRateLimit's read-count-then-record atomic. Without it,
+// concurrent requests all read the same count and all slip under the limit.
+// One process-wide lock is fine: the critical section is a few slice ops.
+var rateLimitMu sync.Mutex
+
 func checkRateLimit(store *sync.Map, key string, window time.Duration, maxCount int) bool {
+	rateLimitMu.Lock()
+	defer rateLimitMu.Unlock()
 	now := time.Now()
 	if raw, ok := store.Load(key); ok {
 		times := raw.([]time.Time)
@@ -156,6 +163,8 @@ func checkRateLimitBucket(store *sync.Map, key any, window time.Duration, maxCou
 
 // pruneTimeLimiter removes stale entries from a sync.Map-based []time.Time rate limiter.
 func pruneTimeLimiter(store *sync.Map, maxAge time.Duration) {
+	rateLimitMu.Lock()
+	defer rateLimitMu.Unlock()
 	cutoff := time.Now().Add(-maxAge)
 	store.Range(func(key, val any) bool {
 		times := val.([]time.Time)

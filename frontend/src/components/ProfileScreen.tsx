@@ -12,13 +12,11 @@ interface ProfileScreenProps {
   // Settings values
   firstName: string
   lastName: string
-  email: string
   /** From the Rally account, when Rally has verified one. Read-only here. */
   address: string
   // Settings setters
   onFirstNameChange: (v: string) => void
   onLastNameChange: (v: string) => void
-  onEmailChange: (v: string) => void
   onAddressChange: (v: string) => void
   onAutoSave: () => void
   // Auth state
@@ -40,8 +38,8 @@ interface ProfileScreenProps {
 }
 
 export function ProfileScreen({
-  firstName, lastName, email, address,
-  onFirstNameChange, onLastNameChange, onEmailChange, onAddressChange,
+  firstName, lastName, address,
+  onFirstNameChange, onLastNameChange, onAddressChange,
   onAutoSave,
   currentUserId, isAdmin,
   onNavigate, showToast, onSessionExpired,
@@ -199,14 +197,6 @@ export function ProfileScreen({
                 <input type="text" value={lastName} onChange={e => onLastNameChange(e.target.value)} onBlur={onAutoSave} placeholder="Last" style={pageStyles.floatingInput} />
               </FloatingLabelField>
             </div>
-          </div>
-          <div>
-            <FloatingLabelField label="Email">
-              <input type="email" value={email} onChange={e => onEmailChange(e.target.value)} onBlur={onAutoSave} placeholder="your@email.com" style={pageStyles.floatingInput} />
-            </FloatingLabelField>
-            <p style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '4px', paddingLeft: '4px' }}>
-              Once set, forward any recipe or list to penny@list.groflo.io and Penny will add it for you.
-            </p>
           </div>
           <div style={{ position: 'relative' }}>
             <FloatingLabelField label="Address">

@@ -6,11 +6,11 @@ test.describe('Profile screen', () => {
     await login(page)
   })
 
-  test('shows profile fields (first name, last name, email, address)', async ({ page }) => {
+  test('shows profile fields (first name, last name, address) and no email field', async ({ page }) => {
     await page.goto('/profile')
     await expect(page.getByPlaceholder('First')).toBeVisible({ timeout: 10_000 })
     await expect(page.getByPlaceholder('Last')).toBeVisible()
-    await expect(page.getByPlaceholder('your@email.com')).toBeVisible()
+    await expect(page.getByPlaceholder('your@email.com')).toHaveCount(0)
     await expect(page.getByPlaceholder('Start typing your address')).toBeVisible()
   })
 

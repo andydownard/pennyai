@@ -8,9 +8,11 @@ test.describe('Navigation', () => {
 
   test('navigation menu lists every screen', async ({ page }) => {
     const nav = await openNavMenu(page)
-    for (const label of ['Shopping List', 'My Lists', 'Penny', 'Share & Earn', 'Profile']) {
+    for (const label of ['Shopping List', 'My Lists', 'Penny', 'Profile']) {
       await expect(nav.getByRole('button', { name: label })).toBeVisible()
     }
+    await expect(nav.getByRole('button', { name: 'Share & Earn' })).toHaveCount(0)
+    await expect(nav.getByText('Groflo', { exact: true })).toHaveCount(0)
   })
 
   test('navigate to Penny settings', async ({ page }) => {
@@ -18,9 +20,9 @@ test.describe('Navigation', () => {
     await expect(page.getByText('Learn from my choices')).toBeVisible()
   })
 
-  test('navigate to Share & Earn', async ({ page }) => {
-    await navigateTo(page, 'Share & Earn')
-    await expect(page.getByText('Shared List')).toBeVisible()
+  test('the share screen is still reachable by its address', async ({ page }) => {
+    await page.goto('/share')
+    await expect(page.getByText('Shared List')).toBeVisible({ timeout: 10_000 })
   })
 
   test('navigate to Profile', async ({ page }) => {
