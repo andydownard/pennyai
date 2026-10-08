@@ -66,10 +66,11 @@ export function NavMenu({ open, active, isAdmin, userId, initials, displayName, 
         onClick={e => e.stopPropagation()}
         aria-label="Main navigation"
       >
-        {/* Profile: first */}
+        {/* Profile: first. The arrow says the name row opens Profile. */}
         <button
           onClick={() => { onNavigate('profile'); onClose() }}
           aria-current={active === 'profile' ? 'page' : undefined}
+          aria-label={displayName ? `Profile, ${displayName}` : 'Profile'}
           style={{
             display: 'flex', alignItems: 'center', gap: '14px',
             width: '100%', padding: '16px 20px',
@@ -81,12 +82,13 @@ export function NavMenu({ open, active, isAdmin, userId, initials, displayName, 
           }}
         >
           <UserAvatar userId={userId} initials={initials} size={48} />
-          <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <span data-testid="profile-text" style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
             <span style={{ fontSize: FONT_BASE, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName || 'Profile'}</span>
             {email && (
               <span style={{ fontSize: FONT_SM, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</span>
             )}
           </span>
+          <svg data-testid="profile-arrow" aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
         </button>
 
         {/* Nav items */}
