@@ -73,7 +73,9 @@ export function NavMenu({ open, active, isAdmin, userId, initials, displayName, 
           aria-label={displayName ? `Profile, ${displayName}` : 'Profile'}
           style={{
             display: 'flex', alignItems: 'center', gap: '14px',
-            width: '100%', padding: '16px 20px',
+            // Tighter right edge and gap so the arrow costs the name little room
+            // (names are rem-sized; the menu is a fixed 260px).
+            width: '100%', padding: '16px 12px 16px 20px',
             fontFamily: FONT, border: 'none', cursor: 'pointer', textAlign: 'left',
             color: 'var(--text)',
             backgroundColor: active === 'profile' ? 'var(--bg)' : 'transparent',
@@ -88,7 +90,7 @@ export function NavMenu({ open, active, isAdmin, userId, initials, displayName, 
               <span style={{ fontSize: FONT_SM, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</span>
             )}
           </span>
-          <svg data-testid="profile-arrow" aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
+          <svg data-testid="profile-arrow" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginLeft: '-8px' }}><polyline points="9 18 15 12 9 6"/></svg>
         </button>
 
         {/* Nav items */}
