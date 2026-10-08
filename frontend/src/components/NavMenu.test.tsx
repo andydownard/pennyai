@@ -56,3 +56,11 @@ describe('NavMenu', () => {
     expect(p.onClose).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('NavMenu brand portal link', () => {
+  it('is hidden when no brand portal URL is configured', () => {
+    renderMenu()
+    expect(screen.queryByText('For Brands')).toBeNull()
+    expect(screen.getByRole('button', { name: /sign out/i })).toBeInTheDocument()
+  })
+})

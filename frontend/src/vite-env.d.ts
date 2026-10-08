@@ -15,6 +15,7 @@ interface ImportMetaEnv {
   readonly VITE_CLERK_DOMAIN?: string
   /** Required. Absolute sign-in URL on the Rally primary. */
   readonly VITE_CLERK_SIGN_IN_URL?: string
+  readonly VITE_BRAND_PORTAL_URL?: string
   /** CSV of origins Clerk may redirect back to. Defaults to this origin. */
   readonly VITE_ALLOWED_REDIRECT_ORIGINS?: string
   readonly VITE_POSTHOG_KEY?: string
