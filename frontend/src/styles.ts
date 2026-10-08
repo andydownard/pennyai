@@ -86,11 +86,16 @@ export const THEME_CSS = `
   }
 `
 
+// Light is the default for everyone. Dark only when the user chose it with the
+// Profile toggle; the device's own dark setting does not switch Groflo.
 export function getTheme(): 'light' | 'dark' {
   if (typeof window === 'undefined') return 'light'
-  const stored = localStorage.getItem('groflo_theme')
-  if (stored === 'dark' || stored === 'light') return stored
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  try {
+    if (localStorage.getItem('groflo_theme') === 'dark') return 'dark'
+  } catch {
+    // Storage blocked: fall through to the default.
+  }
+  return 'light'
 }
 
 export function setTheme(theme: 'light' | 'dark') {

@@ -27,6 +27,7 @@ import {
   notifyClerkExchanged,
   setClerkExchangePending,
   setClerkExchangeRunner,
+  setClerkResolving,
 } from './clerkToken'
 
 const GUARD_PREFIX = 'groflo.clerk_exchanged:'
@@ -89,11 +90,23 @@ export function ClerkSessionExchange() {
   const { isLoaded, isSignedIn, sessionId } = useAuth()
 
   useEffect(() => {
-    if (!isLoaded || !isSignedIn || !sessionId) return
+    if (!isLoaded) return
+    if (!isSignedIn || !sessionId) {
+      // No Rally session: the login screen is the right thing to show.
+      setClerkResolving(false)
+      return
+    }
 
     const guardKey = GUARD_PREFIX + sessionId
     setClerkExchangeRunner(() => exchange(guardKey))
-    if (!readGuard(guardKey)) void exchange(guardKey)
+    if (readGuard(guardKey)) {
+      // Already exchanged once (or signed out since): nothing will happen
+      // automatically, so stop waiting.
+      setClerkResolving(false)
+    } else {
+      // The exchange handler clears "resolving" once the user is in the app.
+      void exchange(guardKey)
+    }
 
     return () => setClerkExchangeRunner(null)
   }, [isLoaded, isSignedIn, sessionId])

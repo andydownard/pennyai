@@ -5,7 +5,8 @@
 // All styles inline. All API calls go to the Go backend.
 // =============================================================================
 
-import React, { useState, useRef, useEffect, useCallback, Suspense, lazy } from 'react'
+import React, { useState, useRef, useEffect, useCallback, Suspense, lazy, useSyncExternalStore } from 'react'
+import { clerkResolving, subscribeClerkResolving } from './auth/clerkToken'
 import { referralLink } from './appUrl'
 
 // One-shot migration: copy any legacy `thriftly_*` keys to `groflo_*` so
@@ -996,6 +997,9 @@ function AppInner() {
     handleLogout,
     startLoginTypewriter,
   } = auth
+
+  // True while Clerk is still deciding whether a returning user is signed in.
+  const rallyResolving = useSyncExternalStore(subscribeClerkResolving, clerkResolving)
 
   useEffect(() => {
     // Migrate old hash-based URLs to pathname
@@ -1998,7 +2002,10 @@ function AppInner() {
     )
   }
 
-  if (checking) {
+  // A user just back from Rally sign-in has no Groflo session for a moment;
+  // keep the loading screen up until Clerk finishes the hand-off rather than
+  // flashing the login screen.
+  if (checking || (screen === 'login' && rallyResolving)) {
     return (
       <div style={styles.container}>
         <div style={{ ...styles.card, ...layout.columnCenter, gap: '16px' }}>
