@@ -1,40 +1,39 @@
 // =============================================================================
-// useAuthState — Custom hook for auth-related state, handlers, and effects
+// useAuthState — Custom hook for sign-in state, handlers, and effects
 //
-// Extracted from App.tsx to reduce file size. Contains:
-//   - Auth form state (phone, code, email, password, etc.)
-//   - Auth handlers (login, register, verify, logout, etc.)
+// Rally (Clerk) is the one way into Groflo. This hook holds:
+//   - The server's Rally flag from /api/config
+//   - The exchange callback: what happens once Rally sign-in completes
+//   - Sign-out (Groflo session, then the Rally session)
 //   - Login typewriter effect
-//   - Google config fetch
 //   - Online/offline tracking
 // =============================================================================
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { clerkSignOut, setClerkExchangeHandler } from '../auth/clerkToken'
 
-// Auth success data shape — passed to the parent when authentication succeeds
-export interface AuthSuccessData {
+/** GET /auth/me for a signed-in user. */
+export interface MeResponse {
+  logged_in?: boolean
   user_id?: number
   is_admin?: boolean
   auth_methods?: string[]
   name?: string
-  last_name?: string
-  phone?: string
-  email?: string
+  phone_number?: string
   login_count?: number
   can_submit_feedback?: boolean
-  settings?: Record<string, unknown>
-  account_merged?: boolean
-  merge_message?: string
+  needs_sms_consent?: boolean
 }
 
 export interface UseAuthStateOptions {
   setScreen: (s: string, replace?: boolean) => void
   showToast: (msg: string, type?: 'success' | 'error') => void
-  onAuthSuccess: (data: AuthSuccessData) => void
-  /** Called after successful verify-code to try joining a household */
-  tryJoinCode: () => void
-  /** Map of URL paths to screen names, for post-login redirects */
-  pathToScreen: Record<string, string>
+  /**
+   * Called with /auth/me once a Rally sign-in has been traded for a Groflo
+   * session. The app does here exactly what it does when a page load finds an
+   * existing session: load the user, honour any pending invite, pick a screen.
+   */
+  onSignedIn: (me: MeResponse) => void
 }
 
 // Login page typewriter messages
@@ -47,67 +46,73 @@ const LOGIN_MESSAGES = [
   "Snap a photo of your fridge. I'll spot what's missing.",
 ]
 
-export function useAuthState(options: UseAuthStateOptions) {
-  const { setScreen, showToast, onAuthSuccess, tryJoinCode, pathToScreen } = options
+const SIGN_IN_FAILED = 'Sign-in could not be completed. Try again.'
 
-  // --- Auth form state ---
-  const [phone, setPhone] = useState('')
-  const [code, setCode] = useState(['', '', '', '', '', ''])
+export function useAuthState(options: UseAuthStateOptions) {
+  const { setScreen, showToast, onSignedIn } = options
+
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)
   const [isOffline, setIsOffline] = useState(!navigator.onLine)
 
-  // --- Email/Google auth state ---
-  const [emailInput, setEmailInput] = useState('')
-  const [passwordInput, setPasswordInput] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [nameInput, setNameInput] = useState('')
-  const [lastNameInput, setLastNameInput] = useState('')
-  const [googleClientId, setGoogleClientId] = useState('')
-  const [resetToken, setResetToken] = useState('')
-  const [resetSent, setResetSent] = useState(false)
-  const [magicLinkSent, setMagicLinkSent] = useState(false)
-
-  // --- SMS opt-in state ---
-  const [smsOptIn, setSmsOptIn] = useState(true)
+  // Server-side Rally flag. null until /api/config answers, so the login screen
+  // neither flashes "unavailable" nor offers a button the server would refuse.
+  const [clerkEnabled, setClerkEnabled] = useState<boolean | null>(null)
 
   // --- Login typewriter state ---
   const [loginPennyText, setLoginPennyText] = useState('')
   const loginTypingRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // --- Refs ---
-  const phoneInputRef = useRef<HTMLInputElement>(null)
-  const codeInputRefs = useRef<(HTMLInputElement | null)[]>([])
-  const verifyingRef = useRef(false)
-
   // Stable refs for callbacks to avoid stale closures in effects
-  const tryJoinCodeRef = useRef(tryJoinCode)
-  tryJoinCodeRef.current = tryJoinCode
-  const onAuthSuccessRef = useRef(onAuthSuccess)
-  onAuthSuccessRef.current = onAuthSuccess
+  const onSignedInRef = useRef(onSignedIn)
+  onSignedInRef.current = onSignedIn
   const showToastRef = useRef(showToast)
   showToastRef.current = showToast
   const setScreenRef = useRef(setScreen)
   setScreenRef.current = setScreen
-  const pathToScreenRef = useRef(pathToScreen)
-  pathToScreenRef.current = pathToScreen
 
   // =========================================================================
-  // GOOGLE CONFIG FETCH + RESET TOKEN EXTRACTION
+  // CONFIG FETCH
   // =========================================================================
 
   useEffect(() => {
-    fetch('/api/config').then(r => r.json()).then((data: { google_client_id?: string }) => {
-      if (data.google_client_id) setGoogleClientId(data.google_client_id)
-    }).catch(() => {})
+    fetch('/api/config')
+      .then(r => (r.ok ? r.json() : null))
+      .then((data: { clerk_enabled?: boolean } | null) => {
+        setClerkEnabled(Boolean(data?.clerk_enabled))
+      })
+      // If the server cannot be reached, the exchange could not succeed either.
+      .catch(() => setClerkEnabled(false))
+  }, [])
 
-    // Extract reset token from URL if present
-    const params = new URLSearchParams(window.location.search)
-    const token = params.get('token')
-    if (token && window.location.pathname === '/reset-password') {
-      setResetToken(token)
-    }
+  // =========================================================================
+  // RALLY SIGN-IN (CLERK) EXCHANGE CALLBACK
+  //
+  // ClerkSessionExchange posts to /auth/clerk/exchange on its own, outside the
+  // React tree this hook lives in. This is how the result gets back here: on
+  // success re-check /auth/me (the session cookie is now set) and hand the user
+  // to the app; on failure show the server's message, which is written for them.
+  // =========================================================================
+
+  useEffect(() => {
+    setClerkExchangeHandler((exchangeError?: string) => {
+      if (exchangeError) {
+        setError(exchangeError)
+        return
+      }
+      fetch('/auth/me')
+        .then(r => (r.ok ? r.json() : null))
+        .then((data: MeResponse | null) => {
+          if (!data || data.logged_in === false) {
+            setError(SIGN_IN_FAILED)
+            return
+          }
+          setError('')
+          onSignedInRef.current(data)
+        })
+        .catch(() => setError(SIGN_IN_FAILED))
+    })
+    return () => setClerkExchangeHandler(null)
   }, [])
 
   // =========================================================================
@@ -130,7 +135,7 @@ export function useAuthState(options: UseAuthStateOptions) {
   // =========================================================================
 
   const startLoginTypewriter = useCallback((screen: string) => {
-    if (screen !== 'phone' && screen !== 'email-login' && screen !== 'email-register') {
+    if (screen !== 'login') {
       if (loginTypingRef.current) clearTimeout(loginTypingRef.current)
       return
     }
@@ -164,334 +169,44 @@ export function useAuthState(options: UseAuthStateOptions) {
   }, [])
 
   // =========================================================================
-  // AUTH HANDLERS
+  // SIGN OUT
+  //
+  // Order matters. The Groflo session goes first: if that request cannot reach
+  // the server the cookie is still good, so stay put and say so. Then the Rally
+  // session — without that, the next "Continue with Rally" on a shared device
+  // would sign the same person straight back in. Only then the login screen.
+  //
+  // Nothing here can loop: ClerkSessionExchange exchanges automatically once
+  // per Clerk session, and that session is either gone or already spent.
   // =========================================================================
 
-  const handleEmailRegister = async () => {
-    setError('')
-    if (!emailInput.trim()) { setError('Please enter your email'); return }
-    if (passwordInput.length < 8) { setError('Password must be at least 8 characters'); return }
-    if (passwordInput !== confirmPassword) { setError('Passwords do not match'); return }
-    setLoading(true)
-    try {
-      const res = await fetch('/auth/email/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailInput.trim(), password: passwordInput, name: `${nameInput.trim()} ${lastNameInput.trim()}`.trim() }),
-      })
-      const data = await res.json()
-      if (res.ok && data.success) {
-        setPasswordInput(''); setConfirmPassword('')
-        if (data.account_merged && data.merge_message) {
-          sessionStorage.setItem('groflo_merge_msg', data.merge_message)
-        }
-        setScreenRef.current('home', true)
-      } else {
-        setError(data.error || 'Registration failed')
-      }
-    } catch { setError('Registration failed') }
-    finally { setLoading(false) }
-  }
-
-  const handleEmailLogin = async () => {
-    setError('')
-    if (!emailInput.trim() || !passwordInput) { setError('Please enter email and password'); return }
-    setLoading(true)
-    try {
-      const res = await fetch('/auth/email/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailInput.trim(), password: passwordInput }),
-      })
-      const data = await res.json()
-      if (res.ok && data.success) {
-        setPasswordInput(''); setConfirmPassword('')
-        setScreenRef.current('home', true)
-      } else {
-        setError(data.error || 'Invalid email or password')
-      }
-    } catch { setError('Sign in failed') }
-    finally { setLoading(false) }
-  }
-
-  const handleForgotPassword = async () => {
-    setError('')
-    if (!emailInput.trim()) { setError('Please enter your email'); return }
-    setLoading(true)
-    try {
-      await fetch('/auth/email/forgot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailInput.trim() }),
-      })
-      setResetSent(true)
-    } catch { setError('Failed to send reset link') }
-    finally { setLoading(false) }
-  }
-
-  const handleMagicLink = async () => {
-    setError('')
-    if (!emailInput.trim()) { setError('Please enter your email'); return }
-    setLoading(true)
-    try {
-      await fetch('/auth/email/magic-link', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailInput.trim() }),
-      })
-      setMagicLinkSent(true)
-    } catch { setError('Couldn\'t send the link — check your connection and try again') }
-    finally { setLoading(false) }
-  }
-
-  const handleResetPassword = async () => {
-    setError('')
-    if (passwordInput.length < 8) { setError('Password must be at least 8 characters'); return }
-    if (passwordInput !== confirmPassword) { setError('Passwords do not match'); return }
-    setLoading(true)
-    try {
-      const res = await fetch('/auth/email/reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: resetToken, password: passwordInput }),
-      })
-      const data = await res.json()
-      if (res.ok && data.success) {
-        showToastRef.current('Password reset! Please sign in.')
-        setPasswordInput('')
-        setConfirmPassword('')
-        setScreenRef.current('email-login')
-      } else {
-        setError(data.error || 'Failed to reset password')
-      }
-    } catch { setError('Failed to reset password') }
-    finally { setLoading(false) }
-  }
-
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let raw = e.target.value.replace(/\D/g, '')
-    if (raw.length > 10 && raw.startsWith('1')) {
-      raw = raw.slice(1)
-    }
-    const digits = raw.slice(0, 10)
-    setPhone(digits)
-    setError('')
-    // Auto-advance to code screen when 10 digits entered and SMS opt-in checked
-    if (digits.length === 10 && smsOptIn) {
-      setTimeout(() => handleSendCode(digits), 300)
-    }
-  }
-
-  const handleSendCode = async (phoneOverride?: string) => {
-    const p = phoneOverride || phone
-    if (p.length !== 10 || loading) return
-    // Server-side enforcement requires sms_opt_in=true. Don't even fire if unchecked.
-    if (!smsOptIn) {
-      setError('Please check the box to text with Penny first.')
-      return
-    }
-
-    setLoading(true)
-    setError('')
-
-    try {
-      const res = await fetch('/auth/send-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone_number: p, sms_opt_in: true }),
-      })
-
-      const data = await res.json().catch(() => ({} as Record<string, string>))
-
-      if (res.ok) {
-        setScreenRef.current('code')
-        setCode(['', '', '', '', '', ''])
-      } else {
-        setError(data.error || 'Failed to send code')
-      }
-    } catch {
-      setError('Network error. Please try again.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const verifyCode = useCallback(async (fullCode: string) => {
-    if (verifyingRef.current) return
-    verifyingRef.current = true
-
-    setLoading(true)
-    setError('')
-
-    try {
-      const res = await fetch('/auth/verify-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone_number: phone, code: fullCode }),
-      })
-
-      const data = await res.json().catch(() => ({} as Record<string, unknown>))
-
-      if (res.ok) {
-        onAuthSuccessRef.current({
-          is_admin: data.is_admin as boolean | undefined,
-          user_id: data.user_id as number | undefined,
-          auth_methods: data.auth_methods as string[] | undefined,
-        })
-        tryJoinCodeRef.current()
-        // Check for post-login redirect (deep link before auth)
-        const redirect = sessionStorage.getItem('groflo_redirect')
-        if (redirect) {
-          sessionStorage.removeItem('groflo_redirect')
-          const target = pathToScreenRef.current[redirect]
-          setScreenRef.current((target || 'home') as string, true)
-        } else {
-          setScreenRef.current('home', true)
-        }
-      } else {
-        setError((data.error as string) || 'Invalid code')
-        setCode(['', '', '', '', '', ''])
-        setTimeout(() => codeInputRefs.current[0]?.focus(), 50)
-      }
-    } catch {
-      setError('Network error. Please try again.')
-      setCode(['', '', '', '', '', ''])
-    } finally {
-      setLoading(false)
-      verifyingRef.current = false
-    }
-  }, [phone])
-
-  const handleCodeChange = (index: number, value: string) => {
-    const digits = value.replace(/\D/g, '')
-
-    // iOS autofill may put the full code into one input — distribute across all boxes
-    if (digits.length > 1) {
-      const newCode = [...code]
-      for (let i = 0; i < digits.length && i < 6; i++) {
-        newCode[i] = digits[i]
-      }
-      setCode(newCode)
-      setError('')
-      const nextEmpty = newCode.findIndex(d => !d)
-      if (nextEmpty >= 0) {
-        codeInputRefs.current[nextEmpty]?.focus()
-      } else {
-        codeInputRefs.current[5]?.focus()
-        verifyCode(newCode.join(''))
-      }
-      return
-    }
-
-    const digit = digits.slice(-1)
-    const newCode = [...code]
-    newCode[index] = digit
-    setCode(newCode)
-    setError('')
-
-    if (digit && index < 5) {
-      codeInputRefs.current[index + 1]?.focus()
-    }
-
-    // Auto-submit when all 6 digits are filled
-    if (digit && newCode.join('').length === 6) {
-      verifyCode(newCode.join(''))
-    }
-  }
-
-  const handleCodeKeyDown = (index: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace' && !code[index] && index > 0) {
-      codeInputRefs.current[index - 1]?.focus()
-    }
-  }
-
-  const handleCodePaste = (e: React.ClipboardEvent) => {
-    e.preventDefault()
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6)
-    if (pasted.length === 0) return
-
-    const newCode = [...code]
-    for (let i = 0; i < pasted.length && i < 6; i++) {
-      newCode[i] = pasted[i]
-    }
-    setCode(newCode)
-
-    const nextEmpty = newCode.findIndex(d => !d)
-    if (nextEmpty >= 0) {
-      codeInputRefs.current[nextEmpty]?.focus()
-    } else {
-      codeInputRefs.current[5]?.focus()
-      verifyCode(newCode.join(''))
-    }
-  }
+  const loggingOutRef = useRef(false)
 
   const handleLogout = async () => {
-    await fetch('/auth/logout', { method: 'POST' })
-    setScreenRef.current('phone', true)
-    setPhone('')
-    setCode(['', '', '', '', '', ''])
-    setError('')
+    if (loggingOutRef.current) return
+    loggingOutRef.current = true
+    try {
+      try {
+        await fetch('/auth/logout', { method: 'POST' })
+      } catch {
+        showToastRef.current("Couldn't sign out — check your connection and try again", 'error')
+        return
+      }
+      await clerkSignOut()
+      setError('')
+      setScreenRef.current('login', true)
+    } finally {
+      loggingOutRef.current = false
+    }
   }
 
-  // =========================================================================
-  // iOS AUTOFILL EFFECT
-  // =========================================================================
-
-  // iOS autofill fallback: native `input` event listener on the first code box.
-  // iOS may set .value directly (bypassing React onChange), so we detect multi-digit
-  // values via a native listener and distribute across all boxes.
-  useEffect(() => {
-    const el = codeInputRefs.current[0]
-    if (!el) return
-    const handler = () => {
-      const digits = (el.value || '').replace(/\D/g, '')
-      if (digits.length > 1) {
-        handleCodeChange(0, digits)
-      }
-    }
-    el.addEventListener('input', handler)
-    return () => el.removeEventListener('input', handler)
-  })
-
   return {
-    // State
-    phone, setPhone,
-    code, setCode,
     error, setError,
-    loading, setLoading,
     checking, setChecking,
-    isOffline, setIsOffline,
-    emailInput, setEmailInput,
-    passwordInput, setPasswordInput,
-    confirmPassword, setConfirmPassword,
-    nameInput, setNameInput,
-    lastNameInput, setLastNameInput,
-    googleClientId, setGoogleClientId,
-    resetToken, setResetToken,
-    resetSent, setResetSent,
-    magicLinkSent, setMagicLinkSent,
-    smsOptIn, setSmsOptIn,
+    isOffline,
+    clerkEnabled,
     loginPennyText,
-
-    // Refs
-    phoneInputRef,
-    codeInputRefs,
-
-    // Handlers
-    handlePhoneChange,
-    handleSendCode,
-    verifyCode,
-    handleCodeChange,
-    handleCodeKeyDown,
-    handleCodePaste,
-    handleEmailRegister,
-    handleEmailLogin,
-    handleForgotPassword,
-    handleMagicLink,
-    handleResetPassword,
     handleLogout,
-
-    // Effects that need screen param
     startLoginTypewriter,
   }
 }

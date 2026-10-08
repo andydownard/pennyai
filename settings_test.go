@@ -1011,7 +1011,7 @@ func TestInvite_NullHousehold(t *testing.T) {
 // =============================================================================
 
 func TestReferral_GetGeneratesCode(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 	cookie, _ := loginUser(t, server, "5551111111")
 
@@ -1038,7 +1038,7 @@ func TestReferral_GetGeneratesCode(t *testing.T) {
 }
 
 func TestReferral_ClaimAwardsPoints(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	// Create referrer and get their code
@@ -1066,7 +1066,7 @@ func TestReferral_ClaimAwardsPoints(t *testing.T) {
 }
 
 func TestReferral_ClaimIdempotent(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	cookieA, _ := loginUser(t, server, "5551111111")
@@ -1088,8 +1088,214 @@ func TestReferral_ClaimIdempotent(t *testing.T) {
 	}
 }
 
+// TestReferral_ConcurrentClaimCreditsOnce fires simultaneous claims of the same
+// referral code. The "already claimed" SELECT ran outside the transaction, and
+// the INSERT INTO referrals error was logged and stepped past, so the points
+// UPDATE ran regardless of whether the referral row was actually created.
+// referral_points convert to a $10 Venmo payout, so this is money.
+func TestReferral_ConcurrentClaimCreditsOnce(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	cookieA, referrerID := loginUser(t, server, "5551111111")
+	rr := doRequest(server.handleReferral, "GET", "/api/referral", nil, []*http.Cookie{cookieA})
+	referralCode := parseJSON(rr)["code"].(string)
+
+	cookieB, referredID := loginUser(t, server, "5552222222")
+
+	const n = 8
+	codes := make([]int, n)
+	hammer(t, n, func(i int) {
+		rr := doRequest(server.handleReferralClaim, "POST", "/api/referral/claim",
+			map[string]string{"code": referralCode}, []*http.Cookie{cookieB})
+		codes[i] = rr.Code
+	})
+
+	// Every claim is idempotent, so every one reports success. A 500 here is the
+	// Postgres failure mode: the swallowed INSERT error aborts the transaction
+	// and the Commit then fails.
+	for i, c := range codes {
+		if c != http.StatusOK {
+			t.Errorf("claim %d: expected 200 (idempotent), got %d", i, c)
+		}
+	}
+
+	var referralRows int
+	server.db.QueryRow("SELECT COUNT(*) FROM referrals WHERE referrer_id = ? AND referred_id = ?", referrerID, referredID).Scan(&referralRows)
+	if referralRows != 1 {
+		t.Errorf("referrals rows: got %d, want 1", referralRows)
+	}
+
+	var points int
+	server.db.QueryRow("SELECT COALESCE(referral_points, 0) FROM users WHERE id = ?", referrerID).Scan(&points)
+	if points != referralPointsPerInvite {
+		t.Errorf("referral_points: got %d, want %d (double credit converts to a real payout)", points, referralPointsPerInvite)
+	}
+}
+
+// TestReferral_ClaimWithPreSeededRowCreditsNothing is the deterministic partner
+// to the hammer test: the referral row already exists, so the claim must report
+// success and credit no further points.
+func TestReferral_ClaimWithPreSeededRowCreditsNothing(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+
+	cookieA, referrerID := loginUser(t, server, "5551111111")
+	rr := doRequest(server.handleReferral, "GET", "/api/referral", nil, []*http.Cookie{cookieA})
+	referralCode := parseJSON(rr)["code"].(string)
+
+	cookieB, referredID := loginUser(t, server, "5552222222")
+
+	// A prior claim already landed the row and the points.
+	if _, err := server.db.Exec("INSERT INTO referrals (referrer_id, referred_id) VALUES (?, ?)", referrerID, referredID); err != nil {
+		t.Fatalf("seeding referral row: %v", err)
+	}
+	server.db.Exec("UPDATE users SET referral_points = ? WHERE id = ?", referralPointsPerInvite, referrerID)
+
+	rr = doRequest(server.handleReferralClaim, "POST", "/api/referral/claim",
+		map[string]string{"code": referralCode}, []*http.Cookie{cookieB})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("repeat claim: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var points int
+	server.db.QueryRow("SELECT COALESCE(referral_points, 0) FROM users WHERE id = ?", referrerID).Scan(&points)
+	if points != referralPointsPerInvite {
+		t.Errorf("referral_points after a repeat claim: got %d, want %d", points, referralPointsPerInvite)
+	}
+	var referralRows int
+	server.db.QueryRow("SELECT COUNT(*) FROM referrals WHERE referrer_id = ? AND referred_id = ?", referrerID, referredID).Scan(&referralRows)
+	if referralRows != 1 {
+		t.Errorf("referrals rows: got %d, want 1", referralRows)
+	}
+}
+
+// TestReferral_UniqueIndexInTestSchema pins idx_referrals_unique into the test
+// schema. Production has had it since schema.go:582, but the hand-copied SQLite
+// test schema did not, so the referral idempotency tests were passing against
+// code that would double-credit.
+func TestReferral_UniqueIndexInTestSchema(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('ref-a', '5551110000')")
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('ref-b', '5552220000')")
+
+	if _, err := server.db.Exec("INSERT INTO referrals (referrer_id, referred_id) VALUES ('ref-a', 'ref-b')"); err != nil {
+		t.Fatalf("first referral insert: %v", err)
+	}
+	if _, err := server.db.Exec("INSERT INTO referrals (referrer_id, referred_id) VALUES ('ref-a', 'ref-b')"); err == nil {
+		t.Error("duplicate (referrer_id, referred_id) accepted — idx_referrals_unique missing from the test schema")
+	}
+}
+
+// =============================================================================
+// INVITE SMS GUARDS
+// =============================================================================
+
+// TestInvite_PerInviterRateLimit: an authenticated user could POST
+// /api/settings/invite in a loop with arbitrary phone numbers, and every call
+// fired a Twilio SMS carrying the inviter's name. Unwanted outbound SMS is
+// CLAUDE.md damage risk #1, and this is also a harassment vector and an A2P
+// 10DLC reputation risk. Every other send site in the codebase is guarded.
+func TestInvite_PerInviterRateLimit(t *testing.T) {
+	mock := &MockTwilioClient{}
+	server := newTestServer(t, mock)
+	cookie, _ := loginUser(t, server, "5551111111")
+
+	// A different destination each time, so the per-destination guard is not
+	// what is under test here.
+	sent := 0
+	for i := 0; i < inviteSMSPerInviterPerDay; i++ {
+		rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
+			map[string]string{"phone": fmt.Sprintf("555200%04d", i)}, []*http.Cookie{cookie})
+		if rr.Code != http.StatusOK {
+			t.Fatalf("invite %d: expected 200, got %d: %s", i, rr.Code, rr.Body.String())
+		}
+		sent++
+	}
+	if got := mock.GetSMSCount(); got != sent {
+		t.Fatalf("SMS sent within the limit: got %d, want %d", got, sent)
+	}
+
+	// One past the limit must be refused, and must send nothing.
+	before := mock.GetSMSCount()
+	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
+		map[string]string{"phone": "5552009999"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("invite past the daily limit: expected 429, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if after := mock.GetSMSCount(); after != before {
+		t.Errorf("SMS sent past the limit: count went %d -> %d, want no change", before, after)
+	}
+}
+
+// TestInvite_PerDestinationDedup: inviting the same phone twice from one
+// household must text that person once. Nothing stopped a loop against a single
+// number before.
+func TestInvite_PerDestinationDedup(t *testing.T) {
+	mock := &MockTwilioClient{}
+	server := newTestServer(t, mock)
+	cookie, _ := loginUser(t, server, "5551111111")
+
+	rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
+		map[string]string{"phone": "5553334444"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("first invite: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if got := mock.GetSMSCount(); got != 1 {
+		t.Fatalf("after first invite: got %d SMS, want 1", got)
+	}
+
+	// Same destination again: the invite is still created (the caller gets a
+	// fresh link to share by other means) but no second SMS goes out.
+	rr = doRequest(server.handleInvite, "POST", "/api/settings/invite",
+		map[string]string{"phone": "5553334444"}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("repeat invite: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if got := mock.GetSMSCount(); got != 1 {
+		t.Errorf("after repeat invite to the same phone: got %d SMS, want 1", got)
+	}
+	if parseJSON(rr)["code"] == nil {
+		t.Error("repeat invite should still return a usable invite code")
+	}
+}
+
+// TestInvite_ConcurrentSameDestinationSendsOnce hammers one destination from one
+// inviter: still exactly one SMS.
+func TestInvite_ConcurrentSameDestinationSendsOnce(t *testing.T) {
+	mock := &MockTwilioClient{}
+	server := newTestServer(t, mock)
+	cookie, _ := loginUser(t, server, "5551111111")
+
+	hammer(t, 8, func(int) {
+		doRequest(server.handleInvite, "POST", "/api/settings/invite",
+			map[string]string{"phone": "5557778888"}, []*http.Cookie{cookie})
+	})
+
+	if got := mock.GetSMSCount(); got != 1 {
+		t.Errorf("concurrent invites to one phone: got %d SMS, want 1", got)
+	}
+}
+
+// TestInvite_WithoutPhoneIsNotRateLimited: link-only invites send no SMS, so
+// they must not consume the SMS quota.
+func TestInvite_WithoutPhoneIsNotRateLimited(t *testing.T) {
+	mock := &MockTwilioClient{}
+	server := newTestServer(t, mock)
+	cookie, _ := loginUser(t, server, "5551111111")
+
+	for i := 0; i < inviteSMSPerInviterPerDay+5; i++ {
+		rr := doRequest(server.handleInvite, "POST", "/api/settings/invite",
+			map[string]string{"phone": ""}, []*http.Cookie{cookie})
+		if rr.Code != http.StatusOK {
+			t.Fatalf("link-only invite %d: expected 200, got %d: %s", i, rr.Code, rr.Body.String())
+		}
+	}
+	if got := mock.GetSMSCount(); got != 0 {
+		t.Errorf("link-only invites sent %d SMS, want 0", got)
+	}
+}
+
 func TestReferral_CannotSelfRefer(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	cookie, _ := loginUser(t, server, "5551111111")
@@ -1104,7 +1310,7 @@ func TestReferral_CannotSelfRefer(t *testing.T) {
 }
 
 func TestReferral_RedeemRequires100Points(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	cookie, userID := loginUser(t, server, "5551111111")
@@ -1144,7 +1350,7 @@ func TestReferral_RedeemRequires100Points(t *testing.T) {
 }
 
 func TestReferral_InvalidCode(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	cookie, _ := loginUser(t, server, "5551111111")
@@ -1156,7 +1362,7 @@ func TestReferral_InvalidCode(t *testing.T) {
 }
 
 func TestReferral_RequiresAuth(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	rr := doRequest(server.handleReferral, "GET", "/api/referral", nil, nil)
@@ -1170,7 +1376,7 @@ func TestReferral_RequiresAuth(t *testing.T) {
 // =============================================================================
 
 func TestReferralClaim_FullFlow(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	// Create referrer and referred users
@@ -1196,7 +1402,7 @@ func TestReferralClaim_FullFlow(t *testing.T) {
 }
 
 func TestReferralClaim_EmptyCode(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 	cookie, _ := loginUser(t, server, "5551111111")
 
@@ -1208,7 +1414,7 @@ func TestReferralClaim_EmptyCode(t *testing.T) {
 }
 
 func TestLeaveHousehold_FullFlow(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	// Create two users in the same household
@@ -1263,7 +1469,7 @@ func TestSettingsUpdate_SMSOptIn(t *testing.T) {
 }
 
 func TestSettingsUpdate_EmailConflict(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie1, _ := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -1296,7 +1502,7 @@ func TestSettingsUpdate_InvalidJSON(t *testing.T) {
 }
 
 func TestSettingsGet_WithData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie, _ := loginUser(t, server, "5551111111")
 
 	// Set name and email
@@ -1370,7 +1576,7 @@ func TestCreateSoloHousehold_Success(t *testing.T) {
 }
 
 func TestSettingsGet_WithHouseholdMembers(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie1, _ := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -1414,7 +1620,7 @@ func TestVCard_EmptyPhoneNumber(t *testing.T) {
 }
 
 func TestReferral_GetWithFriends(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie1, userID1 := loginUser(t, server, "5551111111")
 	_, userID2 := loginUser(t, server, "5552222222")
 
@@ -1443,7 +1649,7 @@ func TestReferral_GetWithFriends(t *testing.T) {
 }
 
 func TestInvite_WithPhone(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 	cookie, _ := loginUser(t, server, "5551111111")
 
@@ -1459,7 +1665,7 @@ func TestInvite_WithPhone(t *testing.T) {
 }
 
 func TestJoin_SuccessFlow(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 	cookie1, _ := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
@@ -1483,7 +1689,7 @@ func TestJoin_SuccessFlow(t *testing.T) {
 }
 
 func TestSettingsUpdate_NameOnly(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSettingsUpdate, "PATCH", "/api/settings",
@@ -1501,7 +1707,7 @@ func TestSettingsUpdate_NameOnly(t *testing.T) {
 }
 
 func TestSettingsUpdate_EmailOnly(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	email := "test@example.com"
@@ -1513,7 +1719,7 @@ func TestSettingsUpdate_EmailOnly(t *testing.T) {
 }
 
 func TestReferralClaim_SelfRefer(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie, userID := loginUser(t, server, "5551111111")
 
 	server.db.Exec("UPDATE users SET referral_code = 'mycode' WHERE id = ?", userID)
@@ -1526,7 +1732,7 @@ func TestReferralClaim_SelfRefer(t *testing.T) {
 }
 
 func TestReferralClaim_Idempotent(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie1, userID1 := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -1556,7 +1762,7 @@ func TestReferralClaim_Idempotent(t *testing.T) {
 }
 
 func TestSettingsUpdate_EmailUniqueCheck(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie1, _ := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -2577,61 +2783,6 @@ func TestTrips_EdgeCase_GetEmptyReturnsArray(t *testing.T) {
 // =============================================================================
 // SETTINGS PHONE UPDATE TESTS
 // =============================================================================
-
-func TestSettingsPhoneUpdate_Valid(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, _ := loginUser(t, server, "5551234567")
-
-	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
-		map[string]string{"phone": "+15559998888"}, []*http.Cookie{cookie})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("PATCH phone status: got %d, want 200", rr.Code)
-	}
-
-	// Verify phone was updated
-	rr = doRequest(server.handleSettings, "GET", "/api/settings", nil, []*http.Cookie{cookie})
-	body := parseJSON(rr)
-	if body["phone"] != "+15559998888" {
-		t.Errorf("phone after update: got %v, want +15559998888", body["phone"])
-	}
-}
-
-func TestSettingsPhoneUpdate_InvalidTooShort(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, _ := loginUser(t, server, "5551234567")
-
-	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
-		map[string]string{"phone": "+1555"}, []*http.Cookie{cookie})
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("PATCH short phone: got %d, want 400", rr.Code)
-	}
-}
-
-func TestSettingsPhoneUpdate_ClearPhone(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, _ := loginUser(t, server, "5551234567")
-
-	// First set a phone number via settings
-	rr := doRequest(server.handleSettings, "PATCH", "/api/settings",
-		map[string]string{"phone": "+15559998888"}, []*http.Cookie{cookie})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("PATCH phone setup: got %d, want 200", rr.Code)
-	}
-
-	// Clear the phone
-	rr = doRequest(server.handleSettings, "PATCH", "/api/settings",
-		map[string]string{"phone": ""}, []*http.Cookie{cookie})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("PATCH clear phone: got %d, want 200", rr.Code)
-	}
-
-	// Verify phone was cleared
-	rr = doRequest(server.handleSettings, "GET", "/api/settings", nil, []*http.Cookie{cookie})
-	body := parseJSON(rr)
-	if body["phone"] != "" {
-		t.Errorf("phone after clear: got %v, want empty string", body["phone"])
-	}
-}
 
 // =============================================================================
 // EARNINGS ENDPOINT TESTS

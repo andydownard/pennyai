@@ -18,7 +18,7 @@ import (
 // =============================================================================
 
 func TestReceipt_ProcessAndCheckOff(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -71,7 +71,7 @@ func TestReceipt_ProcessAndCheckOff(t *testing.T) {
 }
 
 func TestReceipt_DuplicateDedup(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
@@ -721,7 +721,7 @@ func TestSwapClaims_MethodNotAllowed(t *testing.T) {
 // =============================================================================
 
 func TestReceipt_ForgeryDetected_ReturnsRejection(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")

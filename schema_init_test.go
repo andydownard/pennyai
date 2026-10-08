@@ -1,6 +1,6 @@
 // schema_init_test.go
 //
-// Regression test for the 2026-04-18 staging crash. initDB assumed timpager's
+// Regression test for the 2026-04-18 staging crash. initDB assumed another service's
 // shared Postgres already contained a `users` table, so the first ALTER TABLE
 // users in a fresh pennyai-owned Postgres raised "relation \"users\" does not
 // exist" and schema init aborted before any table was created.
@@ -14,6 +14,7 @@ package main
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -96,10 +97,65 @@ func TestSchema_InitDB_DeclaresUsersAsOwnedByPennyai(t *testing.T) {
 	}
 	body := string(src)
 
-	if strings.Contains(body, "SHARED USERS TABLE — owned by timpager") {
-		t.Fatalf("schema.go still claims users table is owned by timpager — CLAUDE.md says pennyai owns its own users/sessions since 2026-04-18")
+	if strings.Contains(body, "SHARED USERS TABLE") {
+		t.Fatalf("schema.go still claims the users table is shared — pennyai owns its own users/sessions")
 	}
 	if !strings.Contains(body, "USERS TABLE — owned by pennyai") {
 		t.Fatalf("schema.go should declare USERS TABLE — owned by pennyai as the section header")
+	}
+}
+
+// TestSchema_UniqueIndexesPresentInTestSchema is the drift guard for the money
+// paths.
+//
+// The Go suite runs against SQLite :memory: with a hand-copied schema in
+// test_helpers_test.go. That copy had drifted: production has carried
+// idx_referrals_unique since schema.go's index block, but the test schema did
+// not, so the referral idempotency tests passed against code that double-credits
+// in production. A unique index absent from the test schema is a test suite that
+// cannot see the bug it is supposed to be guarding.
+//
+// Every UNIQUE index declared in schema.go must therefore also be declared in
+// test_helpers_test.go. Non-unique indexes are only a performance concern and are
+// deliberately not required.
+func TestSchema_UniqueIndexesPresentInTestSchema(t *testing.T) {
+	schemaSrc, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatalf("read schema.go: %v", err)
+	}
+	testSrc, err := os.ReadFile("test_helpers_test.go")
+	if err != nil {
+		t.Fatalf("read test_helpers_test.go: %v", err)
+	}
+
+	// Compare index NAMES, not statements: schema.go writes Postgres DDL and the
+	// test schema writes SQLite DDL, so the statements differ in whitespace and
+	// sometimes in type syntax. The name is the contract.
+	//
+	// Both sides are matched with the same regex so that a real CREATE UNIQUE
+	// INDEX statement is required on each. A substring search would not do —
+	// a passing mention in a comment, or a renamed index that merely has the old
+	// name as a prefix, would satisfy it and the guard would never fire.
+	re := regexp.MustCompile(`(?i)CREATE\s+UNIQUE\s+INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)`)
+	declared := func(src []byte) map[string]bool {
+		out := map[string]bool{}
+		for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+			out[strings.ToLower(m[1])] = true
+		}
+		return out
+	}
+
+	prod := declared(schemaSrc)
+	if len(prod) == 0 {
+		t.Fatal("found no UNIQUE indexes in schema.go — test stale?")
+	}
+	test := declared(testSrc)
+
+	for name := range prod {
+		if !test[name] {
+			t.Errorf("schema.go declares UNIQUE index %s but test_helpers_test.go does not — "+
+				"the SQLite test schema cannot catch the duplicate this index prevents. "+
+				"Add the equivalent CREATE UNIQUE INDEX to initTestDB.", name)
+		}
 	}
 }

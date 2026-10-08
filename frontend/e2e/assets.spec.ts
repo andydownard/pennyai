@@ -14,11 +14,7 @@ test.describe('Static assets and SPA', () => {
     await page.goto('/login')
     await page.waitForTimeout(2000)
 
-    // Filter out expected errors (e.g., Google OAuth script not loading in test)
-    const realErrors = errors.filter(e =>
-      !e.includes('google') && !e.includes('gsi') && !e.includes('accounts.google.com')
-    )
-    expect(realErrors).toHaveLength(0)
+    expect(errors).toHaveLength(0)
   })
 
   test('SPA fallback serves index.html for unknown routes', async ({ page }) => {

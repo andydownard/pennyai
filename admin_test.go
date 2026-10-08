@@ -185,7 +185,7 @@ func TestAdminDashboard_ActiveUsersCount(t *testing.T) {
 	upsertUser(server.db, "5552222222")
 
 	// Create a user without last_active (simulating old user)
-	server.db.Exec("INSERT OR IGNORE INTO users (phone) VALUES ('5553333333')")
+	server.db.Exec("INSERT OR IGNORE INTO users (id, phone) VALUES ('old-user-5553333333', '5553333333')")
 
 	rr := doRequest(server.handleAdminDashboard, "GET", "/api/admin/dashboard?days=30", nil, []*http.Cookie{cookie})
 	body := parseJSON(rr)
@@ -241,7 +241,7 @@ func TestAdminDashboard_EmptyLeaderboard(t *testing.T) {
 }
 
 func TestAdminDashboard_IncludesSwapStats(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '3104861833')")
@@ -268,26 +268,30 @@ func TestAdminDashboard_IncludesSwapStats(t *testing.T) {
 }
 
 func TestAdminDashboard_IncludesRebateStats(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '3104861833')")
 	token, _ := server.sessions.CreateSession("user-1", "3104861833", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
 
-	// Insert a brand deal so FK references are valid
-	server.db.Exec("INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, status) VALUES (1, 'Test Comp', 'Test Brand', 'Test Product', 50, 'active')")
+	// Three brand deals so FK references are valid. One deal per accepted event:
+	// idx_swap_events_one_accept gives a user a single accept per campaign, so
+	// three accepts necessarily belong to three different deals.
+	for id := 1; id <= 3; id++ {
+		server.db.Exec("INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, status) VALUES (?, 'Test Comp', 'Test Brand', 'Test Product', 50, 'active')", id)
+	}
 
 	// Insert swap events so we can reference valid IDs
 	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (1, 'user-1', 1, 'accepted')")
-	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (2, 'user-1', 1, 'accepted')")
+	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (2, 'user-1', 2, 'accepted')")
 
 	// Insert rebates: 2 pending, 1 issued
 	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-1', 1, 1, 100, 'pending')")
-	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-1', 2, 1, 150, 'pending')")
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-1', 2, 2, 150, 'pending')")
 	// Manually insert a paid one (no swap event needed for ledger test)
-	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (3, 'user-1', 1, 'accepted')")
-	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-1', 3, 1, 200, 'paid')")
+	server.db.Exec("INSERT INTO swap_events (id, user_id, deal_id, action) VALUES (3, 'user-1', 3, 'accepted')")
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES ('user-1', 3, 3, 200, 'paid')")
 
 	rr := doRequest(server.handleAdminDashboard, "GET", "/api/admin/dashboard", nil, cookies)
 	if rr.Code != 200 {
@@ -381,12 +385,12 @@ func TestAdminBackup_AdminCanTrigger(t *testing.T) {
 func TestAdminBackup_WithFileDB(t *testing.T) {
 	t.Skip("Backup endpoint stubbed for PostgreSQL — VACUUM INTO not applicable")
 	// Use in-memory SQLite test DB (VACUUM INTO won't work but we test the handler path)
-	rawDB, pgdb := openTestDB(t)
+	_, pgdb := openTestDB(t)
 
 	server := &Server{
 		config:   Config{Port: "8080", AnthropicAPIKey: "test-key", TwilioPhoneNumber: "+10000000000", AdminPhone: "3104861833", DatabaseURL: "test"},
 		db:       pgdb,
-		sessions: NewSessionStore(rawDB),
+		sessions: NewSessionStore(pgdb),
 		twilio:   &MockTwilioClient{},
 		parseItems: func(apiKey, text string, images []string) ([]ParsedItem, error) {
 			return nil, nil
@@ -1317,12 +1321,21 @@ func TestProcessCategoryAlerts_DetectsRisingStar(t *testing.T) {
 	server.db.Exec(`INSERT INTO brand_deals (id, competitor_product, offer_brand, offer_product, discount_cents, status, category_id)
 		VALUES (200, 'OldBrand Widget', 'RisingStar', 'RisingStar Widget', 150, 'active', 1)`)
 
+	// A user accepts a campaign at most once (idx_swap_events_one_accept), so an
+	// acceptance rate is a figure across many users. Give every accept its own
+	// user; offers may repeat for the same user and stay on uid.
+	accepter := func(n int) string {
+		id := fmt.Sprintf("rs-user-%d", n)
+		server.db.Exec("INSERT INTO users (id, phone) VALUES (?, ?)", id, fmt.Sprintf("555900%04d", n))
+		return id
+	}
+
 	// Prior period (8-30 days ago): 10 offered, 2 accepted = 20% rate
 	for i := 0; i < 10; i++ {
 		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 200, 'offered', datetime('now', '-15 days'))", uid)
 	}
 	for i := 0; i < 2; i++ {
-		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 200, 'accepted', datetime('now', '-15 days'))", uid)
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 200, 'accepted', datetime('now', '-15 days'))", accepter(i))
 	}
 
 	// Recent period (last 7 days): 10 offered, 7 accepted = 70% rate (+50% delta)
@@ -1330,7 +1343,7 @@ func TestProcessCategoryAlerts_DetectsRisingStar(t *testing.T) {
 		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 200, 'offered', datetime('now', '-2 days'))", uid)
 	}
 	for i := 0; i < 7; i++ {
-		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 200, 'accepted', datetime('now', '-2 days'))", uid)
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action, created_at) VALUES (?, 200, 'accepted', datetime('now', '-2 days'))", accepter(100+i))
 	}
 
 	server.processCategoryAlerts()
@@ -1658,7 +1671,7 @@ func TestAdminFeedbackTriage_UpdateStatus(t *testing.T) {
 	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
 
 	user, _ := upsertUser(server.db, "5551234567")
-	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'please fix', 'bug', 'high')", user.ID)
+	server.db.Exec("INSERT INTO feedback_requests (id, user_id, body, type, urgency) VALUES (1, ?, 'please fix', 'bug', 'high')", user.ID)
 
 	status := "roadmapped"
 	notes := "Added to Q2 sprint"
@@ -1686,7 +1699,7 @@ func TestAdminFeedbackTriage_InvalidStatus(t *testing.T) {
 	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
 
 	user, _ := upsertUser(server.db, "5551234567")
-	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'test', 'bug', 'normal')", user.ID)
+	server.db.Exec("INSERT INTO feedback_requests (id, user_id, body, type, urgency) VALUES (1, ?, 'test', 'bug', 'normal')", user.ID)
 
 	badStatus := "invalid_status"
 	rr := doRequest(server.handleAdminFeedbackByID, "PUT", "/api/admin/feedback/1",
@@ -1719,7 +1732,7 @@ func TestAdminFeedbackTriage_NoFields(t *testing.T) {
 	adminCookie := &http.Cookie{Name: "session", Value: adminToken}
 
 	user, _ := upsertUser(server.db, "5551234567")
-	server.db.Exec("INSERT INTO feedback_requests (user_id, body, type, urgency) VALUES (?, 'test', 'bug', 'normal')", user.ID)
+	server.db.Exec("INSERT INTO feedback_requests (id, user_id, body, type, urgency) VALUES (1, ?, 'test', 'bug', 'normal')", user.ID)
 
 	rr := doRequest(server.handleAdminFeedbackByID, "PUT", "/api/admin/feedback/1",
 		map[string]interface{}{}, []*http.Cookie{adminCookie})
@@ -2569,7 +2582,7 @@ func TestAnalyzeABTest_SignificantLift(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_sig", "control", i, "items_added", 1.0,
+			"test_sig", "control", fmt.Sprint(i), "items_added", 1.0,
 		)
 	}
 
@@ -2577,7 +2590,7 @@ func TestAnalyzeABTest_SignificantLift(t *testing.T) {
 	for i := 4; i <= 6; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_sig", "variant_a", i, "items_added", 2.0,
+			"test_sig", "variant_a", fmt.Sprint(i), "items_added", 2.0,
 		)
 	}
 
@@ -2616,14 +2629,14 @@ func TestAnalyzeABTest_ControlWins(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_ctrl_wins", "control", i, "items_added", 3.0,
+			"test_ctrl_wins", "control", fmt.Sprint(i), "items_added", 3.0,
 		)
 	}
 	// Variant: average = 1.0 (much worse than control)
 	for i := 4; i <= 6; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_ctrl_wins", "variant_a", i, "items_added", 1.0,
+			"test_ctrl_wins", "variant_a", fmt.Sprint(i), "items_added", 1.0,
 		)
 	}
 
@@ -2657,13 +2670,13 @@ func TestAnalyzeABTest_NoSignificantDifference(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_nosig", "control", i, "items_added", 2.0,
+			"test_nosig", "control", fmt.Sprint(i), "items_added", 2.0,
 		)
 	}
 	for i := 4; i <= 6; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_nosig", "variant_a", i, "items_added", 2.1, // < 10% difference
+			"test_nosig", "variant_a", fmt.Sprint(i), "items_added", 2.1, // < 10% difference
 		)
 	}
 
@@ -2692,14 +2705,14 @@ func TestAnalyzeABTest_ControlZeroEvents(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_zero", "control", i, "purchases", 0.0,
+			"test_zero", "control", fmt.Sprint(i), "purchases", 0.0,
 		)
 	}
 	// Variant: has events
 	for i := 4; i <= 6; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_zero", "variant_a", i, "purchases", 5.0,
+			"test_zero", "variant_a", fmt.Sprint(i), "purchases", 5.0,
 		)
 	}
 
@@ -2730,13 +2743,13 @@ func TestAnalyzeABTest_MeasurementPeriodNotReached(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_early", "control", i, "items_added", 1.0,
+			"test_early", "control", fmt.Sprint(i), "items_added", 1.0,
 		)
 	}
 	for i := 4; i <= 6; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"test_early", "variant_a", i, "items_added", 2.0,
+			"test_early", "variant_a", fmt.Sprint(i), "items_added", 2.0,
 		)
 	}
 
@@ -2766,7 +2779,7 @@ func TestABResults_WithData(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		server.db.Exec(
 			"INSERT INTO ab_events (test_name, variant, user_id, event, value) VALUES (?, ?, ?, ?, ?)",
-			"results_test", "control", i, "items_added", 1.0,
+			"results_test", "control", fmt.Sprint(i), "items_added", 1.0,
 		)
 	}
 
@@ -3204,8 +3217,11 @@ func TestProcessUserCohorts_UserWithSwaps(t *testing.T) {
 
 	server.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action) VALUES (?, ?, ?, 'accepted')", userID, dealID, itemID)
 
+	var swapEventID int
+	server.db.QueryRow("SELECT id FROM swap_events WHERE user_id = ? ORDER BY id DESC LIMIT 1", userID).Scan(&swapEventID)
+
 	// Create a rebate
-	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, 1, ?, 100, 'pending')", userID, dealID)
+	server.db.Exec("INSERT INTO swap_rebates (user_id, swap_event_id, deal_id, amount_cents, status) VALUES (?, ?, ?, 100, 'pending')", userID, swapEventID, dealID)
 
 	server.processUserCohorts()
 

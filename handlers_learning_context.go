@@ -13,6 +13,33 @@ import (
 // preferences for a given user, suitable for injection into Penny's system prompt.
 // Returns "" if no learnings exist or "Learn from my choices" is off.
 func (s *Server) buildLearningContext(userID string) string {
+	return s.learningContext(userID, true)
+}
+
+// rebuildLearningContext computes the context from the learnings tables,
+// ignoring penny_context_cache. The background job that refreshes the cache
+// must use this: reading through the cache would return the old value forever.
+func (s *Server) rebuildLearningContext(userID string) string {
+	return s.learningContext(userID, false)
+}
+
+// encodeContextCache and decodeContextCache store the context string as a
+// JSON string. context_json is JSONB on PostgreSQL, which rejects plain text;
+// decode also accepts a plain string written before this change.
+func encodeContextCache(ctx string) string {
+	b, _ := json.Marshal(ctx)
+	return string(b)
+}
+
+func decodeContextCache(raw string) string {
+	var out string
+	if err := json.Unmarshal([]byte(raw), &out); err == nil {
+		return out
+	}
+	return raw
+}
+
+func (s *Server) learningContext(userID string, useCache bool) string {
 	// Single user lookup for the three settings used below: the autotune gate
 	// (learn from my choices), the Penny slider, and the household id. Collapsed
 	// from three separate "SELECT ... FROM users WHERE id = ?" round trips.
@@ -26,11 +53,15 @@ func (s *Server) buildLearningContext(userID string) string {
 	// Fast path: the background learning job precomputes this exact context
 	// string into penny_context_cache. On a hit, skip the ~7-query rebuild.
 	// On a miss (or read error), fall back to the rebuild below, unchanged.
-	var cached string
-	if err := s.db.QueryRow(
-		"SELECT context_json FROM penny_context_cache WHERE user_id = ?", userID,
-	).Scan(&cached); err == nil && cached != "" {
-		return cached
+	if useCache {
+		var cached string
+		if err := s.db.QueryRow(
+			"SELECT context_json FROM penny_context_cache WHERE user_id = ?", userID,
+		).Scan(&cached); err == nil {
+			if ctx := decodeContextCache(cached); ctx != "" && ctx != "{}" {
+				return ctx
+			}
+		}
 	}
 
 	var parts []string
@@ -200,13 +231,9 @@ func (s *Server) getRepurchaseNudges(userID string) []RepurchaseNudge {
 		}
 
 		// Parse the last added timestamp
-		lastAdded, err := time.Parse("2006-01-02 15:04:05", lastAddedStr)
+		lastAdded, err := parseDBTime(lastAddedStr)
 		if err != nil {
-			// Try alternate format
-			lastAdded, err = time.Parse("2006-01-02T15:04:05Z", lastAddedStr)
-			if err != nil {
-				continue
-			}
+			continue
 		}
 
 		// Check if the item is due: current_date - last_added_date >= avg_days

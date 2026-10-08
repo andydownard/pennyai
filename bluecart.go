@@ -211,7 +211,7 @@ func (s *Server) getCachedPrice(brand, category, zip string) (*BlueCartPrice, er
 	if err != nil {
 		return nil, err
 	}
-	p.FetchedAt, _ = time.Parse("2006-01-02 15:04:05", fetchedAt)
+	p.FetchedAt, _ = parseDBTime(fetchedAt)
 	return &p, nil
 }
 

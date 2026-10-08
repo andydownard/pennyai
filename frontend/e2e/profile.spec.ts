@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { login } from './helpers'
+import { login, loginScreen } from './helpers'
 
 test.describe('Profile screen', () => {
   test.beforeEach(async ({ page }) => {
@@ -36,14 +36,14 @@ test.describe('Profile screen', () => {
     await page.getByText('Sign Out').click()
 
     // Should be back on login
-    await expect(page.getByPlaceholder('(555) 123-4567')).toBeVisible({ timeout: 10_000 })
+    await expect(loginScreen(page)).toBeVisible({ timeout: 10_000 })
   })
 
   test('sign out clears session cookie', async ({ page }) => {
     await page.goto('/profile')
     await expect(page.getByText('Sign Out')).toBeVisible({ timeout: 10_000 })
     await page.getByText('Sign Out').click()
-    await expect(page.getByPlaceholder('(555) 123-4567')).toBeVisible({ timeout: 10_000 })
+    await expect(loginScreen(page)).toBeVisible({ timeout: 10_000 })
 
     // Session cookie should be gone
     const cookies = await page.context().cookies()
@@ -98,7 +98,7 @@ test.describe('Share & Earn screen', () => {
   test('shows household section with invite button', async ({ page }) => {
     await page.goto('/share')
     await expect(page.getByText('Shared List')).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByText('Invite someone to share')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Invite your family to this list' })).toBeVisible()
   })
 
   test('shows referral section', async ({ page }) => {

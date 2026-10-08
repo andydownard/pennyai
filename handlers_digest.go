@@ -82,7 +82,7 @@ func (s *Server) processDailyDigest() {
 	for _, u := range users {
 		// Dedup: skip if last sent within 20 hours
 		if u.LastSent != "" {
-			lastSent, err := time.Parse("2006-01-02 15:04:05", u.LastSent)
+			lastSent, err := parseDBTime(u.LastSent)
 			if err == nil && now.Sub(lastSent) < 20*time.Hour {
 				skipped++
 				continue
@@ -101,7 +101,7 @@ func (s *Server) processDailyDigest() {
 		}
 
 		// Build the SMS message
-		msg := buildDigestMessage(u.Name, items)
+		msg := buildDigestMessage(s.config.AppBaseURL, u.Name, items)
 
 		// SAFETY: Update dedup flag BEFORE sending SMS. If SMS fails, user misses
 		// one digest (recoverable). If we sent first and UPDATE failed, user gets
@@ -154,18 +154,20 @@ func (s *Server) getDigestItems(userID string, since string) []string {
 	if hid != 0 {
 		// Household: get items from all household members
 		rows, err = s.db.Query(`
-			SELECT DISTINCT li.name FROM list_items li
+			SELECT li.name FROM list_items li
 			JOIN users u ON u.id = li.user_id
 			WHERE u.household_id = ? AND li.created_at >= ? AND li.checked = 0
-			ORDER BY li.created_at DESC
+			GROUP BY li.name
+			ORDER BY MAX(li.created_at) DESC
 			LIMIT 20
 		`, hid, since)
 	} else {
 		// Solo user
 		rows, err = s.db.Query(`
-			SELECT DISTINCT li.name FROM list_items li
+			SELECT li.name FROM list_items li
 			WHERE li.user_id = ? AND li.created_at >= ? AND li.checked = 0
-			ORDER BY li.created_at DESC
+			GROUP BY li.name
+			ORDER BY MAX(li.created_at) DESC
 			LIMIT 20
 		`, userID, since)
 	}
@@ -186,7 +188,7 @@ func (s *Server) getDigestItems(userID string, since string) []string {
 }
 
 // buildDigestMessage constructs the SMS body for the daily digest.
-func buildDigestMessage(userName string, items []string) string {
+func buildDigestMessage(appURL, userName string, items []string) string {
 	firstName := strings.TrimSpace(strings.SplitN(userName, " ", 2)[0])
 	if firstName == "" {
 		firstName = "Hey"
@@ -215,6 +217,6 @@ func buildDigestMessage(userName string, items []string) string {
 		noun = "item was"
 	}
 
-	return fmt.Sprintf("%s, %d %s added to your list today: %s. Open: https://app.groflo.io",
-		firstName, count, noun, itemList)
+	return fmt.Sprintf("%s, %d %s added to your list today: %s. Open: %s",
+		firstName, count, noun, itemList, appURL)
 }

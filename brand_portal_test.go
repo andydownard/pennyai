@@ -479,6 +479,156 @@ func TestBrandPortal_StripeWebhookIdempotent(t *testing.T) {
 	}
 }
 
+// stripeWebhookPayload builds a payment_intent.succeeded event body.
+func stripeWebhookPayload(piID string, amountCents, brandUserID int) string {
+	return fmt.Sprintf(`{
+		"type": "payment_intent.succeeded",
+		"data": {
+			"object": {
+				"id": "%s",
+				"amount": %d,
+				"metadata": {
+					"brand_user_id": "%d"
+				}
+			}
+		}
+	}`, piID, amountCents, brandUserID)
+}
+
+// TestBrandPortal_StripeWebhookConcurrentDelivery fires the same
+// payment_intent.succeeded event from many goroutines at once. Stripe retries
+// webhooks by design and can deliver the same event concurrently; the
+// COUNT-then-UPDATE check-then-act in handleStripeWebhook double-credits real
+// money when two deliveries interleave.
+func TestBrandPortal_StripeWebhookConcurrentDelivery(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, brandUserID := brandRegister(t, server, "race@brand.com", "password1234", "RaceCo")
+
+	payload := stripeWebhookPayload("pi_test_race_1", 25000, brandUserID)
+
+	const n = 8
+	codes := make([]int, n)
+	hammer(t, n, func(i int) {
+		req := httptest.NewRequest("POST", "/brand/stripe-webhook", strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		server.handleStripeWebhook(rr, req)
+		codes[i] = rr.Code
+	})
+
+	for i, c := range codes {
+		if c != http.StatusOK {
+			t.Errorf("delivery %d: expected 200 (Stripe must not be told to retry), got %d", i, c)
+		}
+	}
+
+	var txnCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM brand_transactions WHERE stripe_id = 'pi_test_race_1'").Scan(&txnCount)
+	if txnCount != 1 {
+		t.Errorf("ledger rows for one payment_intent: got %d, want 1 (double-credit)", txnCount)
+	}
+
+	var balance int
+	server.db.QueryRow("SELECT balance_cents FROM brand_balance WHERE brand_user_id = ?", brandUserID).Scan(&balance)
+	if balance != 25000 {
+		t.Errorf("balance after %d concurrent deliveries: got %d, want 25000", n, balance)
+	}
+}
+
+// TestBrandPortal_StripeWebhookPreSeededLedgerRow is the deterministic partner
+// to the hammer test above: the ledger row already exists, so the handler must
+// credit nothing and still return 200.
+func TestBrandPortal_StripeWebhookPreSeededLedgerRow(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, brandUserID := brandRegister(t, server, "seeded@brand.com", "password1234", "SeededCo")
+
+	// A prior delivery already landed the ledger row and credited the balance.
+	if _, err := server.db.Exec(`INSERT INTO brand_transactions (brand_user_id, type, amount_cents, description, stripe_id)
+		VALUES (?, 'deposit', 25000, 'Stripe deposit', 'pi_test_seeded_1')`, brandUserID); err != nil {
+		t.Fatalf("seeding ledger row: %v", err)
+	}
+	if _, err := server.db.Exec(`UPDATE brand_balance SET balance_cents = 25000 WHERE brand_user_id = ?`, brandUserID); err != nil {
+		t.Fatalf("seeding balance: %v", err)
+	}
+
+	req := httptest.NewRequest("POST", "/brand/stripe-webhook",
+		strings.NewReader(stripeWebhookPayload("pi_test_seeded_1", 25000, brandUserID)))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	server.handleStripeWebhook(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("duplicate delivery: expected 200, got %d", rr.Code)
+	}
+
+	var balance int
+	server.db.QueryRow("SELECT balance_cents FROM brand_balance WHERE brand_user_id = ?", brandUserID).Scan(&balance)
+	if balance != 25000 {
+		t.Errorf("balance must be unchanged on duplicate: got %d, want 25000", balance)
+	}
+	var txnCount int
+	server.db.QueryRow("SELECT COUNT(*) FROM brand_transactions WHERE stripe_id = 'pi_test_seeded_1'").Scan(&txnCount)
+	if txnCount != 1 {
+		t.Errorf("ledger rows: got %d, want 1", txnCount)
+	}
+}
+
+// TestBrandPortal_StripeWebhookMissingBalanceRow proves a deposit is never
+// silently swallowed when the brand_balance row is absent.
+func TestBrandPortal_StripeWebhookMissingBalanceRow(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, brandUserID := brandRegister(t, server, "nobal@brand.com", "password1234", "NoBalCo")
+
+	if _, err := server.db.Exec("DELETE FROM brand_balance WHERE brand_user_id = ?", brandUserID); err != nil {
+		t.Fatalf("removing balance row: %v", err)
+	}
+
+	req := httptest.NewRequest("POST", "/brand/stripe-webhook",
+		strings.NewReader(stripeWebhookPayload("pi_test_nobal_1", 7700, brandUserID)))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	server.handleStripeWebhook(rr, req)
+
+	var balance int
+	err := server.db.QueryRow("SELECT balance_cents FROM brand_balance WHERE brand_user_id = ?", brandUserID).Scan(&balance)
+	if err != nil {
+		t.Fatalf("balance row must exist after a credited deposit, got: %v", err)
+	}
+	if balance != 7700 {
+		t.Errorf("balance: got %d, want 7700 (deposit swallowed)", balance)
+	}
+}
+
+// TestBrandPortal_StripeWebhookUniqueIndexExists pins the partial unique index
+// that makes the double-credit impossible at the storage layer. It is partial
+// because the dev/test deposit fallback inserts stripe_id = '' for every row.
+func TestBrandPortal_StripeWebhookUniqueIndexExists(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	_, brandUserID := brandRegister(t, server, "idx@brand.com", "password1234", "IdxCo")
+
+	ins := func(stripeID string) error {
+		_, err := server.db.Exec(`INSERT INTO brand_transactions (brand_user_id, type, amount_cents, description, stripe_id)
+			VALUES (?, 'deposit', 100, 'x', ?)`, brandUserID, stripeID)
+		return err
+	}
+
+	if err := ins("pi_unique_1"); err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+	if err := ins("pi_unique_1"); err == nil {
+		t.Error("duplicate stripe_id was accepted — unique index missing from the test schema")
+	}
+
+	// The empty-string sentinel used by the dev deposit fallback must stay
+	// insertable more than once.
+	if err := ins(""); err != nil {
+		t.Fatalf("first empty stripe_id insert: %v", err)
+	}
+	if err := ins(""); err != nil {
+		t.Errorf("second empty stripe_id insert must be allowed (dev deposit fallback), got: %v", err)
+	}
+}
+
 func TestBrandPortal_CategoryIntel(t *testing.T) {
 	server := newTestServer(t, &MockTwilioClient{})
 	cookie, _ := brandRegister(t, server, "intel@brand.com", "password1234", "IntelCo")
@@ -1423,13 +1573,22 @@ func TestCompetitiveIntel_ReturnsData(t *testing.T) {
 	// Create a test user so swap_events have valid user_id
 	server.db.Exec("INSERT OR IGNORE INTO users (id, name) VALUES ('user-1', 'TestUser')")
 
+	// A user accepts a campaign at most once (idx_swap_events_one_accept), so
+	// the accepts in an acceptance rate come from different users. Offers may
+	// repeat for one user.
+	accepter := func(n int) string {
+		id := fmt.Sprintf("ci-user-%d", n)
+		server.db.Exec("INSERT OR IGNORE INTO users (id, name) VALUES (?, 'TestUser')", id)
+		return id
+	}
+
 	// Insert swap events for our deal: 10 offered, 4 accepted
 	for i := 0; i < 10; i++ {
 		action := "offered"
 		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-1', ?, ?)", dealID, action)
 	}
 	for i := 0; i < 4; i++ {
-		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-1', ?, 'accepted')", dealID)
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (?, ?, 'accepted')", accepter(i), dealID)
 	}
 
 	// Insert swap events for competitor deal: 20 offered, 4 accepted
@@ -1437,7 +1596,7 @@ func TestCompetitiveIntel_ReturnsData(t *testing.T) {
 		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-1', ?, 'offered')", competitorDealID)
 	}
 	for i := 0; i < 4; i++ {
-		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES ('user-1', ?, 'accepted')", competitorDealID)
+		server.db.Exec("INSERT INTO swap_events (user_id, deal_id, action) VALUES (?, ?, 'accepted')", accepter(i), competitorDealID)
 	}
 
 	// Now call the endpoint
@@ -1775,7 +1934,10 @@ func TestBrandDealCreation_WithProductDescription(t *testing.T) {
 	if desc != "Refreshing zero-sugar cola with natural flavors." {
 		t.Errorf("product_description: got %q", desc)
 	}
-	if benefits != `["Zero sugar","Natural caffeine","No artificial sweeteners"]` {
+	// JSONB re-serialises (adds spaces), so compare the decoded array.
+	var gotBenefits []string
+	if err := json.Unmarshal([]byte(benefits), &gotBenefits); err != nil || len(gotBenefits) != 3 ||
+		gotBenefits[0] != "Zero sugar" || gotBenefits[1] != "Natural caffeine" || gotBenefits[2] != "No artificial sweeteners" {
 		t.Errorf("key_benefits: got %q", benefits)
 	}
 	if story != "NewCola was founded to prove that healthy can taste great." {
@@ -2374,7 +2536,7 @@ func TestResolveBrandAlternatives_GlobalDefaults(t *testing.T) {
 
 	// Seed global brand choices for "ketchup" from multiple users
 	for i := 0; i < 5; i++ {
-		otherUserID := 1000 + i
+		otherUserID := fmt.Sprintf("other-user-%d", 1000+i)
 		server.db.Exec("INSERT OR IGNORE INTO users (id, phone) VALUES (?, ?)", otherUserID, fmt.Sprintf("555000%04d", i))
 		server.db.Exec(
 			"INSERT INTO brand_choices (user_id, product_category, brand, source) VALUES (?, ?, ?, ?)",
@@ -2725,8 +2887,9 @@ func TestUpdateBrandDeal_SuccessfulUpdate(t *testing.T) {
 	if budget != newBudget {
 		t.Errorf("total_budget_cents: got %d, want %d", budget, newBudget)
 	}
-	if why != newWhy {
-		t.Errorf("why_bullets: got %q, want %q", why, newWhy)
+	// why_bullets is a JSON array column: plain text is kept as one bullet.
+	if wantWhy := jsonArrayText(newWhy); why != wantWhy {
+		t.Errorf("why_bullets: got %q, want %q", why, wantWhy)
 	}
 	if allergen != newAllergen {
 		t.Errorf("allergen_notes: got %q, want %q", allergen, newAllergen)
@@ -3282,5 +3445,40 @@ func TestBrandFeedback_MethodNotAllowed(t *testing.T) {
 	rr := doRequest(server.handleBrandFeedback, "DELETE", "/brand/feedback", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("Status: got %d, want 405", rr.Code)
+	}
+}
+
+// TestBrandPortal_DepositCheckoutFormCarriesSourceMetadata: CLAUDE.md Revenue
+// Rules require source: "pennyai" on all charges. The Checkout Session set only
+// brand_user_id, so attribution was broken for every real deposit.
+func TestBrandPortal_DepositCheckoutFormCarriesSourceMetadata(t *testing.T) {
+	form := buildDepositCheckoutForm("42", 25000, "https://brands.groflo.io")
+
+	if got := form.Get("payment_intent_data[metadata][source]"); got != "pennyai" {
+		t.Errorf("payment_intent_data[metadata][source] = %q, want \"pennyai\"", got)
+	}
+	if got := form.Get("payment_intent_data[metadata][brand_user_id]"); got != "42" {
+		t.Errorf("brand_user_id metadata = %q, want \"42\"", got)
+	}
+
+	// The encoded body is what Stripe actually receives.
+	encoded := form.Encode()
+	for _, want := range []string{
+		"payment_intent_data%5Bmetadata%5D%5Bsource%5D=pennyai",
+		"payment_intent_data%5Bmetadata%5D%5Bbrand_user_id%5D=42",
+		"mode=payment",
+		"line_items%5B0%5D%5Bprice_data%5D%5Bunit_amount%5D=25000",
+	} {
+		if !strings.Contains(encoded, want) {
+			t.Errorf("encoded form body missing %q\ngot: %s", want, encoded)
+		}
+	}
+
+	// Redirects must go back to the brand portal.
+	if got := form.Get("success_url"); got != "https://brands.groflo.io?deposit=success" {
+		t.Errorf("success_url = %q", got)
+	}
+	if got := form.Get("cancel_url"); got != "https://brands.groflo.io?deposit=cancel" {
+		t.Errorf("cancel_url = %q", got)
 	}
 }

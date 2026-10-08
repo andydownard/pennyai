@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { appOrigin } from '../appUrl'
 import { track } from '../analytics'
 import { fetchAPI } from '../api'
 import { FONT, FONT_XS, FONT_BASE, FONT_MD, layout, text } from '../styles'
@@ -169,7 +170,7 @@ export function WrappedCard({ onClose }: WrappedCardProps) {
       URL.revokeObjectURL(url)
     } else {
       // Ultimate fallback: text-only sharing
-      const shareText = data.share_text + '\n\nGet Groflo: https://app.groflo.io'
+      const shareText = data.share_text + `\n\nGet Groflo: ${appOrigin()}`
       if (navigator.share) {
         navigator.share({ text: shareText }).catch(() => {})
       } else {

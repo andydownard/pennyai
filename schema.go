@@ -18,13 +18,23 @@ func addColumnIfNotExists(db dbExecer, table, column, definition string) {
 	}
 }
 
+// createIndexIfNotExists runs an additive CREATE [UNIQUE] INDEX IF NOT EXISTS
+// and logs loudly on failure instead of aborting startup. A unique index can
+// legitimately fail to build on an existing database that already holds
+// duplicate rows; that needs a human to reconcile, and the rest of the schema
+// must still come up. Never used for anything destructive.
+func createIndexIfNotExists(db dbExecer, stmt string) {
+	if _, err := db.Exec(stmt); err != nil {
+		log.Printf("[schema] WARNING could not create index (existing duplicate rows?): %v -- stmt: %s", err, stmt)
+	}
+}
+
 func initDB(db *sql.DB) error {
 	// =========================================================================
 	// USERS TABLE — owned by pennyai
 	// =========================================================================
-	// Pennyai owns its own users table. Identity federation with Rally/timpager
-	// happens via a server-to-server API call at verify time (PR 3), not via a
-	// shared database.
+	// Pennyai owns its own users table. Identity is the Clerk user id
+	// (users.clerk_user_id) from a verified Rally sign-in token; no shared database.
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
 			id           TEXT PRIMARY KEY,
@@ -68,9 +78,20 @@ func initDB(db *sql.DB) error {
 		{"daily_digest_enabled", "INTEGER NOT NULL DEFAULT 0"},
 		{"daily_digest_opted_in_at", "TIMESTAMPTZ"},
 		{"daily_digest_last_sent", "TIMESTAMPTZ"},
+		// Rally sign-in (Clerk): the `sub` claim of a verified Clerk
+		// session JWT. Nullable with no default; rows with no Clerk identity keep a NULL.
+		{"clerk_user_id", "TEXT"},
 	} {
 		addColumnIfNotExists(db, "users", c.col, c.def)
 	}
+
+	// One Clerk identity maps to at most one local user. A PARTIAL unique index
+	// (not a column UNIQUE constraint) so unlimited NULLs coexist — a column
+	// constraint would be a table-shape change and could fail on a database
+	// that already has rows. Works on Postgres and the SQLite test tier alike.
+	// This index, not application code, is the real backstop against two rows
+	// claiming one Clerk identity under concurrent first logins.
+	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_clerk_user_id ON users(clerk_user_id) WHERE clerk_user_id IS NOT NULL")
 
 	// =========================================================================
 	// SESSIONS TABLE — owned by pennyai
@@ -477,6 +498,12 @@ func initDB(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("creating swap_events table: %w", err)
 	}
+	// One accepted swap per user per campaign (B14/B17). This is what makes
+	// swaps non-farmable, so it is enforced in storage rather than by a COUNT
+	// that a concurrent request can race past. Partial: declines and offers are
+	// deliberately repeatable.
+	createIndexIfNotExists(db, `CREATE UNIQUE INDEX IF NOT EXISTS idx_swap_events_one_accept
+		ON swap_events(user_id, deal_id) WHERE action = 'accepted'`)
 
 	// swap_suppressions: tracks per-user deal dismissals, 3+ = permanent suppress
 	_, err = db.Exec(`
@@ -714,6 +741,13 @@ func initDB(db *sql.DB) error {
 		return fmt.Errorf("creating brand_transactions table: %w", err)
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_brand_transactions_user ON brand_transactions(brand_user_id)")
+	// One ledger row per Stripe payment_intent. Stripe retries webhooks by
+	// design and can deliver the same event concurrently, so the storage layer
+	// — not a COUNT(*) check — is what prevents a double credit.
+	// Partial, because the dev/test deposit fallback writes stripe_id = '' for
+	// every row it inserts.
+	createIndexIfNotExists(db, `CREATE UNIQUE INDEX IF NOT EXISTS idx_brand_transactions_stripe_id
+		ON brand_transactions(stripe_id) WHERE stripe_id IS NOT NULL AND stripe_id <> ''`)
 
 	// Bug reports table
 	_, err = db.Exec(`

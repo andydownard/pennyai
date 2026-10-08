@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { appOrigin } from '../appUrl'
 import { PennyAvatar } from './PennyAvatar'
 
 const FONT = "'Avenir', 'Avenir Next', -apple-system, 'Segoe UI', sans-serif"
@@ -245,7 +246,7 @@ export function EmbedView() {
         textAlign: 'center',
       }}>
         <a
-          href="https://app.groflo.io"
+          href={appOrigin()}
           target="_blank"
           rel="noopener noreferrer"
           style={{

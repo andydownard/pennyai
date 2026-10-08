@@ -3,7 +3,10 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"log"
+	"regexp"
 	"strings"
+	"sync"
 )
 
 // PGDB wraps *sql.DB to automatically convert SQLite SQL syntax to PostgreSQL.
@@ -32,6 +35,12 @@ import (
 type PGDB struct {
 	*sql.DB
 	skipConversion bool // when true, pass SQL through without conversion (for SQLite tests)
+
+	// serialTables names every table whose `id` column is an integer, i.e. the
+	// tables where LastInsertId() means something. Loaded once from the catalog.
+	serialMu     sync.Mutex
+	serialLoaded bool
+	serialTables map[string]bool
 }
 
 // WrapPG creates a PGDB wrapper around a standard sql.DB connection.
@@ -51,7 +60,7 @@ func (db *PGDB) Exec(query string, args ...interface{}) (sql.Result, error) {
 		return db.DB.Exec(sqliteCompat(query), args...)
 	}
 	converted := convertSQL(query)
-	return pgExecWithReturning(db.DB, converted, args...)
+	return pgExecWithReturning(db.DB, db.hasSerialID, converted, args...)
 }
 
 func (db *PGDB) Query(query string, args ...interface{}) (*sql.Rows, error) {
@@ -69,17 +78,24 @@ func (db *PGDB) QueryRow(query string, args ...interface{}) *sql.Row {
 }
 
 func (db *PGDB) Begin() (*PGTx, error) {
+	// Read the catalog before the transaction takes a connection. Loading it
+	// lazily from inside a transaction needs a second connection while holding
+	// the first, which deadlocks once concurrent callers exhaust the pool.
+	if !db.skipConversion {
+		db.loadSerialTables()
+	}
 	tx, err := db.DB.Begin()
 	if err != nil {
 		return nil, err
 	}
-	return &PGTx{Tx: tx, skipConversion: db.skipConversion}, nil
+	return &PGTx{Tx: tx, skipConversion: db.skipConversion, parent: db}, nil
 }
 
 // PGTx wraps *sql.Tx with the same SQL conversion.
 type PGTx struct {
 	*sql.Tx
 	skipConversion bool
+	parent         *PGDB
 }
 
 func (tx *PGTx) Exec(query string, args ...interface{}) (sql.Result, error) {
@@ -87,7 +103,7 @@ func (tx *PGTx) Exec(query string, args ...interface{}) (sql.Result, error) {
 		return tx.Tx.Exec(sqliteCompat(query), args...)
 	}
 	converted := convertSQL(query)
-	return pgExecWithReturning(tx.Tx, converted, args...)
+	return pgExecWithReturning(tx.Tx, func(table string) bool { return tx.parent.hasSerialIDVia(tx.Tx, table) }, converted, args...)
 }
 
 func (tx *PGTx) Query(query string, args ...interface{}) (*sql.Rows, error) {
@@ -157,6 +173,12 @@ func convertSQL(query string) string {
 
 	// strftime conversions
 	q = convertStrftime(q)
+
+	// date(x), date('now', modifier), date(?, modifier)
+	q = convertDateFunc(q)
+
+	// COALESCE(x, '') → COALESCE((x)::TEXT, '')
+	q = convertCoalesceEmpty(q)
 
 	// Convert ? placeholders to $1, $2, $3, ...
 	q = convertPlaceholders(q)
@@ -370,7 +392,7 @@ func convertJulianday(q string) string {
 // dbQuerier abstracts *sql.DB and *sql.Tx for pgExecWithReturning.
 type dbQuerier interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
-	QueryRow(query string, args ...interface{}) *sql.Row
+	Query(query string, args ...interface{}) (*sql.Rows, error)
 }
 
 // pgResult implements sql.Result with explicit LastInsertId support.
@@ -382,34 +404,101 @@ type pgResult struct {
 func (r pgResult) LastInsertId() (int64, error) { return r.lastID, nil }
 func (r pgResult) RowsAffected() (int64, error) { return r.affected, nil }
 
-// pgExecWithReturning handles INSERT statements by automatically appending
-// RETURNING id so that LastInsertId() works in PostgreSQL.
-// For non-INSERT or INSERT that already has RETURNING, it falls through to normal Exec.
-func pgExecWithReturning(db dbQuerier, query string, args ...interface{}) (sql.Result, error) {
-	upper := strings.TrimSpace(strings.ToUpper(query))
+var insertTableRe = regexp.MustCompile(`(?i)^\s*INSERT\s+INTO\s+"?([a-z_][a-z0-9_]*)"?`)
 
-	// Only intercept INSERT statements that don't already have RETURNING
-	isInsert := strings.HasPrefix(upper, "INSERT")
-	hasReturning := strings.Contains(upper, "RETURNING")
+// loadSerialTables reads, once, which tables have an integer `id` column.
+// main() calls it after initDB so the first INSERT does not pay for it.
+func (db *PGDB) loadSerialTables() {
+	db.loadSerialTablesVia(db.DB)
+}
 
-	if isInsert && !hasReturning {
-		// Append RETURNING id and use QueryRow to capture the generated ID
-		returningQuery := strings.TrimRight(query, "; \t\n") + " RETURNING id"
-		var id int64
-		err := db.QueryRow(returningQuery, args...).Scan(&id)
-		if err != nil {
-			// If RETURNING id fails (e.g., table has no 'id' column, or ON CONFLICT DO NOTHING
-			// matched zero rows), fall back to normal Exec
-			result, execErr := db.Exec(query, args...)
-			if execErr != nil {
-				return nil, execErr
-			}
-			return result, nil
+// loadSerialTablesVia does the load on q. A caller already inside a transaction
+// passes its own *sql.Tx: borrowing a second pooled connection from there
+// deadlocks once every connection in the pool is held by a transaction that is
+// itself waiting for this load (a burst of concurrent first INSERTs on a
+// freshly started process). The mutex means only one caller loads; the others
+// wait without needing a connection. A failed load is not remembered, so the
+// next INSERT retries instead of losing LastInsertId() for the process's life.
+func (db *PGDB) loadSerialTablesVia(q interface {
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+}) bool {
+	db.serialMu.Lock()
+	defer db.serialMu.Unlock()
+	if db.serialLoaded {
+		return true
+	}
+	rows, err := q.Query(
+		`SELECT table_name FROM information_schema.columns
+		 WHERE table_schema = current_schema()
+		   AND column_name = 'id'
+		   AND data_type IN ('integer', 'bigint', 'smallint')`)
+	if err != nil {
+		log.Printf("[pgcompat] could not read the catalog for integer id columns: %v", err)
+		return false
+	}
+	defer rows.Close()
+	tables := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if rows.Scan(&name) == nil {
+			tables[strings.ToLower(name)] = true
 		}
-		return pgResult{lastID: id, affected: 1}, nil
+	}
+	if rows.Err() != nil {
+		log.Printf("[pgcompat] reading integer id columns: %v", rows.Err())
+		return false
+	}
+	db.serialTables = tables
+	db.serialLoaded = true
+	return true
+}
+
+// hasSerialID reports whether INSERTs into table can return a generated id.
+func (db *PGDB) hasSerialID(table string) bool {
+	return db.hasSerialIDVia(db.DB, table)
+}
+
+func (db *PGDB) hasSerialIDVia(q interface {
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+}, table string) bool {
+	if !db.loadSerialTablesVia(q) {
+		return false
+	}
+	return db.serialTables[strings.ToLower(table)]
+}
+
+// pgExecWithReturning makes LastInsertId() work on PostgreSQL by appending
+// RETURNING id — but ONLY for tables known to have an integer id column.
+//
+// The statement always runs exactly once. The earlier version appended
+// RETURNING id to every INSERT and re-ran the INSERT when that failed, which
+// (a) inserted twice into tables with a TEXT id, such as users, and (b)
+// aborted the enclosing transaction for tables with no id column at all.
+//
+// A conflict swallowed by ON CONFLICT DO NOTHING returns no rows; that is
+// reported as RowsAffected() == 0, which the idempotency guards depend on.
+func pgExecWithReturning(db dbQuerier, hasSerialID func(string) bool, query string, args ...interface{}) (sql.Result, error) {
+	m := insertTableRe.FindStringSubmatch(query)
+	if m == nil || strings.Contains(strings.ToUpper(query), "RETURNING") || !hasSerialID(m[1]) {
+		return db.Exec(query, args...)
 	}
 
-	return db.Exec(query, args...)
+	rows, err := db.Query(strings.TrimRight(query, "; \t\n")+" RETURNING id", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var lastID, affected int64
+	for rows.Next() {
+		if err := rows.Scan(&lastID); err != nil {
+			return nil, err
+		}
+		affected++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return pgResult{lastID: lastID, affected: affected}, nil
 }
 
 // convertStrftime handles common strftime patterns used in the codebase.
@@ -455,10 +544,167 @@ func convertStrftime(q string) string {
 		case "'%H'":
 			replacement = fmt.Sprintf("EXTRACT(HOUR FROM %s)", col)
 		default:
-			// Fallback: leave as-is but mark for manual review
-			replacement = fmt.Sprintf("/* TODO: strftime conversion */ TO_CHAR(%s, %s)", col, format)
+			// An unrecognised format used to become a TODO comment plus
+			// TO_CHAR(col, '%x'), which Postgres executes without error and which
+			// yields the literal format string instead of a date part — silently
+			// wrong analytics, with nothing in the logs. The conversion stays
+			// best-effort (refusing here would break the query outright), but it
+			// is now loud, and pgcompat_test.go fails if any format literal in
+			// non-test sources reaches this branch at all.
+			log.Printf("[pgcompat] UNSUPPORTED strftime format %q — emitting TO_CHAR(%s, %s), which will NOT "+
+				"produce a date part. Add a case to convertStrftime.", format, col, format)
+			replacement = fmt.Sprintf("TO_CHAR(%s, %s)", col, format)
 		}
 		q = q[:start] + replacement + q[end:]
 	}
 	return q
+}
+
+// convertCoalesceEmpty rewrites COALESCE(expr, '') to COALESCE((expr)::TEXT, '').
+//
+// SQLite lets any column fall back to an empty string. PostgreSQL resolves the
+// two arguments to one type, so COALESCE(some_timestamp, '') fails with
+// "invalid input syntax for type timestamp". The callers all scan the result
+// into a string, so casting the first argument to TEXT preserves their intent.
+// Only the exact two-argument form with an empty-string fallback is touched.
+func convertCoalesceEmpty(q string) string {
+	const kw = "COALESCE("
+	var out strings.Builder
+	out.Grow(len(q) + 16)
+	inString := false
+	for i := 0; i < len(q); {
+		ch := q[i]
+		if ch == '\'' {
+			inString = !inString
+			out.WriteByte(ch)
+			i++
+			continue
+		}
+		if inString || i+len(kw) > len(q) || !strings.EqualFold(q[i:i+len(kw)], kw) ||
+			(i > 0 && isIdentByte(q[i-1])) {
+			out.WriteByte(ch)
+			i++
+			continue
+		}
+
+		args, end, ok := splitCallArgs(q, i+len(kw))
+		if !ok {
+			out.WriteByte(ch)
+			i++
+			continue
+		}
+		for j := range args {
+			args[j] = convertCoalesceEmpty(args[j])
+		}
+		if len(args) == 2 && strings.TrimSpace(args[1]) == "''" {
+			first := strings.TrimSpace(args[0])
+			if !strings.HasSuffix(strings.ToUpper(first), "::TEXT") {
+				lead := args[0][:len(args[0])-len(strings.TrimLeft(args[0], " \t\n"))]
+				args[0] = lead + "(" + first + ")::TEXT"
+			}
+		}
+		out.WriteString(q[i : i+len(kw)])
+		out.WriteString(strings.Join(args, ","))
+		out.WriteByte(')')
+		i = end + 1
+	}
+	return out.String()
+}
+
+func isIdentByte(b byte) bool {
+	return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+// splitCallArgs splits the arguments of a function call whose opening paren
+// has just been consumed (start is the first byte after it). It returns the
+// top-level arguments and the index of the matching close paren.
+func splitCallArgs(q string, start int) ([]string, int, bool) {
+	var args []string
+	depth := 0
+	inString := false
+	argStart := start
+	for i := start; i < len(q); i++ {
+		ch := q[i]
+		switch {
+		case ch == '\'':
+			inString = !inString
+		case inString:
+		case ch == '(':
+			depth++
+		case ch == ')':
+			if depth == 0 {
+				return append(args, q[argStart:i]), i, true
+			}
+			depth--
+		case ch == ',' && depth == 0:
+			args = append(args, q[argStart:i])
+			argStart = i + 1
+		}
+	}
+	return nil, 0, false
+}
+
+// convertDateFunc translates SQLite's date() function.
+//
+// SQLite's date() returns 'YYYY-MM-DD' text in UTC, and the schema stores
+// calendar dates (trip_date, the *_daily.date columns) as TEXT in that shape,
+// so the one- and 'now'-based forms are translated to TO_CHAR(...) text:
+//
+//	date(x)                 → TO_CHAR((x) AT TIME ZONE 'UTC', 'YYYY-MM-DD')
+//	date('now')             → TO_CHAR((NOW() AT TIME ZONE 'UTC'), 'YYYY-MM-DD')
+//	date('now', '-2 days')  → TO_CHAR((NOW() AT TIME ZONE 'UTC') + INTERVAL '-2 days', 'YYYY-MM-DD')
+//	date('now', ?)          → TO_CHAR((NOW() AT TIME ZONE 'UTC') + CAST(? AS INTERVAL), 'YYYY-MM-DD')
+//
+// A non-'now' base with a modifier is only ever compared against a timestamp
+// column, so it stays a timestamp:
+//
+//	date(?, '-6 days')      → (CAST(? AS DATE) + INTERVAL '-6 days')
+func convertDateFunc(q string) string {
+	const kw = "DATE("
+	const utcNow = "(NOW() AT TIME ZONE 'UTC')"
+	var out strings.Builder
+	out.Grow(len(q) + 32)
+	inString := false
+	for i := 0; i < len(q); {
+		ch := q[i]
+		if ch == '\'' {
+			inString = !inString
+			out.WriteByte(ch)
+			i++
+			continue
+		}
+		if inString || i+len(kw) > len(q) || !strings.EqualFold(q[i:i+len(kw)], kw) ||
+			(i > 0 && isIdentByte(q[i-1])) {
+			out.WriteByte(ch)
+			i++
+			continue
+		}
+		args, end, ok := splitCallArgs(q, i+len(kw))
+		if !ok || len(args) == 0 || len(args) > 2 {
+			out.WriteByte(ch)
+			i++
+			continue
+		}
+		base := strings.TrimSpace(args[0])
+		isNow := strings.EqualFold(base, "'now'")
+		modifier := ""
+		if len(args) == 2 {
+			m := strings.TrimSpace(args[1])
+			if m == "?" {
+				modifier = " + CAST(? AS INTERVAL)"
+			} else {
+				modifier = " + INTERVAL " + m
+			}
+		}
+		switch {
+		case isNow:
+			out.WriteString("TO_CHAR(" + utcNow + modifier + ", 'YYYY-MM-DD')")
+		case len(args) == 1:
+			out.WriteString("TO_CHAR((" + convertDateFunc(base) + ") AT TIME ZONE 'UTC', 'YYYY-MM-DD')")
+		default:
+			out.WriteString("(CAST(" + base + " AS DATE)" + modifier + ")")
+		}
+		i = end + 1
+	}
+	return out.String()
 }

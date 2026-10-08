@@ -243,3 +243,29 @@ func (s *Server) requireSavedListAccess(w http.ResponseWriter, userID string, li
 	return false
 }
 
+
+// jsonArrayText makes s safe for a JSONB array column (why_bullets,
+// key_benefits). PostgreSQL rejects an empty or non-JSON string where SQLite
+// stored it as text. A JSON array passes through, blank becomes "[]", and any
+// other text is kept as a one-element array so nothing a brand typed is lost.
+func jsonArrayText(s string) string {
+	var arr []json.RawMessage
+	if err := json.Unmarshal([]byte(s), &arr); err == nil && arr != nil {
+		return s
+	}
+	if strings.TrimSpace(s) == "" {
+		return "[]"
+	}
+	wrapped, _ := json.Marshal([]string{s})
+	return string(wrapped)
+}
+
+// nullIfEmpty returns nil for an empty string so the column receives SQL NULL.
+// Use it instead of NULLIF(?, '') for timestamp/JSONB columns: on PostgreSQL
+// NULLIF(?, '') is typed text and cannot be assigned to those columns.
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}

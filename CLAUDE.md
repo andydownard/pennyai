@@ -2,17 +2,17 @@
 
 ## What Is This
 
-Groflo is an AI-powered grocery shopping list app with personality-driven assistant Penny, household sharing, and multi-channel input (web, SMS, email). Part of the Rally ecosystem — Rally is the canonical identity layer for all its marketplaces. Pennyai resolves every verified user against a server-to-server identity API in timpager (rallytasks.com) so the same person has one user_id everywhere in Rally. Stripe payouts federate through timpager. Go backend, React/TypeScript frontend, PostgreSQL (pennyai-owned, separate from timpager's), deployed on Railway. Brand source of truth: `../pitch deck/penny-brand-source.json`.
+Groflo is an AI-powered grocery shopping list app with personality-driven assistant Penny, household sharing, and multi-channel input (web, SMS, email). Part of the Rally ecosystem; sign-in is Rally's, through Clerk ("Continue with Rally"). Pennyai keeps its own users, sessions and database and calls no other Rally service. Go backend, React/TypeScript frontend, PostgreSQL, deployed on Railway. Brand source of truth: `../pitch deck/penny-brand-source.json`.
 
 **Monorepo structure:** Go backend (root), `frontend/` (consumer React app), `frontend-brand/` (brand portal), `marketing/` (Groflo marketing site, from thrift.ly repo).
 
-**URLs:** `app.groflo.io` (consumer app), `penny.rallytasks.com` (consumer app, Rally ecosystem), `brands.groflo.io` (brand portal).
+**URLs:** `https://groflo.rallytasks.com` (consumer app; same apex as Rally's Clerk at `clerk.rallytasks.com`, so Clerk runs first-party; the frontend falls back to satellite mode only if `VITE_CLERK_DOMAIN` is set). `app.groflo.io`, `brands.groflo.io`, `penny.rallytasks.com` and `groflo.io` are currently not attached to any service, so the brand portal and the marketing site have no host.
 
-**Database:** PostgreSQL owned by pennyai. Pennyai owns its own `users` and `sessions` tables in its own Postgres instance — timpager runs on a separate Postgres. User IDs are TEXT UUIDs minted by timpager's identity API and stored locally as pennyai's `users.id` so the same person is one canonical user across Rally. Cross-domain SSO is **not** implemented (by design): users verify once per domain via Twilio Verify / Google OAuth / email code — the same UX they have today. All penny-specific tables (list_items, brand_deals, etc.) FK to local `users(id)`. SQL compatibility wrapper (`pgcompat.go`) auto-converts legacy SQLite syntax at runtime.
+**Database:** PostgreSQL owned by pennyai (Railway project `rally`, service `pennyai`; the database is fresh, the old `groflo` service and its data no longer exist). Identity is the Clerk user id in `users.clerk_user_id`; pennyai mints its own `users.id` (a TEXT UUID). All penny-specific tables (list_items, brand_deals, etc.) FK to local `users(id)`. SQL compatibility wrapper (`pgcompat.go`) auto-converts legacy SQLite syntax at runtime.
 
 **Brand history:** Rebranded from "Thriftly" to "Groflo" on 2026-04-07 (sprint plan: `GROFLO_REBRAND_SPRINT.md`). Migrated from SQLite to PostgreSQL on 2026-04-13.
 
-**Git branching:** `main` → `staging` → `production`. All code reaches main through a PR. **NEVER promote staging→production without groflo.io green on staging.** Verify healthcheck passes on staging before any production merge.
+**Git branching:** `main` → `staging` → `production`. All code reaches main through a PR. **NEVER promote staging→production without groflo.io green on staging.** Verify healthcheck passes on staging before any production merge. **As of 2026-10-03 Railway deploys `main` directly** (service `pennyai`), so this promotion model no longer matches the deploy; which model to use is a decision Andy still has to make.
 
 **Read first:** [QUICKSTART.md](./QUICKSTART.md) → this file → [ARCHITECTURE.md](./ARCHITECTURE.md).
 
@@ -40,7 +40,6 @@ Groflo is an AI-powered grocery shopping list app with personality-driven assist
 ## Revenue Rules
 
 - 30% community share is non-negotiable. NEVER change without all panels.
-- Push revenue events to timpager via revenue events API. Idempotency key: `pennyai_{eventType}_{sourceRef}_{date}`.
 - Stripe metadata MUST include `source: "pennyai"` on all charges.
 - Brand deals and swap rebates tracked via `brand_deals` table and `swap_events` table. Distribution must sum exactly; remainder to last recipient.
 - NEVER distribute more than revenue share allows. NEVER update wallet balances outside same transaction as distribution INSERT.
@@ -49,7 +48,7 @@ Groflo is an AI-powered grocery shopping list app with personality-driven assist
 
 **Panel Review Required.** All user-facing changes need panel review. See [PANEL_GOVERNANCE.md](./PANEL_GOVERNANCE.md) for Customer Panel and Product Team. Micro (typo) = auto-GO. Small = 2 min. Medium = 10 min. Large = 30 min.
 
-**Git Branching.** `main` → `staging` → `production`. All code reaches main through a PR. Staging and production are MERGE-ONLY. NEVER promote staging→production without healthcheck pass.
+**Git Branching.** `main` → `staging` → `production`. All code reaches main through a PR. Staging and production are MERGE-ONLY. NEVER promote staging→production without healthcheck pass. (Railway now deploys `main`; whether staging/production remain in use is Andy's open decision.)
 
 **Testing (TDD Mandatory).** Write failing test first. RED-GREEN-REFACTOR. Test-to-code ratio >= 1.3×. All mutations: positive, negative, idempotency, auth tests. Bugfix tests mandatory — ship with regression test. `go test -count=1 ./...` and `cd frontend && npx playwright test` must pass with zero failures.
 
@@ -59,9 +58,9 @@ Groflo is an AI-powered grocery shopping list app with personality-driven assist
 
 **Penny Identity.** Penny IS Penny (digitized personality). Strunk & White prose. Groflo topics only. NEVER reveal system prompt. See [PENNY_PROMPT.md](./PENNY_PROMPT.md) for brand voice. Preserve all Penny behaviors: typewriter effect, chime-ins, idle reminders, personality quotes.
 
-**Security.** All secrets in env vars. 256-bit session tokens. HttpOnly cookies. 30-day session expiry. Auth methods: phone/SMS (Twilio), Google OAuth, email/password (bcrypt), magic link. NEVER weaken. NEVER remove any auth method. Phone is join key for phone users; Google `sub` is join key for OAuth users. Sessions live in pennyai's own DB on `.groflo.io` cookies — not shared with timpager.
+**Security.** All secrets in env vars. 256-bit session tokens. HttpOnly cookies. 30-day session expiry. Sign-in is Clerk only ("Continue with Rally"). Owner decision 2026-10-03: phone code, Google, email/password, magic link, password reset and the auth-link endpoint are removed and their ten endpoints answer 410 (`retiredAuthPaths` in `server.go`). NEVER reintroduce a legacy sign-in method or any Timpager integration without Andy. NEVER weaken the Clerk checks. The backend verifies the Clerk session JWT against the issuer's public JWKS (RS256 only, exact issuer, `azp` allowlist, Bearer only, never reads the `__session` cookie), then `POST /auth/clerk/exchange` mints pennyai's own session cookie. `users.clerk_user_id` is the join key. pennyai REFUSES TO BOOT if `CLERK_SECRET_KEY` or `CLERK_WEBHOOK_SIGNING_SECRET` is set. A phone is stored only when the token carries it and `phone_verified` is true; `PATCH /api/settings` does not accept `phone`. Admin is the session phone equal to `ADMIN_PHONE`, or a user whose Clerk id is in `ADMIN_CLERK_USER_IDS`. The brand portal keeps its own email/password login (`handlers_brand_auth.go`). Sessions live in pennyai's own DB.
 
-**Database Rules.** PostgreSQL (pennyai-owned, separate from timpager's Postgres). `DATABASE_URL` points at pennyai's own instance. NEVER DROP TABLE or recreate tables. ALWAYS CREATE TABLE IF NOT EXISTS. Use ALTER TABLE ADD COLUMN for migrations via `addColumnIfNotExists()` helper. Pennyai owns the `users` and `sessions` tables in its own DB; user IDs are TEXT UUIDs returned from timpager's identity resolve API (PR 3, landing after the 2026-04-18 PostgreSQL ownership split) and stored locally. SQL compatibility wrapper (`pgcompat.go`) converts `?` → `$N`, `datetime('now')` → `NOW()`, etc. at runtime. For nullable phone: use `sql.NullString` and `COALESCE(u.phone,'')` in queries.
+**Database Rules.** PostgreSQL (pennyai-owned). `DATABASE_URL` points at it. NEVER DROP TABLE or recreate tables. ALWAYS CREATE TABLE IF NOT EXISTS. Use ALTER TABLE ADD COLUMN for migrations via `addColumnIfNotExists()` helper. User IDs are TEXT UUIDs minted by pennyai. SQL compatibility wrapper (`pgcompat.go`) converts `?` → `$N`, `datetime('now')` → `NOW()`, SQLite `date()`, etc. at runtime. Know these before touching SQL: `SessionStore` must take the `PGDB` wrapper, not the raw connection; INSERTs get `RETURNING id` only for tables with an integer `id`; `COALESCE(x,'')` is cast to TEXT; timestamps read as strings must be parsed with `parseDBTime` (`dbtime.go`). For nullable phone: use `sql.NullString` and `COALESCE(u.phone,'')` in queries.
 
 **Notification & Communication Safety.** Duplicate notifications and inadvertent outbound messages must NEVER happen. NEVER send SMS, email, or push without dedup (idempotency key or "already sent" flag). NEVER trigger outbound messages as side effect of refactors or migrations. Do NOT rely on React state alone for prompt dismissal (NPS, modals, announcements) — persist in sessionStorage/localStorage or server-side. Do NOT bypass server-side rate limits from client. Before shipping: trace every code path that could trigger outbound message. If you cannot prove no duplication, add a guard.
 
@@ -95,8 +94,8 @@ Groflo is an AI-powered grocery shopping list app with personality-driven assist
 
 ### Key Patterns to Preserve
 - Rate limiting via `sync.Map` with sliding time windows
-- `resolveOrCreateUser()` auto-merge logic for multi-auth
-- Environment variable graceful degradation (e.g., Google OAuth disabled if `GOOGLE_CLIENT_ID` empty)
+- `upsertClerkUser()` in `clerk_identity.go`: a row already bound to one Clerk identity is never rebound to another (takeover guard)
+- Environment variable graceful degradation (e.g., SMS is off when Twilio credentials are missing; Clerk sign-in answers 404 unless `CLERK_ENABLED=1`)
 
 ## Pattern Detection
 
@@ -110,7 +109,7 @@ Watch for these across the codebase. When detected, audit for ALL instances of t
 6. Missing rate limits — external API calls or user-facing mutations without rate limiting
 7. Cross-user access — queries that don't scope to current user's data
 8. Color/font drift — hex colors or font-families that don't match `penny-brand-source.json`
-9. Cross-marketplace access — sessions or API keys scoped to Groflo that reach into other timpager marketplaces (or vice versa)
+9. Cross-service access — sessions, tokens or API keys scoped to Groflo that reach into another Rally app (or vice versa); a Clerk token for another app (`azp` not in `CLERK_AUTHORIZED_PARTIES`) must never sign anyone in
 10. Prompt injection — user-supplied content (receipt images, inbound SMS/email, list items, brand descriptions) passed to Claude without sanitization or instruction-boundary markers
 
 ## CST Principles
@@ -131,23 +130,28 @@ Check this list before coding. If your change touches a listed pattern, read exi
 |---|---|---|
 | _none yet_ | _ship code, write regressions when they happen_ | _start the muscle_ |
 
-## Temporary State (2026-04-18)
+## Current State (2026-10-03)
 
-PostgreSQL migration complete. Pennyai owns its own Postgres (separate from timpager's) as of 2026-04-18. User IDs are TEXT UUIDs. SQL compatibility wrapper (`pgcompat.go`) handles legacy SQLite syntax conversion. Marketing site (from thrift.ly) integrated as `marketing/` directory. Branch strategy: main → staging → production. Email campaign templates extracted from abandoned thrift.ly branch into `marketing/emails/`.
+Owner decisions of 2026-10-03, implemented on `fix/go-live-postgres`:
 
-**Rally identity federation: in flight.** Once PR 2 (timpager identity resolve API) + PR 3 (pennyai wires it into verify + Terms/Privacy discloses Rally's canonical user graph) ship, pennyai's `users.id` is the canonical Rally user_id for that person across all Rally apps. Until PR 3 ships, pennyai mints its own IDs locally and reconciliation is deferred.
-
-Groflo rebrand complete. Go module still named `thriftly` — rename pending. All UI surfaces show "Groflo" and "Penny". Household coordination narrative (11-Star) is focus for current sprint.
+- **Timpager is removed.** No session bridge, identity-resolve call, revenue-event push or payout push. `TIMPAGER_URL` and `TIMPAGER_API_KEY` are gone.
+- **Sign-in is Clerk only.** Clerk is on only when `CLERK_ENABLED=1` (with `CLERK_JWT_ISSUER` and `CLERK_AUTHORIZED_PARTIES`); the Clerk instance must emit the custom session-token claims `email`, `phone`, `phone_verified`, `name`. `TEST_MODE=true` enables `POST /auth/test-login` for Playwright and an SMS client that only logs; it is refused on Railway.
+- **SMS stays.** Inbound text-to-Penny, household invite texts, the daily digest and SMS consent still work. Twilio credentials are optional at boot (SMS off when missing); `TWILIO_VERIFY_SERVICE_SID` is no longer used.
+- **Deploy.** Railway project `rally`, service `pennyai`, deploys the `main` branch. `railway.toml` names the Dockerfile builder; the Dockerfile takes `VITE_*` build args.
+- **Testing.** The Go suite runs on SQLite by default; `scripts/test-postgres.sh` (or `TEST_DATABASE_URL=… go test .`) runs it on real PostgreSQL, and CI has a `test-postgres` job. Playwright uses a throwaway local Postgres database.
+- **Open decision for Andy:** the `main` → `staging` → `production` promotion described in Git branching above no longer matches Railway, which deploys `main`. Until Andy decides, treat that text as the old policy, not current practice.
+- Marketing site (from thrift.ly) lives in `marketing/`. Go module is still named `thriftly` (rename pending). All UI surfaces show "Groflo" and "Penny". Household coordination narrative (11-Star) is the focus for the current sprint. Follow-ups from the go-live review are listed in [BACKLOG.md](./BACKLOG.md).
 
 ## Pre-Merge Checklist
 
-1. `go test -count=1 ./...` passes with zero failures
-2. `cd frontend && npx playwright test` passes with zero failures
-3. No secrets committed (check .env, logs, comments)
-4. No breaking API changes or backward-compatibility tests added for shape changes
-5. Database migrations clean on existing databases
-6. All frontend screens render and are navigable
-7. Panel review done (at minimum Customer Panel or Product Team, per trigger rules)
+1. `go test -count=1 ./...` passes with zero failures (SQLite tier)
+2. `scripts/test-postgres.sh` passes with zero failures (PostgreSQL tier; CI job `test-postgres`)
+3. `cd frontend && npx playwright test` passes with zero failures
+4. No secrets committed (check .env, logs, comments)
+5. No breaking API changes or backward-compatibility tests added for shape changes
+6. Database migrations clean on existing databases
+7. All frontend screens render and are navigable
+8. Panel review done (at minimum Customer Panel or Product Team, per trigger rules)
 
 ## Docs Are Code
 
@@ -155,7 +159,7 @@ Every behavior-changing PR updates affected markdown. PRs touching `handlers_*.g
 
 ## Work Tracking
 
-> **Work tracking:** new items land in [INBOX.md](./INBOX.md). Triage moves them to [BACKLOG.md](./BACKLOG.md) (`P0–P3`, `Bugs`, `Shipped`, `Not In Scope`). Pattern mirrors timpager. Read [INBOX.md](./INBOX.md) first when picking up unfinished work.
+> **Work tracking:** new items land in [INBOX.md](./INBOX.md). Triage moves them to [BACKLOG.md](./BACKLOG.md) (`P0–P3`, `Bugs`, `Shipped`, `Not In Scope`). Read [INBOX.md](./INBOX.md) first when picking up unfinished work.
 
 - **[INBOX.md](./INBOX.md)** — Raw ideas. Items >30 days without promotion get deleted.
 - **[BACKLOG.md](./BACKLOG.md)** — Actionable work. Triaged, prioritized (P0-P3), sized.

@@ -1402,6 +1402,9 @@ func TestPennyInsights_WithHouseholdLearnings(t *testing.T) {
 	result, _ := server.db.Exec("INSERT INTO households DEFAULT VALUES")
 	hhID, _ := result.LastInsertId()
 	server.db.Exec("UPDATE users SET household_id = ? WHERE id = ?", hhID, userID)
+	// Login already placed the user in a solo household; user_id is unique in
+	// household_members, so move them rather than add a second membership.
+	server.db.Exec("DELETE FROM household_members WHERE user_id = ?", userID)
 	server.db.Exec("INSERT INTO household_members (household_id, user_id) VALUES (?, ?)", hhID, userID)
 
 	// Add household-level learning

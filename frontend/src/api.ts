@@ -5,6 +5,8 @@
 // with automatic 401 session expiry handling.
 // =============================================================================
 
+import { clerkActive, getClerkToken } from './auth/clerkToken'
+
 type SessionExpiredHandler = () => void
 
 let onSessionExpired: SessionExpiredHandler = () => {}
@@ -12,6 +14,27 @@ let onSessionExpired: SessionExpiredHandler = () => {}
 /** Register a callback for 401 session expiry. Call once at app init. */
 export function setSessionExpiredHandler(handler: SessionExpiredHandler) {
   onSessionExpired = handler
+}
+
+/**
+ * Attach the Rally (Clerk) session token as a Bearer header when a token is
+ * available.
+ *
+ * In a build without Rally configured this returns the caller's options object
+ * UNCHANGED — not a copy — and never awaits a getter. A caller-supplied
+ * Authorization header is never overwritten.
+ */
+async function withAuthHeader(options?: RequestInit): Promise<RequestInit | undefined> {
+  if (!clerkActive()) return options
+
+  const headers = new Headers(options?.headers)
+  if (headers.has('Authorization')) return options
+
+  const token = await getClerkToken()
+  if (!token) return options
+
+  headers.set('Authorization', `Bearer ${token}`)
+  return { ...options, headers }
 }
 
 /**
@@ -24,7 +47,7 @@ export async function fetchAPI<T = Record<string, unknown>>(
 ): Promise<T | null> {
   let res: Response
   try {
-    res = await fetch(url, options)
+    res = await fetch(url, await withAuthHeader(options))
   } catch {
     return null // network error
   }
@@ -53,7 +76,7 @@ export async function fetchAction(
 ): Promise<ActionResult> {
   let res: Response
   try {
-    res = await fetch(url, options)
+    res = await fetch(url, await withAuthHeader(options))
   } catch {
     return { ok: false, status: 0, error: 'Network error' }
   }
@@ -63,22 +86,4 @@ export async function fetchAction(
     return { ok: false, status: res.status, error: errData?.error || `Error ${res.status}` }
   }
   return { ok: true, status: res.status }
-}
-
-/** POST JSON helper */
-export function postJSON(url: string, body: unknown): Promise<ActionResult> {
-  return fetchAction(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-}
-
-/** PATCH JSON helper */
-export function patchJSON<T = Record<string, unknown>>(url: string, body: unknown): Promise<T | null> {
-  return fetchAPI<T>(url, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
 }

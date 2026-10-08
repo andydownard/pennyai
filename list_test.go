@@ -1988,7 +1988,7 @@ func TestMuxRouting_SavedListLoad(t *testing.T) {
 
 func TestUpsertListItem_Transaction(t *testing.T) {
 	// Test that concurrent upserts don't create duplicates
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 	_, userID := loginUser(t, server, "5551234567")
 
@@ -2017,7 +2017,7 @@ func TestUpsertListItem_Transaction(t *testing.T) {
 }
 
 func TestUpsertListItem_ConcurrentSafety(t *testing.T) {
-	mock := &MockTwilioClient{CheckApproved: true}
+	mock := &MockTwilioClient{}
 	server := newTestServer(t, mock)
 	_, userID := loginUser(t, server, "5551234567")
 
@@ -2044,6 +2044,13 @@ func TestUpsertListItem_ConcurrentSafety(t *testing.T) {
 	server.db.QueryRow("SELECT COUNT(*) FROM list_items WHERE user_id = ? AND LOWER(name) = 'eggs'", userID).Scan(&count)
 	if count != 1 {
 		t.Errorf("Expected 1 egg item, got %d (duplicates created)", count)
+	}
+
+	// No lost updates: every one of the 10 adds must be reflected in the quantity.
+	var qty int
+	server.db.QueryRow("SELECT COALESCE(SUM(quantity), 0) FROM list_items WHERE user_id = ? AND LOWER(name) = 'eggs'", userID).Scan(&qty)
+	if qty != 10 {
+		t.Errorf("Expected merged quantity 10, got %d (lost update)", qty)
 	}
 }
 
@@ -2262,7 +2269,7 @@ func TestCollectListItems_WithCheckedItems(t *testing.T) {
 }
 
 func TestHandleItemHistory_WithModifications(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Add an item
@@ -2291,7 +2298,7 @@ func TestHandleItemHistory_WithModifications(t *testing.T) {
 }
 
 func TestHandleItemHistory_NotFound(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleList, "GET", "/api/list/99999/history",
@@ -2302,7 +2309,7 @@ func TestHandleItemHistory_NotFound(t *testing.T) {
 }
 
 func TestHandleListEdit_EmptyName(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleListAdd, "POST", "/api/list",
@@ -2318,7 +2325,7 @@ func TestHandleListEdit_EmptyName(t *testing.T) {
 }
 
 func TestHandleListEdit_QuantityClamp(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleListAdd, "POST", "/api/list",
@@ -2338,7 +2345,7 @@ func TestHandleListEdit_QuantityClamp(t *testing.T) {
 }
 
 func TestHandleListEdit_NotFound(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleList, "PATCH", "/api/list/99999",
@@ -2349,7 +2356,7 @@ func TestHandleListEdit_NotFound(t *testing.T) {
 }
 
 func TestHandleListToggle_Uncheck(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleListAdd, "POST", "/api/list",
@@ -2378,7 +2385,7 @@ func TestHandleListToggle_Uncheck(t *testing.T) {
 }
 
 func TestHandleListDelete_NotOwned(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie1, _ := loginUser(t, server, "5551111111")
 	cookie2, _ := loginUser(t, server, "5552222222")
 
@@ -2396,7 +2403,7 @@ func TestHandleListDelete_NotOwned(t *testing.T) {
 }
 
 func TestHandleListGet_NoItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleListGet, "GET", "/api/list", nil, []*http.Cookie{cookie})
@@ -2411,7 +2418,7 @@ func TestHandleListGet_NoItems(t *testing.T) {
 }
 
 func TestHandleListClear_WithItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Add items
@@ -2436,7 +2443,7 @@ func TestHandleListClear_WithItems(t *testing.T) {
 }
 
 func TestHandleListGet_WithMultipleItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec("INSERT INTO list_items (user_id, name, brand, department, quantity, size, source, checked) VALUES (?, 'Milk', 'Organic Valley', 'Dairy', 2, '1 gal', 'app', 0)", userID)
@@ -2590,9 +2597,14 @@ func TestListClaim_Override(t *testing.T) {
 
 	// Create household: user1 creates, user2 joins
 	server.db.Exec("INSERT INTO households (name) VALUES ('Test')")
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, ?, 'admin')", userID1)
-	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (1, ?, 'member')", userID2)
-	server.db.Exec("UPDATE users SET household_id = 1 WHERE id IN (?, ?)", userID1, userID2)
+	var hid int
+	server.db.QueryRow("SELECT id FROM households ORDER BY id DESC LIMIT 1").Scan(&hid)
+	// Each login already put the user in a solo household (user_id is unique in
+	// household_members), so move both users out before joining them together.
+	server.db.Exec("DELETE FROM household_members WHERE user_id IN (?, ?)", userID1, userID2)
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (?, ?, 'admin')", hid, userID1)
+	server.db.Exec("INSERT INTO household_members (household_id, user_id, role) VALUES (?, ?, 'member')", hid, userID2)
+	server.db.Exec("UPDATE users SET household_id = ? WHERE id IN (?, ?)", hid, userID1, userID2)
 
 	result, _ := server.db.Exec(
 		"INSERT INTO list_items (user_id, name, department) VALUES (?, ?, ?)",

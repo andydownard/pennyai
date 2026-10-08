@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -23,17 +22,19 @@ type cachedSession struct {
 const sessionCacheTTL = 5 * time.Minute
 
 type SessionStore struct {
-	db    *sql.DB
+	db    *PGDB
 	mu    sync.RWMutex
 	cache map[string]cachedSession
 }
 
-func NewSessionStore(db *sql.DB) *SessionStore {
+// NewSessionStore takes the PGDB wrapper, never the raw connection: its queries
+// use `?` placeholders, which only the wrapper converts for PostgreSQL.
+func NewSessionStore(db *PGDB) *SessionStore {
 	return &SessionStore{db: db, cache: make(map[string]cachedSession)}
 }
 
 // CreateSession generates a random 64-char hex token, stores the session
-// in the timpager shared sessions table, and returns the token.
+// in the sessions table, and returns the token.
 // Sessions expire after 30 days.
 func (s *SessionStore) CreateSession(userID string, phone string, authMethod string) (string, error) {
 	b := make([]byte, 32) // 32 bytes = 256 bits of randomness
@@ -70,7 +71,7 @@ func (s *SessionStore) GetSession(token string) (Session, bool) {
 	var userID sql.NullString
 	var displayName sql.NullString
 	var email sql.NullString
-	// Join with timpager users table to get display_name and email.
+	// Join with users to get display_name and email.
 	err := s.db.QueryRow(
 		`SELECT s.user_id, s.phone, s.role, s.created_at, u.display_name, u.email
 		 FROM sessions s
@@ -143,21 +144,19 @@ func (s *SessionStore) CleanExpired() {
 }
 
 // =============================================================================
-// TWILIO VERIFY CLIENT
+// TWILIO SMS CLIENT
 //
-// Interface + real implementation. Tests use a mock (in main_test.go).
+// Interface + real implementation. Tests use a mock (in test_helpers_test.go).
+// Sign-in does not use Twilio; it only sends and receives SMS.
 // =============================================================================
 
 type TwilioClient interface {
-	SendVerification(phone string) error
-	CheckVerification(phone, code string) (bool, error)
 	SendSMS(from, to, body string) error
 }
 
 type RealTwilioClient struct {
-	AccountSID    string
-	AuthToken     string
-	VerifyService string
+	AccountSID string
+	AuthToken  string
 }
 
 // doRequest performs a Twilio API POST with Basic Auth and checks the status.
@@ -180,32 +179,6 @@ func (t *RealTwilioClient) doRequest(apiURL string, data url.Values, expectStatu
 		return body, fmt.Errorf("twilio returned %d: %s", resp.StatusCode, string(body))
 	}
 	return body, nil
-}
-
-// SendVerification asks Twilio to text an OTP code to the phone number.
-func (t *RealTwilioClient) SendVerification(phone string) error {
-	apiURL := fmt.Sprintf("https://verify.twilio.com/v2/Services/%s/Verifications", t.VerifyService)
-	data := url.Values{"To": {phone}, "Channel": {"sms"}}
-	_, err := t.doRequest(apiURL, data, http.StatusCreated)
-	return err
-}
-
-// CheckVerification asks Twilio if the user-entered code is correct.
-func (t *RealTwilioClient) CheckVerification(phone, code string) (bool, error) {
-	apiURL := fmt.Sprintf("https://verify.twilio.com/v2/Services/%s/VerificationCheck", t.VerifyService)
-	data := url.Values{"To": {phone}, "Code": {code}}
-	body, err := t.doRequest(apiURL, data, http.StatusOK)
-	if err != nil {
-		log.Printf("Twilio verify error: %v", err)
-		return false, nil
-	}
-	var result struct {
-		Status string `json:"status"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return false, fmt.Errorf("parsing response: %w", err)
-	}
-	return result.Status == "approved", nil
 }
 
 // SendSMS sends an SMS message via the Twilio Messages API.

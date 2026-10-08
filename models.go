@@ -12,7 +12,6 @@ import (
 type Config struct {
 	TwilioAccountSID    string
 	TwilioAuthToken     string
-	TwilioVerifyService string
 	TwilioPhoneNumber   string
 	AnthropicAPIKey     string
 	AdminPhone          string
@@ -23,9 +22,9 @@ type Config struct {
 	Port                string
 	DatabaseURL         string
 	WebhookBaseURL      string
+	AppBaseURL          string // public app address (APP_BASE_URL, else WEBHOOK_BASE_URL, else default), no trailing slash
 	SecureCookies       bool
 	TestMode            bool
-	GoogleClientID      string
 	SendGridAPIKey      string
 	BlueCartAPIKey      string
 	FeedbackPhones      []string // phone numbers allowed to submit feedback
@@ -35,8 +34,7 @@ type Config struct {
 	StripeWebhookSecret string   // Stripe webhook signing secret (whsec_...)
 	WattAPIKey          string   // Watt Data API key (watt_...) for CPG brand manager lookup
 	BcryptCost          int      // bcrypt cost factor (0 = DefaultCost, set to 4 in tests for speed)
-	TimpagerURL         string   // timpager platform URL (e.g., https://rallytasks.com)
-	TimpagerAPIKey      string   // API key for timpager revenue events
+	AdminClerkUserIDs   []string // ADMIN_CLERK_USER_IDS: Clerk user ids that are admins without a phone
 	GeminiAPIKey        string   // Google Gemini API key
 	OpenAIAPIKey        string   // OpenAI API key
 }
@@ -69,14 +67,13 @@ type User struct {
 	Email       string
 	HouseholdID int
 	CreatedAt   string
-	Merged      bool // transient: true when resolveOrCreateUser linked a new auth method to existing account
 }
 
 // Session represents an authenticated user session.
 type Session struct {
 	UserID      string
 	PhoneNumber string // may be empty for non-phone auth
-	AuthMethod  string // "phone", "google", or "email"
+	AuthMethod  string // "clerk" (Rally sign-in) or "test"
 	CreatedAt   time.Time
 }
 
@@ -194,24 +191,20 @@ type Server struct {
 	pennyQuotes    map[string][]string
 	pennyQuoteLast time.Time // rate limit: one LLM call per 10s max
 
-	// OTP rate limiter: phone (E.164) -> last send time
-	otpLimiter sync.Map
-	// Per-IP OTP rate limiter: IP -> []time.Time (sliding window)
-	otpIPLimiter sync.Map
 	// Per-user parse rate limiter: userID -> *rateBucket (sliding window, 30 req/hour)
 	parseLimiter sync.Map
-	// Per-IP email login rate limiter: IP -> []time.Time (sliding window, 10 req/10min)
-	emailLoginIPLimiter sync.Map
-	// Per-IP password reset/magic link rate limiter: IP -> []time.Time (sliding window, 5 req/15min)
-	passwordResetIPLimiter sync.Map
 	// Per-user earnings upload rate limiter: userID -> *rateBucket (5 uploads/hour)
 	earningsUploadLimiter sync.Map
 	// Per-user NPS submit rate limiter: userID -> *rateBucket (3 submissions/hour)
 	npsSubmitLimiter sync.Map
-
-	// googleTokenInfoURL overrides the Google tokeninfo endpoint (for testing).
-	// When empty, defaults to "https://oauth2.googleapis.com/tokeninfo".
-	googleTokenInfoURL string
+	// Household invite SMS limiter: holds two kinds of key, both -> []time.Time.
+	//   "inviter:<userID>"            -> 10 invite texts per 24h
+	//   "dest:<householdID>:<e164>"   -> 1 invite text per 24h
+	// Keeps an authenticated user from looping /api/settings/invite to text
+	// arbitrary numbers (CLAUDE.md damage risk #1).
+	inviteLimiter sync.Map
+	// Per-IP Rally sign-in exchange limiter: IP -> []time.Time (20 req/10min)
+	clerkExchangeIPLimiter sync.Map
 }
 
 // BrandDeal represents an active swap deal from the brand_deals table.
@@ -340,61 +333,6 @@ type itemData struct {
 // =============================================================================
 // REQUEST TYPES — named structs for JSON request decoding
 // =============================================================================
-
-// --- Auth requests ---
-
-type GoogleAuthRequest struct {
-	Credential string `json:"credential"`
-}
-
-type GoogleTokenInfo struct {
-	Sub           string `json:"sub"`
-	Email         string `json:"email"`
-	EmailVerified string `json:"email_verified"`
-	Name          string `json:"name"`
-	Aud           string `json:"aud"`
-	Picture       string `json:"picture"`
-}
-
-type EmailRegisterRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Name     string `json:"name"`
-}
-
-type EmailLoginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-
-type EmailOnlyRequest struct {
-	Email string `json:"email"`
-}
-
-type PasswordResetRequest struct {
-	Token    string `json:"token"`
-	Password string `json:"password"`
-}
-
-type PhoneRequest struct {
-	PhoneNumber string `json:"phone_number"`
-	// SMSOptIn is the user's affirmative consent to receive SMS messages from
-	// Penny. Required for Twilio A2P 10DLC compliance — the absence of this
-	// field is treated as missing consent and the request is rejected.
-	SMSOptIn bool `json:"sms_opt_in"`
-}
-
-type VerifyCodeRequest struct {
-	PhoneNumber string `json:"phone_number"`
-	Code        string `json:"code"`
-}
-
-type AuthLinkRequest struct {
-	Provider string `json:"provider"`
-	Email    string `json:"email"`
-	Phone    string `json:"phone"`
-	Code     string `json:"code"`
-}
 
 // --- List requests ---
 

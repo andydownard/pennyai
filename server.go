@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -33,6 +34,14 @@ const (
 	maxMediaBytes            = 5 * 1024 * 1024
 	maxImageBytes            = 5 * 1024 * 1024
 	maxParseBodyBytes        = 10 * 1024 * 1024
+
+	// Household invite SMS guards. Outbound SMS costs money, carries A2P 10DLC
+	// reputation, and reaches someone who did not ask for it, so an invite that
+	// texts a phone is limited two ways: how many one inviter may send per day,
+	// and how often one household may text the same number. Link-only invites
+	// send nothing and are not counted against either.
+	inviteSMSPerInviterPerDay = 10
+	inviteSMSWindow           = 24 * time.Hour
 )
 
 // loadDotEnv reads a .env file and sets any variables not already in the environment.
@@ -59,6 +68,17 @@ func loadDotEnv(path string) {
 			os.Setenv(key, val)
 		}
 	}
+}
+
+// splitCSV splits a comma-separated list, trimming blanks and dropping empties.
+func splitCSV(v string) []string {
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func loadConfig() Config {
@@ -93,7 +113,6 @@ func loadConfig() Config {
 	return Config{
 		TwilioAccountSID:    os.Getenv("TWILIO_ACCOUNT_SID"),
 		TwilioAuthToken:     os.Getenv("TWILIO_AUTH_TOKEN"),
-		TwilioVerifyService: os.Getenv("TWILIO_VERIFY_SERVICE_SID"),
 		TwilioPhoneNumber:   os.Getenv("TWILIO_PHONE_NUMBER"),
 		AnthropicAPIKey:     os.Getenv("ANTHROPIC_API_KEY"),
 		AdminPhone:          os.Getenv("ADMIN_PHONE"),
@@ -103,10 +122,10 @@ func loadConfig() Config {
 		NPSIntervalDays:     npsInterval,
 		Port:                port,
 		DatabaseURL:         databaseURL,
-		WebhookBaseURL:      os.Getenv("WEBHOOK_BASE_URL"), // e.g. "https://app.groflo.io"
+		WebhookBaseURL:      os.Getenv("WEBHOOK_BASE_URL"), // e.g. "https://groflo.rallytasks.com"
+		AppBaseURL:          appBaseURL(os.Getenv),
 		SecureCookies:       os.Getenv("RAILWAY_ENVIRONMENT_NAME") != "",
 		TestMode:            os.Getenv("TEST_MODE") == "true",
-		GoogleClientID:      os.Getenv("GOOGLE_CLIENT_ID"),
 		SendGridAPIKey:      os.Getenv("SENDGRID_API_KEY"),
 		BlueCartAPIKey:      os.Getenv("BLUECART_API_KEY"),
 		FeedbackPhones:      feedbackPhones,
@@ -115,8 +134,7 @@ func loadConfig() Config {
 		StripeSecretKey:     os.Getenv("STRIPE_SECRET_KEY"),
 		StripeWebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
 		WattAPIKey:          os.Getenv("WATT_API_KEY"),
-		TimpagerURL:         os.Getenv("TIMPAGER_URL"),
-		TimpagerAPIKey:      os.Getenv("TIMPAGER_API_KEY"),
+		AdminClerkUserIDs:   splitCSV(os.Getenv("ADMIN_CLERK_USER_IDS")),
 		GeminiAPIKey:        os.Getenv("GEMINI_API_KEY"),
 		OpenAIAPIKey:        os.Getenv("OPENAI_API_KEY"),
 	}
@@ -144,8 +162,179 @@ func (r *statusRecorder) Flush() {
 	}
 }
 
+// Content-Security-Policy, as two literal baselines. Extracted from the request
+// handler so the Rally sign-in widening is testable — and so the test can assert
+// byte-for-byte equality with these strings while the feature is off.
+const (
+	// Embed routes are framed by approved partner origins.
+	cspEmbedBase = "default-src 'self'; script-src 'self' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://www.google-analytics.com https://www.googletagmanager.com; frame-src 'self'; frame-ancestors 'self' https://vibeflourishing.com https://vibeflourishing-production.up.railway.app https://deck.groflo.io https://deck.thrift.ly https://localhost:5173"
+	// Every other route.
+	cspAppBase = "default-src 'self'; script-src 'self' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.ingest.us.sentry.io https://us.i.posthog.com https://www.google-analytics.com https://www.googletagmanager.com https://penny.rallytasks.com; frame-src 'self'; frame-ancestors 'self' https://penny.rallytasks.com; font-src 'self'"
+)
+
+// cspHeader returns the Content-Security-Policy for a path.
+//
+// Output is byte-identical to the historical literals unless BOTH
+// CLERK_ENABLED=1 and CLERK_FRONTEND_API_ORIGIN are set — so this ships dark
+// with the rest of Rally sign-in. When both are set, the Clerk Frontend API
+// origin is added to script-src, connect-src and frame-src, and worker-src is
+// allowed a blob (clerk-js runs a blob worker). Widening is strictly additive:
+// no existing source is ever removed.
+func cspHeader(path string) string {
+	base := cspAppBase
+	if strings.HasPrefix(path, "/embed") {
+		base = cspEmbedBase
+	}
+
+	origin := strings.TrimSpace(os.Getenv("CLERK_FRONTEND_API_ORIGIN"))
+	if !clerkIsEnabled() || origin == "" {
+		return base
+	}
+
+	out := make([]string, 0, 10)
+	for _, directive := range strings.Split(base, "; ") {
+		name := strings.SplitN(directive, " ", 2)[0]
+		switch name {
+		case "script-src", "connect-src", "frame-src":
+			directive += " " + origin
+		}
+		out = append(out, directive)
+	}
+	out = append(out, "worker-src 'self' blob:")
+	return strings.Join(out, "; ")
+}
+
+// bootProblems decides, from config and environment alone, what must stop the
+// server from starting (fatal) and what an operator should be told loudly
+// (warnings). Pure, so it is unit-testable; main acts on the result.
+func bootProblems(cfg Config, getenv func(string) string) (fatal []string, warnings []string) {
+	// pennyai verifies Clerk session JWTs against the issuer's public JWKS and
+	// never calls Clerk's Backend API. Holding a Clerk secret is itself the
+	// misconfiguration, whether or not sign-in is enabled.
+	for _, name := range []string{"CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET"} {
+		if strings.TrimSpace(getenv(name)) != "" {
+			fatal = append(fatal, name+" is set. pennyai must never hold a Clerk secret; unset it and restart.")
+		}
+	}
+
+	// The test-login route mints sessions for anyone. It must never exist on a
+	// deployed service.
+	if cfg.TestMode && getenv("RAILWAY_ENVIRONMENT_NAME") != "" {
+		fatal = append(fatal, "TEST_MODE=true while RAILWAY_ENVIRONMENT_NAME is set. Test mode lets anyone sign in without credentials; unset TEST_MODE.")
+	}
+
+	clerkOn := getenv("CLERK_ENABLED") == "1"
+	if clerkOn {
+		if _, err := clerkConfigFrom(getenv); err != nil {
+			fatal = append(fatal, "CLERK_ENABLED=1 but Clerk is misconfigured: "+err.Error())
+		}
+	} else if !cfg.TestMode {
+		warnings = append(warnings, "CLERK_ENABLED is not 1 and TEST_MODE is off: nobody can sign in. Set CLERK_ENABLED=1 with CLERK_JWT_ISSUER and CLERK_AUTHORIZED_PARTIES.")
+	}
+
+	if cfg.TwilioAccountSID == "" || cfg.TwilioAuthToken == "" || cfg.TwilioPhoneNumber == "" {
+		warnings = append(warnings, "Twilio credentials are incomplete (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER): SMS is OFF. No text will be sent.")
+		if cfg.TwilioAuthToken == "" && cfg.WebhookBaseURL != "" && !cfg.TestMode {
+			warnings = append(warnings, "WEBHOOK_BASE_URL is set but TWILIO_AUTH_TOKEN is empty: inbound webhook signatures are computed with an empty key and can be forged. Set the token or unset WEBHOOK_BASE_URL.")
+		}
+	}
+	return fatal, warnings
+}
+
+// errSMSNotConfigured is returned by the stand-in client used when Twilio
+// credentials are missing.
+var errSMSNotConfigured = errors.New("SMS is not configured")
+
+// smsNotConfiguredClient never sends and never touches the network. Callers
+// already treat a SendSMS error as a failed send, so a deploy without Twilio
+// degrades to "no texts".
+type smsNotConfiguredClient struct{}
+
+func (smsNotConfiguredClient) SendSMS(from, to, body string) error { return errSMSNotConfigured }
+
+// testModeSMSClient is wired whenever TEST_MODE is on, even if real Twilio
+// credentials were loaded from a developer's .env. It only logs, with the
+// number masked, and never sends.
+type testModeSMSClient struct{}
+
+func (testModeSMSClient) SendSMS(from, to, body string) error {
+	log.Printf("[TEST MODE] would send SMS to %s", maskPhone(to))
+	return nil
+}
+
+// newTwilioClient chooses the SMS client. TestMode wins over credentials, so
+// the real client is never constructed in test mode.
+func newTwilioClient(cfg Config) TwilioClient {
+	if cfg.TestMode {
+		return testModeSMSClient{}
+	}
+	if cfg.TwilioAccountSID == "" || cfg.TwilioAuthToken == "" || cfg.TwilioPhoneNumber == "" {
+		return smsNotConfiguredClient{}
+	}
+	return &RealTwilioClient{AccountSID: cfg.TwilioAccountSID, AuthToken: cfg.TwilioAuthToken}
+}
+
+const defaultAppBaseURL = "https://groflo.rallytasks.com"
+
+// appBaseURL is the app's public address: APP_BASE_URL, else WEBHOOK_BASE_URL,
+// else the default, without a trailing slash.
+func appBaseURL(getenv func(string) string) string {
+	for _, k := range []string{"APP_BASE_URL", "WEBHOOK_BASE_URL"} {
+		if v := strings.TrimRight(strings.TrimSpace(getenv(k)), "/"); v != "" {
+			return v
+		}
+	}
+	return defaultAppBaseURL
+}
+
+// retiredAuthPaths are the sign-in endpoints that no longer exist. Each one
+// answers 410 so a stale client sees a clear message instead of the SPA's
+// index.html with a 200.
+var retiredAuthPaths = []string{
+	"/auth/send-code",
+	"/auth/verify-code",
+	"/auth/google",
+	"/auth/email/register",
+	"/auth/email/login",
+	"/auth/email/forgot",
+	"/auth/email/reset",
+	"/auth/email/magic-link",
+	"/auth/email/magic-verify",
+	"/api/auth/link",
+}
+
+// registerAuthRoutes registers every sign-in and session route on mux. main
+// uses it, and tests use the same function, so the table of retired paths and
+// the test-only route cannot drift from what the server serves.
+func registerAuthRoutes(mux *http.ServeMux, s *Server) {
+	for _, p := range retiredAuthPaths {
+		mux.HandleFunc(p, handleRetiredAuth)
+	}
+	// Rally sign-in (Clerk). Answers 404 unless CLERK_ENABLED=1.
+	mux.HandleFunc("/auth/clerk/exchange", s.handleClerkExchange)
+	mux.HandleFunc("/auth/logout", s.handleLogout)
+	mux.HandleFunc("/auth/me", s.handleMe)
+	mux.HandleFunc("/api/me/sms-consent", s.handleSmsConsent)
+	mux.HandleFunc("/api/config", s.handleAPIConfig)
+	// Registered ONLY in test mode: with TestMode off the path is not a route.
+	if s.config.TestMode {
+		mux.HandleFunc("/auth/test-login", s.handleTestLogin)
+	}
+}
+
 func main() {
 	cfg := loadConfig()
+
+	// Boot decisions live in bootProblems so they are unit-testable. Fatal
+	// problems refuse to boot, so a bad deploy fails its healthcheck instead of
+	// failing at the first sign-in.
+	fatal, warnings := bootProblems(cfg, os.Getenv)
+	for _, w := range warnings {
+		log.Printf("[boot] WARNING: %s", w)
+	}
+	if len(fatal) > 0 {
+		log.Fatalf("Refusing to start:\n  - %s", strings.Join(fatal, "\n  - "))
+	}
 
 	// Sentry error monitoring — gracefully skipped if DSN not set
 	if dsn := os.Getenv("SENTRY_DSN"); dsn != "" {
@@ -159,18 +348,6 @@ func main() {
 			log.Println("[sentry] initialized")
 			defer sentry.Flush(2 * time.Second)
 		}
-	}
-
-	if !cfg.TestMode && (cfg.TwilioAccountSID == "" || cfg.TwilioAuthToken == "" || cfg.TwilioVerifyService == "") {
-		log.Fatal(`
-Missing Twilio credentials. Set these environment variables:
-
-  export TWILIO_ACCOUNT_SID=ACxxxxxxxx
-  export TWILIO_AUTH_TOKEN=xxxxxxxx
-  export TWILIO_VERIFY_SERVICE_SID=VAxxxxxxxx
-
-Get these from https://console.twilio.com (see README for full setup).
-`)
 	}
 
 	// Open PostgreSQL database
@@ -189,16 +366,13 @@ Get these from https://console.twilio.com (see README for full setup).
 	if err := initDB(pgdb.DB); err != nil {
 		log.Fatalf("Schema initialization error: %v", err)
 	}
+	pgdb.loadSerialTables()
 
 	server := &Server{
 		config:   cfg,
 		db:       pgdb,
-		sessions: NewSessionStore(pgdb.DB),
-		twilio: &RealTwilioClient{
-			AccountSID:    cfg.TwilioAccountSID,
-			AuthToken:     cfg.TwilioAuthToken,
-			VerifyService: cfg.TwilioVerifyService,
-		},
+		sessions: NewSessionStore(pgdb),
+		twilio:   newTwilioClient(cfg),
 		// AI parse functions use multi-provider fallback (ai_providers.go).
 		// Primary: Anthropic, fallback: Gemini, then OpenAI.
 		// Complexity tiers: text→Simple, commands→Medium, images/receipts→Hard.
@@ -247,20 +421,7 @@ Get these from https://console.twilio.com (see README for full setup).
 		}
 		w.Write([]byte(`{"status":"ok","frontend_ok":true,"db_ok":true,"version":"2026-03-15a"}`))
 	})
-	http.HandleFunc("/auth/send-code", server.handleSendCode)
-	http.HandleFunc("/auth/verify-code", server.handleVerifyCode)
-	http.HandleFunc("/auth/google", server.handleGoogleAuth)
-	http.HandleFunc("/auth/email/register", server.handleEmailRegister)
-	http.HandleFunc("/auth/email/login", server.handleEmailLogin)
-	http.HandleFunc("/auth/email/forgot", server.handleEmailForgot)
-	http.HandleFunc("/auth/email/reset", server.handleEmailReset)
-	http.HandleFunc("/auth/email/magic-link", server.handleMagicLink)
-	http.HandleFunc("/auth/email/magic-verify", server.handleMagicLinkVerify)
-	http.HandleFunc("/auth/logout", server.handleLogout)
-	http.HandleFunc("/auth/me", server.handleMe)
-	http.HandleFunc("/api/me/sms-consent", server.handleSmsConsent)
-	http.HandleFunc("/api/auth/link", server.handleAuthLink)
-	http.HandleFunc("/api/config", server.handleAPIConfig)
+	registerAuthRoutes(http.DefaultServeMux, server)
 	http.HandleFunc("/api/list/stream", server.handleListStream)
 	http.HandleFunc("/api/list", server.handleList)
 	http.HandleFunc("/api/list/", server.handleList)
@@ -501,7 +662,7 @@ Get these from https://console.twilio.com (see README for full setup).
 
 		// Embed routes: allow framing by approved origins; all other routes: DENY
 		if strings.HasPrefix(r.URL.Path, "/embed") {
-			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://www.google-analytics.com https://www.googletagmanager.com; frame-src https://accounts.google.com; frame-ancestors 'self' https://vibeflourishing.com https://vibeflourishing-production.up.railway.app https://deck.groflo.io https://deck.thrift.ly https://localhost:5173")
+			w.Header().Set("Content-Security-Policy", cspHeader(r.URL.Path))
 			// Dynamic CORS origin for approved embed hosts
 			origin := r.Header.Get("Origin")
 			allowedOrigins := map[string]bool{"https://vibeflourishing.com": true, "https://deck.groflo.io": true, "https://deck.thrift.ly": true}
@@ -519,7 +680,7 @@ Get these from https://console.twilio.com (see README for full setup).
 			}
 		} else {
 			w.Header().Set("X-Frame-Options", "DENY")
-			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://*.ingest.us.sentry.io https://us.i.posthog.com https://www.google-analytics.com https://www.googletagmanager.com https://penny.rallytasks.com; frame-src https://accounts.google.com; frame-ancestors 'self' https://penny.rallytasks.com; font-src 'self'")
+			w.Header().Set("Content-Security-Policy", cspHeader(r.URL.Path))
 		}
 		if server.config.SecureCookies {
 			w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
@@ -537,18 +698,11 @@ Get these from https://console.twilio.com (see README for full setup).
 	// Prune stale rate-limiter entries every 5 minutes
 	go func() {
 		for range time.Tick(5 * time.Minute) {
-			server.otpLimiter.Range(func(k, v any) bool {
-				if time.Since(v.(time.Time)) > 2*time.Minute {
-					server.otpLimiter.Delete(k)
-				}
-				return true
-			})
-			pruneTimeLimiter(&server.otpIPLimiter, 10*time.Minute)
-			pruneTimeLimiter(&server.emailLoginIPLimiter, 10*time.Minute)
-			pruneTimeLimiter(&server.passwordResetIPLimiter, 15*time.Minute)
+			pruneTimeLimiter(&server.clerkExchangeIPLimiter, clerkExchangeWindow)
 			pruneBucketLimiter(&server.parseLimiter, time.Hour)
 			pruneBucketLimiter(&server.earningsUploadLimiter, time.Hour)
 			pruneBucketLimiter(&server.npsSubmitLimiter, time.Hour)
+			pruneTimeLimiter(&server.inviteLimiter, inviteSMSWindow)
 		}
 	}()
 

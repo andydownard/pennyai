@@ -187,7 +187,7 @@ func (s *Server) checkDealsForItems(userID string, addedItems []ListItem) *Pendi
 				// 72h cooling period: accounts < 72h old cannot accept fully_free deals
 				var createdAt string
 				s.db.QueryRow("SELECT created_at FROM users WHERE id = ?", userID).Scan(&createdAt)
-				if t, err := time.Parse("2006-01-02 15:04:05", createdAt); err == nil {
+				if t, err := parseDBTime(createdAt); err == nil {
 					if time.Since(t) < 72*time.Hour {
 						continue
 					}

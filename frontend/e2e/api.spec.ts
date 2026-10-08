@@ -17,7 +17,8 @@ test.describe('API endpoints via browser', () => {
     const res = await page.request.get('/api/config')
     expect(res.status()).toBe(200)
     const body = await res.json()
-    expect(body).toHaveProperty('google_client_id')
+    expect(typeof body.clerk_enabled).toBe('boolean')
+    expect(body).not.toHaveProperty('google_client_id')
   })
 
   test('GET /api/list returns array', async ({ page }) => {

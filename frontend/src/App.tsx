@@ -1,11 +1,12 @@
 // =============================================================================
 // Groflo — App.tsx (formerly Thriftly)
 //
-// Screens: phone → code → home, penny settings, profile, share, admin
+// Screens: login → home, penny settings, profile, share, admin
 // All styles inline. All API calls go to the Go backend.
 // =============================================================================
 
 import React, { useState, useRef, useEffect, useCallback, Suspense, lazy } from 'react'
+import { referralLink } from './appUrl'
 
 // One-shot migration: copy any legacy `thriftly_*` keys to `groflo_*` so
 // existing users keep their dismissed prompts, redirect intents, and join
@@ -39,7 +40,7 @@ import { haptic } from './haptics'
 import { useToast } from './hooks/useToast'
 import { useConfirmModal } from './hooks/useConfirmModal'
 import { useKeyboardOpen } from './hooks/useKeyboardOpen'
-import { useAuthState } from './hooks/useAuthState'
+import { useAuthState, type MeResponse } from './hooks/useAuthState'
 import { useSettingsState } from './hooks/useSettingsState'
 import { useSwapState, type SkippedItem } from './hooks/useSwapState'
 import { useListState } from './hooks/useListState'
@@ -62,8 +63,8 @@ import { WrappedCard } from './components/WrappedCard'
 import { MilestoneCard } from './components/MilestoneCard'
 import { NavMenu, HamburgerButton, type NavScreen } from './components/NavMenu'
 import { ScreenTransition, useScreenTransition } from './components/ScreenTransition'
-import { PhoneScreen } from './components/PhoneScreen'
-import { CodeScreen } from './components/CodeScreen'
+import { LoginScreen } from './components/LoginScreen'
+import { JOIN_CODE_KEY, REFERRAL_CODE_KEY, consumeLanding, rememberDestination, stashInviteLink, stashShareInvite } from './auth/pendingLinks'
 import { FeedbackWidget } from './components/FeedbackWidget'
 import { DoneSummaryModal } from './components/DoneSummaryModal'
 import { JoinPrompt } from './components/JoinPrompt'
@@ -78,10 +79,6 @@ const ReceiptScreen = lazy(() => import('./components/ReceiptScreen').then(m => 
 const ProfileScreen = lazy(() => import('./components/ProfileScreen').then(m => ({ default: m.ProfileScreen })))
 const HelpScreen = lazy(() => import('./components/HelpScreen').then(m => ({ default: m.HelpScreen })))
 const PennySettingsScreen = lazy(() => import('./components/PennySettingsScreen').then(m => ({ default: m.PennySettingsScreen })))
-const EmailLoginScreen = lazy(() => import('./components/EmailLoginScreen').then(m => ({ default: m.EmailLoginScreen })))
-const EmailRegisterScreen = lazy(() => import('./components/EmailRegisterScreen').then(m => ({ default: m.EmailRegisterScreen })))
-const ForgotPasswordScreen = lazy(() => import('./components/ForgotPasswordScreen').then(m => ({ default: m.ForgotPasswordScreen })))
-const ResetPasswordScreen = lazy(() => import('./components/ResetPasswordScreen').then(m => ({ default: m.ResetPasswordScreen })))
 const ShareScreen = lazy(() => import('./components/ShareScreen').then(m => ({ default: m.ShareScreen })))
 const AdminScreen = lazy(() => import('./components/AdminScreen').then(m => ({ default: m.AdminScreen })))
 const SharedListScreen = lazy(() => import('./components/SharedListScreen').then(m => ({ default: m.SharedListScreen })))
@@ -102,7 +99,7 @@ import {
 // =============================================================================
 
 // The screens the app can show
-type Screen = 'phone' | 'code' | 'home' | 'penny' | 'profile' | 'settings-share' | 'admin' | 'email-login' | 'email-register' | 'forgot-password' | 'reset-password' | 'shared-list' | 'help' | 'earnings' | 'receipts' | 'saved-lists'
+type Screen = 'login' | 'home' | 'penny' | 'profile' | 'settings-share' | 'admin' | 'shared-list' | 'help' | 'earnings' | 'receipts' | 'saved-lists'
 
 // Declare gtag for TypeScript
 declare function gtag(...args: unknown[]): void
@@ -112,17 +109,12 @@ declare function gtag(...args: unknown[]): void
 // =============================================================================
 
 const SCREEN_PATHS: Record<Screen, string> = {
-  phone: '/login',
-  code: '/verify',
+  login: '/login',
   home: '/',
   penny: '/penny',
   profile: '/profile',
   'settings-share': '/share',
   admin: '/admin',
-  'email-login': '/login/email',
-  'email-register': '/login/email/register',
-  'forgot-password': '/login/forgot',
-  'reset-password': '/reset-password',
   'shared-list': '/shared',
   help: '/help',
   earnings: '/earnings',
@@ -131,17 +123,12 @@ const SCREEN_PATHS: Record<Screen, string> = {
 }
 
 const SCREEN_TITLES: Record<Screen, string> = {
-  phone: 'Sign In — Groflo',
-  code: 'Verify — Groflo',
+  login: 'Sign In — Groflo',
   home: 'Shopping List — Groflo',
   penny: 'Penny — Groflo',
   profile: 'Profile — Groflo',
   'settings-share': 'Share & Earn — Groflo',
   admin: 'Admin — Groflo',
-  'email-login': 'Sign In — Groflo',
-  'email-register': 'Register — Groflo',
-  'forgot-password': 'Reset Password — Groflo',
-  'reset-password': 'Reset Password — Groflo',
   'shared-list': 'Shared List — Groflo',
   help: 'Help — Groflo',
   earnings: 'Earnings — Groflo',
@@ -150,8 +137,7 @@ const SCREEN_TITLES: Record<Screen, string> = {
 }
 
 const PATH_TO_SCREEN: Record<string, Screen> = {
-  '/login': 'phone',
-  '/verify': 'code',
+  '/login': 'login',
   '/': 'home',
   '/penny': 'penny',
   '/profile': 'profile',
@@ -160,17 +146,21 @@ const PATH_TO_SCREEN: Record<string, Screen> = {
   '/settings/profile': 'profile',
   '/settings/saved': 'profile',
   '/admin': 'admin',
-  '/login/email': 'email-login',
-  '/login/email/register': 'email-register',
-  '/login/forgot': 'forgot-password',
-  '/reset-password': 'reset-password',
+  // Retired sign-in routes. Old bookmarks and emailed links land on the login
+  // screen instead of a "page not found" toast.
+  '/verify': 'login',
+  '/login/email': 'login',
+  '/login/email/register': 'login',
+  '/login/forgot': 'login',
+  '/reset-password': 'login',
   '/help': 'help',
   '/earnings': 'earnings',
   '/receipts': 'receipts',
   '/saved-lists': 'saved-lists',
 }
 
-const AUTH_SCREENS: Screen[] = ['phone', 'code', 'email-login', 'email-register', 'forgot-password', 'reset-password']
+// Screens a signed-out visitor sees. Never a post-sign-in destination.
+const AUTH_SCREENS: Screen[] = ['login']
 
 // =============================================================================
 // CONSTANTS
@@ -295,7 +285,7 @@ function QuantityControl({ value, onChange }: {
 
 function AppInner() {
   // --- State ---
-  const [screen, setScreenRaw] = useState<Screen>('phone')
+  const [screen, setScreenRaw] = useState<Screen>('login')
   const [navMenuOpen, setNavMenuOpen] = useState(false)
   const scrollPositions = useRef<Record<string, number>>({})
   const listAreaRef = useRef<HTMLDivElement>(null)
@@ -431,7 +421,6 @@ function AppInner() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [canSubmitFeedback, setCanSubmitFeedback] = useState(false)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
-  const [authMethods, setAuthMethods] = useState<string[]>([])
 
   // --- NPS state ---
   const [showNPS, setShowNPS] = useState(false)
@@ -668,7 +657,7 @@ function AppInner() {
     settingsEmail, settingsUserPhone,
     handleOpenInviteSheet,
     // App state
-    loginCount, authMethods,
+    loginCount,
     handleSessionExpired: () => handleSessionExpiredRef.current(),
     handleLoadSavedList: (...args) => handleLoadSavedListRef.current(...args),
     showToast: (msg, type) => { if (type === 'error') haptic.error(); _showToast(msg, type) },
@@ -861,15 +850,8 @@ function AppInner() {
   // Store join code or referral code from URL if present, and redirect unknown paths
   useEffect(() => {
     const path = window.location.pathname
-    const joinMatch = path.match(/^\/join\/(.+)$/)
-    if (joinMatch) {
-      localStorage.setItem('groflo_join_code', joinMatch[1])
-      window.history.replaceState({}, '', '/')
-      return
-    }
-    const referralMatch = path.match(/^\/r\/(.+)$/)
-    if (referralMatch) {
-      localStorage.setItem('referral_code', referralMatch[1])
+    // Kept in localStorage so the code survives the trip to Rally sign-in and back.
+    if (stashInviteLink(path)) {
       window.history.replaceState({}, '', '/')
       return
     }
@@ -906,10 +888,7 @@ function AppInner() {
         if (data) {
           setSharedData(data)
           // Stash invite code for post-auth join prompt
-          if (data.invite_code) {
-            localStorage.setItem('groflo_share_invite', data.invite_code)
-            localStorage.setItem('groflo_share_name', data.sharer_name || '')
-          }
+          if (data.invite_code) stashShareInvite(data.invite_code, data.sharer_name || '')
         }
       })
       .catch(() => setSharedError('not_found'))
@@ -957,7 +936,7 @@ function AppInner() {
 
   // Try to use join code after login
   const tryJoinCode = useCallback(async () => {
-    const joinCode = localStorage.getItem('groflo_join_code')
+    const joinCode = localStorage.getItem(JOIN_CODE_KEY)
     if (joinCode) {
       try {
         const res = await fetch('/api/join', {
@@ -967,19 +946,19 @@ function AppInner() {
         })
         const data = await res.json().catch(() => null)
         if (res.ok) {
-          localStorage.removeItem('groflo_join_code')
+          localStorage.removeItem(JOIN_CODE_KEY)
           showToast(data?.penny_message || 'You joined the shared list!')
         } else {
-          localStorage.removeItem('groflo_join_code')
+          localStorage.removeItem(JOIN_CODE_KEY)
           if (data?.error) showToast(data.error, 'error')
         }
       } catch {
-        localStorage.removeItem('groflo_join_code')
+        localStorage.removeItem(JOIN_CODE_KEY)
         showToast('Something went wrong. Try again.', 'error')
       }
     }
     // Claim referral code if present
-    const refCode = localStorage.getItem('referral_code')
+    const refCode = localStorage.getItem(REFERRAL_CODE_KEY)
     if (refCode) {
       try {
         await fetch('/api/referral/claim', {
@@ -988,40 +967,52 @@ function AppInner() {
           body: JSON.stringify({ code: refCode }),
         })
       } catch { /* best effort */ }
-      localStorage.removeItem('referral_code')
+      localStorage.removeItem(REFERRAL_CODE_KEY)
     }
   }, [])
 
   // =========================================================================
-  // AUTH STATE HOOK — phone, code, email, password, handlers, typewriter, etc.
+  // AUTH STATE HOOK — Rally sign-in flag, exchange callback, sign-out, typewriter
   // =========================================================================
+
+  // A session exists — found on page load, or just created by Rally sign-in.
+  // Both paths run this, so both honour a pending invite, referral, shared
+  // list or deep link the same way.
+  const enterApp = (me: MeResponse) => {
+    if (me.is_admin) setIsAdmin(true)
+    if (me.can_submit_feedback) setCanSubmitFeedback(true)
+    if (me.user_id) { setCurrentUserId(me.user_id); identify(me.user_id) }
+    if (me.login_count != null) setLoginCount(me.login_count)
+    if (me.needs_sms_consent) setNeedsSmsConsent(true)
+    if (me.phone_number) setSettingsUserPhone(me.phone_number)
+    if (me.name) {
+      const parts = me.name.split(' ')
+      setSettingsFirstName(parts[0] || '')
+      setSettingsLastName(parts.slice(1).join(' '))
+    }
+    tryJoinCode()
+    loadSettings() // Load settings once at auth
+    const landing = consumeLanding(window.location.pathname, PATH_TO_SCREEN, AUTH_SCREENS, 'home')
+    if (landing.joinPrompt) {
+      setJoinPromptCode(landing.joinPrompt.code)
+      setJoinPromptName(landing.joinPrompt.name)
+      setShowJoinPrompt(true)
+    }
+    setScreen(landing.screen, true)
+  }
 
   const auth = useAuthState({
     setScreen: (s: string, replace?: boolean) => setScreen(s as Screen, replace),
     showToast: _showToast,
-    onAuthSuccess: (data) => {
-      if (data.is_admin) setIsAdmin(true)
-      if (data.user_id) setCurrentUserId(data.user_id)
-      if (data.auth_methods) setAuthMethods(data.auth_methods)
-    },
-    tryJoinCode,
-    pathToScreen: PATH_TO_SCREEN,
+    onSignedIn: enterApp,
   })
 
   // Destructure auth state for use in JSX and handlers
   const {
-    phone, setPhone, code, error, setError, loading, setLoading,
+    error, setError,
     checking, setChecking, isOffline,
-    emailInput, setEmailInput, passwordInput, setPasswordInput,
-    confirmPassword, setConfirmPassword, nameInput, setNameInput,
-    lastNameInput, setLastNameInput, googleClientId,
-    resetSent, setResetSent, magicLinkSent, setMagicLinkSent,
-    smsOptIn, setSmsOptIn, loginPennyText,
-    phoneInputRef, codeInputRefs,
-    handlePhoneChange, handleSendCode,
-    handleCodeChange, handleCodeKeyDown, handleCodePaste,
-    handleEmailRegister, handleEmailLogin, handleForgotPassword,
-    handleMagicLink, handleResetPassword, handleLogout,
+    clerkEnabled, loginPennyText,
+    handleLogout,
     startLoginTypewriter,
   } = auth
 
@@ -1037,69 +1028,19 @@ function AppInner() {
     }
 
     fetch('/auth/me')
-      .then(res => {
-        if (res.ok) {
-          res.clone().json().then((data: { is_admin?: boolean; user_id?: number; login_count?: number; name?: string; auth_methods?: string[]; can_submit_feedback?: boolean; needs_sms_consent?: boolean }) => {
-            if (data.is_admin) setIsAdmin(true)
-            if (data.can_submit_feedback) setCanSubmitFeedback(true)
-            if (data.user_id) { setCurrentUserId(data.user_id); identify(data.user_id) }
-            if (data.login_count != null) setLoginCount(data.login_count)
-            if (data.auth_methods) setAuthMethods(data.auth_methods)
-            if (data.needs_sms_consent) setNeedsSmsConsent(true)
-            if (data.name) {
-              const parts = data.name.split(' ')
-              setSettingsFirstName(parts[0] || '')
-              setSettingsLastName(parts.slice(1).join(' '))
-            }
-          }).catch(() => {})
-          tryJoinCode()
-          loadSettings() // Load settings once at auth
-          // Check for post-auth join prompt from shared list link
-          const shareInvite = localStorage.getItem('groflo_share_invite')
-          const shareName = localStorage.getItem('groflo_share_name')
-          if (shareInvite) {
-            localStorage.removeItem('groflo_share_invite')
-            localStorage.removeItem('groflo_share_name')
-            setJoinPromptCode(shareInvite)
-            setJoinPromptName(shareName || '')
-            setShowJoinPrompt(true)
-            setScreen('home', true)
-          } else {
-          // Resolve screen from pathname (or migrated hash)
-          const path = window.location.pathname
-          const resolved = PATH_TO_SCREEN[path]
-          if (resolved && !AUTH_SCREENS.includes(resolved)) {
-            setScreen(resolved, true)
-          } else {
-            // Check for stored redirect from pre-login deep link
-            const redirect = sessionStorage.getItem('groflo_redirect')
-            if (redirect) {
-              sessionStorage.removeItem('groflo_redirect')
-              const target = PATH_TO_SCREEN[redirect] || 'home'
-              setScreen(target as Screen, true)
-            } else {
-              setScreen('home', true)
-            }
-          }
-          }
+      .then(async res => {
+        const me: MeResponse | null = res.ok ? await res.json().catch(() => ({})) : null
+        if (me) {
+          enterApp(me)
         } else {
-          // Not authenticated — store intended destination for post-login redirect
-          const path = window.location.pathname
-          const resolved = PATH_TO_SCREEN[path]
-          if (resolved && !AUTH_SCREENS.includes(resolved)) {
-            sessionStorage.setItem('groflo_redirect', path)
-          }
-          // Check if on a specific auth screen (email login, reset password, etc.)
-          if (resolved && AUTH_SCREENS.includes(resolved)) {
-            setScreen(resolved, true)
-          } else {
-            setScreen('phone', true)
-          }
+          // Not signed in — remember where they were going, then show login.
+          rememberDestination(window.location.pathname, PATH_TO_SCREEN, AUTH_SCREENS)
+          setScreen('login', true)
         }
       })
       .catch(() => {
-        // Not logged in — that's fine, show the phone screen
-        setScreen('phone', true)
+        // Not signed in — that's fine, show the login screen
+        setScreen('login', true)
       })
       .finally(() => {
         setChecking(false)
@@ -1111,76 +1052,11 @@ function AppInner() {
       })
   }, [])
 
-  // Google config fetch and reset token extraction — moved to useAuthState hook
-
-  // Initialize Google Sign-In when on login screens
-  useEffect(() => {
-    if (!googleClientId) return
-    if (!['phone', 'email-login'].includes(screen)) return
-
-    const g = (window as unknown as { google?: { accounts: { id: { initialize: (opts: unknown) => void; renderButton: (el: HTMLElement, opts: unknown) => void } } } }).google
-    if (!g) return
-
-    g.accounts.id.initialize({
-      client_id: googleClientId,
-      callback: async (response: { credential: string }) => {
-        setLoading(true)
-        setError('')
-        try {
-          const res = await fetch('/auth/google', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ credential: response.credential }),
-          })
-          const data = await res.json()
-          if (res.ok && data.success) {
-            if (data.account_merged && data.merge_message) {
-              sessionStorage.setItem('groflo_merge_msg', data.merge_message)
-            }
-            setScreen('home', true)
-          } else {
-            setError(data.error || 'Google sign-in failed')
-          }
-        } catch {
-          setError('Google sign-in failed')
-        } finally {
-          setLoading(false)
-        }
-      },
-    })
-
-    // Render button
-    setTimeout(() => {
-      const el = document.getElementById('google-signin-btn')
-      if (el && g) {
-        el.innerHTML = ''
-        g.accounts.id.renderButton(el, {
-          type: 'standard',
-          shape: 'rectangular',
-          theme: 'outline',
-          text: 'continue_with',
-          size: 'large',
-          width: Math.min(el.parentElement?.offsetWidth || 400, 400),
-        })
-      }
-    }, 100)
-  }, [googleClientId, screen])
-
   // =========================================================================
-  // AUTOFOCUS MANAGEMENT
-  //
-  // When the screen changes, focus the appropriate input:
-  //   - Phone screen → focus the phone input
-  //   - Code screen → focus the first code box
+  // SCROLL RESTORE on back navigation
   // =========================================================================
 
   useEffect(() => {
-    if (screen === 'phone' && !checking) {
-      setTimeout(() => phoneInputRef.current?.focus(), 150)
-    }
-    if (screen === 'code') {
-      setTimeout(() => codeInputRefs.current[0]?.focus(), 150)
-    }
     // Restore scroll position when navigating back
     if (navigatingBack.current) {
       navigatingBack.current = false
@@ -1206,8 +1082,7 @@ function AppInner() {
 
   const handleSessionExpired = useCallback(() => {
     setChatLoading(false)
-    setScreen('phone', true)
-    setPhone('')
+    setScreen('login', true)
     setError('')
     _showToast('Session expired — please log in again', 'error')
   }, [_showToast])
@@ -1283,12 +1158,6 @@ function AppInner() {
     loadStoreLists().catch(e => console.warn('[load] store lists failed:', e))
     loadRestockNudges().catch(e => console.warn('[load] nudges failed:', e))
     loadStoreDeptOrder(activeStore).catch(e => console.warn('[load] dept order failed:', e))
-    // Show account merge message if auth just linked accounts
-    const mergeMsg = sessionStorage.getItem('groflo_merge_msg')
-    if (mergeMsg) {
-      sessionStorage.removeItem('groflo_merge_msg')
-      setTimeout(() => typePennyHome(mergeMsg), 500)
-    }
     // Only check NPS once per session — dismiss expires after 90 days
     if (!npsCheckedRef.current) {
       const dismissedAt = localStorage.getItem('nps_dismissed_at')
@@ -2104,10 +1973,7 @@ function AppInner() {
   }
   handleLoadSavedListRef.current = handleLoadSavedList
 
-  // Auth handlers (handleEmailRegister, handleEmailLogin, handleForgotPassword,
-  // handleMagicLink, handleResetPassword, handlePhoneChange, handleSendCode,
-  // verifyCode, handleCodeChange, handleCodeKeyDown, handleCodePaste)
-  // — all extracted to useAuthState hook
+  // Sign-in and sign-out handlers live in the useAuthState hook
 
   // =========================================================================
   // Settings handlers (doSettingsSave, handleSettingsAutoSave, invite handlers) — extracted to useSettingsState hook
@@ -2121,14 +1987,32 @@ function AppInner() {
   // =========================================================================
 
   if (sharedCode) {
-    const navigateToSignUp = () => { setSharedCode(null); setSharedError(null); window.history.replaceState({}, '', '/'); setScreen('phone', true) }
+    // Leave the read-only view. The household invite, if any, is already in
+    // localStorage (stashShareInvite), so it survives Rally sign-in and becomes
+    // the join prompt on the far side.
+    const leaveSharedList = () => {
+      setSharedCode(null)
+      setSharedError(null)
+      window.history.replaceState({}, '', '/')
+      if (!currentUserId) {
+        setScreen('login', true)
+        return
+      }
+      const landing = consumeLanding('/', PATH_TO_SCREEN, AUTH_SCREENS, 'home')
+      if (landing.joinPrompt) {
+        setJoinPromptCode(landing.joinPrompt.code)
+        setJoinPromptName(landing.joinPrompt.name)
+        setShowJoinPrompt(true)
+      }
+      setScreen('home', true)
+    }
     return (
       <SharedListScreen
         sharedData={sharedData}
         sharedLoading={sharedLoading}
         sharedError={sharedError}
-        onSignUp={navigateToSignUp}
-        onSignUpClear={() => { setSharedCode(null); window.history.replaceState({}, '', '/'); setScreen('phone', true) }}
+        signedIn={Boolean(currentUserId)}
+        onContinue={leaveSharedList}
       />
     )
   }
@@ -2145,108 +2029,15 @@ function AppInner() {
   }
 
   // =========================================================================
-  // PHONE SCREEN
+  // LOGIN SCREEN — Rally sign-in is the one way in
   // =========================================================================
 
-  if (screen === 'phone') {
+  if (screen === 'login') {
     return (
-      <PhoneScreen
-        phone={phone} smsOptIn={smsOptIn} loading={loading} error={error}
-        loginPennyText={loginPennyText} googleClientId={googleClientId}
-        phoneInputRef={phoneInputRef}
-        onPhoneChange={handlePhoneChange}
-        onSmsOptInChange={v => setSmsOptIn(v)}
-        onSendCode={() => handleSendCode()}
-        onNavigate={s => setScreen(s as Screen)}
-        setError={setError}
-      />
-    )
-  }
-
-  // =========================================================================
-  // EMAIL LOGIN SCREEN
-  // =========================================================================
-
-  if (screen === 'email-login') {
-    return (
-      <EmailLoginScreen
-        emailInput={emailInput} passwordInput={passwordInput}
-        loading={loading} error={error} magicLinkSent={magicLinkSent}
-        loginPennyText={loginPennyText} googleClientId={googleClientId}
-        onEmailChange={v => setEmailInput(v)} onPasswordChange={v => setPasswordInput(v)}
-        onLogin={handleEmailLogin} onMagicLink={handleMagicLink}
-        onNavigate={s => setScreen(s as Screen)}
-        setError={setError} setMagicLinkSent={setMagicLinkSent}
-      />
-    )
-  }
-
-  // =========================================================================
-  // EMAIL REGISTER SCREEN
-  // =========================================================================
-
-  if (screen === 'email-register') {
-    return (
-      <EmailRegisterScreen
-        nameInput={nameInput} lastNameInput={lastNameInput}
-        emailInput={emailInput} passwordInput={passwordInput} confirmPassword={confirmPassword}
-        loading={loading} error={error} loginPennyText={loginPennyText}
-        onNameChange={v => setNameInput(v)} onLastNameChange={v => setLastNameInput(v)}
-        onEmailChange={v => setEmailInput(v)} onPasswordChange={v => setPasswordInput(v)}
-        onConfirmPasswordChange={v => setConfirmPassword(v)}
-        onRegister={handleEmailRegister}
-        onNavigate={s => setScreen(s as Screen)}
-        setError={setError}
-      />
-    )
-  }
-
-  // =========================================================================
-  // FORGOT PASSWORD SCREEN
-  // =========================================================================
-
-  if (screen === 'forgot-password') {
-    return (
-      <ForgotPasswordScreen
-        emailInput={emailInput} loading={loading} error={error} resetSent={resetSent}
-        onEmailChange={v => setEmailInput(v)} onSubmit={handleForgotPassword}
-        onNavigate={s => setScreen(s as Screen)}
-        setError={setError} setResetSent={setResetSent}
-      />
-    )
-  }
-
-  // =========================================================================
-  // RESET PASSWORD SCREEN
-  // =========================================================================
-
-  if (screen === 'reset-password') {
-    return (
-      <ResetPasswordScreen
-        passwordInput={passwordInput} confirmPassword={confirmPassword}
-        loading={loading} error={error}
-        onPasswordChange={v => setPasswordInput(v)} onConfirmPasswordChange={v => setConfirmPassword(v)}
-        onSubmit={handleResetPassword}
-        onNavigate={s => setScreen(s as Screen)}
-        setError={setError}
-      />
-    )
-  }
-
-  // =========================================================================
-  // CODE SCREEN
-  // =========================================================================
-
-  if (screen === 'code') {
-    return (
-      <CodeScreen
-        phone={phone} code={code} loading={loading} error={error}
-        codeInputRefs={codeInputRefs}
-        onCodeChange={handleCodeChange} onCodeKeyDown={handleCodeKeyDown} onCodePaste={handleCodePaste}
-        onResendCode={(p) => handleSendCode(p)}
-        onNavigate={s => setScreen(s as Screen)}
-        setError={setError}
-      />
+      <>
+        <LoginScreen loginPennyText={loginPennyText} clerkEnabled={clerkEnabled} error={error} />
+        {toast && <div role="status" aria-live="polite" style={{ ...styles.toast, ...(toast.type === 'error' ? styles.toastError : {}) }}>{toast.message}</div>}
+      </>
     )
   }
 
@@ -2453,11 +2244,8 @@ function AppInner() {
         onFirstNameChange={setSettingsFirstName}
         onLastNameChange={setSettingsLastName}
         onEmailChange={setSettingsEmail}
-        onPhoneChange={setSettingsUserPhone}
         onAddressChange={setSettingsAddress}
         onAutoSave={handleSettingsAutoSave}
-        authMethods={authMethods}
-        onAuthMethodAdded={(method: string) => setAuthMethods(prev => prev.includes(method) ? prev : [...prev, method])}
         currentUserId={currentUserId}
         isAdmin={isAdmin}
         onNavigate={(s: string) => setScreen(s as Screen)}
@@ -2560,7 +2348,7 @@ function AppInner() {
           } catch { showToast('Connection error', 'error') }
         }}
         onShareReferral={() => {
-          const url = `https://app.groflo.io/r/${referralCode}`
+          const url = referralLink(referralCode)
           const text = `Try Groflo — Penny AI helps your household organize the grocery list. Just text, email, or snap a photo and she handles the rest! ${url}`
           track('referral_shared', { method: 'share' in navigator ? 'native' : 'sms' })
           if (navigator.share) {
@@ -2571,7 +2359,7 @@ function AppInner() {
         }}
         onCopyReferral={() => {
           track('referral_copied')
-          navigator.clipboard.writeText(`https://app.groflo.io/r/${referralCode}`).then(() => showToast('Link copied!')).catch(() => showToast('Could not copy', 'error'))
+          navigator.clipboard.writeText(referralLink(referralCode)).then(() => showToast('Link copied!')).catch(() => showToast('Could not copy', 'error'))
         }}
         onShowToast={showToast}
         runConfirmAction={runConfirmAction}
@@ -2622,7 +2410,7 @@ function AppInner() {
             {/* QR code for sharing */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '8px 0 16px' }}>
               <QRCodeCanvas
-                value={`https://app.groflo.io/r/${referralCode}?via=qr`}
+                value={referralLink(referralCode, 'qr')}
                 size={160}
                 level="M"
                 marginSize={2}

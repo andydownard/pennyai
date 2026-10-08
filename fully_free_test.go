@@ -33,7 +33,7 @@ func createFullyFreeDeal(t *testing.T, server *Server, offerBrand, offerProduct,
 }
 
 func TestFullyFree_AcceptNoBudgetDebit(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 
 	// Create user with phone (verified identity) and old enough account (>72h)
 	server.db.Exec("INSERT INTO users (id, phone, created_at) VALUES ('user-1', '5551234567', datetime('now', '-4 days'))")
@@ -85,7 +85,7 @@ func TestFullyFree_AcceptNoBudgetDebit(t *testing.T) {
 }
 
 func TestFullyFree_ReceiptVerify_BudgetDebit(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 
 	server.db.Exec("INSERT INTO users (id, phone, created_at) VALUES ('user-1', '5551234567', datetime('now', '-4 days'))")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
@@ -139,8 +139,133 @@ func TestFullyFree_ReceiptVerify_BudgetDebit(t *testing.T) {
 	}
 }
 
+// acceptedFullyFreeRebate sets a user up with one accepted fully_free deal and
+// returns the deal id, the pending_purchase rebate id, and the user's cookies.
+func acceptedFullyFreeRebate(t *testing.T, server *Server, maxRebateCents, budgetCents int) (int, int, []*http.Cookie) {
+	t.Helper()
+	server.db.Exec("INSERT INTO users (id, phone, created_at) VALUES ('user-1', '5551234567', datetime('now', '-4 days'))")
+	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
+	cookies := []*http.Cookie{{Name: "session", Value: token}}
+
+	dealID := createFullyFreeDeal(t, server, "Acme", "Acme Organic Milk", "milk", maxRebateCents, budgetCents)
+	server.db.Exec("INSERT INTO list_items (id, user_id, name, department) VALUES (1, 'user-1', 'Milk', 'Dairy')")
+
+	rr := doRequest(server.handleParseAndAdd, "POST", "/api/list/parse",
+		map[string]interface{}{"text": "accept_swap", "swap_deal_id": dealID, "swap_item_id": 1}, cookies)
+	if rr.Code != 201 {
+		t.Fatalf("accept: expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var rebateID int
+	server.db.QueryRow("SELECT id FROM swap_rebates WHERE deal_id = ?", dealID).Scan(&rebateID)
+	return dealID, rebateID, cookies
+}
+
+// TestFullyFree_ConcurrentReceiptVerifyDebitsOnce fires simultaneous receipt
+// verifications for one rebate. The status read happened before tx.Begin and the
+// final UPDATE swap_rebates had no status guard, so each concurrent verify ran
+// the budget debit — the debit is individually atomic, so they all succeeded and
+// the brand was charged rebate + platform fee more than once for one rebate.
+func TestFullyFree_ConcurrentReceiptVerifyDebitsOnce(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	dealID, rebateID, cookies := acceptedFullyFreeRebate(t, server, 500, 50000)
+
+	const n = 4 // the handler allows 5 verifications per user per day
+	codes := make([]int, n)
+	hammer(t, n, func(i int) {
+		rr := doRequest(server.handleFullyFreeReceiptVerify, "POST", "/api/receipt/verify",
+			map[string]interface{}{"rebate_id": rebateID, "receipt_price_cents": 499}, cookies)
+		codes[i] = rr.Code
+	})
+
+	wins := 0
+	for i, c := range codes {
+		switch c {
+		case http.StatusOK:
+			wins++
+		case http.StatusConflict:
+		default:
+			t.Errorf("verify %d: unexpected status %d (want 200 for the winner, 409 for losers)", i, c)
+		}
+	}
+	if wins != 1 {
+		t.Errorf("verifications that succeeded: got %d, want exactly 1", wins)
+	}
+
+	// 499 rebate + 100 platform fee, charged once.
+	var spent int
+	server.db.QueryRow("SELECT budget_spent_cents FROM brand_deals WHERE id = ?", dealID).Scan(&spent)
+	if spent != 599 {
+		t.Errorf("budget_spent_cents: got %d, want 599 (brand overcharged)", spent)
+	}
+}
+
+// TestFullyFree_ReceiptVerifyAlreadyVerified is the deterministic partner to the
+// hammer test: the rebate is already verified, so the handler must 409 and leave
+// the brand's budget alone.
+func TestFullyFree_ReceiptVerifyAlreadyVerified(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	dealID, rebateID, cookies := acceptedFullyFreeRebate(t, server, 500, 50000)
+
+	// A prior verification already settled this rebate and debited the brand.
+	server.db.Exec("UPDATE swap_rebates SET status = 'verified', verified_amount_cents = 499 WHERE id = ?", rebateID)
+	server.db.Exec("UPDATE brand_deals SET budget_spent_cents = 599 WHERE id = ?", dealID)
+
+	rr := doRequest(server.handleFullyFreeReceiptVerify, "POST", "/api/receipt/verify",
+		map[string]interface{}{"rebate_id": rebateID, "receipt_price_cents": 499}, cookies)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("re-verify: expected 409, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var spent int
+	server.db.QueryRow("SELECT budget_spent_cents FROM brand_deals WHERE id = ?", dealID).Scan(&spent)
+	if spent != 599 {
+		t.Errorf("budget_spent_cents moved on a blocked re-verify: got %d, want 599", spent)
+	}
+}
+
+// TestFullyFree_ReceiptVerifyRejectionDoesNotBurnRateLimit: a 403 or 404 must
+// not consume one of the user's 5 daily verification attempts.
+func TestFullyFree_ReceiptVerifyRejectionDoesNotBurnRateLimit(t *testing.T) {
+	server := newTestServer(t, &MockTwilioClient{})
+	dealID, rebateID, cookies := acceptedFullyFreeRebate(t, server, 500, 50000)
+
+	// Someone else's rebate: 403, and must cost nothing.
+	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-2', '5559998888')")
+	server.db.Exec("UPDATE swap_rebates SET user_id = 'user-2' WHERE id = ?", rebateID)
+	for i := 0; i < 6; i++ {
+		rr := doRequest(server.handleFullyFreeReceiptVerify, "POST", "/api/receipt/verify",
+			map[string]interface{}{"rebate_id": rebateID, "receipt_price_cents": 499}, cookies)
+		if rr.Code != http.StatusForbidden {
+			t.Fatalf("attempt %d on another user's rebate: expected 403, got %d: %s", i, rr.Code, rr.Body.String())
+		}
+	}
+
+	// A nonexistent rebate: 404, likewise free.
+	for i := 0; i < 6; i++ {
+		rr := doRequest(server.handleFullyFreeReceiptVerify, "POST", "/api/receipt/verify",
+			map[string]interface{}{"rebate_id": 999999, "receipt_price_cents": 499}, cookies)
+		if rr.Code != http.StatusNotFound {
+			t.Fatalf("attempt %d on a missing rebate: expected 404, got %d: %s", i, rr.Code, rr.Body.String())
+		}
+	}
+
+	// The user's own genuine verification must still go through.
+	server.db.Exec("UPDATE swap_rebates SET user_id = 'user-1' WHERE id = ?", rebateID)
+	rr := doRequest(server.handleFullyFreeReceiptVerify, "POST", "/api/receipt/verify",
+		map[string]interface{}{"rebate_id": rebateID, "receipt_price_cents": 499}, cookies)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("genuine verify after 12 rejected attempts: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var spent int
+	server.db.QueryRow("SELECT budget_spent_cents FROM brand_deals WHERE id = ?", dealID).Scan(&spent)
+	if spent != 599 {
+		t.Errorf("budget_spent_cents: got %d, want 599", spent)
+	}
+}
+
 func TestFullyFree_DynamicRebate_ReceiptPriceLessThanMax(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 
 	server.db.Exec("INSERT INTO users (id, phone, created_at) VALUES ('user-1', '5551234567', datetime('now', '-4 days'))")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
@@ -180,7 +305,7 @@ func TestFullyFree_DynamicRebate_ReceiptPriceLessThanMax(t *testing.T) {
 }
 
 func TestFullyFree_DynamicRebate_ReceiptPriceHigherThanMax(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 
 	server.db.Exec("INSERT INTO users (id, phone, created_at) VALUES ('user-1', '5551234567', datetime('now', '-4 days'))")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
@@ -212,7 +337,7 @@ func TestFullyFree_DynamicRebate_ReceiptPriceHigherThanMax(t *testing.T) {
 }
 
 func TestFullyFree_FraudGate_72hCoolingPeriod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 
 	// Create user whose account is only 1 hour old
 	server.db.Exec("INSERT INTO users (id, phone, created_at) VALUES ('user-1', '5551234567', datetime('now', '-1 hours'))")
@@ -245,7 +370,7 @@ func TestFullyFree_FraudGate_72hCoolingPeriod(t *testing.T) {
 }
 
 func TestFullyFree_FraudGate_UnverifiedIdentity(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 
 	// Create user WITHOUT phone (no verified identity), account > 72h old
 	server.db.Exec("INSERT INTO users (id, created_at) VALUES ('user-1', datetime('now', '-4 days'))")
@@ -275,7 +400,7 @@ func TestFullyFree_FraudGate_UnverifiedIdentity(t *testing.T) {
 }
 
 func TestFullyFree_FraudGate_HouseholdDedup(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 
 	// Create household with two users
 	server.db.Exec("INSERT INTO households (id) VALUES (1)")
@@ -319,7 +444,7 @@ func TestFullyFree_FraudGate_HouseholdDedup(t *testing.T) {
 }
 
 func TestFullyFree_VerifyWrongUser(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 
 	server.db.Exec("INSERT INTO users (id, phone, created_at) VALUES ('user-1', '5551234567', datetime('now', '-4 days'))")
 	server.db.Exec("INSERT INTO users (id, phone, created_at) VALUES ('user-2', '5559876543', datetime('now', '-4 days'))")
@@ -348,7 +473,7 @@ func TestFullyFree_VerifyWrongUser(t *testing.T) {
 }
 
 func TestFullyFree_VerifyAlreadyVerified(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 
 	server.db.Exec("INSERT INTO users (id, phone, created_at) VALUES ('user-1', '5551234567', datetime('now', '-4 days'))")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
@@ -371,16 +496,18 @@ func TestFullyFree_VerifyAlreadyVerified(t *testing.T) {
 		t.Fatalf("first verify: expected 200, got %d", rr.Code)
 	}
 
-	// Second verification should fail (already verified)
+	// Second verification should fail (already verified). 409, not 400: the
+	// request conflicts with the rebate's current state, and this matches the
+	// swap-accept path's "already accepted" conflict.
 	rr = doRequest(server.handleFullyFreeReceiptVerify, "POST", "/api/receipt/verify",
 		map[string]interface{}{"rebate_id": rebateID, "receipt_price_cents": 500}, cookies)
-	if rr.Code != 400 {
-		t.Errorf("double verify: expected 400, got %d: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusConflict {
+		t.Errorf("double verify: expected 409, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 
 func TestFullyFree_BudgetExhaustedOnVerify(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 
 	server.db.Exec("INSERT INTO users (id, phone, created_at) VALUES ('user-1', '5551234567', datetime('now', '-4 days'))")
 	server.db.Exec("INSERT INTO users (id, phone, created_at) VALUES ('user-2', '5559876543', datetime('now', '-4 days'))")
@@ -431,7 +558,7 @@ func TestFullyFree_BudgetExhaustedOnVerify(t *testing.T) {
 }
 
 func TestFullyFree_PendingRebatesEndpoint(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 
 	server.db.Exec("INSERT INTO users (id, phone, created_at) VALUES ('user-1', '5551234567', datetime('now', '-4 days'))")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
@@ -465,7 +592,7 @@ func TestFullyFree_PendingRebatesEndpoint(t *testing.T) {
 }
 
 func TestFullyFree_EarningsShowNewStatuses(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 
 	server.db.Exec("INSERT INTO users (id, phone, created_at) VALUES ('user-1', '5551234567', datetime('now', '-4 days'))")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
@@ -598,7 +725,7 @@ func TestFullyFree_BrandPortalValidation(t *testing.T) {
 }
 
 func TestFullyFree_VerifyMissingRebateID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 
 	server.db.Exec("INSERT INTO users (id, phone, created_at) VALUES ('user-1', '5551234567', datetime('now', '-4 days'))")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
@@ -612,7 +739,7 @@ func TestFullyFree_VerifyMissingRebateID(t *testing.T) {
 }
 
 func TestFullyFree_VerifyNonexistentRebate(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 
 	server.db.Exec("INSERT INTO users (id, phone, created_at) VALUES ('user-1', '5551234567', datetime('now', '-4 days'))")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
@@ -663,7 +790,7 @@ func TestCampaignReview_DealStartsPendingReview(t *testing.T) {
 }
 
 func TestCampaignReview_AdminApprove(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	brandCookie, _ := brandRegister(t, server, "approve@brand.com", "password123", "ApproveCo")
 
 	// Create deal (starts as pending_review)
@@ -710,7 +837,7 @@ func TestCampaignReview_AdminApprove(t *testing.T) {
 }
 
 func TestCampaignReview_AdminReject(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	brandCookie, _ := brandRegister(t, server, "reject@brand.com", "password123", "RejectCo")
 
 	// Create deal
@@ -810,7 +937,7 @@ func TestCampaignReview_ApprovedDealCanPauseResume(t *testing.T) {
 }
 
 func TestCampaignReview_InvalidAction(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	brandCookie, _ := brandRegister(t, server, "invalid@brand.com", "password123", "InvalidCo")
 
 	rr := doRequest(server.handleBrandDeals, "POST", "/brand/deals", map[string]interface{}{
@@ -842,7 +969,7 @@ func TestCampaignReview_InvalidAction(t *testing.T) {
 }
 
 func TestCampaignReview_CannotReviewActiveDeal(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	brandCookie, _ := brandRegister(t, server, "alreadyactive@brand.com", "password123", "ActiveCo")
 
 	// Create and auto-approve a deal
@@ -868,7 +995,7 @@ func TestCampaignReview_CannotReviewActiveDeal(t *testing.T) {
 }
 
 func TestCampaignReview_PendingReviewDealNotMatchedToShoppers(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{CheckApproved: true})
+	server := newTestServer(t, &MockTwilioClient{})
 	brandCookie, _ := brandRegister(t, server, "nomatch@brand.com", "password123", "NoMatchCo")
 
 	// Create deal — stays as pending_review (DO NOT auto-approve)

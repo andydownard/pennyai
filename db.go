@@ -126,7 +126,7 @@ func getDietaryBrandDefault(db dbExecer, category string, diets []string) (strin
 	args = append(args, category)
 	likes := make([]string, len(diets))
 	for i, diet := range diets {
-		likes[i] = "dp.diets ILIKE ?"
+		likes[i] = "CAST(dp.diets AS TEXT) ILIKE ?" // diets is JSONB on Postgres; ILIKE needs text
 		args = append(args, "%"+strings.ToLower(diet)+"%")
 	}
 
@@ -259,7 +259,7 @@ func resolveBrandAlternatives(db dbExecer, userID string, pennyBrandMode string,
 		hasPref := err == nil
 		isStale := false
 		if hasPref {
-			if lp, err := time.Parse("2006-01-02 15:04:05", lastPicked); err == nil {
+			if lp, err := parseDBTime(lastPicked); err == nil {
 				isStale = time.Since(lp) > 90*24*time.Hour && streak < 5
 			}
 		}
@@ -423,343 +423,6 @@ func createSoloHousehold(db *PGDB, userID string) (int, error) {
 	return hID, nil
 }
 
-// logAccountMerge records an account merge event for audit purposes.
-func logAccountMerge(ex dbExecer, survivingUser, mergedUser string, provider, providerID string, actions map[string]string) {
-	data, _ := json.Marshal(actions)
-	var mergedPtr interface{}
-	if mergedUser != "" {
-		mergedPtr = mergedUser
-	}
-	ex.Exec(
-		"INSERT INTO account_merges (surviving_user, merged_user, provider_linked, provider_id, data_actions) VALUES (?, ?, ?, ?, ?)",
-		survivingUser, mergedPtr, provider, providerID, string(data),
-	)
-}
-
-// mergeHouseholds cleans up household membership when two users are merged.
-// Returns a description of what was done for the audit log.
-func mergeHouseholds(tx dbExecer, survivingID, orphanedID string) string {
-	survivingHH := getUserHouseholdID(tx, survivingID)
-	orphanedHH := getUserHouseholdID(tx, orphanedID)
-
-	if orphanedHH == 0 {
-		return "orphaned user had no household"
-	}
-
-	// Remove orphaned user from their household
-	tx.Exec("DELETE FROM household_members WHERE user_id = ?", orphanedID)
-	tx.Exec("UPDATE users SET household_id = NULL WHERE id = ?", orphanedID)
-
-	if survivingHH != 0 && orphanedHH == survivingHH {
-		return fmt.Sprintf("removed duplicate membership in household %d", orphanedHH)
-	}
-	return fmt.Sprintf("removed orphaned membership in household %d", orphanedHH)
-}
-
-// mergeUserData transfers data from an orphaned user to the surviving user.
-// Returns a map of action descriptions for the audit log.
-func mergeUserData(tx dbExecer, survivingID, orphanedID string) map[string]string {
-	actions := map[string]string{}
-
-	// 1. List items: transfer non-duplicate items, merge quantities for duplicates
-	rows, err := tx.Query(
-		"SELECT id, name, quantity FROM list_items WHERE user_id = ?", orphanedID,
-	)
-	if err == nil {
-		transferred, merged := 0, 0
-		type orphanItem struct {
-			id       int
-			name     string
-			quantity int
-		}
-		var orphanItems []orphanItem
-		for rows.Next() {
-			var item orphanItem
-			if err := rows.Scan(&item.id, &item.name, &item.quantity); err == nil {
-				orphanItems = append(orphanItems, item)
-			}
-		}
-		rows.Close()
-
-		for _, item := range orphanItems {
-			var existingID, existingQty int
-			err := tx.QueryRow(
-				"SELECT id, quantity FROM list_items WHERE user_id = ? AND LOWER(name) = LOWER(?)",
-				survivingID, item.name,
-			).Scan(&existingID, &existingQty)
-			if err == nil {
-				// Duplicate — add quantities
-				tx.Exec("UPDATE list_items SET quantity = ? WHERE id = ?", existingQty+item.quantity, existingID)
-				tx.Exec("DELETE FROM list_items WHERE id = ?", item.id)
-				merged++
-			} else {
-				// No duplicate — reassign
-				tx.Exec("UPDATE list_items SET user_id = ? WHERE id = ?", survivingID, item.id)
-				transferred++
-			}
-		}
-		if transferred+merged > 0 {
-			actions["list_items"] = fmt.Sprintf("%d transferred, %d merged quantities", transferred, merged)
-		}
-	}
-
-	// 2. Transfer item_modifications
-	if result, err := tx.Exec("UPDATE item_modifications SET user_id = ? WHERE user_id = ?", survivingID, orphanedID); err == nil {
-		if n, _ := result.RowsAffected(); n > 0 {
-			actions["item_modifications"] = fmt.Sprintf("%d transferred", n)
-		}
-	}
-
-	// 3. Profile photo: keep most recent
-	var survPhotoTime, orphPhotoTime sql.NullString
-	tx.QueryRow("SELECT updated_at FROM profile_photos WHERE user_id = ?", survivingID).Scan(&survPhotoTime)
-	tx.QueryRow("SELECT updated_at FROM profile_photos WHERE user_id = ?", orphanedID).Scan(&orphPhotoTime)
-
-	if orphPhotoTime.Valid {
-		if !survPhotoTime.Valid {
-			// Only orphaned has a photo — move it
-			tx.Exec("UPDATE profile_photos SET user_id = ? WHERE user_id = ?", survivingID, orphanedID)
-			actions["profile_photo"] = "transferred from merged user (surviving had none)"
-		} else if orphPhotoTime.String > survPhotoTime.String {
-			// Orphaned's photo is newer — replace
-			tx.Exec("DELETE FROM profile_photos WHERE user_id = ?", survivingID)
-			tx.Exec("UPDATE profile_photos SET user_id = ? WHERE user_id = ?", survivingID, orphanedID)
-			actions["profile_photo"] = "kept merged user's photo (more recent)"
-		} else {
-			// Surviving's photo is newer or equal — delete orphaned's
-			tx.Exec("DELETE FROM profile_photos WHERE user_id = ?", orphanedID)
-			actions["profile_photo"] = "kept surviving user's photo (more recent)"
-		}
-	}
-
-	// 4. Display name: prefer manually set
-	var survName, orphName sql.NullString
-	var survNameSrc, orphNameSrc string
-	tx.QueryRow("SELECT name, COALESCE(name_source,'auto') FROM users WHERE id = ?", survivingID).Scan(&survName, &survNameSrc)
-	tx.QueryRow("SELECT name, COALESCE(name_source,'auto') FROM users WHERE id = ?", orphanedID).Scan(&orphName, &orphNameSrc)
-
-	if orphName.Valid && orphName.String != "" && orphNameSrc == "manual" && survNameSrc != "manual" {
-		tx.Exec("UPDATE users SET name = ?, name_source = 'manual' WHERE id = ?", orphName.String, survivingID)
-		actions["display_name"] = fmt.Sprintf("used merged user's name '%s' (manually set)", orphName.String)
-	} else if survName.Valid && survName.String != "" {
-		actions["display_name"] = fmt.Sprintf("kept surviving user's name '%s'", survName.String)
-	}
-
-	// 5. Saved lists: reassign
-	if result, err := tx.Exec("UPDATE saved_lists SET user_id = ? WHERE user_id = ?", survivingID, orphanedID); err == nil {
-		if n, _ := result.RowsAffected(); n > 0 {
-			actions["saved_lists"] = fmt.Sprintf("%d transferred", n)
-		}
-	}
-
-	// 6. Brand preferences: transfer non-duplicates
-	if result, err := tx.Exec(`
-		UPDATE brand_preferences SET user_id = ? WHERE user_id = ? AND product_category NOT IN (
-			SELECT product_category FROM brand_preferences WHERE user_id = ?
-		)`, survivingID, orphanedID, survivingID); err == nil {
-		if n, _ := result.RowsAffected(); n > 0 {
-			actions["brand_preferences"] = fmt.Sprintf("%d transferred", n)
-		}
-	}
-	tx.Exec("DELETE FROM brand_preferences WHERE user_id = ?", orphanedID)
-
-	// 7. Swap events/rebates: reassign
-	if result, err := tx.Exec("UPDATE swap_events SET user_id = ? WHERE user_id = ?", survivingID, orphanedID); err == nil {
-		if n, _ := result.RowsAffected(); n > 0 {
-			actions["swap_events"] = fmt.Sprintf("%d transferred", n)
-		}
-	}
-	if result, err := tx.Exec("UPDATE swap_rebates SET user_id = ? WHERE user_id = ?", survivingID, orphanedID); err == nil {
-		if n, _ := result.RowsAffected(); n > 0 {
-			actions["swap_rebates"] = fmt.Sprintf("%d transferred", n)
-		}
-	}
-
-	// 8. Auth methods: reassign remaining
-	tx.Exec("UPDATE OR IGNORE auth_methods SET user_id = ? WHERE user_id = ?", survivingID, orphanedID)
-	tx.Exec("DELETE FROM auth_methods WHERE user_id = ?", orphanedID) // clean up any that couldn't be moved due to unique constraint
-
-	// 9. Sessions: delete orphaned
-	tx.Exec("DELETE FROM sessions WHERE user_id = ?", orphanedID)
-
-	// 10. Household cleanup
-	hhAction := mergeHouseholds(tx, survivingID, orphanedID)
-	actions["household"] = hhAction
-
-	// 11. Soft-delete the orphaned user
-	tx.Exec("UPDATE users SET email = '', phone = NULL, name = ? WHERE id = ?",
-		fmt.Sprintf("[merged into user %s]", survivingID), orphanedID)
-	actions["orphaned_user"] = fmt.Sprintf("user %s soft-deleted", orphanedID)
-
-	return actions
-}
-
-// resolveOrCreateUser finds or creates a user for the given auth provider.
-// 1. Check auth_methods for existing (provider, provider_id) → return that user
-// 2. If email provided, check users for matching email → link auth method (auto-merge)
-// 3. Otherwise: create new user + auth_methods row + solo household
-func resolveOrCreateUser(db *PGDB, provider, providerID, email, name string) (User, error) {
-	tx, err := db.Begin()
-	if err != nil {
-		return User{}, fmt.Errorf("starting transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// 1. Check if this auth method already exists
-	var userID string
-	err = tx.QueryRow(
-		"SELECT user_id FROM auth_methods WHERE provider = ? AND provider_id = ?",
-		provider, providerID,
-	).Scan(&userID)
-	if err == nil {
-		// Auth method exists — fetch and return the user
-		var user User
-		var householdID sql.NullInt64
-		var uName, uEmail, uPhone sql.NullString
-		err = tx.QueryRow(
-			"SELECT id, COALESCE(phone,''), COALESCE(name,''), COALESCE(email,''), household_id, created_at FROM users WHERE id = ?",
-			userID,
-		).Scan(&user.ID, &uPhone, &uName, &uEmail, &householdID, &user.CreatedAt)
-		if err != nil {
-			return User{}, fmt.Errorf("fetching user: %w", err)
-		}
-		user.PhoneNumber = uPhone.String
-		user.Name = uName.String
-		user.Email = uEmail.String
-		if householdID.Valid {
-			user.HouseholdID = int(householdID.Int64)
-		}
-		// Track login
-		tx.Exec("UPDATE users SET last_active = CURRENT_TIMESTAMP, login_count = login_count + 1 WHERE id = ?", user.ID)
-		if err := tx.Commit(); err != nil {
-			return User{}, fmt.Errorf("committing: %w", err)
-		}
-		return user, nil
-	}
-
-	// 2. If email provided, try to merge with existing user by email
-	if email != "" {
-		var existingID string
-		err = tx.QueryRow(
-			"SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND email != ''",
-			email,
-		).Scan(&existingID)
-		if err == nil {
-			// Found existing user with same email — link this auth method
-			result, err := tx.Exec(
-				"INSERT OR IGNORE INTO auth_methods (user_id, provider, provider_id) VALUES (?, ?, ?)",
-				existingID, provider, providerID,
-			)
-			if err != nil {
-				return User{}, fmt.Errorf("linking auth method: %w", err)
-			}
-			// Check if a new auth method was actually linked (not a duplicate)
-			rowsInserted, _ := result.RowsAffected()
-			merged := rowsInserted > 0
-
-			// Update name if empty
-			if name != "" {
-				tx.Exec("UPDATE users SET name = ? WHERE id = ? AND (name IS NULL OR name = '')", name, existingID)
-			}
-
-			// Check for orphaned users with the same email (true user-level merge)
-			fullMerged := false
-			orphanRows, _ := tx.Query(
-				"SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND id != ? AND email != '' AND name NOT LIKE '[merged into user%'",
-				email, existingID,
-			)
-			if orphanRows != nil {
-				var orphanIDs []string
-				for orphanRows.Next() {
-					var oid string
-					if err := orphanRows.Scan(&oid); err == nil {
-						orphanIDs = append(orphanIDs, oid)
-					}
-				}
-				orphanRows.Close()
-				for _, orphanID := range orphanIDs {
-					actions := mergeUserData(tx, existingID, orphanID)
-					logAccountMerge(tx, existingID, orphanID, provider, providerID, actions)
-					log.Printf("[auth] full user merge: user %s absorbed user %s (%s)", existingID, orphanID, email)
-					merged = true
-					fullMerged = true
-				}
-			}
-
-			// Log the auth-method-only merge if no full user merge happened
-			if merged && !fullMerged {
-				logAccountMerge(tx, existingID, "", provider, providerID, map[string]string{
-					"auth_method": fmt.Sprintf("linked %s:%s", provider, providerID),
-				})
-			}
-
-			var user User
-			var householdID sql.NullInt64
-			var uName, uEmail, uPhone sql.NullString
-			err = tx.QueryRow(
-				"SELECT id, COALESCE(phone,''), COALESCE(name,''), COALESCE(email,''), household_id, created_at FROM users WHERE id = ?",
-				existingID,
-			).Scan(&user.ID, &uPhone, &uName, &uEmail, &householdID, &user.CreatedAt)
-			if err != nil {
-				return User{}, fmt.Errorf("fetching merged user: %w", err)
-			}
-			user.PhoneNumber = uPhone.String
-			user.Name = uName.String
-			user.Email = uEmail.String
-			user.Merged = merged
-			if householdID.Valid {
-				user.HouseholdID = int(householdID.Int64)
-			}
-			tx.Exec("UPDATE users SET last_active = CURRENT_TIMESTAMP, login_count = login_count + 1 WHERE id = ?", user.ID)
-			if err := tx.Commit(); err != nil {
-				return User{}, fmt.Errorf("committing: %w", err)
-			}
-			if merged {
-				log.Printf("[auth] account merged: user %s linked %s auth to existing account (%s)", user.ID, provider, email)
-			}
-			return user, nil
-		}
-	}
-
-	// 3. Create new user
-	newID := uuid.New().String()
-	_, err = tx.Exec(
-		"INSERT INTO users (id, phone, name, email) VALUES (?, NULL, ?, ?)",
-		newID, name, email,
-	)
-	if err != nil {
-		return User{}, fmt.Errorf("creating user: %w", err)
-	}
-
-	// Create auth method
-	_, err = tx.Exec(
-		"INSERT INTO auth_methods (user_id, provider, provider_id) VALUES (?, ?, ?)",
-		newID, provider, providerID,
-	)
-	if err != nil {
-		return User{}, fmt.Errorf("creating auth method: %w", err)
-	}
-
-	// Auto-create household
-	hID, err := createSoloHouseholdTx(tx, newID)
-	if err != nil {
-		return User{}, err
-	}
-
-	tx.Exec("UPDATE users SET last_active = CURRENT_TIMESTAMP, login_count = 1 WHERE id = ?", newID)
-
-	if err := tx.Commit(); err != nil {
-		return User{}, fmt.Errorf("committing: %w", err)
-	}
-
-	return User{
-		ID:          newID,
-		Name:        name,
-		Email:       email,
-		HouseholdID: hID,
-	}, nil
-}
-
 func getHouseholdUserIDs(db dbExecer, userID string) ([]string, error) {
 	rows, err := db.Query(
 		"SELECT user_id FROM household_members WHERE household_id = (SELECT household_id FROM users WHERE id = ? AND household_id IS NOT NULL)",
@@ -887,6 +550,23 @@ func upsertListItem(db *PGDB, userID string, name, brand, department, size strin
 		return ListItem{}, false, fmt.Errorf("starting transaction: %w", err)
 	}
 	defer tx.Rollback()
+
+	// Serialise concurrent upserts for the same list. The look-up below followed
+	// by an INSERT is check-then-act: under READ COMMITTED two requests can both
+	// find nothing and both insert, leaving duplicate rows (a double-tapped add,
+	// or an SMS and the app adding "eggs" together). The list is shared across a
+	// household with no unique key to lean on, so take a transaction-scoped
+	// advisory lock keyed on the household (or the user, when solo). It releases
+	// at COMMIT/ROLLBACK. SQLite (tests) has a single writer and no such lock.
+	if !db.skipConversion {
+		lockKey := "list_items:u:" + userID
+		if hid := getUserHouseholdID(db, userID); hid != 0 {
+			lockKey = fmt.Sprintf("list_items:h:%d", hid)
+		}
+		if _, err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(?))", lockKey); err != nil {
+			return ListItem{}, false, fmt.Errorf("locking list for upsert: %w", err)
+		}
+	}
 
 	// Look for an existing item with the same name across household (checked or unchecked)
 	queryArgs := append(append([]interface{}{}, whereArgs...), name)

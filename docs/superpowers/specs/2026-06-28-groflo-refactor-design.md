@@ -84,7 +84,7 @@ Each phase lists the RED tests that gate it, the disaster-rule guards, and accep
 ### Phase 0 — Pin & clean (no behavior change)
 
 **Tests first (these gate every risky phase that follows):**
-- `middleware_timpager_test.go` (new): golden idempotency-key format (`pennyai_*` / `groflo_payout_*`), 409-as-success-no-retry, backoff cap, non-positive/empty-distribution refusal, `verifyTimpagerSession` positive + negative + tampered. *(MONEY, auth)*
+- `middleware_timpager_test.go` (new): golden idempotency-key format (`pennyai_*` / `groflo_payout_*`), Authorization header on every push, 409-as-success-no-retry, backoff cap, non-positive/empty-distribution refusal. *(MONEY)* — the `verifyTimpagerSession` cases are gone along with the dormant header-forwarding SSO bridge, deleted unused in the top-10 code-review pass (see GROFLO_REBRAND_SPRINT.md Phase 3 "Current state").
 - **Postgres integration test tier** (testcontainers recommended, or a CI Postgres service): run the disaster-rule mutation paths against real Postgres with concurrent connections — `handleSwapAction` atomic UPDATE + its TOCTOU guard cannot exhibit their race on today's single-connection SQLite. *(MUTATION)*
 - SMS double-send negative test on each of the 4 send sites — `handlers_digest.go:120`, `handlers_social.go:123`, `handlers_webhook.go:412`, `session.go:217`. *(OUTBOUND, damage risk #1)*
 - `handlers_brand_payments.go` TOCTOU: a failing test reproducing the double-credit before any fix. *(MUTATION/MONEY)*

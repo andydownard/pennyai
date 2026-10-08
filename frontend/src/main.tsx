@@ -1,11 +1,13 @@
-import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import RootProviders from './RootProviders'
 
+// RootProviders keeps the StrictMode wrapper and lazily wraps the app in the
+// Rally (Clerk) sign-in provider.
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
+  <RootProviders>
     <App />
-  </React.StrictMode>,
+  </RootProviders>,
 )
 
 // Defer observability init until the browser is idle so it never blocks first

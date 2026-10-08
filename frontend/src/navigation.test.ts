@@ -9,8 +9,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 // Import the mappings directly (they're module-level constants)
 const SCREEN_PATHS: Record<string, string> = {
-  phone: '/login',
-  code: '/verify',
+  login: '/login',
   home: '/',
   about: '/about',
   'settings-share': '/share',
@@ -22,8 +21,7 @@ const SCREEN_PATHS: Record<string, string> = {
 }
 
 const PATH_TO_SCREEN: Record<string, string> = {
-  '/login': 'phone',
-  '/verify': 'code',
+  '/login': 'login',
   '/': 'home',
   '/about': 'about',
   '/share': 'settings-share',
@@ -33,9 +31,9 @@ const PATH_TO_SCREEN: Record<string, string> = {
   '/admin': 'admin',
 }
 
-const ALL_SCREENS = ['phone', 'code', 'home', 'saved', 'settings', 'about', 'invite', 'settings-profile', 'settings-share', 'admin']
+const ALL_SCREENS = ['login', 'home', 'saved', 'settings', 'about', 'invite', 'settings-profile', 'settings-share', 'admin']
 const AUTH_SCREENS = ['home', 'settings', 'about', 'saved', 'settings-profile', 'settings-share', 'admin']
-const PUBLIC_SCREENS = ['phone', 'code']
+const PUBLIC_SCREENS = ['login']
 
 describe('URL ↔ Screen Mapping', () => {
   it('every screen has a path', () => {
@@ -71,9 +69,9 @@ describe('URL ↔ Screen Mapping', () => {
     expect(PATH_TO_SCREEN['/']).toBe('home')
   })
 
-  it('auth screens have distinct paths', () => {
-    expect(SCREEN_PATHS['phone']).toBe('/login')
-    expect(SCREEN_PATHS['code']).toBe('/verify')
+  it('the login screen lives at /login', () => {
+    expect(SCREEN_PATHS['login']).toBe('/login')
+    expect(PATH_TO_SCREEN['/login']).toBe('login')
   })
 
   it('settings sub-pages are nested under /settings/', () => {
@@ -250,20 +248,20 @@ describe('History API Navigation', () => {
     navigateTo('settings')
     navigateTo('settings-profile')
 
-    // Simulate logout — replace current entry with phone
-    navigateTo('phone', true)
+    // Simulate logout — replace current entry with login
+    navigateTo('login', true)
 
-    expect(historyStack[currentIndex].state).toEqual({ screen: 'phone' })
+    expect(historyStack[currentIndex].state).toEqual({ screen: 'login' })
     expect(historyStack[currentIndex].url).toBe('/login')
   })
 
   it('session expiry uses replaceState', () => {
     navigateTo('settings')
 
-    // Simulate session expiry — replace with phone
-    navigateTo('phone', true)
+    // Simulate session expiry — replace with login
+    navigateTo('login', true)
 
-    expect(historyStack[currentIndex].state).toEqual({ screen: 'phone' })
+    expect(historyStack[currentIndex].state).toEqual({ screen: 'login' })
   })
 })
 
@@ -365,13 +363,12 @@ describe('Scroll Position Preservation', () => {
 })
 
 describe('Auth Guard Behavior', () => {
-  it('authenticated screens should not include phone or code', () => {
-    expect(AUTH_SCREENS).not.toContain('phone')
-    expect(AUTH_SCREENS).not.toContain('code')
+  it('authenticated screens should not include login', () => {
+    expect(AUTH_SCREENS).not.toContain('login')
   })
 
-  it('public screens are phone and code only', () => {
-    expect(PUBLIC_SCREENS).toEqual(['phone', 'code'])
+  it('login is the only public screen', () => {
+    expect(PUBLIC_SCREENS).toEqual(['login'])
   })
 
   it('deep link to auth screen when logged out stores redirect', () => {

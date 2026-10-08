@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -23,33 +24,12 @@ import (
 // =============================================================================
 
 type MockTwilioClient struct {
-	mu             sync.Mutex
-	LastSendPhone  string
-	LastCheckPhone string
-	LastCheckCode  string
-	LastSMSTo      string
-	LastSMSBody    string
-	SMSCount       int
+	mu          sync.Mutex
+	LastSMSTo   string
+	LastSMSBody string
+	SMSCount    int
 
-	SendErr       error
-	CheckApproved bool
-	CheckErr      error
-	SMSErr        error
-}
-
-func (m *MockTwilioClient) SendVerification(phone string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.LastSendPhone = phone
-	return m.SendErr
-}
-
-func (m *MockTwilioClient) CheckVerification(phone, code string) (bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.LastCheckPhone = phone
-	m.LastCheckCode = code
-	return m.CheckApproved, m.CheckErr
+	SMSErr error
 }
 
 func (m *MockTwilioClient) SendSMS(from, to, body string) error {
@@ -86,6 +66,11 @@ func (m *MockTwilioClient) GetLastSMS() (string, string) {
 // initTestDB creates all tables using SQLite-compatible DDL. This mirrors
 // schema.go's initDB but uses SQLite types instead of PostgreSQL types.
 func initTestDB(db *sql.DB) error {
+	if postgresTestURL() != "" {
+		// Postgres tier: the database is built from the production schema, so a
+		// re-init means running the production migration again.
+		return initDB(db)
+	}
 	db.Exec("PRAGMA foreign_keys = ON")
 
 	// Users table (pennyai-owned — see schema.go initDB).
@@ -125,16 +110,23 @@ func initTestDB(db *sql.DB) error {
 			daily_digest_enabled INTEGER NOT NULL DEFAULT 0,
 			daily_digest_opted_in_at DATETIME,
 			daily_digest_last_sent DATETIME,
-			merged INTEGER NOT NULL DEFAULT 0
+			merged INTEGER NOT NULL DEFAULT 0,
+			clerk_user_id TEXT
 		)
 	`)
 	if err != nil {
 		return fmt.Errorf("creating users table: %w", err)
 	}
 
+	// Mirrors the partial unique index schema.go creates on Postgres. Without
+	// it the Clerk tests would exercise a schema production does not have.
+	if _, err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_clerk_user_id ON users(clerk_user_id) WHERE clerk_user_id IS NOT NULL"); err != nil {
+		return fmt.Errorf("creating idx_users_clerk_user_id: %w", err)
+	}
+
 	// Sessions table (pennyai-owned — see schema.go initDB).
-	// Session cookies live on .groflo.io only; no cross-domain handoff with
-	// timpager. `role` is read by penny as auth_method for reporting.
+	// Session cookies live on .groflo.io only; no cross-domain handoff.
+	// `role` is read by penny as auth_method for reporting.
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS sessions (
 			token      TEXT PRIMARY KEY,
@@ -285,6 +277,9 @@ func initTestDB(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("creating referrals table: %w", err)
 	}
+	// Mirrors schema.go idx_referrals_unique. Without it the referral
+	// idempotency tests passed against code that double-credits.
+	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_referrals_unique ON referrals(referrer_id, referred_id)")
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS redemptions (
@@ -503,6 +498,9 @@ func initTestDB(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("creating swap_events table: %w", err)
 	}
+	// Mirrors schema.go idx_swap_events_one_accept.
+	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_swap_events_one_accept
+		ON swap_events(user_id, deal_id) WHERE action = 'accepted'`)
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS swap_suppressions (
@@ -668,6 +666,10 @@ func initTestDB(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("creating brand_transactions table: %w", err)
 	}
+	// Mirrors schema.go idx_brand_transactions_stripe_id. Partial, because the
+	// dev/test deposit fallback writes stripe_id = '' for every row.
+	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_brand_transactions_stripe_id
+		ON brand_transactions(stripe_id) WHERE stripe_id IS NOT NULL AND stripe_id <> ''`)
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS bug_reports (
@@ -1319,6 +1321,9 @@ func seedTestPricingTiers(db *sql.DB) {
 // Returns the raw *sql.DB and a *PGDB wrapper.
 func openTestDB(t *testing.T) (*sql.DB, *PGDB) {
 	t.Helper()
+	if adminURL := postgresTestURL(); adminURL != "" {
+		return openPostgresTestDB(t, adminURL)
+	}
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
@@ -1335,6 +1340,40 @@ func openTestDB(t *testing.T) (*sql.DB, *PGDB) {
 }
 
 // =============================================================================
+// CONCURRENCY TEST HELPER
+// =============================================================================
+
+// hammer runs fn concurrently n times and waits for all of them to finish,
+// releasing them as close to simultaneously as a start barrier allows. Use it
+// to exercise TOCTOU windows in money-handling paths.
+//
+// IMPORTANT: the test database is SQLite :memory: with SetMaxOpenConns(1), so
+// individual statements serialise. A check-then-act interleaving is still
+// possible (the check releases the connection before the transaction begins),
+// but whether it happens depends on goroutine scheduling. Every hammer test
+// MUST therefore be paired with a deterministic negative test that pre-seeds
+// the conflicting row and asserts the guard fires, so correctness never
+// depends on scheduler luck.
+func hammer(t *testing.T, n int, fn func(i int)) {
+	t.Helper()
+	var ready, done sync.WaitGroup
+	start := make(chan struct{})
+	ready.Add(n)
+	done.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer done.Done()
+			ready.Done()
+			<-start
+			fn(i)
+		}(i)
+	}
+	ready.Wait()
+	close(start)
+	done.Wait()
+}
+
+// =============================================================================
 // TEST HELPERS
 // =============================================================================
 
@@ -1344,12 +1383,12 @@ func openTestDB(t *testing.T) (*sql.DB, *PGDB) {
 func newTestServer(t *testing.T, mock *MockTwilioClient) *Server {
 	t.Helper() // marks this as a helper so errors show the caller's line number
 
-	rawDB, pgdb := openTestDB(t)
+	_, pgdb := openTestDB(t)
 
 	server := &Server{
-		config:   Config{Port: "8080", AnthropicAPIKey: "test-key", TwilioPhoneNumber: "+10000000000", AdminPhone: "3104861833", FeedbackPhones: []string{"5551234567"}, BcryptCost: 4},
+		config:   Config{Port: "8080", AppBaseURL: "https://groflo.rallytasks.com", AnthropicAPIKey: "test-key", TwilioPhoneNumber: "+10000000000", AdminPhone: "3104861833", FeedbackPhones: []string{"5551234567"}, BcryptCost: 4},
 		db:       pgdb,
-		sessions: NewSessionStore(rawDB),
+		sessions: NewSessionStore(pgdb),
 		twilio:   mock,
 		parseItems: func(apiKey, text string, images []string) ([]ParsedItem, error) {
 			// Default mock parser: returns nothing. Tests can override.
@@ -1426,10 +1465,10 @@ func createListItem(t *testing.T, db *PGDB, userID string, name, department stri
 // newTestSessionStore creates a SessionStore backed by an in-memory SQLite DB.
 func newTestSessionStore(t *testing.T) *SessionStore {
 	t.Helper()
-	rawDB, _ := openTestDB(t)
+	rawDB, pgdb := openTestDB(t)
 	// Create users so FK constraints are satisfied
 	rawDB.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567'), ('user-2', '5552222222')")
-	return NewSessionStore(rawDB)
+	return NewSessionStore(pgdb)
 }
 
 // loginUser creates a user in the DB and returns a session cookie for that user.
@@ -1439,7 +1478,7 @@ func loginUser(t *testing.T, server *Server, phone string) (*http.Cookie, string
 	if err != nil {
 		t.Fatalf("upsertUser: %v", err)
 	}
-	token, err := server.sessions.CreateSession(user.ID, phone, "phone")
+	token, err := server.sessions.CreateSession(user.ID, phone, "test")
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -1644,12 +1683,13 @@ func setupEarningsTestData(t *testing.T, server *Server) (*http.Cookie, string, 
 	return cookie, userID, dealID, rebateID
 }
 
-// newMockGoogleTokenServer creates a mock Google tokeninfo endpoint that returns
-// the provided tokenInfo JSON for any request.
-func newMockGoogleTokenServer(t *testing.T, tokenInfoJSON map[string]string) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(tokenInfoJSON)
-	}))
+// captureLog redirects the standard logger to a buffer for the duration of fn
+// and returns everything written.
+func captureLog(fn func()) string {
+	var buf bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(prev)
+	fn()
+	return buf.String()
 }

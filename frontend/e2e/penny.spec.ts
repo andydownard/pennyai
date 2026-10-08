@@ -41,12 +41,12 @@ test.describe('Penny chat input', () => {
   })
 
   test('chat textarea is visible on home screen', async ({ page }) => {
-    const textarea = page.locator('textarea[placeholder*="Tell Penny"]')
+    const textarea = page.getByRole('textbox', { name: 'Add items or tell Penny anything' })
     await expect(textarea).toBeVisible()
   })
 
   test('chat textarea accepts text input', async ({ page }) => {
-    const textarea = page.locator('textarea[placeholder*="Tell Penny"]')
+    const textarea = page.getByRole('textbox', { name: 'Add items or tell Penny anything' })
     await textarea.fill('bananas and milk')
     await expect(textarea).toHaveValue('bananas and milk')
   })

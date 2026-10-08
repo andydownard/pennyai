@@ -17,7 +17,10 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 	resp := ParseResponse{Items: []ListItem{}, Skipped: []SkippedItem{}}
 
 	if req.Text == "accept_swap" {
-		// 1-swap-per-user-per-campaign: prevent accepting the same deal more than once (B14)
+		// 1-swap-per-user-per-campaign (B14). Fast path only: the authoritative
+		// guard is the unique-index claim that is the first mutation inside the
+		// transaction below. This check alone raced, because it ran before
+		// tx.Begin — two concurrent accepts both passed it and both got paid.
 		var priorAccepts int
 		s.db.QueryRow(
 			"SELECT COUNT(*) FROM swap_events WHERE user_id = ? AND deal_id = ? AND action = 'accepted'",
@@ -56,6 +59,37 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 			return
 		}
 
+		// Claim the one accept this user gets for this campaign. This is the
+		// FIRST mutation in the transaction, and ON CONFLICT DO NOTHING against
+		// idx_swap_events_one_accept makes storage pick the winner. A loser
+		// affects zero rows, gets a 409, and the deferred Rollback undoes
+		// nothing — no budget debit, no rebate, no credit.
+		whyTappedInt := 0
+		if req.WhyTapped {
+			whyTappedInt = 1
+		}
+		result, err := tx.Exec(`INSERT INTO swap_events (user_id, deal_id, item_id, action, time_to_action_ms, why_tapped)
+			VALUES (?, ?, ?, 'accepted', ?, ?) ON CONFLICT DO NOTHING`,
+			session.UserID, req.SwapDealID, req.SwapItemID, req.TimeToActionMs, whyTappedInt)
+		if err != nil {
+			log.Printf("[swaps] failed to insert swap event: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+			return
+		}
+		// RowsAffected must be read before LastInsertId: on a skipped insert the
+		// driver's LastInsertId is stale, not zero.
+		claimed, err := result.RowsAffected()
+		if err != nil {
+			log.Printf("[swaps] failed to read swap event insert result: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+			return
+		}
+		if claimed != 1 {
+			writeConflict(w, "Swap already accepted")
+			return
+		}
+		swapEventID, _ := result.LastInsertId()
+
 		// For fully_free deals: NO budget deduction on accept — debit happens on receipt verification
 		isFullyFree := dealType == "fully_free"
 		if !isFullyFree {
@@ -79,6 +113,8 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 				if _, err := tx.Exec("UPDATE brand_deals SET budget_spent_cents = budget_spent_cents + ? WHERE id = ?",
 					discountCents, req.SwapDealID); err != nil {
 					log.Printf("[swaps] failed to update deal %d budget: %v", req.SwapDealID, err)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+					return // deferred tx.Rollback() discards every write above
 				}
 			}
 		}
@@ -98,6 +134,8 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 				)
 				if err != nil {
 					log.Printf("[swaps] bogo accept update error: %v", err)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+					return // deferred tx.Rollback() discards every write above
 				}
 			case "trial":
 				trialResult, trialErr := tx.Exec(
@@ -106,6 +144,8 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 				)
 				if trialErr != nil {
 					log.Printf("[swaps] trial accept insert error: %v", trialErr)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+					return // deferred tx.Rollback() discards every write above
 				}
 				_ = trialResult
 			case "fully_free":
@@ -116,6 +156,8 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 				)
 				if freeErr != nil {
 					log.Printf("[swaps] fully_free accept insert error: %v", freeErr)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+					return // deferred tx.Rollback() discards every write above
 				}
 				_ = freeResult
 			default:
@@ -126,6 +168,8 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 				)
 				if err != nil {
 					log.Printf("[swaps] accept update error: %v", err)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+					return // deferred tx.Rollback() discards every write above
 				}
 			}
 
@@ -137,23 +181,14 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 					savingsArgs...,
 				); err != nil {
 					log.Printf("[swaps] failed to set swap_savings_cents on item %d: %v", req.SwapItemID, err)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+					return // deferred tx.Rollback() discards every write above
 				}
 			}
 		}
 
-		// Log accepted event
-		whyTappedInt := 0
-		if req.WhyTapped {
-			whyTappedInt = 1
-		}
-		result, err := tx.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, time_to_action_ms, why_tapped) VALUES (?, ?, ?, 'accepted', ?, ?)",
-			session.UserID, req.SwapDealID, req.SwapItemID, req.TimeToActionMs, whyTappedInt)
-		if err != nil {
-			log.Printf("[swaps] failed to insert swap event: %v", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
-			return
-		}
-		swapEventID, _ := result.LastInsertId()
+		// The accepted swap_events row was already claimed at the top of this
+		// transaction; swapEventID comes from there.
 
 		// Insert rebate ledger entry — fully_free uses 'pending_purchase' status (budget debit deferred to verification)
 		rebateStatus := "pending"
@@ -167,6 +202,8 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 			session.UserID, swapEventID, req.SwapDealID, rebateAmount, rebateStatus,
 		); err != nil {
 			log.Printf("[swaps] failed to insert rebate: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+			return // deferred tx.Rollback() discards every write above
 		}
 
 		// Update user counters — for fully_free, don't credit until verified
@@ -174,11 +211,15 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 			if _, err := tx.Exec("UPDATE users SET deal_accept_count = deal_accept_count + 1 WHERE id = ?",
 				session.UserID); err != nil {
 				log.Printf("[swaps] failed to update user accept count for user %s: %v", session.UserID, err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+				return // deferred tx.Rollback() discards every write above
 			}
 		} else {
 			if _, err := tx.Exec("UPDATE users SET deal_accept_count = deal_accept_count + 1, swap_credits_cents = swap_credits_cents + ? WHERE id = ?",
 				discountCents, session.UserID); err != nil {
 				log.Printf("[swaps] failed to update user credits for user %s: %v", session.UserID, err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+				return // deferred tx.Rollback() discards every write above
 			}
 		}
 
@@ -189,6 +230,8 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 			if budgetTotal > 0 && newBudgetSpent >= budgetTotal {
 				if _, err := tx.Exec("UPDATE brand_deals SET status = 'paused' WHERE id = ?", req.SwapDealID); err != nil {
 					log.Printf("[swaps] failed to auto-pause deal %d: %v", req.SwapDealID, err)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to process swap"})
+					return // deferred tx.Rollback() discards every write above
 				}
 				log.Printf("[swaps] deal %d auto-paused: budget exhausted", req.SwapDealID)
 			}
@@ -235,7 +278,7 @@ func (s *Server) handleSwapAction(w http.ResponseWriter, req ParseAndAddRequest,
 		s.db.Exec("INSERT INTO swap_events (user_id, deal_id, item_id, action, decline_reason, time_to_action_ms, why_tapped) VALUES (?, ?, ?, 'declined', ?, ?, ?)",
 			session.UserID, req.SwapDealID, req.SwapItemID, req.DeclineReason, req.TimeToActionMs, declineWhyTapped)
 		s.db.Exec(`INSERT INTO swap_suppressions (user_id, deal_id, decline_count) VALUES (?, ?, 1)
-			ON CONFLICT(user_id, deal_id) DO UPDATE SET decline_count = decline_count + 1`,
+			ON CONFLICT(user_id, deal_id) DO UPDATE SET decline_count = swap_suppressions.decline_count + 1`,
 			session.UserID, req.SwapDealID)
 
 		go s.recordSignal(session.UserID, "swap_declined", "", req.DeclineReason, map[string]interface{}{

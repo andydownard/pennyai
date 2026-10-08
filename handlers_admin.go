@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,29 +11,69 @@ import (
 )
 
 func (s *Server) requireSession(w http.ResponseWriter, r *http.Request) (Session, bool) {
-	cookie, err := r.Cookie("session")
-	if err != nil {
-		log.Printf("[auth] no session cookie on %s %s: %v", r.Method, r.URL.Path, err)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not logged in"})
-		return Session{}, false
-	}
-	session, ok := s.sessions.GetSession(cookie.Value)
-	if !ok {
+	// Cookie path first — a usable cookie always wins and costs nothing extra.
+	staleCookie := false
+	if cookie, err := r.Cookie("session"); err == nil {
+		if session, ok := s.sessions.GetSession(cookie.Value); ok {
+			return session, true
+		}
 		log.Printf("[auth] invalid/expired session on %s %s", r.Method, r.URL.Path)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Session expired"})
+		staleCookie = true
+	} else {
+		log.Printf("[auth] no session cookie on %s %s: %v", r.Method, r.URL.Path, err)
+	}
+
+	// No usable cookie: try an Authorization: Bearer Clerk session JWT. With
+	// CLERK_ENABLED unset this is one env read and nothing else, so the dark
+	// build is identical to today's.
+	clerkSession, err := VerifyClerkRequest(r, s.resolveClerkSession)
+	if err != nil {
+		dbError(w, err, "Failed to verify sign-in")
 		return Session{}, false
 	}
-	return session, true
+	if clerkSession != nil {
+		return *clerkSession, true
+	}
+
+	// Same two messages, same conditions, as before this change.
+	msg := "Not logged in"
+	if staleCookie {
+		msg = "Session expired"
+	}
+	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": msg})
+	return Session{}, false
 }
 
-// requireAdmin checks for a valid session and that the phone is the admin phone.
+// isAdmin reports whether the session belongs to an owner. Server-side only:
+// either the session phone is ADMIN_PHONE, or the user's Clerk id is in the
+// ADMIN_CLERK_USER_IDS allowlist (so an owner without a phone can be admin).
+func (s *Server) isAdmin(session Session) bool {
+	if s.config.AdminPhone != "" && session.PhoneNumber != "" && session.PhoneNumber == s.config.AdminPhone {
+		return true
+	}
+	if len(s.config.AdminClerkUserIDs) == 0 || session.UserID == "" {
+		return false
+	}
+	var clerkID sql.NullString
+	if err := s.db.QueryRow("SELECT clerk_user_id FROM users WHERE id = ?", session.UserID).Scan(&clerkID); err != nil || !clerkID.Valid || clerkID.String == "" {
+		return false
+	}
+	for _, id := range s.config.AdminClerkUserIDs {
+		if id == clerkID.String {
+			return true
+		}
+	}
+	return false
+}
+
+// requireAdmin checks for a valid session that isAdmin accepts.
 // Returns the session and true if authorized, or writes an error and returns false.
 func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) (Session, bool) {
 	session, ok := s.requireSession(w, r)
 	if !ok {
 		return Session{}, false
 	}
-	if s.config.AdminPhone == "" || session.PhoneNumber != s.config.AdminPhone {
+	if !s.isAdmin(session) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden"})
 		return Session{}, false
 	}
@@ -391,13 +432,13 @@ func (s *Server) handleAdminDeals(w http.ResponseWriter, r *http.Request) {
 			                         offer_unit_price, competitor_unit_price,
 			                         unit_label, why_bullets, allergen_notes,
 			                         deal_type, quantity_offered, trial_product_name, trial_size, campaign_tag)
-			VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			deal.CompetitorProduct, deal.OfferBrand, deal.OfferProduct, deal.DiscountCents,
-			deal.TotalBudgetCents, deal.Status, deal.EndsAt,
+			deal.TotalBudgetCents, deal.Status, nullIfEmpty(deal.EndsAt),
 			deal.OfferPriceCents, deal.CompetitorPriceCents,
 			deal.OfferSize, deal.CompetitorSize,
 			deal.OfferUnitPrice, deal.CompetitorUnitPrice,
-			deal.UnitLabel, deal.WhyBullets, deal.AllergenNotes,
+			deal.UnitLabel, jsonArrayText(deal.WhyBullets), deal.AllergenNotes,
 			deal.DealType, deal.QuantityOffered, deal.TrialProductName, deal.TrialSize, deal.CampaignTag,
 		)
 		if err != nil {
@@ -420,7 +461,7 @@ func (s *Server) handleAdminDeals(w http.ResponseWriter, r *http.Request) {
 		}
 		_, err := s.db.Exec(`
 			UPDATE brand_deals SET competitor_product = ?, offer_brand = ?, offer_product = ?,
-			       discount_cents = ?, total_budget_cents = ?, status = ?, ends_at = NULLIF(?, ''),
+			       discount_cents = ?, total_budget_cents = ?, status = ?, ends_at = ?,
 			       offer_price_cents = ?, competitor_price_cents = ?,
 			       offer_size = ?, competitor_size = ?,
 			       offer_unit_price = ?, competitor_unit_price = ?,
@@ -428,11 +469,11 @@ func (s *Server) handleAdminDeals(w http.ResponseWriter, r *http.Request) {
 			       deal_type = ?, quantity_offered = ?, trial_product_name = ?, trial_size = ?, campaign_tag = ?
 			WHERE id = ?`,
 			deal.CompetitorProduct, deal.OfferBrand, deal.OfferProduct,
-			deal.DiscountCents, deal.TotalBudgetCents, deal.Status, deal.EndsAt,
+			deal.DiscountCents, deal.TotalBudgetCents, deal.Status, nullIfEmpty(deal.EndsAt),
 			deal.OfferPriceCents, deal.CompetitorPriceCents,
 			deal.OfferSize, deal.CompetitorSize,
 			deal.OfferUnitPrice, deal.CompetitorUnitPrice,
-			deal.UnitLabel, deal.WhyBullets, deal.AllergenNotes,
+			deal.UnitLabel, jsonArrayText(deal.WhyBullets), deal.AllergenNotes,
 			deal.DealType, deal.QuantityOffered, deal.TrialProductName, deal.TrialSize, deal.CampaignTag,
 			deal.ID,
 		)

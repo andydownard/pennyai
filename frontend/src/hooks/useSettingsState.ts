@@ -70,12 +70,10 @@ export function useSettingsState(options: UseSettingsStateOptions) {
   const settingsFirstNameRef = useRef(settingsFirstName)
   const settingsLastNameRef = useRef(settingsLastName)
   const settingsEmailRef = useRef(settingsEmail)
-  const settingsPhoneRef = useRef(settingsUserPhone)
   const settingsAddressRef = useRef(settingsAddress)
   settingsFirstNameRef.current = settingsFirstName
   settingsLastNameRef.current = settingsLastName
   settingsEmailRef.current = settingsEmail
-  settingsPhoneRef.current = settingsUserPhone
   settingsAddressRef.current = settingsAddress
   const settingsSaving = useRef(false)
   const settingsQueued = useRef(false)
@@ -144,7 +142,7 @@ export function useSettingsState(options: UseSettingsStateOptions) {
       await fetchAPI('/api/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: [settingsFirstNameRef.current.trim(), settingsLastNameRef.current.trim()].filter(Boolean).join(' '), email: settingsEmailRef.current.trim(), phone: settingsPhoneRef.current.trim() || undefined, address: settingsAddressRef.current.trim() }),
+        body: JSON.stringify({ name: [settingsFirstNameRef.current.trim(), settingsLastNameRef.current.trim()].filter(Boolean).join(' '), email: settingsEmailRef.current.trim(), address: settingsAddressRef.current.trim() }),
       })
     } catch { showToastRef.current('Something went wrong. Try again.', 'error') }
     settingsSaving.current = false

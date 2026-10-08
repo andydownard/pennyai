@@ -52,7 +52,7 @@ func (s *Server) handleNPSCheck(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[nps] error checking dismiss timestamp for user %s: %v", session.UserID, err)
 	}
 	if dismissedAt != "" {
-		dismissTime, err := time.Parse("2006-01-02 15:04:05", dismissedAt)
+		dismissTime, err := parseDBTime(dismissedAt)
 		if err == nil && time.Since(dismissTime).Hours() < float64(s.config.NPSIntervalDays*24) {
 			writeJSON(w, http.StatusOK, map[string]bool{"show_nps": false})
 			return
