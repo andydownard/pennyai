@@ -153,6 +153,8 @@ POSTHOG_API_KEY=
 
 Frontend build values (`VITE_CLERK_PUBLISHABLE_KEY`, `VITE_CLERK_SIGN_IN_URL`, `VITE_CLERK_DOMAIN`, `VITE_ALLOWED_REDIRECT_ORIGINS`, `VITE_APP_URL`, `VITE_BRAND_PORTAL_URL`, `VITE_POSTHOG_KEY`) are Docker build args: Railway passes a service variable to the build only when the Dockerfile declares it as an `ARG`. `VITE_CLERK_DOMAIN` switches the frontend to satellite mode; leave it unset for first-party Clerk.
 
+`VITE_CLERK_SIGN_IN_URL` must be Clerk's Account Portal for the Rally instance, `https://accounts.rallytasks.com/sign-in`. Do not point it at `www.rallytasks.com/sign-in`: that was the retired Timpager app and returns Railway's "Not Found". Changing any `VITE_*` value requires a rebuild, which Railway does when the variable is set.
+
 `TEST_MODE=true` must never be set on Railway; the server refuses to boot with it there.
 
 ---
