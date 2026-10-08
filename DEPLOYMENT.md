@@ -129,14 +129,12 @@ CLERK_JWT_ISSUER=
 CLERK_AUTHORIZED_PARTIES=
 CLERK_FRONTEND_API_ORIGIN=
 
-# Admin (either grants admin)
-ADMIN_PHONE=
+# Admin (Clerk user ids only)
 ADMIN_CLERK_USER_IDS=
 
-# Twilio (SMS only; optional, SMS is off when missing)
-TWILIO_ACCOUNT_SID=
-TWILIO_AUTH_TOKEN=
-TWILIO_PHONE_NUMBER=
+# Inbound email webhook: the ?secret= on the SendGrid Inbound Parse URL.
+# Required whenever WEBHOOK_BASE_URL is set.
+EMAIL_WEBHOOK_SECRET=
 
 # AI
 ANTHROPIC_API_KEY=

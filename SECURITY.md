@@ -8,9 +8,7 @@ All secrets in environment variables. No exceptions. No `.env` committed.
 |--------|---------|
 | Postgres connection | `DATABASE_URL` |
 | Claude API | `ANTHROPIC_API_KEY` |
-| Twilio SID + token (optional; SMS is off without them) | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` |
-| Twilio phone number | `TWILIO_PHONE_NUMBER` |
-| Twilio messaging service | `TWILIO_MESSAGING_SERVICE_SID` |
+| Inbound email webhook secret | `EMAIL_WEBHOOK_SECRET` |
 | Stripe secret key + webhook | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
 | SendGrid API key | `SENDGRID_API_KEY` |
 | Litestream credentials | `LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY` |
@@ -52,7 +50,7 @@ lists := db.QueryContext(ctx,
 
 ## Authentication
 
-Sign-in is **Rally sign-in through Clerk** ("Continue with Rally") and nothing else. Owner decision 2026-10-03: phone code (Twilio Verify), Google OAuth, email + password, magic link, password reset and the auth-link endpoint were removed. Their ten endpoints (`retiredAuthPaths` in `server.go`) answer **410**. Do not reintroduce a legacy sign-in method, or any Timpager integration, without Andy. The brand portal's own email + password login (`handlers_brand_auth.go`, `brand_users` and `brand_sessions`) is separate and unchanged.
+Sign-in is **Rally sign-in through Clerk** ("Continue with Rally") and nothing else. Owner decision 2026-10-03: phone code, Google OAuth, email + password, magic link, password reset and the auth-link endpoint were removed. Their ten endpoints (`retiredAuthPaths` in `server.go`) answer **410**. Do not reintroduce a legacy sign-in method, or any Timpager integration, without Andy. The brand portal's own email + password login (`handlers_brand_auth.go`, `brand_users` and `brand_sessions`) is separate and unchanged.
 
 ### Rally Sign-in (Clerk)
 
@@ -64,16 +62,16 @@ Clerk sign-in is on only when `CLERK_ENABLED=1`; otherwise `POST /auth/clerk/exc
 - **azp allowlist is mandatory.** `CLERK_AUTHORIZED_PARTIES` must be non-empty or verification is refused outright; a token with no `azp` is always rejected.
 - **Identity is local.** The verified token is the whole identity: `users.clerk_user_id` is the join key and pennyai mints its own `users.id`. No other service is called.
 - **No account takeover.** A `users` row already bound to one `clerk_user_id` is never rebound to another: the bind is an atomic conditional `UPDATE … WHERE clerk_user_id IS NULL`, and losing that race returns **409**, mints no session, and writes nothing. A partial unique index (`idx_users_clerk_user_id`) is the database-level backstop.
-- **Mapping order** (`upsertClerkUser`): `clerk_user_id` match (repeat sign-in); else the token's **verified** phone on a row with no Clerk identity yet (a household member who first reached Penny by text); else a new row. **Email is never a matching signal.**
-- **Phone numbers.** A phone is stored only when the token carries `phone` AND `phone_verified` is true; `users.phone` routes inbound texts to a household's list, so an unverified number must never land there. This needs the Clerk instance to emit the custom session-token claims `email`, `phone`, `phone_verified` and `name`. `PATCH /api/settings` does not accept `phone`.
-- **Admin.** A session is admin when its phone equals `ADMIN_PHONE`, or its user's Clerk id is in `ADMIN_CLERK_USER_IDS`. Decided server-side (`isAdmin`).
+- **Mapping order** (`upsertClerkUser`): `clerk_user_id` match (repeat sign-in); else a new row. **Email and phone are never matching signals.**
+- **No phone numbers (owner decision 2026-10-07).** Groflo never uses Twilio or phone numbers. A phone claim in a Clerk token is ignored: nothing is stored, nothing is matched. `PATCH /api/settings` does not accept `phone`. `/api/sms`, `/api/me/sms-consent` and `/api/penny.vcf` answer 410. The `users.phone` and `sms_consent_*` columns remain but are never read or written.
+- **Admin.** A session is admin only when its user's Clerk id is in `ADMIN_CLERK_USER_IDS`. Decided server-side (`isAdmin`). Only admins can submit feedback.
 - **Session** is the ordinary pennyai session: 256-bit token, HttpOnly cookie, SameSite=Lax, 30-day expiry. Nothing about session handling is special-cased for Clerk.
-- **Test login.** `TEST_MODE=true` enables `POST /auth/test-login` (mints a session without credentials) and swaps in an SMS client that only logs. The server refuses to boot with `TEST_MODE=true` on Railway.
-- **Logging.** Never a token, an email, or a phone.
+- **Test login.** `TEST_MODE=true` enables `POST /auth/test-login` (mints a session without credentials; any phone in the body is ignored). The server refuses to boot with `TEST_MODE=true` on Railway.
+- **Logging.** Never a token or an email.
 
 **Session Management:**
 - 256-bit random session tokens (32 bytes from `crypto/rand`, hex-encoded).
-- Stored in the `sessions` table (`token` column, with `user_id`, `phone`, `created_at`, `last_used`, `expires_at`). The token is not hashed at rest.
+- Stored in the `sessions` table (`token` column, with `user_id`, a legacy `phone` column that is always empty, `created_at`, `last_used`, `expires_at`). The token is not hashed at rest.
 - HttpOnly cookies. SameSite=Lax. Secure on Railway.
 - Sessions expire 30 days after creation; `last_used` is updated on use.
 - Session is per app, per device — user must sign into each separately.
@@ -82,21 +80,18 @@ Clerk sign-in is on only when `CLERK_ENABLED=1`; otherwise `POST /auth/clerk/exc
 
 ## Notification Deduplication
 
-Duplicate SMS or email is a trust-destroying event. Every outbound path MUST be idempotent.
+Duplicate email is a trust-destroying event. Every outbound path MUST be idempotent.
 
-**SMS/Email Sending Rules:**
-1. Every Twilio SMS call MUST include an idempotency key: `sent_sms_key = hash(user_id + event_type + date)`. Store the hash in `sent_notifications` table. Check before sending.
+**Email Sending Rules:**
+1. Every outbound send MUST be guarded by an "already sent" flag or idempotency key. Check before sending.
 2. Every SendGrid email call MUST include `X-SMTPAPI` header with Message-ID: `MessageID: "email_{user_id}_{event_type}_{timestamp}"`.
 3. Test the negative path: after sending, calling the same handler again MUST not trigger another send.
-4. Rate limits on outbound: max 5 SMS per user per hour, max 10 emails per user per day, max 1 notification per type per user per hour.
+4. Rate limits on outbound: max 10 emails per user per day, max 1 notification per type per user per hour.
 
 **Notification Types:**
-- Household invite accepted → SMS to all household members (dedup: one per invite per day)
 - Brand deal available → Email to all household members (dedup: one per deal per household per day)
-- Item marked bought → SMS to list creator (if they have SMS enabled)
-- Nudge: "did you get milk?" → SMS to household (dedup: once per list per day)
 
-**Adversarial test required:** `test/adversarial/no-duplicate-sms.test.js` and `test/adversarial/no-duplicate-email.test.js` call a handler twice with identical input and assert only one SMS/email sent.
+**Adversarial test required:** `test/adversarial/no-duplicate-email.test.js` calls a handler twice with identical input and asserts only one email sent.
 
 ---
 
@@ -143,7 +138,6 @@ User input reaches Claude in shopping list items, household notes, and feedback.
 |----------|-------|-------|
 | Rally sign-in exchange | 20 per 10 minutes | per IP |
 | Household invite | 10 per day | per user |
-| Notification (SMS) | 5 per hour | per user |
 | Notification (email) | 10 per day | per user |
 | API requests (authenticated) | 600 per minute | per session |
 
@@ -163,13 +157,13 @@ Any evidence that User A accessed User B's household data.
 4. Audit `audit_log` and Postgres query logs for anomalous access.
 5. Notify affected users within 4 hours with specific details.
 
-### P0: Duplicate SMS Blast
-An outbound SMS handler fired multiple times, sending duplicate messages to many users.
+### P0: Duplicate Email Blast
+An outbound email handler fired multiple times, sending duplicate messages to many users.
 
 **Response:**
 1. Disable the handler immediately.
 2. Audit the code path: where is the idempotency guard missing?
-3. Count affected users and send a one-time apology SMS.
+3. Count affected users and send a one-time apology email.
 4. Fix the root cause: add or restore idempotency guard.
 5. Test the negative path before re-enabling.
 
@@ -190,15 +184,6 @@ SendGrid domain reputation degraded (bounce > 5%, complaint > 0.1%).
 2. Audit recent sends: inactive addresses, list corruption?
 3. Investigate bounce patterns in SendGrid dashboard.
 4. Fix, test with small batch, resume.
-
-### P1: Phone Auth Flood
-Attacker sending verify codes to a legitimate user's phone to discover if they have an account.
-
-**Response:**
-1. User reports receiving unexpected SMS codes.
-2. Audit recent verify attempts: one attacker IP?
-3. If one IP: block at rate limiter and notify user.
-4. Advise user to use strong password on account.
 
 ---
 

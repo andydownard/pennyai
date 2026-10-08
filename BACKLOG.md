@@ -80,6 +80,7 @@ Raw follow-ups from the go-live review. Not yet triaged into P0-P3.
 
 | # | What | When |
 |---|------|------|
+| — | Texting and phone numbers removed (Twilio, SMS webhook, invite texts, digest, consent, vCard; `/api/sms`, `/api/me/sms-consent`, `/api/penny.vcf` answer 410; admin and feedback by Clerk id only) | 2026-10-07 |
 | — | PostgreSQL migration (SQLite → Postgres, shared timpager users table) | 2026-04-13 |
 | — | Multi-provider AI (Anthropic → Gemini → OpenAI fallback, model tiering) | 2026-04-13 |
 | — | Monorepo consolidation (thrift.ly → marketing/) | 2026-04-13 |
