@@ -9,31 +9,10 @@ import React, { useState, useRef, useEffect, useCallback, Suspense, lazy, useSyn
 import { clerkResolving, subscribeClerkResolving } from './auth/clerkToken'
 import { referralLink } from './appUrl'
 
-// One-shot migration: copy any legacy `thriftly_*` keys to `groflo_*` so
-// existing users keep their dismissed prompts, redirect intents, and join
-// codes after the rebrand. Runs once at module load. Idempotent (a second run
-// finds the new keys already present and removes the legacy ones).
-;(function migrateLegacyGrofloStorage() {
-  if (typeof window === 'undefined') return
-  try {
-    const stores: Storage[] = [window.localStorage, window.sessionStorage]
-    for (const store of stores) {
-      const legacyKeys: string[] = []
-      for (let i = 0; i < store.length; i++) {
-        const k = store.key(i)
-        if (k && k.startsWith('groflo_')) legacyKeys.push(k)
-      }
-      for (const legacyKey of legacyKeys) {
-        const newKey = 'groflo_' + legacyKey.slice('groflo_'.length)
-        const val = store.getItem(legacyKey)
-        if (val !== null && store.getItem(newKey) === null) {
-          store.setItem(newKey, val)
-        }
-        store.removeItem(legacyKey)
-      }
-    }
-  } catch { /* private browsing or storage disabled — ignore */ }
-})()
+import { migrateLegacyStorage } from './storageMigration'
+
+// Rename any legacy thriftly_ storage keys at load (see storageMigration.ts).
+migrateLegacyStorage()
 
 import { QRCodeCanvas } from 'qrcode.react'
 import { fetchAPI, fetchAction, setSessionExpiredHandler } from './api'
