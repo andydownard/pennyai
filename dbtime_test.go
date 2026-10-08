@@ -8,7 +8,7 @@ import (
 func TestParseDBTime_AcceptsEveryShapeTheDatabaseReturns(t *testing.T) {
 	want := time.Date(2026, 10, 3, 21, 48, 44, 0, time.UTC)
 	for _, in := range []string{
-		"2026-10-03 21:48:44",           // SQLite
+		"2026-10-03 21:48:44",           // plain datetime
 		"2026-10-03T21:48:44Z",          // TIMESTAMPTZ scanned to string
 		"2026-10-03T21:48:44.000000Z",   // with fractional seconds
 		"2026-10-03 21:48:44+00",        // TIMESTAMPTZ::TEXT
@@ -59,7 +59,7 @@ func TestConvertSQL_CoalesceWithEmptyStringCastsToText(t *testing.T) {
 func TestConvertSQL_DateFunction(t *testing.T) {
 	const utcNow = "(NOW() AT TIME ZONE 'UTC')"
 	cases := map[string]string{
-		// One argument: SQLite returns 'YYYY-MM-DD' text in UTC.
+		// One argument: yields 'YYYY-MM-DD' text in UTC.
 		"SELECT date(created_at) FROM t":                "SELECT TO_CHAR((created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD') FROM t",
 		"SELECT 1 FROM t WHERE DATE(bt.created_at) = ?": "SELECT 1 FROM t WHERE TO_CHAR((bt.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD') = $1",
 		"SELECT date('now')":                            "SELECT TO_CHAR(" + utcNow + ", 'YYYY-MM-DD')",

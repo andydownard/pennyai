@@ -1080,7 +1080,7 @@ func TestNewTests_AdminDeals_PostWithEndsAt(t *testing.T) {
 	// Verify ends_at was stored
 	var endsAt string
 	server.db.QueryRow("SELECT COALESCE(ends_at,'') FROM brand_deals WHERE id = ?", deal.ID).Scan(&endsAt)
-	// SQLite keeps the literal; Postgres returns a timestamptz at midnight in
+	// Postgres returns a timestamptz at midnight in
 	// the session zone. Either way the calendar date must be preserved.
 	gotDate := endsAt
 	if parsed, err := parseDBTime(endsAt); err == nil {

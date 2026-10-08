@@ -8,7 +8,7 @@ Groflo is an AI-powered grocery shopping list app with personality-driven assist
 
 **URLs:** `https://groflo.rallytasks.com` (consumer app; same apex as Rally's Clerk at `clerk.rallytasks.com`, so Clerk runs first-party; the frontend falls back to satellite mode only if `VITE_CLERK_DOMAIN` is set). `app.groflo.io`, `brands.groflo.io`, `penny.rallytasks.com` and `groflo.io` are currently not attached to any service, so the brand portal and the marketing site have no host.
 
-**Database:** PostgreSQL owned by pennyai (Railway project `rally`, service `pennyai`; the database is fresh, the old `groflo` service and its data no longer exist). Identity is the Clerk user id in `users.clerk_user_id`; pennyai mints its own `users.id` (a TEXT UUID). All penny-specific tables (list_items, brand_deals, etc.) FK to local `users(id)`. SQL compatibility wrapper (`pgcompat.go`) auto-converts legacy SQLite syntax at runtime.
+**Database:** PostgreSQL owned by pennyai (Railway project `rally`, service `pennyai`; the database is fresh, the old `groflo` service and its data no longer exist). Identity is the Clerk user id in `users.clerk_user_id`; pennyai mints its own `users.id` (a TEXT UUID). All penny-specific tables (list_items, brand_deals, etc.) FK to local `users(id)`. SQL compatibility wrapper (`pgcompat.go`) auto-converts legacy SQLite-dialect SQL at runtime.
 
 **Brand history:** Rebranded from "Thriftly" to "Groflo" on 2026-04-07 (sprint plan: `GROFLO_REBRAND_SPRINT.md`). Migrated from SQLite to PostgreSQL on 2026-04-13.
 
@@ -60,7 +60,7 @@ Groflo is an AI-powered grocery shopping list app with personality-driven assist
 
 **Security.** All secrets in env vars. 256-bit session tokens. HttpOnly cookies. 30-day session expiry. Sign-in is Clerk only ("Continue with Rally"). Owner decision 2026-10-03: phone code, Google, email/password, magic link, password reset and the auth-link endpoint are removed and their ten endpoints answer 410 (`retiredAuthPaths` in `server.go`). NEVER reintroduce a legacy sign-in method or any Timpager integration without Andy. NEVER weaken the Clerk checks. The backend verifies the Clerk session JWT against the issuer's public JWKS (RS256 only, exact issuer, `azp` allowlist, Bearer only, never reads the `__session` cookie), then `POST /auth/clerk/exchange` mints pennyai's own session cookie. `users.clerk_user_id` is the join key. pennyai REFUSES TO BOOT if `CLERK_SECRET_KEY` or `CLERK_WEBHOOK_SIGNING_SECRET` is set. Owner decision 2026-10-07: Groflo never uses Twilio or phone numbers. No phone is stored or matched (Clerk phone claims are ignored), `PATCH /api/settings` does not accept `phone`, and `/api/sms`, `/api/me/sms-consent` and `/api/penny.vcf` answer 410 (`retiredTextingPaths` in `server.go`). NEVER reintroduce texting or phone numbers without Andy. Admin is a user whose Clerk id is in `ADMIN_CLERK_USER_IDS`, and only that; admins are also the only users who can submit feedback. The brand portal keeps its own email/password login (`handlers_brand_auth.go`). Sessions live in pennyai's own DB.
 
-**Database Rules.** PostgreSQL (pennyai-owned). `DATABASE_URL` points at it. NEVER DROP TABLE or recreate tables. ALWAYS CREATE TABLE IF NOT EXISTS. Use ALTER TABLE ADD COLUMN for migrations via `addColumnIfNotExists()` helper. User IDs are TEXT UUIDs minted by pennyai. SQL compatibility wrapper (`pgcompat.go`) converts `?` → `$N`, `datetime('now')` → `NOW()`, SQLite `date()`, etc. at runtime. Know these before touching SQL: `SessionStore` must take the `PGDB` wrapper, not the raw connection; INSERTs get `RETURNING id` only for tables with an integer `id`; `COALESCE(x,'')` is cast to TEXT; timestamps read as strings must be parsed with `parseDBTime` (`dbtime.go`). The `users.phone` and `sms_consent_*` columns remain (additive-only schema) but nothing reads or writes them.
+**Database Rules.** PostgreSQL (pennyai-owned). `DATABASE_URL` points at it. NEVER DROP TABLE or recreate tables. ALWAYS CREATE TABLE IF NOT EXISTS. Use ALTER TABLE ADD COLUMN for migrations via `addColumnIfNotExists()` helper. User IDs are TEXT UUIDs minted by pennyai. SQL compatibility wrapper (`pgcompat.go`) converts `?` → `$N`, `datetime('now')` → `NOW()`, SQLite-style `date()`, etc. at runtime (a dialect only; no SQLite database exists anywhere). Know these before touching SQL: `SessionStore` must take the `PGDB` wrapper, not the raw connection; INSERTs get `RETURNING id` only for tables with an integer `id`; `COALESCE(x,'')` is cast to TEXT; timestamps read as strings must be parsed with `parseDBTime` (`dbtime.go`). The `users.phone` and `sms_consent_*` columns remain (additive-only schema) but nothing reads or writes them.
 
 **Notification & Communication Safety.** Duplicate notifications and inadvertent outbound messages must NEVER happen. NEVER send email or push without dedup (idempotency key or "already sent" flag). NEVER trigger outbound messages as side effect of refactors or migrations. Do NOT rely on React state alone for prompt dismissal (NPS, modals, announcements) — persist in sessionStorage/localStorage or server-side. Do NOT bypass server-side rate limits from client. Before shipping: trace every code path that could trigger outbound message. If you cannot prove no duplication, add a guard.
 
@@ -138,20 +138,19 @@ Owner decisions of 2026-10-03, implemented on `fix/go-live-postgres`:
 - **Sign-in is Clerk only.** Clerk is on only when `CLERK_ENABLED=1` (with `CLERK_JWT_ISSUER` and `CLERK_AUTHORIZED_PARTIES`); the Clerk instance should emit the custom session-token claims `email` and `name` (phone claims are ignored). `TEST_MODE=true` enables `POST /auth/test-login` for Playwright (it ignores any phone and mints a fresh user each call); it is refused on Railway.
 - **No texting (owner decision 2026-10-07).** Twilio, phone numbers, inbound text-to-Penny, invite texts, the daily digest, SMS consent and the Penny contact card are gone. Invites return a join link only. The email webhook `/api/email` stays; set `EMAIL_WEBHOOK_SECRET` and put it on the SendGrid Inbound Parse URL as `?secret=` (it used to reuse `TWILIO_AUTH_TOKEN`). `ADMIN_PHONE` and `FEEDBACK_PHONES` are gone.
 - **Deploy.** Railway project `rally`, service `pennyai`, deploys the `main` branch. `railway.toml` names the Dockerfile builder; the Dockerfile takes `VITE_*` build args.
-- **Testing.** The Go suite runs on SQLite by default; `scripts/test-postgres.sh` (or `TEST_DATABASE_URL=… go test .`) runs it on real PostgreSQL, and CI has a `test-postgres` job. Playwright uses a throwaway local Postgres database.
+- **Testing.** PostgreSQL is the only database, including tests (owner decision 2026-10-07: SQLite removed). `go test -count=1 ./...` clones a per-test database from a template built by the production schema; `TEST_DATABASE_URL` defaults to `postgres://localhost:5432/postgres?sslmode=disable` and the user needs CREATE DATABASE. `scripts/test-postgres.sh` runs the same suite in parallel chunks. CI has one Go job on a `postgres:16` service. Playwright uses a throwaway local Postgres database.
 - **Open decision for Andy:** the `main` → `staging` → `production` promotion described in Git branching above no longer matches Railway, which deploys `main`. Until Andy decides, treat that text as the old policy, not current practice.
 - Marketing site (from thrift.ly) lives in `marketing/`. Go module is still named `thriftly` (rename pending). All UI surfaces show "Groflo" and "Penny". Household coordination narrative (11-Star) is the focus for the current sprint. Follow-ups from the go-live review are listed in [BACKLOG.md](./BACKLOG.md).
 
 ## Pre-Merge Checklist
 
-1. `go test -count=1 ./...` passes with zero failures (SQLite tier)
-2. `scripts/test-postgres.sh` passes with zero failures (PostgreSQL tier; CI job `test-postgres`)
-3. `cd frontend && npx playwright test` passes with zero failures
-4. No secrets committed (check .env, logs, comments)
-5. No breaking API changes or backward-compatibility tests added for shape changes
-6. Database migrations clean on existing databases
-7. All frontend screens render and are navigable
-8. Panel review done (at minimum Customer Panel or Product Team, per trigger rules)
+1. `go test -count=1 ./...` passes with zero failures (runs on PostgreSQL; `scripts/test-postgres.sh` is the same suite chunked)
+2. `cd frontend && npx playwright test` passes with zero failures
+3. No secrets committed (check .env, logs, comments)
+4. No breaking API changes or backward-compatibility tests added for shape changes
+5. Database migrations clean on existing databases
+6. All frontend screens render and are navigable
+7. Panel review done (at minimum Customer Panel or Product Team, per trigger rules)
 
 ## Docs Are Code
 

@@ -1422,7 +1422,7 @@ func TestSavedLists_EdgeCase_VeryLongName(t *testing.T) {
 	longName := strings.Repeat("a", 500)
 	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists",
 		map[string]string{"name": longName}, []*http.Cookie{cookie})
-	// Should succeed — SQLite TEXT has no length limit
+	// Should succeed — TEXT has no length limit
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("POST with long name: got %d, want 201. Body: %s", rr.Code, rr.Body.String())
 	}

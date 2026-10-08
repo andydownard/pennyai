@@ -22,17 +22,11 @@ func TestSwaps_AcceptSwap_MidTransactionFailureRollsBackEverything(t *testing.T)
 	server.db.QueryRow("SELECT id FROM brand_deals WHERE competitor_product = 'skippy'").Scan(&dealID)
 
 	// The credit update is the last write before COMMIT; make it fail.
-	var install, remove []string
-	if postgresTestURL() != "" {
-		install = []string{
-			`CREATE FUNCTION test_block_credit() RETURNS trigger AS $body$ BEGIN RAISE EXCEPTION 'injected failure'; END $body$ LANGUAGE plpgsql`,
-			`CREATE TRIGGER test_block_credit BEFORE UPDATE OF swap_credits_cents ON users FOR EACH ROW EXECUTE FUNCTION test_block_credit()`,
-		}
-		remove = []string{`DROP TRIGGER test_block_credit ON users`}
-	} else {
-		install = []string{`CREATE TRIGGER test_block_credit BEFORE UPDATE OF swap_credits_cents ON users BEGIN SELECT RAISE(ABORT, 'injected failure'); END`}
-		remove = []string{`DROP TRIGGER test_block_credit`}
+	install := []string{
+		`CREATE FUNCTION test_block_credit() RETURNS trigger AS $body$ BEGIN RAISE EXCEPTION 'injected failure'; END $body$ LANGUAGE plpgsql`,
+		`CREATE TRIGGER test_block_credit BEFORE UPDATE OF swap_credits_cents ON users FOR EACH ROW EXECUTE FUNCTION test_block_credit()`,
 	}
+	remove := []string{`DROP TRIGGER test_block_credit ON users`}
 	for _, q := range install {
 		if _, err := server.db.DB.Exec(q); err != nil {
 			t.Fatalf("installing fault: %v", err)

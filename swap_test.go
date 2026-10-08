@@ -567,8 +567,8 @@ func TestRebates_ReturnsHistory(t *testing.T) {
 
 	// Insert swap events and rebates with different statuses. One campaign each:
 	// a user gets a single accept per campaign (idx_swap_events_one_accept).
-	// Deal ids come from the seeded deals (their numbering differs between
-	// SQLite and Postgres), so look them up rather than assuming 1 and 2.
+	// Deal ids come from the seeded deals (their numbering is not
+	// guaranteed), so look them up rather than assuming 1 and 2.
 	var jifDeal, otherDeal int
 	server.db.QueryRow("SELECT id FROM brand_deals WHERE competitor_product = 'skippy'").Scan(&jifDeal)
 	server.db.QueryRow("SELECT id FROM brand_deals WHERE id != ? ORDER BY id LIMIT 1", jifDeal).Scan(&otherDeal)
@@ -600,7 +600,7 @@ func TestRebates_ReturnsHistory(t *testing.T) {
 	}
 
 	// Verify rebate entries have deal info
-	// created_at ties on second-resolution SQLite, so find the Jif entry
+	// created_at ties at second resolution, so find the Jif entry
 	// rather than assuming its position.
 	var first map[string]interface{}
 	for _, r := range rebates {

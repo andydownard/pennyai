@@ -484,15 +484,13 @@ func upsertListItem(db *PGDB, userID string, name, brand, department, size strin
 	// or an SMS and the app adding "eggs" together). The list is shared across a
 	// household with no unique key to lean on, so take a transaction-scoped
 	// advisory lock keyed on the household (or the user, when solo). It releases
-	// at COMMIT/ROLLBACK. SQLite (tests) has a single writer and no such lock.
-	if !db.skipConversion {
-		lockKey := "list_items:u:" + userID
-		if hid := getUserHouseholdID(db, userID); hid != 0 {
-			lockKey = fmt.Sprintf("list_items:h:%d", hid)
-		}
-		if _, err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(?))", lockKey); err != nil {
-			return ListItem{}, false, fmt.Errorf("locking list for upsert: %w", err)
-		}
+	// at COMMIT/ROLLBACK.
+	lockKey := "list_items:u:" + userID
+	if hid := getUserHouseholdID(db, userID); hid != 0 {
+		lockKey = fmt.Sprintf("list_items:h:%d", hid)
+	}
+	if _, err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(?))", lockKey); err != nil {
+		return ListItem{}, false, fmt.Errorf("locking list for upsert: %w", err)
 	}
 
 	// Look for an existing item with the same name across household (checked or unchecked)

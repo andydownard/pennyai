@@ -313,7 +313,7 @@ func main() {
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(5 * time.Minute)
 
-	// Wrap with PGDB for SQLite→Postgres SQL conversion
+	// Wrap with PGDB for legacy-dialect→Postgres SQL conversion
 	pgdb := WrapPG(db)
 
 	if err := initDB(pgdb.DB); err != nil {

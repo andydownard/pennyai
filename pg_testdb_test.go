@@ -1,17 +1,15 @@
 package main
 
-// Postgres test tier.
+// Test database.
 //
-// By default the suite runs on in-memory SQLite with SQL conversion switched
-// off, which means the pgcompat wrapper — the code every production query goes
-// through — is never exercised, and neither is real concurrency. Setting
-// TEST_DATABASE_URL points every test at a real PostgreSQL server instead:
+// Every test runs on a real PostgreSQL server. TEST_DATABASE_URL names an admin
+// database on a server where the test user may CREATE DATABASE; it defaults to
+// the local Homebrew server:
 //
 //	TEST_DATABASE_URL=postgres://localhost:5432/postgres?sslmode=disable go test -count=1 ./...
 //
-// The URL names an admin database on a server where the test user may CREATE
-// DATABASE. The production schema (initDB) is built once into a template
-// database; each test then gets its own copy, dropped on cleanup.
+// The production schema (initDB) is built once into a template database; each
+// test then gets its own copy, dropped on cleanup.
 
 import (
 	"context"
@@ -40,9 +38,14 @@ func init() {
 	sql.Register(pgTestCompatDriver, &pgCompatDriver{inner: stdlib.GetDefaultDriver()})
 }
 
-// postgresTestURL returns the admin URL when the Postgres tier is on.
+const defaultTestDatabaseURL = "postgres://localhost:5432/postgres?sslmode=disable"
+
+// postgresTestURL returns the admin URL the suite runs against.
 func postgresTestURL() string {
-	return os.Getenv("TEST_DATABASE_URL")
+	if u := os.Getenv("TEST_DATABASE_URL"); u != "" {
+		return u
+	}
+	return defaultTestDatabaseURL
 }
 
 // pgURLForDatabase swaps the database name in a postgres:// URL.
@@ -69,6 +72,9 @@ func pgBuildTemplate(adminURL string) (string, error) {
 		return "", err
 	}
 	defer admin.Close()
+	if err := admin.Ping(); err != nil {
+		return "", fmt.Errorf("cannot reach PostgreSQL at %s (%v).\nThe Go tests need a PostgreSQL server where the user may CREATE DATABASE.\nStart one (brew services start postgresql@16) or set TEST_DATABASE_URL, e.g.\nTEST_DATABASE_URL=postgres://user:pass@host:5432/postgres?sslmode=disable go test -count=1 ./...", adminURL, err)
+	}
 
 	name := fmt.Sprintf("pennyai_test_tmpl_%d", os.Getpid())
 	if _, err := admin.Exec("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)"); err != nil {
@@ -92,7 +98,7 @@ func pgBuildTemplate(adminURL string) (string, error) {
 		tmpl.Close()
 		return "", fmt.Errorf("initDB on template: %w", err)
 	}
-	// Fixtures written for SQLite insert rows with explicit small ids, which
+	// Fixtures insert rows with explicit small ids, which
 	// does not advance a PostgreSQL sequence. Start every sequence well above
 	// them so generated ids never collide with fixture ids.
 	seqs, err := tmpl.Query("SELECT sequencename FROM pg_sequences WHERE schemaname = current_schema()")
@@ -121,8 +127,8 @@ func pgBuildTemplate(adminURL string) (string, error) {
 }
 
 // openPostgresTestDB gives the test its own database cloned from the template.
-// The raw handle converts `?` placeholders so test fixtures written for SQLite
-// keep working; production code must not rely on that — it goes through PGDB.
+// The raw handle converts `?` placeholders so test fixtures written in the
+// legacy dialect keep working; production code must not rely on that — it goes through PGDB.
 func openPostgresTestDB(t *testing.T, adminURL string) (*sql.DB, *PGDB) {
 	t.Helper()
 	pgTemplateOnce.Do(func() {
@@ -165,8 +171,8 @@ func openPostgresTestDB(t *testing.T, adminURL string) (*sql.DB, *PGDB) {
 // TestMain drops the template database after the run.
 func TestMain(m *testing.M) {
 	code := m.Run()
-	if adminURL := postgresTestURL(); adminURL != "" && pgTemplateName != "" {
-		if admin, err := sql.Open("pgx", adminURL); err == nil {
+	if pgTemplateName != "" {
+		if admin, err := sql.Open("pgx", postgresTestURL()); err == nil {
 			admin.Exec("DROP DATABASE IF EXISTS " + pgTemplateName + " WITH (FORCE)")
 			admin.Close()
 		}
@@ -175,7 +181,7 @@ func TestMain(m *testing.M) {
 }
 
 // -----------------------------------------------------------------------------
-// pgCompatDriver wraps pgx so a raw *sql.DB accepts SQLite-style SQL. It exists
+// pgCompatDriver wraps pgx so a raw *sql.DB accepts legacy-dialect (`?`) SQL. It exists
 // only for test fixtures.
 // -----------------------------------------------------------------------------
 

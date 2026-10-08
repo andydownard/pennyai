@@ -105,8 +105,8 @@ func TestRegression_StoreSearchIsCaseInsensitive(t *testing.T) {
 	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5550000005")
 
-	// Seed with mixed-case data; SQLite LIKE was case-insensitive, PG LIKE is not.
-	// The fix uses ILIKE so this stays consistent across both engines.
+	// Seed with mixed-case data; LIKE is case-sensitive in Postgres.
+	// The fix uses ILIKE so this stays consistent.
 	if _, err := server.upsertStore("Whole Foods #42", "Whole Foods", "1 Market St", "SF", "CA", "94103", "", nil, nil); err != nil {
 		t.Fatalf("upsertStore: %v", err)
 	}

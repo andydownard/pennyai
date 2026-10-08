@@ -164,7 +164,7 @@ func (s *Server) runLearningLoop() {
 }
 
 // processLearnings derives insights from raw data and updates penny_learnings.
-// Uses a collect-then-write pattern to avoid SQLite locking issues (single-conn in-memory DB).
+// Uses a collect-then-write pattern so no rows cursor is held open during writes.
 func (s *Server) processLearnings() {
 	start := time.Now()
 

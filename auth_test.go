@@ -127,10 +127,7 @@ func TestMe_HasNoPhoneOrSmsConsentFields(t *testing.T) {
 func TestUsersSchema_HasPhoneNotPhoneNumber(t *testing.T) {
 	_, pgdb := openTestDB(t)
 
-	colQuery := "SELECT name FROM pragma_table_info('users')"
-	if postgresTestURL() != "" {
-		colQuery = "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'users'"
-	}
+	colQuery := "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'users'"
 	rows, err := pgdb.Query(colQuery)
 	if err != nil {
 		t.Fatalf("listing users columns: %v", err)
@@ -691,7 +688,7 @@ func TestCleanExpired_RemovesExpiredSessions(t *testing.T) {
 	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5554470001")
 
-	// Insert an expired session directly with SQLite datetime format
+	// Insert an expired session directly with a plain datetime string
 	server.db.Exec(
 		"INSERT INTO sessions (token, user_id, phone, role, created_at, expires_at) VALUES ('expired_token', ?, '5554470001', 'user', datetime('now', '-2 days'), datetime('now', '-1 day'))",
 		userID,

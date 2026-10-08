@@ -8,17 +8,15 @@
 //   - nullable with no default, so every pre-existing row stays valid
 //   - protected by a PARTIAL unique index
 //     (WHERE clerk_user_id IS NOT NULL) rather than a column UNIQUE
-//     constraint, so unlimited NULLs coexist on both Postgres and the SQLite
-//     test tier, and the migration cannot fail on an existing database
+//     constraint, so unlimited NULLs coexist and the migration cannot fail on
+//     an existing database
 //
 // The partial index is the real backstop against two local users claiming one
-// Clerk identity (the Go suite runs on a single-connection in-memory SQLite,
-// so goroutine races are serialized there and cannot prove this alone).
+// Clerk identity.
 //
-// initDB itself is PostgreSQL-only (SERIAL/TIMESTAMPTZ/JSONB), so the shape
-// assertions here are textual — the same approach schema_init_test.go takes —
-// while the behavioural assertions run against the SQLite mirror in
-// test_helpers_test.go's initTestDB. Both tiers must carry the column.
+// The shape assertions here are textual — the same approach
+// schema_init_test.go takes — while the behavioural assertions run against
+// real PostgreSQL built by initDB.
 package main
 
 import (
@@ -67,28 +65,8 @@ func TestSchema_ClerkUserID_IsAdditiveColumnWithPartialUniqueIndex(t *testing.T)
 	}
 }
 
-func TestSchema_ClerkUserID_TestTierMirrorsProduction(t *testing.T) {
-	prod, err := os.ReadFile("schema.go")
-	if err != nil {
-		t.Fatalf("read schema.go: %v", err)
-	}
-	test, err := os.ReadFile("test_helpers_test.go")
-	if err != nil {
-		t.Fatalf("read test_helpers_test.go: %v", err)
-	}
-	if !strings.Contains(string(prod), "clerk_user_id") {
-		t.Fatalf("schema.go does not mention clerk_user_id")
-	}
-	if !strings.Contains(string(test), "clerk_user_id") {
-		t.Fatalf("test_helpers_test.go initTestDB does not declare clerk_user_id — the SQLite mirror has drifted from schema.go and the Clerk tests would pass against a schema production does not have")
-	}
-	if !strings.Contains(string(test), "idx_users_clerk_user_id") {
-		t.Fatalf("test_helpers_test.go does not create idx_users_clerk_user_id — the uniqueness backstop would be untested")
-	}
-}
-
 // -----------------------------------------------------------------------
-// Behaviour (SQLite tier): positive, negative, idempotency, isolation
+// Behaviour (PostgreSQL): positive, negative, idempotency, isolation
 // -----------------------------------------------------------------------
 
 // 1. positive — a user row carries a Clerk identity and reads back.
@@ -139,7 +117,7 @@ func TestSchema_ClerkUserID_InitIsIdempotent(t *testing.T) {
 	}
 
 	// Second init on the same database: must not error, must not drop data.
-	if err := initTestDB(rawDB); err != nil {
+	if err := initDB(rawDB); err != nil {
 		t.Fatalf("second schema init returned error: %v", err)
 	}
 

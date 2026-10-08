@@ -1042,11 +1042,9 @@ func TestReferral_ClaimWithPreSeededRowCreditsNothing(t *testing.T) {
 	}
 }
 
-// TestReferral_UniqueIndexInTestSchema pins idx_referrals_unique into the test
-// schema. Production has had it since schema.go:582, but the hand-copied SQLite
-// test schema did not, so the referral idempotency tests were passing against
-// code that would double-credit.
-func TestReferral_UniqueIndexInTestSchema(t *testing.T) {
+// TestReferral_UniqueIndexEnforced pins idx_referrals_unique: a duplicate
+// (referrer_id, referred_id) must be rejected, or referrals double-credit.
+func TestReferral_UniqueIndexEnforced(t *testing.T) {
 	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('ref-a', '5551110000')")
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('ref-b', '5552220000')")
@@ -1055,7 +1053,7 @@ func TestReferral_UniqueIndexInTestSchema(t *testing.T) {
 		t.Fatalf("first referral insert: %v", err)
 	}
 	if _, err := server.db.Exec("INSERT INTO referrals (referrer_id, referred_id) VALUES ('ref-a', 'ref-b')"); err == nil {
-		t.Error("duplicate (referrer_id, referred_id) accepted — idx_referrals_unique missing from the test schema")
+		t.Error("duplicate (referrer_id, referred_id) accepted — idx_referrals_unique missing from the schema")
 	}
 }
 

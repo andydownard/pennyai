@@ -34,7 +34,6 @@ import (
 //   - INTEGER PRIMARY KEY auto-creates SERIAL
 type PGDB struct {
 	*sql.DB
-	skipConversion bool // when true, pass SQL through without conversion (for SQLite tests)
 
 	// serialTables names every table whose `id` column is an integer, i.e. the
 	// tables where LastInsertId() means something. Loaded once from the catalog.
@@ -48,32 +47,16 @@ func WrapPG(db *sql.DB) *PGDB {
 	return &PGDB{DB: db}
 }
 
-// sqliteCompat rewrites Postgres-only syntax to SQLite-compatible equivalents
-// when running under skipConversion (in-memory SQLite tests). SQLite's LIKE is
-// case-insensitive by default, matching Postgres ILIKE semantics.
-func sqliteCompat(query string) string {
-	return strings.ReplaceAll(query, "ILIKE", "LIKE")
-}
-
 func (db *PGDB) Exec(query string, args ...interface{}) (sql.Result, error) {
-	if db.skipConversion {
-		return db.DB.Exec(sqliteCompat(query), args...)
-	}
 	converted := convertSQL(query)
 	return pgExecWithReturning(db.DB, db.hasSerialID, converted, args...)
 }
 
 func (db *PGDB) Query(query string, args ...interface{}) (*sql.Rows, error) {
-	if db.skipConversion {
-		return db.DB.Query(sqliteCompat(query), args...)
-	}
 	return db.DB.Query(convertSQL(query), args...)
 }
 
 func (db *PGDB) QueryRow(query string, args ...interface{}) *sql.Row {
-	if db.skipConversion {
-		return db.DB.QueryRow(sqliteCompat(query), args...)
-	}
 	return db.DB.QueryRow(convertSQL(query), args...)
 }
 
@@ -81,42 +64,30 @@ func (db *PGDB) Begin() (*PGTx, error) {
 	// Read the catalog before the transaction takes a connection. Loading it
 	// lazily from inside a transaction needs a second connection while holding
 	// the first, which deadlocks once concurrent callers exhaust the pool.
-	if !db.skipConversion {
-		db.loadSerialTables()
-	}
+	db.loadSerialTables()
 	tx, err := db.DB.Begin()
 	if err != nil {
 		return nil, err
 	}
-	return &PGTx{Tx: tx, skipConversion: db.skipConversion, parent: db}, nil
+	return &PGTx{Tx: tx, parent: db}, nil
 }
 
 // PGTx wraps *sql.Tx with the same SQL conversion.
 type PGTx struct {
 	*sql.Tx
-	skipConversion bool
 	parent         *PGDB
 }
 
 func (tx *PGTx) Exec(query string, args ...interface{}) (sql.Result, error) {
-	if tx.skipConversion {
-		return tx.Tx.Exec(sqliteCompat(query), args...)
-	}
 	converted := convertSQL(query)
 	return pgExecWithReturning(tx.Tx, func(table string) bool { return tx.parent.hasSerialIDVia(tx.Tx, table) }, converted, args...)
 }
 
 func (tx *PGTx) Query(query string, args ...interface{}) (*sql.Rows, error) {
-	if tx.skipConversion {
-		return tx.Tx.Query(sqliteCompat(query), args...)
-	}
 	return tx.Tx.Query(convertSQL(query), args...)
 }
 
 func (tx *PGTx) QueryRow(query string, args ...interface{}) *sql.Row {
-	if tx.skipConversion {
-		return tx.Tx.QueryRow(sqliteCompat(query), args...)
-	}
 	return tx.Tx.QueryRow(convertSQL(query), args...)
 }
 

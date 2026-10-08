@@ -1,19 +1,11 @@
 package main
 
-// Regression tests that only mean something on real PostgreSQL. They pin the
-// two bugs that made every sign-in fail in production while the SQLite suite
-// stayed green. Run with TEST_DATABASE_URL set (see pg_testdb_test.go).
+// Regression tests pinning two bugs that made every sign-in fail in production
+// while an earlier SQLite-backed suite stayed green (see pg_testdb_test.go).
 
 import (
 	"testing"
 )
-
-func requirePostgresTier(t *testing.T) {
-	t.Helper()
-	if postgresTestURL() == "" {
-		t.Skip("Postgres tier off (set TEST_DATABASE_URL)")
-	}
-}
 
 func pgCount(t *testing.T, db *PGDB, query string, args ...interface{}) int {
 	t.Helper()
@@ -27,7 +19,6 @@ func pgCount(t *testing.T, db *PGDB, query string, args ...interface{}) int {
 // users.id is a TEXT UUID. The wrapper used to append RETURNING id, fail to
 // scan the UUID into an int64, and then run the INSERT a second time.
 func TestPG_InsertIntoTextIDTable_RunsExactlyOnce(t *testing.T) {
-	requirePostgresTier(t)
 	_, db := openTestDB(t)
 
 	res, err := db.Exec("INSERT INTO users (id, phone) VALUES (?, ?)", "11111111-1111-1111-1111-111111111111", "2125550001")
@@ -45,7 +36,6 @@ func TestPG_InsertIntoTextIDTable_RunsExactlyOnce(t *testing.T) {
 // A statement that errors inside a Postgres transaction aborts the whole
 // transaction. The wrapper must not probe with a doomed RETURNING id.
 func TestPG_InsertInTx_TableWithoutIDColumn_DoesNotAbortTx(t *testing.T) {
-	requirePostgresTier(t)
 	_, db := openTestDB(t)
 	db.Exec("INSERT INTO users (id, phone) VALUES (?, ?)", "u-tx", "2125550002")
 
@@ -72,7 +62,6 @@ func TestPG_InsertInTx_TableWithoutIDColumn_DoesNotAbortTx(t *testing.T) {
 }
 
 func TestPG_InsertIntoSerialTable_ReturnsLastInsertID(t *testing.T) {
-	requirePostgresTier(t)
 	_, db := openTestDB(t)
 	db.Exec("INSERT INTO users (id, phone) VALUES (?, ?)", "u-serial", "2125550003")
 
@@ -95,7 +84,6 @@ func TestPG_InsertIntoSerialTable_ReturnsLastInsertID(t *testing.T) {
 // Idempotency guards across the codebase read RowsAffected after INSERT OR
 // IGNORE. A conflict must report 0 and must not insert.
 func TestPG_InsertOrIgnore_ConflictReportsZeroRows(t *testing.T) {
-	requirePostgresTier(t)
 	_, db := openTestDB(t)
 
 	first, err := db.Exec("INSERT OR IGNORE INTO users (id, phone) VALUES (?, ?)", "u-a", "2125550004")
@@ -120,7 +108,6 @@ func TestPG_InsertOrIgnore_ConflictReportsZeroRows(t *testing.T) {
 // The session store used to hold the raw connection and send `?` placeholders
 // straight to Postgres: a syntax error on every sign-in.
 func TestPG_SessionStore_CreateGetDelete(t *testing.T) {
-	requirePostgresTier(t)
 	s := newTestServer(t)
 	s.db.Exec("INSERT INTO users (id, phone) VALUES (?, ?)", "u-sess", "2125550005")
 

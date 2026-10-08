@@ -890,7 +890,7 @@ func (s *Server) handleCompetitiveIntel(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Step 1: Collect all active deals for this brand (collect-then-write for SQLite)
+	// Step 1: Collect all active deals for this brand (collect-then-write)
 	type dealRow struct {
 		DealID       int
 		OfferProduct string

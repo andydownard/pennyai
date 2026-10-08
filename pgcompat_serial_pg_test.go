@@ -12,9 +12,6 @@ import (
 // first INSERTs that together held every connection in the pool deadlocked
 // forever (the Clerk concurrent-first-sign-in test hung for the whole timeout).
 func TestPostgres_FirstInsertBurstDoesNotDeadlockThePool(t *testing.T) {
-	if postgresTestURL() == "" {
-		t.Skip("Postgres tier only (TEST_DATABASE_URL)")
-	}
 	raw, _ := openTestDB(t)
 	const conns = 4
 	raw.SetMaxOpenConns(conns)

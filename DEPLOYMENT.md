@@ -27,12 +27,12 @@ git checkout -b feature/your-feature-name
 ### 2. Develop and Test Locally
 
 ```bash
-# Backend tests, SQLite tier (required — must pass with zero failures)
+# Backend tests (required — zero failures). PostgreSQL is the only test database;
+# the default is postgres://localhost:5432/postgres?sslmode=disable (override with TEST_DATABASE_URL)
 go test -count=1 ./...
 
-# Backend tests, PostgreSQL tier (required; needs a local Postgres)
+# Same suite in parallel chunks, faster on a laptop
 scripts/test-postgres.sh
-# or: TEST_DATABASE_URL=postgres://localhost:5432/postgres?sslmode=disable go test .
 
 # Frontend type check + build
 cd frontend && npm run build
@@ -52,7 +52,7 @@ gh pr create --base main --head feature/your-feature-name --title "Short descrip
 
 ### 4. Merge into `main`
 
-Review, then squash-merge via GitHub. CI (GitHub Actions) runs: Go tests on SQLite, Go tests on PostgreSQL (`test-postgres`), test-to-code ratio, `go vet`, frontend typecheck and tests. A failing Go test now fails the job.
+Review, then squash-merge via GitHub. CI (GitHub Actions) runs: Go tests on a `postgres:16` service container, test-to-code ratio, `go vet`, frontend typecheck and tests. A failing Go test now fails the job.
 
 ### 5. Railway Deploys `main`
 
@@ -96,8 +96,7 @@ Runs on push to `main` and PRs to `main`:
 
 | Check | Command | Requirement |
 |-------|---------|-------------|
-| Go tests (SQLite) | `go test -count=1 -race -timeout 20m ./...` | Zero failures |
-| Go tests (PostgreSQL) | `scripts/test-postgres.sh` (job `test-postgres`) | Zero failures |
+| Go tests (PostgreSQL 16) | `go test -count=1 -race -timeout 20m ./...` | Zero failures |
 | Test-to-code ratio | `bash scripts/check-test-ratio.sh --ci` | >= 1.3x |
 | Go vet | `go vet ./...` | Clean |
 | Frontend type check | `tsc --noEmit` | Clean |
