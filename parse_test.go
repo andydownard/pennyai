@@ -15,7 +15,7 @@ import (
 // =============================================================================
 
 func TestParseAndAdd_RemoveCommand(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5552220001")
 
 	// Add items to the list
@@ -56,7 +56,7 @@ func TestParseAndAdd_RemoveCommand(t *testing.T) {
 }
 
 func TestParseAndAdd_CheckCommand(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5552220002")
 
 	createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
@@ -92,7 +92,7 @@ func TestParseAndAdd_CheckCommand(t *testing.T) {
 }
 
 func TestParseAndAdd_UncheckCommand(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5552220003")
 
 	itemID := createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
@@ -130,7 +130,7 @@ func TestParseAndAdd_UncheckCommand(t *testing.T) {
 }
 
 func TestParseAndAdd_UpdateCommand(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5552220004")
 
 	createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
@@ -171,7 +171,7 @@ func TestParseAndAdd_UpdateCommand(t *testing.T) {
 }
 
 func TestParseAndAdd_SaveCommand(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5552220005")
 
 	// Add items first
@@ -209,7 +209,7 @@ func TestParseAndAdd_SaveCommand(t *testing.T) {
 }
 
 func TestParseAndAdd_SaveCommand_DefaultName(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5552220015")
 
 	createListItem(t, server.db, userID, "Eggs", "Dairy & Eggs")
@@ -238,7 +238,7 @@ func TestParseAndAdd_SaveCommand_DefaultName(t *testing.T) {
 }
 
 func TestParseAndAdd_ClearCommand(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5552220006")
 
 	createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
@@ -273,7 +273,7 @@ func TestParseAndAdd_ClearCommand(t *testing.T) {
 }
 
 func TestParseAndAdd_RestoreCommand(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5552220007")
 
 	// Stash some cleared items in the user record
@@ -310,7 +310,7 @@ func TestParseAndAdd_RestoreCommand(t *testing.T) {
 }
 
 func TestParseAndAdd_RestoreCommand_NothingToRestore(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5552220017")
 
 	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
@@ -336,7 +336,7 @@ func TestParseAndAdd_RestoreCommand_NothingToRestore(t *testing.T) {
 }
 
 func TestParseAndAdd_LoadSavedList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5552220008")
 
 	// Create a saved list with items
@@ -377,7 +377,7 @@ func TestParseAndAdd_LoadSavedList(t *testing.T) {
 }
 
 func TestParseAndAdd_LoadSavedList_FuzzyMatch(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5552220018")
 
 	result, _ := server.db.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, 'Weekly Groceries')", userID)
@@ -404,7 +404,7 @@ func TestParseAndAdd_LoadSavedList_FuzzyMatch(t *testing.T) {
 }
 
 func TestParseAndAdd_LoadSavedList_NotFound(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5552220019")
 
 	server.db.Exec("INSERT INTO saved_lists (user_id, name) VALUES (?, 'My List')", userID)
@@ -429,7 +429,7 @@ func TestParseAndAdd_LoadSavedList_NotFound(t *testing.T) {
 }
 
 func TestParseAndAdd_LoadSavedList_NoLists(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5552220009")
 
 	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
@@ -457,7 +457,7 @@ func TestParseAndAdd_DeleteSavedList(t *testing.T) {
 	// This test verifies the "not found" and "no name" branches which don't deadlock.
 	// The happy-path delete is tested via the saved_lists REST API tests instead.
 	t.Run("no_name", func(t *testing.T) {
-		server := newTestServer(t, &MockTwilioClient{})
+		server := newTestServer(t)
 		cookie, _ := loginUser(t, server, "5552220010")
 
 		server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
@@ -484,7 +484,7 @@ func TestParseAndAdd_DeleteSavedList(t *testing.T) {
 	})
 
 	t.Run("not_found", func(t *testing.T) {
-		server := newTestServer(t, &MockTwilioClient{})
+		server := newTestServer(t)
 		cookie, _ := loginUser(t, server, "5552220010")
 
 		server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
@@ -508,7 +508,7 @@ func TestParseAndAdd_DeleteSavedList(t *testing.T) {
 }
 
 func TestParseAndAdd_DoneShoppingCommand(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5552220011")
 
 	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
@@ -530,7 +530,7 @@ func TestParseAndAdd_DoneShoppingCommand(t *testing.T) {
 }
 
 func TestParseAndAdd_DoneShoppingCommand_DefaultMessage(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5552220022")
 
 	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
@@ -552,7 +552,7 @@ func TestParseAndAdd_DoneShoppingCommand_DefaultMessage(t *testing.T) {
 }
 
 func TestParseAndAdd_ShareCommand(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5552220012")
 
 	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
@@ -574,7 +574,7 @@ func TestParseAndAdd_ShareCommand(t *testing.T) {
 }
 
 func TestParseAndAdd_UpdatePreference(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5552220013")
 
 	createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
@@ -616,7 +616,7 @@ func TestParseAndAdd_UpdatePreference(t *testing.T) {
 // =============================================================================
 
 func TestParseAndAdd_SearchCommand(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5552220014")
 
 	server.parseCommand = func(apiKey, text string, items []ListItem, name, learningContext string) (*ParsedCommand, error) {
@@ -654,7 +654,7 @@ func TestParseAndAdd_SearchCommand(t *testing.T) {
 // =============================================================================
 
 func TestCachedParseItems_CacheMiss(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	callCount := 0
 	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
 		callCount++
@@ -674,7 +674,7 @@ func TestCachedParseItems_CacheMiss(t *testing.T) {
 }
 
 func TestCachedParseItems_CacheHit(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	callCount := 0
 	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
 		callCount++
@@ -701,7 +701,7 @@ func TestCachedParseItems_CacheHit(t *testing.T) {
 }
 
 func TestCachedParseItems_CaseInsensitiveKey(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	callCount := 0
 	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
 		callCount++
@@ -717,7 +717,7 @@ func TestCachedParseItems_CaseInsensitiveKey(t *testing.T) {
 }
 
 func TestCachedParseItems_BypassCacheForImages(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	callCount := 0
 	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
 		callCount++
@@ -732,7 +732,7 @@ func TestCachedParseItems_BypassCacheForImages(t *testing.T) {
 }
 
 func TestCachedParseItems_BypassCacheForLongText(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	callCount := 0
 	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
 		callCount++
@@ -748,7 +748,7 @@ func TestCachedParseItems_BypassCacheForLongText(t *testing.T) {
 }
 
 func TestCachedParseItems_EmptyTextBypassesCache(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	callCount := 0
 	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
 		callCount++
@@ -763,7 +763,7 @@ func TestCachedParseItems_EmptyTextBypassesCache(t *testing.T) {
 }
 
 func TestCachedParseItems_ExpiredEntry(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	callCount := 0
 	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
 		callCount++
@@ -789,7 +789,7 @@ func TestCachedParseItems_ExpiredEntry(t *testing.T) {
 }
 
 func TestCachedParseItems_CacheHitReturnsCopy(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	callCount := 0
 	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
 		callCount++
@@ -814,7 +814,7 @@ func TestCachedParseItems_CacheHitReturnsCopy(t *testing.T) {
 }
 
 func TestCachedParseItems_ErrorNotCached(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	callCount := 0
 	server.parseItems = func(apiKey, text string, images []string) ([]ParsedItem, error) {
 		callCount++

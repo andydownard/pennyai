@@ -8,7 +8,7 @@ import (
 // TestContextCache_ReadHit verifies buildLearningContext returns the precomputed
 // row from penny_context_cache instead of rebuilding when a cache row exists.
 func TestContextCache_ReadHit(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone, penny_autotune) VALUES ('user-cc1', '+15557770001', 1)")
 
 	sentinel := "What Penny knows about this user: CACHED SENTINEL VALUE"
@@ -32,7 +32,7 @@ func TestContextCache_ReadHit(t *testing.T) {
 // TestContextCache_MissFallsBackToRebuild verifies that with no cache row,
 // buildLearningContext rebuilds exactly as before (unchanged behavior).
 func TestContextCache_MissFallsBackToRebuild(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone, penny_autotune) VALUES ('user-cc2', '+15557770002', 1)")
 	server.updateLearning("user", "user-cc2", "shopping_frequency", "weekly", 0.9)
 
@@ -46,7 +46,7 @@ func TestContextCache_MissFallsBackToRebuild(t *testing.T) {
 // a user who turned off "learn from my choices" gets no context even if a stale
 // cache row still exists.
 func TestContextCache_AutotuneOffIgnoresStaleCache(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone, penny_autotune) VALUES ('user-cc3', '+15557770003', 0)")
 	server.db.Exec("INSERT INTO penny_context_cache (user_id, context_json) VALUES ('user-cc3', 'STALE CONTEXT')")
 
@@ -58,7 +58,7 @@ func TestContextCache_AutotuneOffIgnoresStaleCache(t *testing.T) {
 
 // The refresh job must recompute, not read back the cache it is refreshing.
 func TestContextCache_RefreshReplacesStaleValue(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone, penny_autotune) VALUES ('user-cc9', '+15557770009', 1)")
 	if _, err := server.db.Exec("INSERT INTO penny_context_cache (user_id, context_json) VALUES ('user-cc9', ?)", encodeContextCache("STALE")); err != nil {
 		t.Fatalf("seeding cache: %v", err)

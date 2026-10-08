@@ -53,7 +53,6 @@ interface UseChatStateOptions {
   settingsLastName: string
   setSettingsLastName: React.Dispatch<React.SetStateAction<string>>
   settingsEmail: string
-  settingsUserPhone: string
   handleOpenInviteSheet: () => void
   // App state
   loginCount: number
@@ -105,9 +104,7 @@ export function useChatState(options: UseChatStateOptions) {
   // --- Onboarding state (persisted via localStorage + server) ---
   const onboardingNameAsked = useRef(localStorage.getItem('ob_name') === '1')
   const onboardingShareMentioned = useRef(localStorage.getItem('ob_share') === '1')
-  const onboardingTextMentioned = useRef(localStorage.getItem('ob_text') === '1')
   const onboardingSwapsMentioned = useRef(localStorage.getItem('ob_swaps') === '1')
-  const onboardingLinkPhoneMentioned = useRef(localStorage.getItem('ob_link_phone') === '1')
   const onboardingLinkEmailMentioned = useRef(localStorage.getItem('ob_link_email') === '1')
   const nameInputMode = useRef(false)
 
@@ -115,9 +112,7 @@ export function useChatState(options: UseChatStateOptions) {
     const flags: Record<string, string> = {}
     if (onboardingNameAsked.current) flags.ob_name = '1'
     if (onboardingShareMentioned.current) flags.ob_share = '1'
-    if (onboardingTextMentioned.current) flags.ob_text = '1'
     if (onboardingSwapsMentioned.current) flags.ob_swaps = '1'
-    if (onboardingLinkPhoneMentioned.current) flags.ob_link_phone = '1'
     if (onboardingLinkEmailMentioned.current) flags.ob_link_email = '1'
     fetchAPI('/api/settings', {
       method: 'PATCH',
@@ -402,7 +397,7 @@ export function useChatState(options: UseChatStateOptions) {
 
     // --- Onboarding nudges (spaced, non-intrusive) ---
     if (action === 'add' && addedItems.length > 0) {
-      const { loginCount, settingsFirstName, settingsEmail, settingsUserPhone, items } = optRef.current
+      const { loginCount, settingsFirstName, settingsEmail, items } = optRef.current
       // Session 1: After first add, casually ask for name (once per session)
       if (loginCount <= 1 && !settingsFirstName && !onboardingNameAsked.current) {
         onboardingNameAsked.current = true
@@ -427,18 +422,6 @@ export function useChatState(options: UseChatStateOptions) {
           ])
         }, 3000)
       }
-      // Session 3: Mention texting Penny
-      else if (loginCount === 3 && !onboardingTextMentioned.current) {
-        onboardingTextMentioned.current = true
-        localStorage.setItem('ob_text', '1')
-        syncOnboardingFlags()
-        setTimeout(() => {
-          typePennyHome("Quick tip — you can text me your list anytime. Just save my number!", [
-            { label: 'Save contact', onClick: () => { window.open('/api/penny.vcf', '_blank') } },
-            { label: 'Maybe later', onClick: () => typePennyHome("I'll be here!") },
-          ])
-        }, 3000)
-      }
       // After 5+ items on list and haven't mentioned swaps yet
       else if (!onboardingSwapsMentioned.current && items.length + addedItems.length >= 5) {
         onboardingSwapsMentioned.current = true
@@ -448,18 +431,8 @@ export function useChatState(options: UseChatStateOptions) {
           typePennyHome("By the way — I keep an eye out for deals on your items. If I spot a swap that saves you money, I'll let you know!")
         }, 3500)
       }
-      // Session 2+: No mobile number yet. Groflo cannot add one itself — the
-      // number comes from the Rally account — so Penny says where it goes.
-      else if (loginCount >= 2 && !onboardingLinkPhoneMentioned.current && !settingsUserPhone && settingsEmail) {
-        onboardingLinkPhoneMentioned.current = true
-        localStorage.setItem('ob_link_phone', '1')
-        syncOnboardingFlags()
-        setTimeout(() => {
-          typePennyHome("Want to text me your list on the go? Add a mobile number to your Rally account and I'll pick it up the next time you sign in.")
-        }, 3500)
-      }
       // Session 2+: Prompt to add an email so lists and recipes can be forwarded
-      else if (loginCount >= 2 && !onboardingLinkEmailMentioned.current && settingsUserPhone && !settingsEmail) {
+      else if (loginCount >= 2 && !onboardingLinkEmailMentioned.current && !settingsEmail) {
         onboardingLinkEmailMentioned.current = true
         localStorage.setItem('ob_link_email', '1')
         syncOnboardingFlags()
@@ -671,8 +644,8 @@ export function useChatState(options: UseChatStateOptions) {
     pennyStatus, setPennyStatus,
     // Onboarding
     onboardingNameAsked, onboardingShareMentioned,
-    onboardingTextMentioned, onboardingSwapsMentioned,
-    onboardingLinkPhoneMentioned, onboardingLinkEmailMentioned,
+    onboardingSwapsMentioned,
+    onboardingLinkEmailMentioned,
     nameInputMode, syncOnboardingFlags,
     // Functions
     typePennyHome,

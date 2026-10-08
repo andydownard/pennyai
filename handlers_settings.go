@@ -253,12 +253,12 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var name, email, phone, address, pennyBrandMode, onboardingFlags sql.NullString
-	var pennySlider, pennyAutotune, pennyDeals, swapCreditsCents, storeOrderEnabled, dailyDigestEnabled int
+	var name, email, address, pennyBrandMode, onboardingFlags sql.NullString
+	var pennySlider, pennyAutotune, pennyDeals, swapCreditsCents, storeOrderEnabled int
 	err := s.db.QueryRow(
-		"SELECT COALESCE(name,''), COALESCE(email,''), phone, COALESCE(address,''), COALESCE(penny_brand_mode,'ask'), COALESCE(penny_slider,35), COALESCE(penny_autotune,1), COALESCE(penny_deals,0), COALESCE(swap_credits_cents,0), COALESCE(onboarding_flags,'{}'), COALESCE(store_order_enabled,1), COALESCE(daily_digest_enabled,0) FROM users WHERE id = ?",
+		"SELECT COALESCE(name,''), COALESCE(email,''), COALESCE(address,''), COALESCE(penny_brand_mode,'ask'), COALESCE(penny_slider,35), COALESCE(penny_autotune,1), COALESCE(penny_deals,0), COALESCE(swap_credits_cents,0), COALESCE(onboarding_flags,'{}'), COALESCE(store_order_enabled,1) FROM users WHERE id = ?",
 		session.UserID,
-	).Scan(&name, &email, &phone, &address, &pennyBrandMode, &pennySlider, &pennyAutotune, &pennyDeals, &swapCreditsCents, &onboardingFlags, &storeOrderEnabled, &dailyDigestEnabled)
+	).Scan(&name, &email, &address, &pennyBrandMode, &pennySlider, &pennyAutotune, &pennyDeals, &swapCreditsCents, &onboardingFlags, &storeOrderEnabled)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load settings"})
 		return
@@ -266,12 +266,11 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 
 	// Get household members in a single query (avoids N+1)
 	type memberInfo struct {
-		Name  string `json:"name"`
-		Phone string `json:"phone"`
+		Name string `json:"name"`
 	}
 	var members []memberInfo
 	memberRows, err := s.db.Query(
-		`SELECT COALESCE(u.name,''), u.phone FROM users u
+		`SELECT COALESCE(u.name,'') FROM users u
 		 JOIN household_members hm ON hm.user_id = u.id
 		 WHERE hm.household_id = (SELECT household_id FROM users WHERE id = ?)
 		 AND u.id != ?`,
@@ -280,9 +279,9 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		defer memberRows.Close()
 		for memberRows.Next() {
-			var mName, mPhone sql.NullString
-			if memberRows.Scan(&mName, &mPhone) == nil {
-				members = append(members, memberInfo{Name: mName.String, Phone: mPhone.String})
+			var mName string
+			if memberRows.Scan(&mName) == nil {
+				members = append(members, memberInfo{Name: mName})
 			}
 		}
 	}
@@ -300,9 +299,7 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"name":                 name.String,
 		"email":                email.String,
-		"phone":                phone.String,
 		"address":              address.String,
-		"penny_phone":          s.config.TwilioPhoneNumber,
 		"household_members":    members,
 		"google_places_ready":  s.config.GooglePlacesAPIKey != "",
 		"penny_brand_mode":    pennyBrandMode.String,
@@ -313,7 +310,6 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 		"list_name":            listName,
 		"onboarding_flags":     onboardingFlags.String,
 		"store_order_enabled":  storeOrderEnabled == 1,
-		"daily_digest_enabled": dailyDigestEnabled == 1,
 	})
 }
 
@@ -341,7 +337,6 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		ListName           *string `json:"list_name"`
 		OnboardingFlags    *string `json:"onboarding_flags"`
 		StoreOrderEnabled  *bool   `json:"store_order_enabled"`
-		DailyDigestEnabled *bool   `json:"daily_digest_enabled"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -386,9 +381,8 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	if req.Email != nil {
 		addSetClause(&setClauses, &args, "email", email)
 	}
-	// phone is deliberately not settable here: it is trusted only from a
-	// verified Clerk claim (it routes inbound texts and gates admin), so a
-	// "phone" field in the request body is ignored.
+	// Groflo holds no phone numbers: a "phone" field in the request body is
+	// ignored.
 	if req.Address != nil {
 		addSetClause(&setClauses, &args, "address", strings.TrimSpace(*req.Address))
 	}
@@ -424,15 +418,6 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 			val = 1
 		}
 		addSetClause(&setClauses, &args, "store_order_enabled", val)
-	}
-	if req.DailyDigestEnabled != nil {
-		val := 0
-		if *req.DailyDigestEnabled {
-			val = 1
-			// Set opted_in_at only on first enable (if not already set)
-			s.db.Exec("UPDATE users SET daily_digest_opted_in_at = datetime('now') WHERE id = ? AND daily_digest_opted_in_at IS NULL", session.UserID)
-		}
-		addSetClause(&setClauses, &args, "daily_digest_enabled", val)
 	}
 	if len(setClauses) > 0 {
 		args = append(args, session.UserID)

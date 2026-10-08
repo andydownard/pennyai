@@ -19,10 +19,8 @@ export interface MeResponse {
   is_admin?: boolean
   auth_methods?: string[]
   name?: string
-  phone_number?: string
   login_count?: number
   can_submit_feedback?: boolean
-  needs_sms_consent?: boolean
 }
 
 export interface UseAuthStateOptions {
@@ -42,7 +40,7 @@ const LOGIN_MESSAGES = [
   "Tell me what you need. I'll sort by aisle.",
   "I learn your brand preferences over time.",
   "Share your list with your whole household.",
-  "Text or email me anytime. I'll add it.",
+  "Email me anytime. I'll add it.",
   "Snap a photo of your fridge. I'll spot what's missing.",
 ]
 

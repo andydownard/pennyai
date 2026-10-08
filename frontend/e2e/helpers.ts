@@ -1,16 +1,5 @@
 import { type Page, expect } from '@playwright/test'
 
-/**
- * Generate a unique, well-formed 10-digit US number for each test so sessions
- * never collide. Area code 212; the exchange starts 2-9, as real ones do.
- */
-export function uniquePhone(): string {
-  const exchangeLead = 2 + Math.floor(Math.random() * 8)
-  const ts = String(Date.now() % 1000).padStart(3, '0')
-  const rand = String(Math.floor(Math.random() * 1000)).padStart(3, '0')
-  return `212${exchangeLead}${ts}${rand}`
-}
-
 /** The home screen's chat box — present only when signed in. */
 export function homeInput(page: Page) {
   return page.getByRole('textbox', { name: 'Add items or tell Penny anything' })
@@ -29,19 +18,16 @@ export function loginScreen(page: Page) {
  * session cookie on this browser context. The endpoint does not exist in
  * production and the app has no UI for it.
  *
- * Returns the phone number used.
+ * Every call mints a new user, so tests never share a list.
  */
-export async function login(page: Page, phone?: string): Promise<string> {
-  const phoneNumber = phone ?? uniquePhone()
-  const res = await page.request.post('/auth/test-login', { data: { phone_number: phoneNumber } })
+export async function login(page: Page, name?: string): Promise<void> {
+  const res = await page.request.post('/auth/test-login', { data: name ? { name } : {} })
   expect(res.status(), 'POST /auth/test-login (is the server running with TEST_MODE=true?)').toBe(200)
 
   // 'domcontentloaded', not 'load': index.html pulls gtag from googletagmanager.com, and a slow
   // or blocked third-party request would otherwise stall 'load' for the whole test timeout.
   await page.goto('/', { waitUntil: 'domcontentloaded' })
   await expect(homeInput(page)).toBeVisible({ timeout: 10_000 })
-
-  return phoneNumber
 }
 
 /** Open the slide-in navigation menu (the hamburger in the header). */

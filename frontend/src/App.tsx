@@ -69,7 +69,6 @@ import { FeedbackWidget } from './components/FeedbackWidget'
 import { DoneSummaryModal } from './components/DoneSummaryModal'
 import { JoinPrompt } from './components/JoinPrompt'
 import { PostSwapShareCard } from './components/PostSwapShareCard'
-import { SmsConsentModal } from './components/SmsConsentModal'
 import { ToggleSwitch } from './components/ToggleSwitch'
 import { WebcamCapture } from './components/WebcamCapture'
 
@@ -325,12 +324,6 @@ function AppInner() {
     return localStorage.getItem('groflo_rebrand_banner_dismissed') !== '1'
   })
 
-  // SMS re-consent modal — shown to users who signed up before the rebrand
-  // and have a phone on file but no recorded consent. Driven by /auth/me's
-  // needs_sms_consent field. Twilio A2P 10DLC vetting requires a provable
-  // consent record per user.
-  const [needsSmsConsent, setNeedsSmsConsent] = useState(false)
-
   // Shared list deep link state
   const [sharedCode, setSharedCode] = useState<string | null>(null)
   const [sharedData, setSharedData] = useState<{ items: { name: string; quantity: number; checked: boolean }[]; sharer_name: string; expires_at: string; invite_code?: string } | null>(null)
@@ -427,7 +420,7 @@ function AppInner() {
 
   // --- Onboarding overlay state ---
 
-  // SMS opt-in, email/Google auth state — extracted to useAuthState hook
+  // Auth state — extracted to useAuthState hook
 
   // New item highlight state — extracted to useListState hook
 
@@ -469,28 +462,19 @@ function AppInner() {
     listName, setListName,
     editingListName, setEditingListName,
     listNameDraft, setListNameDraft,
-    settingsPennyPhone,
-    settingsUserPhone, setSettingsUserPhone,
     inviteLoading,
     showInviteSheet, setShowInviteSheet,
-    invitePhone, setInvitePhone,
-    inviteSent,
     referralCode,
     referralFriends,
     pennySlider, setPennySlider,
     pennyAutotune,
-    pennyDeals,
     storeOrderEnabled,
-    dailyDigestEnabled,
     loadSettings,
     handleSettingsAutoSave,
     handleOpenInviteSheet,
-    handleSendSMSInvite,
     handleShareInviteLink,
     toggleAutotune,
-    toggleDeals,
     toggleStoreOrder,
-    toggleDailyDigest,
   } = useSettingsState({
     screen,
     currentUserId,
@@ -631,8 +615,8 @@ function AppInner() {
     hasGreetedEmpty, hasGreetedWithItems,
     pennyStatus, setPennyStatus,
     onboardingNameAsked, onboardingShareMentioned,
-    onboardingTextMentioned, onboardingSwapsMentioned,
-    onboardingLinkPhoneMentioned, onboardingLinkEmailMentioned,
+    onboardingSwapsMentioned,
+    onboardingLinkEmailMentioned,
     nameInputMode,
     typePennyHome,
     handleSendChat,
@@ -654,7 +638,7 @@ function AppInner() {
     settingsFirstName, setSettingsFirstName,
     settingsLastName: settingsLastName ?? '',
     setSettingsLastName,
-    settingsEmail, settingsUserPhone,
+    settingsEmail,
     handleOpenInviteSheet,
     // App state
     loginCount,
@@ -676,9 +660,7 @@ function AppInner() {
   updateOnboardingFlagsRef.current = (flags) => {
     if (flags.ob_name) { onboardingNameAsked.current = true; localStorage.setItem('ob_name', '1') }
     if (flags.ob_share) { onboardingShareMentioned.current = true; localStorage.setItem('ob_share', '1') }
-    if (flags.ob_text) { onboardingTextMentioned.current = true; localStorage.setItem('ob_text', '1') }
     if (flags.ob_swaps) { onboardingSwapsMentioned.current = true; localStorage.setItem('ob_swaps', '1') }
-    if (flags.ob_link_phone) { onboardingLinkPhoneMentioned.current = true; localStorage.setItem('ob_link_phone', '1') }
     if (flags.ob_link_email) { onboardingLinkEmailMentioned.current = true; localStorage.setItem('ob_link_email', '1') }
   }
 
@@ -983,8 +965,6 @@ function AppInner() {
     if (me.can_submit_feedback) setCanSubmitFeedback(true)
     if (me.user_id) { setCurrentUserId(me.user_id); identify(me.user_id) }
     if (me.login_count != null) setLoginCount(me.login_count)
-    if (me.needs_sms_consent) setNeedsSmsConsent(true)
-    if (me.phone_number) setSettingsUserPhone(me.phone_number)
     if (me.name) {
       const parts = me.name.split(' ')
       setSettingsFirstName(parts[0] || '')
@@ -2206,17 +2186,12 @@ function AppInner() {
   if (screen === 'penny') {
     return withFeedbackFAB(
       <><PennySettingsScreen
-        pennyPhone={settingsPennyPhone}
         pennySlider={pennySlider}
         pennyAutotune={pennyAutotune}
-        pennyDeals={pennyDeals}
         storeOrderEnabled={storeOrderEnabled}
-        dailyDigestEnabled={dailyDigestEnabled}
         onSliderChange={setPennySlider}
         onAutotuneToggle={toggleAutotune}
-        onDealsToggle={toggleDeals}
         onStoreOrderToggle={toggleStoreOrder}
-        onDailyDigestToggle={toggleDailyDigest}
 
         track={track}
         renderHeader={() => renderPageHeader('Penny', 'penny')}
@@ -2239,7 +2214,6 @@ function AppInner() {
         firstName={settingsFirstName}
         lastName={settingsLastName}
         email={settingsEmail}
-        phone={settingsUserPhone}
         address={settingsAddress}
         onFirstNameChange={setSettingsFirstName}
         onLastNameChange={setSettingsLastName}
@@ -2349,12 +2323,12 @@ function AppInner() {
         }}
         onShareReferral={() => {
           const url = referralLink(referralCode)
-          const text = `Try Groflo — Penny AI helps your household organize the grocery list. Just text, email, or snap a photo and she handles the rest! ${url}`
-          track('referral_shared', { method: 'share' in navigator ? 'native' : 'sms' })
+          const text = `Try Groflo — Penny AI helps your household organize the grocery list. Just type, email, or snap a photo and she handles the rest! ${url}`
+          track('referral_shared', { method: 'share' in navigator ? 'native' : 'clipboard' })
           if (navigator.share) {
             navigator.share({ title: 'Groflo', text }).catch(() => {})
           } else {
-            window.open(`sms:?&body=${encodeURIComponent(text)}`, '_self')
+            navigator.clipboard.writeText(text).then(() => showToast('Link copied!')).catch(() => showToast('Could not copy', 'error'))
           }
         }}
         onCopyReferral={() => {
@@ -2373,41 +2347,12 @@ function AppInner() {
         <div style={{ position: 'fixed', inset: 0, zIndex: 9000, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={() => setShowInviteSheet(false)}>
           <div style={{ width: '100%', maxWidth: '480px', backgroundColor: 'var(--surface)', borderRadius: '20px 20px 0 0', padding: '20px 20px 40px' }} onClick={e => e.stopPropagation()}>
             <div style={{ width: '36px', height: '4px', borderRadius: '2px', backgroundColor: 'var(--border)', margin: '0 auto 16px' }} />
-            <h3 style={{ fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '18px', fontWeight: 700, color: 'var(--text)', margin: '0 0 16px' }}>Add your family to this list</h3>
-
-            {/* SMS invite */}
-            <label style={{ fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '14px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Their phone number</label>
-            <input
-              type="tel"
-              placeholder="(555) 123-4567"
-              value={invitePhone}
-              onChange={e => setInvitePhone(e.target.value)}
-              autoFocus
-              style={{ width: '100%', padding: '12px 16px', fontSize: '16px', fontFamily: 'Avenir, Avenir Next, sans-serif', color: 'var(--text)', backgroundColor: 'var(--bg)', border: '1.5px solid var(--border)', borderRadius: '12px', outline: 'none', boxSizing: 'border-box' }}
-            />
-            <p style={{ fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '12px', color: 'var(--text-secondary)', margin: '6px 0 12px' }}>
-              We'll text them a link to join your shared grocery list
-            </p>
-            <button
-              onClick={handleSendSMSInvite}
-              disabled={inviteLoading || inviteSent || invitePhone.replace(/\D/g, '').length < 10}
-              style={{
-                width: '100%', padding: '14px', fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '16px', fontWeight: 600,
-                color: '#fff', backgroundColor: 'var(--brand)', border: 'none', borderRadius: '12px', cursor: 'pointer',
-                opacity: (inviteLoading || inviteSent || invitePhone.replace(/\D/g, '').length < 10) ? 0.5 : 1,
-              }}
-            >
-              {inviteSent ? '✓ Sent!' : inviteLoading ? 'Sending…' : 'Send SMS invite'}
-            </button>
-
-            {/* Divider */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '20px 0' }}>
-              <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--border)' }} />
-              <span style={{ fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '13px', color: 'var(--text-secondary)' }}>or scan to join</span>
-              <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--border)' }} />
-            </div>
+            <h3 style={{ fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '18px', fontWeight: 700, color: 'var(--text)', margin: '0 0 16px' }}>Invite your household</h3>
 
             {/* QR code for sharing */}
+            <p style={{ fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '14px', color: 'var(--text-secondary)', margin: '0 0 8px' }}>
+              Send the link, or have them scan this.
+            </p>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '8px 0 16px' }}>
               <QRCodeCanvas
                 value={referralLink(referralCode, 'qr')}
@@ -2422,17 +2367,17 @@ function AppInner() {
               </p>
             </div>
 
-            {/* Share link fallback */}
+            {/* Share or copy the invite link */}
             <button
               onClick={handleShareInviteLink}
               disabled={inviteLoading}
               style={{
                 width: '100%', padding: '14px', fontFamily: 'Avenir, Avenir Next, sans-serif', fontSize: '16px', fontWeight: 600,
-                color: 'var(--brand)', backgroundColor: 'transparent', border: '1.5px solid var(--brand)', borderRadius: '12px', cursor: 'pointer',
+                color: '#fff', backgroundColor: 'var(--brand)', border: 'none', borderRadius: '12px', cursor: 'pointer',
                 opacity: inviteLoading ? 0.5 : 1,
               }}
             >
-              Share link instead
+              Invite your household
             </button>
           </div>
         </div>
@@ -2713,11 +2658,6 @@ function AppInner() {
         </div>
       )}
 
-      {/* SMS re-consent modal — pre-rebrand users must affirm under Groflo */}
-      {needsSmsConsent && (
-        <SmsConsentModal onResolved={() => setNeedsSmsConsent(false)} />
-      )}
-
       {/* One-time rebrand announcement (panel R7 — Nadia) */}
       {showRebrandBanner && screen === 'home' && (
         <div role="status" style={{
@@ -2741,7 +2681,7 @@ function AppInner() {
       )}
 
       {/* Earn-loop nudge: pending swap money is only paid after a receipt is
-          verified. In-app only (no SMS/push). Re-shows when pending grows. */}
+          verified. In-app only (no push). Re-shows when pending grows. */}
       {screen === 'home' && earningsPendingCents > 0 && earningsPendingCents > pendingNudgeDismissedAt && (
         <div role="status" style={{
           ...layout.row, flexShrink: 0, padding: '10px 16px', gap: '12px',
@@ -2999,11 +2939,6 @@ function AppInner() {
                     }}>{example}</button>
                   ))}
                 </div>
-                {settingsUserPhone && settingsPennyPhone && (
-                  <p style={{ ...listStyles.emptySubtext, marginTop: '18px', fontSize: FONT_XS, opacity: 0.7 }}>
-                    or text me at {settingsPennyPhone}
-                  </p>
-                )}
               </>
             ) : (
               <>

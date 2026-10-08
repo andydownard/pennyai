@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -30,18 +29,13 @@ const (
 	npsMinLogins             = 10
 	logoCacheMaxAge          = 604800
 	pennyQuoteRateLimit      = 10 * time.Second
-	defaultSMSBufferDuration = 10 * time.Second
 	maxMediaBytes            = 5 * 1024 * 1024
 	maxImageBytes            = 5 * 1024 * 1024
 	maxParseBodyBytes        = 10 * 1024 * 1024
 
-	// Household invite SMS guards. Outbound SMS costs money, carries A2P 10DLC
-	// reputation, and reaches someone who did not ask for it, so an invite that
-	// texts a phone is limited two ways: how many one inviter may send per day,
-	// and how often one household may text the same number. Link-only invites
-	// send nothing and are not counted against either.
-	inviteSMSPerInviterPerDay = 10
-	inviteSMSWindow           = 24 * time.Hour
+	// Household invite guard: how many invite links one user may mint per day.
+	inviteLinksPerInviterPerDay = 10
+	inviteLinkWindow            = 24 * time.Hour
 )
 
 // loadDotEnv reads a .env file and sets any variables not already in the environment.
@@ -99,37 +93,22 @@ func loadConfig() Config {
 		}
 	}
 
-	// Parse FEEDBACK_PHONES: comma-separated phone numbers (digits only, no +1 prefix)
-	var feedbackPhones []string
-	if fp := os.Getenv("FEEDBACK_PHONES"); fp != "" {
-		for _, p := range strings.Split(fp, ",") {
-			p = strings.TrimSpace(p)
-			if p != "" {
-				feedbackPhones = append(feedbackPhones, p)
-			}
-		}
-	}
-
 	return Config{
-		TwilioAccountSID:    os.Getenv("TWILIO_ACCOUNT_SID"),
-		TwilioAuthToken:     os.Getenv("TWILIO_AUTH_TOKEN"),
-		TwilioPhoneNumber:   os.Getenv("TWILIO_PHONE_NUMBER"),
-		AnthropicAPIKey:     os.Getenv("ANTHROPIC_API_KEY"),
-		AdminPhone:          os.Getenv("ADMIN_PHONE"),
-		LogoDevToken:        os.Getenv("LOGODEV_TOKEN"),
+					AnthropicAPIKey:     os.Getenv("ANTHROPIC_API_KEY"),
+			LogoDevToken:        os.Getenv("LOGODEV_TOKEN"),
 		LogoDevSecret:       os.Getenv("LOGODEV_SECRET"),
 		GooglePlacesAPIKey:  os.Getenv("GOOGLE_PLACES_API_KEY"),
 		NPSIntervalDays:     npsInterval,
 		Port:                port,
 		DatabaseURL:         databaseURL,
 		WebhookBaseURL:      os.Getenv("WEBHOOK_BASE_URL"), // e.g. "https://groflo.rallytasks.com"
+		EmailWebhookSecret:  os.Getenv("EMAIL_WEBHOOK_SECRET"),
 		AppBaseURL:          appBaseURL(os.Getenv),
 		SecureCookies:       os.Getenv("RAILWAY_ENVIRONMENT_NAME") != "",
 		TestMode:            os.Getenv("TEST_MODE") == "true",
 		SendGridAPIKey:      os.Getenv("SENDGRID_API_KEY"),
 		BlueCartAPIKey:      os.Getenv("BLUECART_API_KEY"),
-		FeedbackPhones:      feedbackPhones,
-		GitHubPAT:           os.Getenv("GH_PAT"),
+			GitHubPAT:           os.Getenv("GH_PAT"),
 		GitHubRepo:          os.Getenv("GH_REPO"),
 		StripeSecretKey:     os.Getenv("STRIPE_SECRET_KEY"),
 		StripeWebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
@@ -232,46 +211,10 @@ func bootProblems(cfg Config, getenv func(string) string) (fatal []string, warni
 		warnings = append(warnings, "CLERK_ENABLED is not 1 and TEST_MODE is off: nobody can sign in. Set CLERK_ENABLED=1 with CLERK_JWT_ISSUER and CLERK_AUTHORIZED_PARTIES.")
 	}
 
-	if cfg.TwilioAccountSID == "" || cfg.TwilioAuthToken == "" || cfg.TwilioPhoneNumber == "" {
-		warnings = append(warnings, "Twilio credentials are incomplete (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER): SMS is OFF. No text will be sent.")
-		if cfg.TwilioAuthToken == "" && cfg.WebhookBaseURL != "" && !cfg.TestMode {
-			warnings = append(warnings, "WEBHOOK_BASE_URL is set but TWILIO_AUTH_TOKEN is empty: inbound webhook signatures are computed with an empty key and can be forged. Set the token or unset WEBHOOK_BASE_URL.")
-		}
+	if cfg.WebhookBaseURL != "" && cfg.EmailWebhookSecret == "" && !cfg.TestMode {
+		warnings = append(warnings, "WEBHOOK_BASE_URL is set but EMAIL_WEBHOOK_SECRET is empty: every inbound email webhook is rejected. Set EMAIL_WEBHOOK_SECRET and add ?secret=... to the SendGrid Inbound Parse URL.")
 	}
 	return fatal, warnings
-}
-
-// errSMSNotConfigured is returned by the stand-in client used when Twilio
-// credentials are missing.
-var errSMSNotConfigured = errors.New("SMS is not configured")
-
-// smsNotConfiguredClient never sends and never touches the network. Callers
-// already treat a SendSMS error as a failed send, so a deploy without Twilio
-// degrades to "no texts".
-type smsNotConfiguredClient struct{}
-
-func (smsNotConfiguredClient) SendSMS(from, to, body string) error { return errSMSNotConfigured }
-
-// testModeSMSClient is wired whenever TEST_MODE is on, even if real Twilio
-// credentials were loaded from a developer's .env. It only logs, with the
-// number masked, and never sends.
-type testModeSMSClient struct{}
-
-func (testModeSMSClient) SendSMS(from, to, body string) error {
-	log.Printf("[TEST MODE] would send SMS to %s", maskPhone(to))
-	return nil
-}
-
-// newTwilioClient chooses the SMS client. TestMode wins over credentials, so
-// the real client is never constructed in test mode.
-func newTwilioClient(cfg Config) TwilioClient {
-	if cfg.TestMode {
-		return testModeSMSClient{}
-	}
-	if cfg.TwilioAccountSID == "" || cfg.TwilioAuthToken == "" || cfg.TwilioPhoneNumber == "" {
-		return smsNotConfiguredClient{}
-	}
-	return &RealTwilioClient{AccountSID: cfg.TwilioAccountSID, AuthToken: cfg.TwilioAuthToken}
 }
 
 const defaultAppBaseURL = "https://groflo.rallytasks.com"
@@ -303,6 +246,14 @@ var retiredAuthPaths = []string{
 	"/api/auth/link",
 }
 
+// retiredTextingPaths are the texting endpoints that no longer exist. Groflo
+// does not use phone numbers. Each answers 410 for any method.
+var retiredTextingPaths = []string{
+	"/api/sms",
+	"/api/me/sms-consent",
+	"/api/penny.vcf",
+}
+
 // registerAuthRoutes registers every sign-in and session route on mux. main
 // uses it, and tests use the same function, so the table of retired paths and
 // the test-only route cannot drift from what the server serves.
@@ -310,11 +261,13 @@ func registerAuthRoutes(mux *http.ServeMux, s *Server) {
 	for _, p := range retiredAuthPaths {
 		mux.HandleFunc(p, handleRetiredAuth)
 	}
+	for _, p := range retiredTextingPaths {
+		mux.HandleFunc(p, handleRetiredTexting)
+	}
 	// Rally sign-in (Clerk). Answers 404 unless CLERK_ENABLED=1.
 	mux.HandleFunc("/auth/clerk/exchange", s.handleClerkExchange)
 	mux.HandleFunc("/auth/logout", s.handleLogout)
 	mux.HandleFunc("/auth/me", s.handleMe)
-	mux.HandleFunc("/api/me/sms-consent", s.handleSmsConsent)
 	mux.HandleFunc("/api/config", s.handleAPIConfig)
 	// Registered ONLY in test mode: with TestMode off the path is not a route.
 	if s.config.TestMode {
@@ -372,14 +325,12 @@ func main() {
 		config:   cfg,
 		db:       pgdb,
 		sessions: NewSessionStore(pgdb),
-		twilio:   newTwilioClient(cfg),
 		// AI parse functions use multi-provider fallback (ai_providers.go).
 		// Primary: Anthropic, fallback: Gemini, then OpenAI.
 		// Complexity tiers: text→Simple, commands→Medium, images/receipts→Hard.
 		parseItems:   parseItemsWithClaude,   // Simple/Hard (auto-detected by image presence)
 		parseCommand: parseCommandWithClaude,  // Medium (natural language understanding)
 		parseReceipt: parseReceiptWithClaude,  // Hard (image parsing + fraud detection)
-		smsBuffer:    newMessageBuffer(defaultSMSBufferDuration),
 	}
 
 	// Clean expired sessions every hour
@@ -439,10 +390,8 @@ func main() {
 	http.HandleFunc("/api/settings", server.handleSettings)
 	http.HandleFunc("/api/settings/invite", server.handleInvite)
 	http.HandleFunc("/api/settings/leave-household", server.handleLeaveHousehold)
-	http.HandleFunc("/api/penny.vcf", server.handleVCard)
 	http.HandleFunc("/api/join", server.handleJoin)
 	http.HandleFunc("/api/email", server.handleEmailWebhook)
-	http.HandleFunc("/api/sms", server.handleSMSWebhook)
 	http.HandleFunc("/api/referral", server.handleReferral)
 	http.HandleFunc("/api/referral/redeem", server.handleReferralRedeem)
 	http.HandleFunc("/api/referral/claim", server.handleReferralClaim)
@@ -702,7 +651,7 @@ func main() {
 			pruneBucketLimiter(&server.parseLimiter, time.Hour)
 			pruneBucketLimiter(&server.earningsUploadLimiter, time.Hour)
 			pruneBucketLimiter(&server.npsSubmitLimiter, time.Hour)
-			pruneTimeLimiter(&server.inviteLimiter, inviteSMSWindow)
+			pruneTimeLimiter(&server.inviteLimiter, inviteLinkWindow)
 		}
 	}()
 
@@ -714,9 +663,6 @@ func main() {
 
 	// Daily metrics aggregation: deal performance, category insights, business metrics
 	go server.runDailyMetricsLoop()
-
-	// F8 Phase 2: Daily digest SMS for opted-in users (checks hourly, 20h dedup window)
-	go server.runDailyDigestLoop()
 
 	// Keep-alive: self-ping every 4 minutes to prevent Railway from sleeping the container
 	go func() {

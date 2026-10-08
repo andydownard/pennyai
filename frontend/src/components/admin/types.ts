@@ -4,8 +4,8 @@ import { FONT } from '../../styles'
 
 export interface AdminData {
   active_users: number; total_users: number; new_users: number;
-  k_factor: number; leaderboard: { phone: string; name: string; points: number; referrals: number }[];
-  nps_responses: { score: number; comment: string; user_name: string; user_phone: string; created_at: string }[];
+  k_factor: number; leaderboard: { name: string; points: number; referrals: number }[];
+  nps_responses: { score: number; comment: string; user_name: string; created_at: string }[];
   nps_score: number; nps_total: number; nps_promoters: number; nps_detractors: number;
   swap_offered?: number; swap_accepted?: number; swap_declined?: number; swap_accept_rate?: number;
 }
@@ -23,7 +23,7 @@ export interface Deal {
 }
 
 export interface Payout {
-  user_id: number; name: string; email: string; phone: string;
+  user_id: number; name: string; email: string;
   total_cents: number; swap_count: number; oldest_swap: string;
 }
 
@@ -89,7 +89,7 @@ export interface MarketplaceHealthData {
 export interface FeedbackItem {
   id: number; user_id: number; body: string; type: string; urgency: string;
   status: string; admin_notes: string; github_issue_url: string;
-  created_at: string; updated_at: string; user_name: string; user_phone: string;
+  created_at: string; updated_at: string; user_name: string;
 }
 
 export type AdminTab = 'overview' | 'business' | 'churn' | 'cohorts' | 'marketplace' | 'feedback'

@@ -1,5 +1,5 @@
-// The profile no longer adds, links or verifies anything about sign-in. A phone
-// number comes from the Rally account and is shown read-only.
+// The profile no longer adds, links or verifies anything about sign-in, and
+// holds no phone number.
 
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
@@ -8,10 +8,10 @@ import { ProfileScreen } from './ProfileScreen'
 const fetchMock = vi.fn()
 vi.stubGlobal('fetch', fetchMock)
 
-function renderProfile(phone: string) {
+function renderProfile() {
   return render(
     <ProfileScreen
-      firstName="Tamika" lastName="Jones" email="t@example.com" phone={phone} address=""
+      firstName="Tamika" lastName="Jones" email="t@example.com" address=""
       onFirstNameChange={vi.fn()} onLastNameChange={vi.fn()} onEmailChange={vi.fn()} onAddressChange={vi.fn()}
       onAutoSave={vi.fn()}
       currentUserId={null} isAdmin={false}
@@ -23,27 +23,15 @@ function renderProfile(phone: string) {
 }
 
 describe('ProfileScreen', () => {
-  it('shows the phone number read-only, and says it comes from Rally', () => {
-    const { container } = renderProfile('+12125550101')
-    expect(screen.getByTestId('profile-phone')).toHaveTextContent('(212) 555-0101')
-    expect(screen.getByText(/From your Rally account\./)).toBeInTheDocument()
-    expect(container.querySelector('input[type=tel]')).toBeNull()
-  })
-
-  it('formats a bare 10-digit number the same way', () => {
-    renderProfile('2125550101')
-    expect(screen.getByTestId('profile-phone')).toHaveTextContent('(212) 555-0101')
-  })
-
-  it('with no phone, says where one is added — and offers no field for it', () => {
-    const { container } = renderProfile('')
+  it('shows no phone number and offers no field for one', () => {
+    const { container } = renderProfile()
     expect(screen.queryByTestId('profile-phone')).not.toBeInTheDocument()
-    expect(screen.getByText(/add a mobile number to your Rally account/)).toBeInTheDocument()
+    expect(screen.queryByText(/phone|text Penny|mobile/i)).not.toBeInTheDocument()
     expect(container.querySelector('input[type=tel]')).toBeNull()
   })
 
   it('has no link, add or password controls', () => {
-    const { container } = renderProfile('')
+    const { container } = renderProfile()
     expect(container.querySelector('input[type=password]')).toBeNull()
     expect(screen.queryByText('Sign-in methods')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^(Add|Link|Send Code|Verify & Link)$/ })).not.toBeInTheDocument()
@@ -51,7 +39,7 @@ describe('ProfileScreen', () => {
   })
 
   it('keeps the rest of the profile', () => {
-    renderProfile('')
+    renderProfile()
     expect(screen.getByPlaceholderText('First')).toHaveValue('Tamika')
     expect(screen.getByPlaceholderText('your@email.com')).toHaveValue('t@example.com')
     expect(screen.getByPlaceholderText(/Start typing your address/)).toBeInTheDocument()
@@ -61,7 +49,7 @@ describe('ProfileScreen', () => {
   })
 
   it('makes no network call on render', () => {
-    renderProfile('+12125550101')
+    renderProfile()
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })

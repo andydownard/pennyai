@@ -8,13 +8,12 @@ Text Penny AI to build your family's shopping list.
 2. **Node.js** — for building the frontend ([download](https://nodejs.org/))
 3. **PostgreSQL** — a local database (the app and the test tiers use it)
 4. **A Clerk instance** — sign-in is Rally's, through Clerk ("Continue with Rally"). For local work you can skip it and use `TEST_MODE=true` (see below).
-5. **A Twilio account (optional)** — only for texting Penny, invite texts and the daily digest. Without it SMS is off and nothing is sent.
 
 ## Signing in
 
-Sign-in is Clerk only. Set `CLERK_ENABLED=1`, `CLERK_JWT_ISSUER` and `CLERK_AUTHORIZED_PARTIES` (see `.env.example`). The backend verifies Clerk's session JWT against the issuer's public JWKS and then mints its own session cookie. Never put `CLERK_SECRET_KEY` or `CLERK_WEBHOOK_SIGNING_SECRET` in this app's environment; it refuses to start if either is set. For a phone number to be saved, the Clerk instance must emit the custom session-token claims `email`, `phone`, `phone_verified` and `name`.
+Sign-in is Clerk only. Set `CLERK_ENABLED=1`, `CLERK_JWT_ISSUER` and `CLERK_AUTHORIZED_PARTIES` (see `.env.example`). The backend verifies Clerk's session JWT against the issuer's public JWKS and then mints its own session cookie. Never put `CLERK_SECRET_KEY` or `CLERK_WEBHOOK_SIGNING_SECRET` in this app's environment; it refuses to start if either is set. The Clerk instance should emit the custom session-token claims `email` and `name`. Groflo stores no phone numbers.
 
-For local development without Clerk, set `TEST_MODE=true`. That enables `POST /auth/test-login` and swaps in an SMS client that only logs. It is refused on Railway.
+For local development without Clerk, set `TEST_MODE=true`. That enables `POST /auth/test-login`. It is refused on Railway.
 
 ## Running locally
 
@@ -25,7 +24,7 @@ cd thriftly
 
 # 2. Create your .env file
 cp .env.example .env
-# Open .env in any editor and paste your 3 Twilio values
+# Open .env in any editor and fill in the values you need
 
 # 3. Install Go dependencies (one time)
 go mod tidy
@@ -42,11 +41,9 @@ source .env && go run .
 
 Visit **http://localhost:8080** — you should see the login screen.
 
-> **Note:** On a Twilio free trial, you can only text phone numbers you've verified in the Twilio console. Go to **Phone Numbers → Verified Caller IDs** to add your number.
-
 ## Running tests
 
-Tests don't need Twilio or Clerk credentials. The Go suite has two tiers:
+Tests don't need Clerk credentials. The Go suite has two tiers:
 
 ```bash
 go test -count=1 ./...        # SQLite tier (default, in-memory)
@@ -62,13 +59,13 @@ CI runs both Go tiers (the `test` and `test-postgres` jobs) and the frontend che
 
 This is important to understand:
 
-- **Your credentials (Twilio, Anthropic and the rest) are ONLY in your .env file**, which is listed in `.gitignore` — git will never track it, so it can't accidentally end up on GitHub.
+- **Your credentials (Anthropic and the rest) are ONLY in your .env file**, which is listed in `.gitignore` — git will never track it, so it can't accidentally end up on GitHub.
 - **The Go server loads them from environment variables** at startup. They live in server memory and are never exposed via any URL endpoint.
-- **The frontend (React) NEVER sees your keys.** All Twilio API calls happen server-side in Go. The browser only talks to your Go server, which talks to Twilio on its behalf. The only values in the frontend build are the public `VITE_*` ones, such as the Clerk publishable key.
+- **The frontend (React) NEVER sees your keys.** All third-party API calls happen server-side in Go. The browser only talks to your Go server, which talks to those services on its behalf. The only values in the frontend build are the public `VITE_*` ones, such as the Clerk publishable key.
 - **Session cookies are HttpOnly**, meaning JavaScript running in the browser can't read them — this prevents XSS attacks from stealing sessions.
 
 ```
-Browser  →  Your Go server  →  Twilio API
+Browser  →  Your Go server  →  Third-party APIs
   (no keys)     (has keys)       (checks keys)
 ```
 
@@ -115,4 +112,4 @@ Visit **http://localhost:5173** during development. Vite proxies `/auth/*` reque
 3. Household create/join (invite links)
 4. Shopping list UI
 5. Chat with Penny (Claude AI parses items)
-6. Twilio SMS webhook
+6. Email webhook

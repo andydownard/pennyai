@@ -1,12 +1,8 @@
 package main
 
 import (
-	"database/sql"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
-	"strings"
 	"testing"
 	"time"
 )
@@ -95,105 +91,28 @@ func TestSessionStore_DeleteDoesNotAffectOthers(t *testing.T) {
 // =============================================================================
 
 // =============================================================================
-// SMS RE-CONSENT FLOW TESTS (Phase 0 wave 3 — Twilio A2P 10DLC)
+// /auth/me CARRIES NO PHONE FIELDS
 // =============================================================================
 
-func TestSmsConsent_OptIn_RecordsConsent(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+func TestMe_HasNoPhoneOrSmsConsentFields(t *testing.T) {
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
-
-	// Pre-condition: existing user has phone but no recorded consent
-	server.db.Exec(`UPDATE users SET sms_consent_at = NULL WHERE id = ?`, userID)
-
-	rr := doRequest(server.handleSmsConsent, "POST", "/api/me/sms-consent",
-		map[string]interface{}{"opted_in": true}, []*http.Cookie{cookie})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status: got %d, want 200", rr.Code)
-	}
-
-	// Consent record persisted with timestamp + IP + UA
-	var consentAt sql.NullString
-	var consentIP string
-	server.db.QueryRow(`SELECT sms_consent_at, sms_consent_ip FROM users WHERE id = ?`, userID).
-		Scan(&consentAt, &consentIP)
-	if !consentAt.Valid {
-		t.Errorf("sms_consent_at should be set, got NULL")
-	}
-	if consentIP == "" {
-		t.Errorf("sms_consent_ip should be set, got empty")
-	}
-	if !server.canSendSMS(userID) {
-		t.Errorf("canSendSMS should return true after opt-in")
-	}
-}
-
-func TestSmsConsent_OptOut_ClearsConsent(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, userID := loginUser(t, server, "5551234567")
-
-	// Pre-condition: user already opted in
-	server.db.Exec(`UPDATE users SET sms_consent_at = CURRENT_TIMESTAMP WHERE id = ?`, userID)
-
-	rr := doRequest(server.handleSmsConsent, "POST", "/api/me/sms-consent",
-		map[string]interface{}{"opted_in": false}, []*http.Cookie{cookie})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status: got %d, want 200", rr.Code)
-	}
-
-	var consentAt sql.NullString
-	server.db.QueryRow(`SELECT sms_consent_at FROM users WHERE id = ?`, userID).Scan(&consentAt)
-	if consentAt.Valid {
-		t.Errorf("sms_consent_at should be NULL after opt-out, got %q", consentAt.String)
-	}
-	if server.canSendSMS(userID) {
-		t.Errorf("canSendSMS should return false after opt-out")
-	}
-}
-
-func TestSmsConsent_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-
-	rr := doRequest(server.handleSmsConsent, "POST", "/api/me/sms-consent",
-		map[string]interface{}{"opted_in": true}, nil)
-	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("status: got %d, want 401", rr.Code)
-	}
-}
-
-func TestMe_NeedsSmsConsent_TrueForLegacyUser(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, userID := loginUser(t, server, "5551234567")
-	// Simulate pre-rebrand user: phone present, consent NULL
+	// Even a user row with a legacy phone and a sessions row carrying one must
+	// not surface either in /auth/me.
 	server.db.Exec(`UPDATE users SET sms_consent_at = NULL WHERE id = ?`, userID)
 
 	rr := doRequest(server.handleMe, "GET", "/auth/me", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want 200", rr.Code)
 	}
-
-	var resp map[string]interface{}
-	json.Unmarshal(rr.Body.Bytes(), &resp)
-	needs, _ := resp["needs_sms_consent"].(bool)
-	if !needs {
-		t.Errorf("needs_sms_consent should be true for legacy user with NULL consent")
+	body := parseJSON(rr)
+	for _, k := range []string{"phone_number", "needs_sms_consent", "phone"} {
+		if _, present := body[k]; present {
+			t.Errorf("/auth/me must not carry %q, got %v", k, body[k])
+		}
 	}
-}
-
-func TestMe_NeedsSmsConsent_FalseAfterOptIn(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	cookie, userID := loginUser(t, server, "5551234567")
-	server.db.Exec(`UPDATE users SET sms_consent_at = CURRENT_TIMESTAMP WHERE id = ?`, userID)
-
-	rr := doRequest(server.handleMe, "GET", "/auth/me", nil, []*http.Cookie{cookie})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status: got %d, want 200", rr.Code)
-	}
-
-	var resp map[string]interface{}
-	json.Unmarshal(rr.Body.Bytes(), &resp)
-	needs, _ := resp["needs_sms_consent"].(bool)
-	if needs {
-		t.Errorf("needs_sms_consent should be false after consent recorded")
+	if body["logged_in"] != true {
+		t.Error("expected logged_in=true")
 	}
 }
 
@@ -238,7 +157,7 @@ func TestUsersSchema_HasPhoneNotPhoneNumber(t *testing.T) {
 // =============================================================================
 
 func TestMe_LoggedIn(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	user, _ := upsertUser(server.db, "5551234567")
 	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
 
@@ -253,8 +172,8 @@ func TestMe_LoggedIn(t *testing.T) {
 	if body["logged_in"] != true {
 		t.Error("Expected logged_in=true")
 	}
-	if body["phone_number"] != "5551234567" {
-		t.Errorf("phone: got %v, want 5551234567", body["phone_number"])
+	if _, present := body["phone_number"]; present {
+		t.Errorf("phone_number must not be in /auth/me, got %v", body["phone_number"])
 	}
 	if uid, ok := body["user_id"].(string); !ok || uid != user.ID {
 		t.Errorf("user_id: got %v, want %s", body["user_id"], user.ID)
@@ -262,7 +181,7 @@ func TestMe_LoggedIn(t *testing.T) {
 }
 
 func TestMe_NotLoggedIn(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleMe, "GET", "/auth/me", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Status: got %d, want 401", rr.Code)
@@ -270,7 +189,7 @@ func TestMe_NotLoggedIn(t *testing.T) {
 }
 
 func TestMe_ExpiredSession(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleMe, "GET", "/auth/me", nil,
 		[]*http.Cookie{{Name: "session", Value: "fake-expired-token"}})
 	if rr.Code != http.StatusUnauthorized {
@@ -279,7 +198,7 @@ func TestMe_ExpiredSession(t *testing.T) {
 }
 
 func TestMe_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleMe, "POST", "/auth/me", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("Status: got %d, want 405", rr.Code)
@@ -291,7 +210,7 @@ func TestMe_WrongMethod(t *testing.T) {
 // =============================================================================
 
 func TestLogout_ClearsSession(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
 
 	rr := doRequest(server.handleLogout, "POST", "/auth/logout", nil,
@@ -313,7 +232,7 @@ func TestLogout_ClearsSession(t *testing.T) {
 }
 
 func TestLogout_NoCookie(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleLogout, "POST", "/auth/logout", nil, nil)
 	if rr.Code != http.StatusOK {
 		t.Errorf("Status: got %d, want 200", rr.Code)
@@ -321,7 +240,7 @@ func TestLogout_NoCookie(t *testing.T) {
 }
 
 func TestLogout_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleLogout, "GET", "/auth/logout", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("Status: got %d, want 405", rr.Code)
@@ -346,7 +265,7 @@ func TestLogout_WrongMethod(t *testing.T) {
 // --- requireSession expired token ---
 
 func TestRequireSession_ExpiredToken(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Use a fake session cookie that doesn't exist in the store
 	req := httptest.NewRequest("GET", "/api/list", nil)
@@ -370,7 +289,7 @@ func TestRequireSession_ExpiredToken(t *testing.T) {
 // =============================================================================
 
 func TestRequireAdmin_NonAdminUser(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	user, _ := upsertUser(server.db, "5551234567")
 	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
@@ -389,7 +308,7 @@ func TestRequireAdmin_NonAdminUser(t *testing.T) {
 }
 
 func TestRequireAdmin_AdminUser(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	user, _ := upsertUser(server.db, "3104861833")
 	token, _ := server.sessions.CreateSession(user.ID, "3104861833", "phone")
@@ -455,91 +374,6 @@ func TestSessionStore_ExpiredSessionNotReturned(t *testing.T) {
 	}
 }
 
-func TestRealTwilioClient_SendSMS(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`{"sid":"SM123"}`))
-	}))
-	defer ts.Close()
-
-	origTransport := http.DefaultTransport
-	http.DefaultTransport = &testTransport{targetURL: ts.URL, real: origTransport}
-	defer func() { http.DefaultTransport = origTransport }()
-
-	client := &RealTwilioClient{
-		AccountSID: "testSID",
-		AuthToken:  "testToken",
-	}
-
-	err := client.SendSMS("+15551111111", "+15552222222", "Hello")
-	if err != nil {
-		t.Errorf("SendSMS: %v", err)
-	}
-}
-
-// testTransport redirects all HTTP requests to a test server URL
-
-func TestRealTwilioClient_DoRequest(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
-			t.Errorf("Expected POST, got %s", r.Method)
-		}
-		user, pass, ok := r.BasicAuth()
-		if !ok || user != "testSID" || pass != "testToken" {
-			t.Error("Expected basic auth with testSID/testToken")
-		}
-		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`{"status":"pending"}`))
-	}))
-	defer ts.Close()
-
-	client := &RealTwilioClient{
-		AccountSID:    "testSID",
-		AuthToken:     "testToken",
-	}
-
-	data := url.Values{"To": {"+15551234567"}, "Channel": {"sms"}}
-	body, err := client.doRequest(ts.URL, data, http.StatusCreated)
-	if err != nil {
-		t.Fatalf("doRequest: %v", err)
-	}
-	if string(body) != `{"status":"pending"}` {
-		t.Errorf("Unexpected body: %s", body)
-	}
-}
-
-func TestRealTwilioClient_DoRequestBadStatus(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"message":"error"}`))
-	}))
-	defer ts.Close()
-
-	client := &RealTwilioClient{
-		AccountSID: "testSID",
-		AuthToken:  "testToken",
-	}
-
-	data := url.Values{"key": {"value"}}
-	_, err := client.doRequest(ts.URL, data, http.StatusOK)
-	if err == nil {
-		t.Error("Expected error for bad status")
-	}
-}
-
-func TestRealTwilioClient_DoRequestNetworkError(t *testing.T) {
-	client := &RealTwilioClient{
-		AccountSID: "testSID",
-		AuthToken:  "testToken",
-	}
-
-	data := url.Values{"key": {"value"}}
-	_, err := client.doRequest("http://127.0.0.1:1", data, http.StatusOK)
-	if err == nil {
-		t.Error("Expected error for connection refused")
-	}
-}
-
 // =============================================================================
 // BRANDS ENDPOINT TESTS
 // =============================================================================
@@ -570,8 +404,7 @@ func TestSecureCookie_EnvAware(t *testing.T) {
 // =============================================================================
 
 func TestLogout_CookieHasSecurityFlags(t *testing.T) {
-	mock := &MockTwilioClient{}
-	server := newTestServer(t, mock)
+	server := newTestServer(t)
 	server.config.SecureCookies = true
 
 	// Login first
@@ -616,26 +449,6 @@ func TestLogout_CookieHasSecurityFlags(t *testing.T) {
 // =============================================================================
 // UTILITY FUNCTION TESTS
 // =============================================================================
-// VALIDATE TWILIO SIGNATURE TESTS
-// =============================================================================
-
-func TestValidateTwilioSignature_MissingHeader(t *testing.T) {
-	req := httptest.NewRequest("POST", "/api/sms", strings.NewReader("Body=hello"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	// No X-Twilio-Signature header
-	if validateTwilioSignature(req, "authtoken", "https://example.com") {
-		t.Error("Expected false when X-Twilio-Signature is missing")
-	}
-}
-
-func TestValidateTwilioSignature_WrongSignature(t *testing.T) {
-	req := httptest.NewRequest("POST", "/api/sms", strings.NewReader("Body=hello"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("X-Twilio-Signature", "not-the-right-signature")
-	if validateTwilioSignature(req, "authtoken", "https://example.com") {
-		t.Error("Expected false for wrong signature")
-	}
-}
 
 // =============================================================================
 // REQUIRE SAVED LIST ACCESS TESTS
@@ -644,7 +457,7 @@ func TestValidateTwilioSignature_WrongSignature(t *testing.T) {
 // =============================================================================
 
 func TestOnboarding_MeReturnsLoginCount(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	user, _ := upsertUser(server.db, "5551234567")
 	token, _ := server.sessions.CreateSession(user.ID, "5551234567", "phone")
 	cookies := []*http.Cookie{{Name: "session", Value: token}}
@@ -670,7 +483,7 @@ func TestOnboarding_MeReturnsLoginCount(t *testing.T) {
 }
 
 func TestOnboarding_MeReturnsLoginCountAfterLogins(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Simulate a phone login which increments login_count
 	server.db.Exec("INSERT INTO users (id, phone, login_count) VALUES ('user-1', '5551234567', 0)")
@@ -691,7 +504,7 @@ func TestOnboarding_MeReturnsLoginCountAfterLogins(t *testing.T) {
 }
 
 func TestOnboarding_MeReturnsName(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	server.db.Exec("INSERT INTO users (id, phone, name) VALUES ('user-1', '5551234567', 'Andy')")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
@@ -707,7 +520,7 @@ func TestOnboarding_MeReturnsName(t *testing.T) {
 }
 
 func TestOnboarding_OnboardingFlagsColumnExists(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Verify onboarding_flags column exists with default value
 	var flags string
@@ -728,7 +541,7 @@ func TestOnboarding_OnboardingFlagsColumnExists(t *testing.T) {
 }
 
 func TestOnboarding_NameSavedViaSettings(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-1', '5551234567')")
 	token, _ := server.sessions.CreateSession("user-1", "5551234567", "phone")
@@ -767,7 +580,7 @@ func TestOnboarding_NameSavedViaSettings(t *testing.T) {
 // =============================================================================
 
 func TestAuthMe_ReturnsAuthMethods(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create user with phone auth
 	user, err := upsertUser(server.db, "5551234567")
@@ -812,7 +625,7 @@ func TestAuthMe_ReturnsAuthMethods(t *testing.T) {
 }
 
 func TestAuthMe_ReturnsAuthMethods_SingleMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create user with only phone auth
 	user, err := upsertUser(server.db, "5551234567")
@@ -875,7 +688,7 @@ func TestAuthMe_ReturnsAuthMethods_SingleMethod(t *testing.T) {
 // =============================================================================
 
 func TestCleanExpired_RemovesExpiredSessions(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5554470001")
 
 	// Insert an expired session directly with SQLite datetime format
@@ -901,7 +714,7 @@ func TestCleanExpired_RemovesExpiredSessions(t *testing.T) {
 }
 
 func TestCleanExpired_KeepsValidSessions(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5554470002")
 
 	// loginUser creates a valid session (30-day expiry)
@@ -918,7 +731,7 @@ func TestCleanExpired_KeepsValidSessions(t *testing.T) {
 }
 
 func TestDeleteUserSessions_RemovesAll(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5554470003")
 
 	// Create additional sessions
@@ -941,7 +754,7 @@ func TestDeleteUserSessions_RemovesAll(t *testing.T) {
 }
 
 func TestDeleteUserSessions_DoesNotAffectOtherUsers(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID1 := loginUser(t, server, "5554470004")
 	_, userID2 := loginUser(t, server, "5554470005")
 

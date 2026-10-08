@@ -194,9 +194,10 @@ func (s *Server) checkDealsForItems(userID string, addedItems []ListItem) *Pendi
 				}
 				// Verified identity required
 				if deal.RequireVerifiedIdentity == 1 {
-					var phoneNumber string
-					s.db.QueryRow("SELECT COALESCE(phone,'') FROM users WHERE id = ?", userID).Scan(&phoneNumber)
-					if phoneNumber == "" {
+					// A verified identity is a Rally (Clerk) sign-in.
+					var clerkID string
+					s.db.QueryRow("SELECT COALESCE(clerk_user_id,'') FROM users WHERE id = ?", userID).Scan(&clerkID)
+					if clerkID == "" {
 						continue
 					}
 				}

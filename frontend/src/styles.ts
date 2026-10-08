@@ -392,14 +392,6 @@ export const CONFETTI_COLORS = [
   '#35644F', '#377256', '#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#FF6F91',
 ]
 
-// Utility: format phone digits as (555) 123-4567
-export function formatPhone(digits: string): string {
-  if (digits.length === 0) return ''
-  if (digits.length <= 3) return `(${digits}`
-  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
-  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`
-}
-
 // Page-level layout styles shared across screens
 // Uses CSS custom properties (var(--x)) for dark mode reactivity.
 export const pageStyles = {

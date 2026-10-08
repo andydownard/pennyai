@@ -101,7 +101,6 @@ export function FeedbackTab({ loading, items, filter, onFilterChange, onItemsCha
           {/* Meta */}
           <div style={{ fontFamily: FONT, fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
             {f.user_name || `User #${f.user_id}`}
-            {f.user_phone ? ` · ${f.user_phone}` : ''}
             {' · '}
             {new Date(f.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
             {f.github_issue_url && (

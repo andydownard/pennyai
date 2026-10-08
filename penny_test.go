@@ -16,7 +16,7 @@ import (
 // =============================================================================
 
 func TestNPSCheck_NotEnoughLogins(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// User has 0 login_count by default
@@ -32,7 +32,7 @@ func TestNPSCheck_NotEnoughLogins(t *testing.T) {
 }
 
 func TestNPSCheck_ShowsAfterEnoughLogins(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.config.NPSIntervalDays = 90
 	cookie, userID := loginUser(t, server, "5551234567")
 
@@ -47,7 +47,7 @@ func TestNPSCheck_ShowsAfterEnoughLogins(t *testing.T) {
 }
 
 func TestNPSCheck_HidesAfterRecentResponse(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.config.NPSIntervalDays = 90
 	cookie, userID := loginUser(t, server, "5551234567")
 
@@ -64,7 +64,7 @@ func TestNPSCheck_HidesAfterRecentResponse(t *testing.T) {
 }
 
 func TestNPS_SubmitSuccess(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	body := map[string]interface{}{"score": 9, "comment": "Love it!"}
@@ -92,7 +92,7 @@ func TestNPS_SubmitSuccess(t *testing.T) {
 }
 
 func TestNPS_InvalidScore(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Score too high
@@ -111,7 +111,7 @@ func TestNPS_InvalidScore(t *testing.T) {
 }
 
 func TestNPS_BoundaryScores(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Score 0 should be valid
@@ -130,7 +130,7 @@ func TestNPS_BoundaryScores(t *testing.T) {
 }
 
 func TestNPS_EmptyComment(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	body := map[string]interface{}{"score": 7, "comment": ""}
@@ -151,7 +151,7 @@ func TestNPS_EmptyComment(t *testing.T) {
 // =============================================================================
 
 func TestNPS_CommentTruncation(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	longComment := strings.Repeat("a", 1000)
@@ -173,7 +173,7 @@ func TestNPS_CommentTruncation(t *testing.T) {
 // =============================================================================
 
 func TestNPSCheck_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleNPSCheck, "GET", "/api/nps/check", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Status: got %d, want 401", rr.Code)
@@ -181,7 +181,7 @@ func TestNPSCheck_RequiresAuth(t *testing.T) {
 }
 
 func TestNPSCheck_ReturnsShowNPSField(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559990020")
 
 	rr := doRequest(server.handleNPSCheck, "GET", "/api/nps/check", nil, []*http.Cookie{cookie})
@@ -195,7 +195,7 @@ func TestNPSCheck_ReturnsShowNPSField(t *testing.T) {
 }
 
 func TestNPS_Submit(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559990021")
 
 	rr := doRequest(server.handleNPS, "POST", "/api/nps",
@@ -207,7 +207,7 @@ func TestNPS_Submit(t *testing.T) {
 }
 
 func TestNPS_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleNPS, "POST", "/api/nps",
 		map[string]interface{}{"score": 7}, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -220,7 +220,7 @@ func TestNPS_RequiresAuth(t *testing.T) {
 // =============================================================================
 
 func TestNPSConstants_MinLoginThreshold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 	server.config.NPSIntervalDays = 90
 
@@ -244,7 +244,7 @@ func TestNPSConstants_MinLoginThreshold(t *testing.T) {
 // =============================================================================
 
 func TestNPS_EdgeCase_ScoreNegative(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleNPS, "POST", "/api/nps",
@@ -259,7 +259,7 @@ func TestNPS_EdgeCase_ScoreNegative(t *testing.T) {
 }
 
 func TestNPS_EdgeCase_ScoreOver10(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleNPS, "POST", "/api/nps",
@@ -270,7 +270,7 @@ func TestNPS_EdgeCase_ScoreOver10(t *testing.T) {
 }
 
 func TestNPS_EdgeCase_DuplicateSubmission(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	body := map[string]interface{}{"score": 8, "comment": "First"}
@@ -295,7 +295,7 @@ func TestNPS_EdgeCase_DuplicateSubmission(t *testing.T) {
 }
 
 func TestNPS_EdgeCase_WhitespaceOnlyComment(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	body := map[string]interface{}{"score": 7, "comment": "   \t\n   "}
@@ -313,7 +313,7 @@ func TestNPS_EdgeCase_WhitespaceOnlyComment(t *testing.T) {
 }
 
 func TestNPS_EdgeCase_CommentExactly500Chars(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	exact500 := strings.Repeat("b", 500)
@@ -331,7 +331,7 @@ func TestNPS_EdgeCase_CommentExactly500Chars(t *testing.T) {
 }
 
 func TestNPS_EdgeCase_CommentExactly501CharsTruncated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	over500 := strings.Repeat("c", 501)
@@ -349,7 +349,7 @@ func TestNPS_EdgeCase_CommentExactly501CharsTruncated(t *testing.T) {
 }
 
 func TestNPS_EdgeCase_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// NPS submit is POST only
@@ -367,7 +367,7 @@ func TestNPS_EdgeCase_MethodNotAllowed(t *testing.T) {
 }
 
 func TestNPS_EdgeCase_InvalidJSON(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// nil body
@@ -378,7 +378,7 @@ func TestNPS_EdgeCase_InvalidJSON(t *testing.T) {
 }
 
 func TestNPS_EdgeCase_MissingScoreDefaultsToZero(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// JSON with only comment — score defaults to 0 (Go zero value), which is valid (0-10)
@@ -396,7 +396,7 @@ func TestNPS_EdgeCase_MissingScoreDefaultsToZero(t *testing.T) {
 }
 
 func TestNPSCheck_EdgeCase_ExactMinLoginThreshold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.config.NPSIntervalDays = 90
 	cookie, userID := loginUser(t, server, "5551234567")
 
@@ -411,7 +411,7 @@ func TestNPSCheck_EdgeCase_ExactMinLoginThreshold(t *testing.T) {
 }
 
 func TestNPSCheck_EdgeCase_OneBelowMinLoginThreshold(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.config.NPSIntervalDays = 90
 	cookie, userID := loginUser(t, server, "5551234567")
 
@@ -430,7 +430,7 @@ func TestNPSCheck_EdgeCase_OneBelowMinLoginThreshold(t *testing.T) {
 // =============================================================================
 
 func TestNPSDismiss_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleNPSDismiss, "POST", "/api/nps/dismiss", nil, []*http.Cookie{cookie})
@@ -455,7 +455,7 @@ func TestNPSDismiss_Success(t *testing.T) {
 }
 
 func TestNPSDismiss_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleNPSDismiss, "POST", "/api/nps/dismiss", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Status: got %d, want 401", rr.Code)
@@ -463,7 +463,7 @@ func TestNPSDismiss_RequiresAuth(t *testing.T) {
 }
 
 func TestNPSDismiss_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleNPSDismiss, "GET", "/api/nps/dismiss", nil, []*http.Cookie{cookie})
@@ -473,7 +473,7 @@ func TestNPSDismiss_MethodNotAllowed(t *testing.T) {
 }
 
 func TestNPSCheck_HidesAfterDismiss(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.config.NPSIntervalDays = 90
 	cookie, userID := loginUser(t, server, "5551234567")
 
@@ -502,7 +502,7 @@ func TestNPSCheck_HidesAfterDismiss(t *testing.T) {
 }
 
 func TestNPSCheck_ShowsAfterDismissExpires(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.config.NPSIntervalDays = 90
 	cookie, userID := loginUser(t, server, "5551234567")
 
@@ -524,7 +524,7 @@ func TestNPSCheck_ShowsAfterDismissExpires(t *testing.T) {
 }
 
 func TestNPSDismiss_Idempotent(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Dismiss twice — should succeed both times (idempotent)
@@ -539,7 +539,7 @@ func TestNPSDismiss_Idempotent(t *testing.T) {
 }
 
 func TestNPS_RateLimited(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Pre-fill the rate limiter with 3 entries (max allowed)
@@ -571,7 +571,7 @@ func TestNPS_RateLimited(t *testing.T) {
 // =============================================================================
 
 func TestMilestoneCheck_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleMilestoneCheck, "GET", "/api/milestones/check", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Status: got %d, want 401", rr.Code)
@@ -579,7 +579,7 @@ func TestMilestoneCheck_Unauthenticated(t *testing.T) {
 }
 
 func TestMilestoneCheck_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-100', '+15551234567')")
 	token, _ := server.sessions.CreateSession("user-100", "+15551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -591,7 +591,7 @@ func TestMilestoneCheck_MethodNotAllowed(t *testing.T) {
 }
 
 func TestMilestoneCheck_NoSavings(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-100', '+15551234567')")
 	token, _ := server.sessions.CreateSession("user-100", "+15551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -608,7 +608,7 @@ func TestMilestoneCheck_NoSavings(t *testing.T) {
 }
 
 func TestMilestoneCheck_WithSavings(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone, name) VALUES ('user-100', '+15551234567', 'Test User')")
 	token, _ := server.sessions.CreateSession("user-100", "+15551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -638,7 +638,7 @@ func TestMilestoneCheck_WithSavings(t *testing.T) {
 }
 
 func TestMilestoneAck_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-100', '+15551234567')")
 	token, _ := server.sessions.CreateSession("user-100", "+15551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -672,7 +672,7 @@ func TestMilestoneAck_Success(t *testing.T) {
 }
 
 func TestMilestoneAck_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleMilestoneAck, "POST", "/api/milestones/ack", map[string]int{"cents": 1000}, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Status: got %d, want 401", rr.Code)
@@ -680,7 +680,7 @@ func TestMilestoneAck_Unauthenticated(t *testing.T) {
 }
 
 func TestMilestoneAck_InvalidBody(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-100', '+15551234567')")
 	token, _ := server.sessions.CreateSession("user-100", "+15551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -698,7 +698,7 @@ func TestMilestoneAck_InvalidBody(t *testing.T) {
 // =============================================================================
 
 func TestPennyInsights_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handlePennyInsights, "GET", "/api/penny/insights", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Status: got %d, want 401", rr.Code)
@@ -706,7 +706,7 @@ func TestPennyInsights_Unauthenticated(t *testing.T) {
 }
 
 func TestPennyInsights_EmptyUser(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-100', '+15551234567')")
 	token, _ := server.sessions.CreateSession("user-100", "+15551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -729,7 +729,7 @@ func TestPennyInsights_EmptyUser(t *testing.T) {
 }
 
 func TestRecordSignal(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-100', '+15551234567')")
 
 	server.recordSignal("user-100", "item_added", "Dairy", "Organic Valley", map[string]interface{}{"name": "Whole Milk"})
@@ -751,7 +751,7 @@ func TestRecordSignal(t *testing.T) {
 }
 
 func TestUpdateLearning(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// First insert
 	server.updateLearning("user", "user-1", "shopping_frequency", "weekly", 0.7)
@@ -772,7 +772,7 @@ func TestUpdateLearning(t *testing.T) {
 }
 
 func TestProcessLearnings(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create user with some activity
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-100', '+15551234567')")
@@ -812,7 +812,7 @@ func TestProcessLearnings(t *testing.T) {
 }
 
 func TestPennyInsights_WithLearnings(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-100', '+15551234567')")
 	token, _ := server.sessions.CreateSession("user-100", "+15551234567", "phone")
 	cookie := &http.Cookie{Name: "session", Value: token}
@@ -837,7 +837,7 @@ func TestPennyInsights_WithLearnings(t *testing.T) {
 }
 
 func TestBuildLearningContext_AutotuneOff(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone, penny_autotune) VALUES ('user-100', '+15551234567', 0)")
 	ctx := server.buildLearningContext("user-100")
 	if ctx != "" {
@@ -846,7 +846,7 @@ func TestBuildLearningContext_AutotuneOff(t *testing.T) {
 }
 
 func TestBuildLearningContext_WithLearnings(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone, penny_autotune) VALUES ('user-100', '+15551234567', 1)")
 
 	// Add learnings
@@ -876,7 +876,7 @@ func TestBuildLearningContext_WithLearnings(t *testing.T) {
 }
 
 func TestRepurchaseCycleDetection(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone) VALUES ('user-100', '+15551234567')")
 	server.db.Exec("INSERT INTO list_items (id, user_id, name, checked) VALUES (1, 'user-100', 'Milk', 0)")
 
@@ -899,7 +899,7 @@ func TestRepurchaseCycleDetection(t *testing.T) {
 }
 
 func TestBuildLearningContext_LowConfidenceExcluded(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.db.Exec("INSERT INTO users (id, phone, penny_autotune) VALUES ('user-100', '+15551234567', 1)")
 
 	// Add low-confidence learning (below 0.3 threshold)
@@ -918,7 +918,7 @@ func TestBuildLearningContext_LowConfidenceExcluded(t *testing.T) {
 // =============================================================================
 
 func TestRepurchaseNudges_Empty(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleRepurchaseNudges, "GET", "/api/penny/nudges", nil, []*http.Cookie{cookie})
@@ -933,7 +933,7 @@ func TestRepurchaseNudges_Empty(t *testing.T) {
 }
 
 func TestRepurchaseNudges_DueItem(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec(`INSERT INTO penny_learnings (scope, scope_id, key, value, confidence, updated_at)
@@ -958,7 +958,7 @@ func TestRepurchaseNudges_DueItem(t *testing.T) {
 }
 
 func TestRepurchaseNudges_NotDueYet(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec(`INSERT INTO penny_learnings (scope, scope_id, key, value, confidence, updated_at)
@@ -976,7 +976,7 @@ func TestRepurchaseNudges_NotDueYet(t *testing.T) {
 }
 
 func TestRepurchaseNudges_AlreadyOnList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	server.db.Exec(`INSERT INTO penny_learnings (scope, scope_id, key, value, confidence, updated_at)
@@ -994,7 +994,7 @@ func TestRepurchaseNudges_AlreadyOnList(t *testing.T) {
 }
 
 func TestRepurchaseNudges_Unauthorized(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleRepurchaseNudges, "GET", "/api/penny/nudges", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Expected 401, got %d", rr.Code)
@@ -1002,7 +1002,7 @@ func TestRepurchaseNudges_Unauthorized(t *testing.T) {
 }
 
 func TestRepurchaseNudges_InLearningContext(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	server.db.Exec("INSERT INTO users (id, phone, penny_autotune) VALUES ('user-100', '+15551234567', 1)")
 
@@ -1029,7 +1029,7 @@ func TestRepurchaseNudges_InLearningContext(t *testing.T) {
 // =============================================================================
 
 func TestRepurchaseNudge_NoSession(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleRepurchaseNudges, "GET", "/api/penny/nudges", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Expected 401, got %d", rr.Code)
@@ -1037,7 +1037,7 @@ func TestRepurchaseNudge_NoSession(t *testing.T) {
 }
 
 func TestRepurchaseNudge_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 	rr := doRequest(server.handleRepurchaseNudges, "POST", "/api/penny/nudges", nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusMethodNotAllowed {
@@ -1046,7 +1046,7 @@ func TestRepurchaseNudge_MethodNotAllowed(t *testing.T) {
 }
 
 func TestRepurchaseNudge_EmptyWhenNoLearnings(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleRepurchaseNudges, "GET", "/api/penny/nudges", nil, []*http.Cookie{cookie})
@@ -1065,7 +1065,7 @@ func TestRepurchaseNudge_EmptyWhenNoLearnings(t *testing.T) {
 }
 
 func TestRepurchaseNudge_OverdueItemReturned(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Seed a repurchase_cycle learning: milk every 7 days
@@ -1112,7 +1112,7 @@ func TestRepurchaseNudge_OverdueItemReturned(t *testing.T) {
 }
 
 func TestRepurchaseNudge_NotDueYet(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Seed a repurchase_cycle learning: milk every 14 days
@@ -1140,7 +1140,7 @@ func TestRepurchaseNudge_NotDueYet(t *testing.T) {
 }
 
 func TestRepurchaseNudge_SuppressedWhenOnList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Seed a repurchase_cycle learning: eggs every 7 days
@@ -1168,7 +1168,7 @@ func TestRepurchaseNudge_SuppressedWhenOnList(t *testing.T) {
 }
 
 func TestRepurchaseNudge_MultipleItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Seed two repurchase cycles
@@ -1200,7 +1200,7 @@ func TestRepurchaseNudge_MultipleItems(t *testing.T) {
 }
 
 func TestRepurchaseNudge_DoesNotLeakAcrossUsers(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userA := loginUser(t, server, "5551234567")
 	cookieB, _ := loginUser(t, server, "5559876543")
 
@@ -1232,7 +1232,7 @@ func TestRepurchaseNudge_DoesNotLeakAcrossUsers(t *testing.T) {
 // --- Penny Quote Tests ---
 
 func TestPennyQuote_Login_NoAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	req := httptest.NewRequest("GET", "/api/penny/quote?context=login", nil)
 	rr := httptest.NewRecorder()
@@ -1250,7 +1250,7 @@ func TestPennyQuote_Login_NoAuth(t *testing.T) {
 }
 
 func TestPennyQuote_NonLogin_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	req := httptest.NewRequest("GET", "/api/penny/quote?context=chime", nil)
 	rr := httptest.NewRecorder()
@@ -1262,7 +1262,7 @@ func TestPennyQuote_NonLogin_RequiresAuth(t *testing.T) {
 }
 
 func TestPennyQuote_DefaultContextIsLogin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	req := httptest.NewRequest("GET", "/api/penny/quote", nil)
 	rr := httptest.NewRecorder()
@@ -1280,7 +1280,7 @@ func TestPennyQuote_DefaultContextIsLogin(t *testing.T) {
 // =============================================================================
 
 func TestPennyQuote_NameSanitization_NumbersStripped(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Name with numbers should have them stripped — the handler strips non-alpha chars
 	req := httptest.NewRequest("GET", "/api/penny/quote?context=login&name=John123", nil)
@@ -1299,7 +1299,7 @@ func TestPennyQuote_NameSanitization_NumbersStripped(t *testing.T) {
 }
 
 func TestPennyQuote_NameTruncation(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Name longer than 30 chars should be truncated
 	longName := "Abcdefghijklmnopqrstuvwxyzabcdefghijklmnop" // 43 chars
@@ -1318,7 +1318,7 @@ func TestPennyQuote_NameTruncation(t *testing.T) {
 }
 
 func TestPennyQuote_UnknownContextDefaultsToChime(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	// Unknown context "foobar" — the handler will use it as-is. Since it's not "login",
@@ -1345,7 +1345,7 @@ func TestPennyQuote_UnknownContextDefaultsToChime(t *testing.T) {
 }
 
 func TestPennyQuote_ChimeWithoutAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	req := httptest.NewRequest("GET", "/api/penny/quote?context=chime", nil)
 	rr := httptest.NewRecorder()
@@ -1357,7 +1357,7 @@ func TestPennyQuote_ChimeWithoutAuth(t *testing.T) {
 }
 
 func TestPennyQuote_DoneContext(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	req := httptest.NewRequest("GET", "/api/penny/quote?context=done", nil)
@@ -1395,7 +1395,7 @@ func TestPennyQuote_DoneContext(t *testing.T) {
 // --- PennyInsights with data ---
 
 func TestPennyInsights_WithHouseholdLearnings(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5559990001")
 
 	// Create household and add user
@@ -1422,7 +1422,7 @@ func TestPennyInsights_WithHouseholdLearnings(t *testing.T) {
 }
 
 func TestPennyInsights_WithSwapBehavior(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5559990002")
 
 	// Add swap events
@@ -1449,7 +1449,7 @@ func TestPennyInsights_WithSwapBehavior(t *testing.T) {
 }
 
 func TestPennyInsights_WithBrandAffinities(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5559990003")
 
 	server.db.Exec("INSERT INTO brand_preferences (user_id, product_category, brand, pick_count, streak) VALUES (?, 'milk', 'Organic Valley', 8, 5)", userID)
@@ -1471,7 +1471,7 @@ func TestPennyInsights_WithBrandAffinities(t *testing.T) {
 }
 
 func TestPennyInsights_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handlePennyInsights, "POST", "/api/penny/insights", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d", rr.Code)

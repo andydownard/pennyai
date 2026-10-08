@@ -4,6 +4,7 @@ package main
 // The exchange-level behaviour is in handlers_clerk_test.go.
 
 import (
+	"database/sql"
 	"errors"
 	"testing"
 )
@@ -17,30 +18,8 @@ func countRows(t *testing.T, s *Server, query string, args ...interface{}) int {
 	return n
 }
 
-func TestClerkVerifiedPhone(t *testing.T) {
-	cases := []struct {
-		name string
-		id   ClerkIdentity
-		want string
-	}{
-		{"verified e164", ClerkIdentity{Phone: "+15551234567", PhoneVerified: true}, "5551234567"},
-		{"verified formatted", ClerkIdentity{Phone: "(555) 123-4567", PhoneVerified: true}, "5551234567"},
-		{"verified with leading 1", ClerkIdentity{Phone: "15551234567", PhoneVerified: true}, "5551234567"},
-		{"unverified", ClerkIdentity{Phone: "+15551234567"}, ""},
-		{"verified malformed", ClerkIdentity{Phone: "555", PhoneVerified: true}, ""},
-		{"verified empty", ClerkIdentity{PhoneVerified: true}, ""},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := clerkVerifiedPhone(c.id); got != c.want {
-				t.Errorf("got %q want %q", got, c.want)
-			}
-		})
-	}
-}
-
 func TestUpsertClerkUser_RequiresClerkID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	if _, _, err := upsertClerkUser(server.db, ClerkIdentity{}); err == nil {
 		t.Fatal("want an error for an empty clerk id")
 	}
@@ -50,7 +29,7 @@ func TestUpsertClerkUser_RequiresClerkID(t *testing.T) {
 }
 
 func TestUpsertClerkUser_MintsThenRepeats(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	id := ClerkIdentity{ClerkUserID: "user_u1", Email: " Pat@Example.com ", Name: "Pat"}
 
 	u1, by1, err := upsertClerkUser(server.db, id)
@@ -83,7 +62,7 @@ func TestUpsertClerkUser_MintsThenRepeats(t *testing.T) {
 }
 
 func TestUpsertClerkUser_NameIsKeptEmailFollowsClerk(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	u, _, _ := upsertClerkUser(server.db, ClerkIdentity{ClerkUserID: "user_n", Email: "old@example.com", Name: "First"})
 	if _, _, err := upsertClerkUser(server.db, ClerkIdentity{ClerkUserID: "user_n", Email: "new@example.com", Name: "Second"}); err != nil {
 		t.Fatalf("repeat: %v", err)
@@ -98,31 +77,44 @@ func TestUpsertClerkUser_NameIsKeptEmailFollowsClerk(t *testing.T) {
 	}
 }
 
-func TestUpsertClerkUser_AdoptsPhoneOnlyRow(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
-	texted, _ := upsertUser(server.db, "5558880000")
+func TestUpsertClerkUser_NeverAdoptsOrStoresAPhone(t *testing.T) {
+	// A legacy row holds a phone. The token carries the same phone, verified.
+	// Phones are not an identity signal any more: the legacy row stays as it
+	// was, a new row is minted, and that row holds no phone.
+	server := newTestServer(t)
+	legacy, _ := upsertUser(server.db, "5558880000")
 
-	u, by, err := upsertClerkUser(server.db, ClerkIdentity{ClerkUserID: "user_ad", Phone: "+15558880000", PhoneVerified: true})
-	if err != nil || by != "phone" {
-		t.Fatalf("err=%v mappedBy=%q want phone", err, by)
+	u, by, err := upsertClerkUser(server.db, ClerkIdentity{ClerkUserID: "user_ad", Email: "ad@example.com"})
+	if err != nil || by != "" {
+		t.Fatalf("err=%v mappedBy=%q want a fresh mint", err, by)
 	}
-	if u.ID != texted.ID {
-		t.Errorf("must adopt %s, got %s", texted.ID, u.ID)
+	if u.ID == legacy.ID {
+		t.Fatalf("must not adopt the phone-only row %s", legacy.ID)
 	}
-	if n := countRows(t, server, "SELECT COUNT(*) FROM users"); n != 1 {
-		t.Errorf("users rows: got %d want 1", n)
+	var clerk sql.NullString
+	server.db.QueryRow("SELECT clerk_user_id FROM users WHERE id = ?", legacy.ID).Scan(&clerk)
+	if clerk.Valid {
+		t.Errorf("legacy row was bound to %q", clerk.String)
+	}
+	var phone sql.NullString
+	server.db.QueryRow("SELECT phone FROM users WHERE id = ?", u.ID).Scan(&phone)
+	if phone.Valid && phone.String != "" {
+		t.Errorf("minted row stores phone %q", phone.String)
+	}
+	if n := countRows(t, server, "SELECT COUNT(*) FROM users"); n != 2 {
+		t.Errorf("users rows: got %d want 2", n)
 	}
 }
 
 func TestUpsertClerkUser_ConflictIsReportedNotOverwritten(t *testing.T) {
 	// A row bound to Clerk user A is never rebound: B gets its own row.
-	server := newTestServer(t, &MockTwilioClient{})
-	a, _, _ := upsertClerkUser(server.db, ClerkIdentity{ClerkUserID: "user_a", Phone: "5557770000", PhoneVerified: true})
-	b, _, err := upsertClerkUser(server.db, ClerkIdentity{ClerkUserID: "user_b", Phone: "5557770000", PhoneVerified: true})
+	server := newTestServer(t)
+	a, _, _ := upsertClerkUser(server.db, ClerkIdentity{ClerkUserID: "user_a", Email: "same@example.com"})
+	b, _, err := upsertClerkUser(server.db, ClerkIdentity{ClerkUserID: "user_b", Email: "same@example.com"})
 	if errors.Is(err, errClerkAccountConflict) || err != nil {
 		t.Fatalf("B should be minted cleanly, got %v", err)
 	}
-	if a.ID == b.ID || b.PhoneNumber != "" {
+	if a.ID == b.ID {
 		t.Errorf("A=%+v B=%+v", a, b)
 	}
 	var clerk string

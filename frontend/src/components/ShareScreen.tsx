@@ -3,11 +3,10 @@ import { appHost, referralLink } from '../appUrl'
 import { QRCodeCanvas } from 'qrcode.react'
 import { ScreenTransition } from './ScreenTransition'
 import { ConfirmModal } from './ConfirmModal'
-import { FONT, FONT_2XS, FONT_XS, FONT_BASE, FONT_SM, formatPhone, pageStyles, listStyles, BRAND } from '../styles'
+import { FONT, FONT_2XS, FONT_XS, FONT_BASE, FONT_SM, pageStyles, listStyles, BRAND } from '../styles'
 
 interface SettingsMember {
   name: string
-  phone: string
 }
 
 interface ShareScreenProps {
@@ -232,13 +231,12 @@ export function ShareScreen({
                 borderBottom: '1px solid var(--border)', gap: '10px',
               }}>
                 <div style={avatarCircle()}>
-                  {(m.name || m.phone || '?')[0].toUpperCase()}
+                  {(m.name || '?')[0].toUpperCase()}
                 </div>
                 <div>
                   <div style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text)' }}>
-                    {m.name || formatPhone(m.phone)}
+                    {m.name || 'Household member'}
                   </div>
-                  {m.name && <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)' }}>{formatPhone(m.phone)}</div>}
                 </div>
               </div>
             ))}

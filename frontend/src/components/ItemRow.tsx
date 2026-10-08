@@ -18,7 +18,6 @@ export type ListItem = {
   urgent: boolean
   created_at: string
   added_by_name: string
-  added_by_phone: string
   claimed_by_id: number | null
   claimed_by_name: string
   swap_savings_cents: number

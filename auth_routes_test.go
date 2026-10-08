@@ -1,7 +1,7 @@
 package main
 
 // auth_routes_test.go — retired sign-in routes, the test-only login route, boot
-// decisions, admin access, and the SMS client / base URL selection.
+// decisions, admin access, and base URL selection.
 
 import (
 	"net/http"
@@ -17,7 +17,7 @@ func newAuthMux(server *Server) *http.ServeMux {
 }
 
 func TestRetiredAuth_AllTenPathsAnswer410(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	mux := newAuthMux(server)
 	if len(retiredAuthPaths) != 10 {
 		t.Fatalf("expected 10 retired paths, have %d", len(retiredAuthPaths))
@@ -47,10 +47,38 @@ func TestRetiredAuth_AllTenPathsAnswer410(t *testing.T) {
 	}
 }
 
+func TestRetiredTexting_PathsAnswer410(t *testing.T) {
+	server := newTestServer(t)
+	mux := newAuthMux(server) // registerAuthRoutes: the function main uses
+	if len(retiredTextingPaths) != 3 {
+		t.Fatalf("expected 3 retired texting paths, have %d", len(retiredTextingPaths))
+	}
+	for _, p := range []string{"/api/sms", "/api/me/sms-consent", "/api/penny.vcf"} {
+		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete} {
+			t.Run(method+" "+p, func(t *testing.T) {
+				rr := doRequestMux(mux, method, p, map[string]string{"From": "+15551234567", "Body": "milk"}, nil)
+				if rr.Code != http.StatusGone {
+					t.Fatalf("status: got %d want 410", rr.Code)
+				}
+				if got := parseJSON(rr)["error"]; got != "Texting is no longer part of Groflo." {
+					t.Errorf("error: got %v", got)
+				}
+			})
+		}
+	}
+	// A retired call must write nothing: no user, no list item.
+	if n := countRows(t, server, "SELECT COUNT(*) FROM users"); n != 0 {
+		t.Errorf("users rows: got %d want 0", n)
+	}
+	if n := countRows(t, server, "SELECT COUNT(*) FROM list_items"); n != 0 {
+		t.Errorf("list_items rows: got %d want 0", n)
+	}
+}
+
 func TestRetiredAuth_LiveRoutesStillRegistered(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	mux := newAuthMux(server)
-	for _, p := range []string{"/auth/me", "/auth/logout", "/api/config", "/api/me/sms-consent", "/auth/clerk/exchange"} {
+	for _, p := range []string{"/auth/me", "/auth/logout", "/api/config", "/auth/clerk/exchange"} {
 		_, pattern := mux.Handler(httptest.NewRequest(http.MethodGet, p, nil))
 		if pattern == "" {
 			t.Errorf("%s is not registered", p)
@@ -59,12 +87,12 @@ func TestRetiredAuth_LiveRoutesStillRegistered(t *testing.T) {
 }
 
 func TestLoginTestMode_Works(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.config.TestMode = true
 	mux := newAuthMux(server)
 
-	t.Run("with phone", func(t *testing.T) {
-		rr := doRequestMux(mux, http.MethodPost, "/auth/test-login", map[string]string{"phone_number": "212-555-0101", "name": "Pat"}, nil)
+	t.Run("mints a named user and a session", func(t *testing.T) {
+		rr := doRequestMux(mux, http.MethodPost, "/auth/test-login", map[string]string{"name": "Pat"}, nil)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("status: got %d (%s)", rr.Code, rr.Body.String())
 		}
@@ -73,22 +101,33 @@ func TestLoginTestMode_Works(t *testing.T) {
 		if body["success"] != true || cookie == nil || !cookie.HttpOnly {
 			t.Fatalf("body=%v cookie=%+v", body, cookie)
 		}
-		var phone, name string
-		server.db.QueryRow("SELECT phone, name FROM users WHERE id = ?", body["user_id"]).Scan(&phone, &name)
-		if phone != "2125550101" || name != "Pat" {
-			t.Errorf("user: phone=%q name=%q", phone, name)
-		}
-		// Same phone again: same user, no duplicate.
-		rr2 := doRequestMux(mux, http.MethodPost, "/auth/test-login", map[string]string{"phone_number": "2125550101"}, nil)
-		if parseJSON(rr2)["user_id"] != body["user_id"] {
-			t.Error("same phone must give the same user")
-		}
-		if n := countRows(t, server, "SELECT COUNT(*) FROM users WHERE phone = '2125550101'"); n != 1 {
-			t.Errorf("rows for phone: got %d want 1", n)
+		var name string
+		server.db.QueryRow("SELECT name FROM users WHERE id = ?", body["user_id"]).Scan(&name)
+		if name != "Pat" {
+			t.Errorf("name=%q", name)
 		}
 		sess, ok := server.sessions.GetSession(cookie.Value)
 		if !ok || sess.UserID != body["user_id"] {
 			t.Errorf("session: %+v ok=%v", sess, ok)
+		}
+	})
+
+	t.Run("a phone_number field is ignored", func(t *testing.T) {
+		users := countRows(t, server, "SELECT COUNT(*) FROM users")
+		for _, phone := range []string{"212-555-0101", "123"} {
+			rr := doRequestMux(mux, http.MethodPost, "/auth/test-login", map[string]string{"phone_number": phone}, nil)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("phone %q: status: got %d (%s)", phone, rr.Code, rr.Body.String())
+			}
+			if n := countRows(t, server, "SELECT COUNT(*) FROM users WHERE id = ? AND phone IS NULL", parseJSON(rr)["user_id"]); n != 1 {
+				t.Errorf("phone %q: user must hold no phone", phone)
+			}
+		}
+		if n := countRows(t, server, "SELECT COUNT(*) FROM users WHERE phone IS NOT NULL"); n != 0 {
+			t.Errorf("rows holding a phone: got %d want 0", n)
+		}
+		if n := countRows(t, server, "SELECT COUNT(*) FROM users"); n != users+2 {
+			t.Errorf("users: %d -> %d, want +2 (each call mints a fresh user)", users, n)
 		}
 	})
 
@@ -110,20 +149,10 @@ func TestLoginTestMode_Works(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid phone is rejected", func(t *testing.T) {
-		users := countRows(t, server, "SELECT COUNT(*) FROM users")
-		rr := doRequestMux(mux, http.MethodPost, "/auth/test-login", map[string]string{"phone_number": "123"}, nil)
-		if rr.Code != http.StatusBadRequest {
-			t.Errorf("status: got %d want 400", rr.Code)
-		}
-		if n := countRows(t, server, "SELECT COUNT(*) FROM users"); n != users {
-			t.Errorf("users: %d -> %d", users, n)
-		}
-	})
 }
 
 func TestLoginTestMode_RefusedOtherwise(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{}) // TestMode false
+	server := newTestServer(t) // TestMode false
 
 	t.Run("route is not registered", func(t *testing.T) {
 		mux := newAuthMux(server)
@@ -155,7 +184,7 @@ func envMap(m map[string]string) func(string) string {
 }
 
 func TestBootProblems(t *testing.T) {
-	fullTwilio := Config{TwilioAccountSID: "AC1", TwilioAuthToken: "tok", TwilioPhoneNumber: "+15550000000"}
+	healthy := Config{}
 	goodClerk := map[string]string{
 		"CLERK_ENABLED": "1", "CLERK_JWT_ISSUER": "https://clerk.example.com", "CLERK_AUTHORIZED_PARTIES": "https://app.example.com",
 	}
@@ -179,39 +208,39 @@ func TestBootProblems(t *testing.T) {
 	}
 
 	t.Run("healthy config has no problems", func(t *testing.T) {
-		f, w := bootProblems(fullTwilio, envMap(goodClerk))
+		f, w := bootProblems(healthy, envMap(goodClerk))
 		if len(f) != 0 || len(w) != 0 {
 			t.Errorf("fatal=%v warnings=%v", f, w)
 		}
 	})
 	t.Run("clerk enabled without issuer is fatal", func(t *testing.T) {
-		f, _ := bootProblems(fullTwilio, envMap(with(goodClerk, "CLERK_JWT_ISSUER", "")))
+		f, _ := bootProblems(healthy, envMap(with(goodClerk, "CLERK_JWT_ISSUER", "")))
 		if !has(f, "CLERK_JWT_ISSUER") {
 			t.Errorf("fatal=%v", f)
 		}
 	})
 	t.Run("clerk enabled without azp is fatal", func(t *testing.T) {
-		f, _ := bootProblems(fullTwilio, envMap(with(goodClerk, "CLERK_AUTHORIZED_PARTIES", " , ")))
+		f, _ := bootProblems(healthy, envMap(with(goodClerk, "CLERK_AUTHORIZED_PARTIES", " , ")))
 		if !has(f, "CLERK_AUTHORIZED_PARTIES") {
 			t.Errorf("fatal=%v", f)
 		}
 	})
 	t.Run("clerk secrets are fatal", func(t *testing.T) {
 		for _, name := range []string{"CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET"} {
-			f, _ := bootProblems(fullTwilio, envMap(with(goodClerk, name, "sk_x")))
+			f, _ := bootProblems(healthy, envMap(with(goodClerk, name, "sk_x")))
 			if !has(f, name) {
 				t.Errorf("%s: fatal=%v", name, f)
 			}
 		}
 	})
 	t.Run("clerk off outside test mode warns loudly", func(t *testing.T) {
-		f, w := bootProblems(fullTwilio, envMap(nil))
+		f, w := bootProblems(healthy, envMap(nil))
 		if len(f) != 0 || !has(w, "nobody can sign in") {
 			t.Errorf("fatal=%v warnings=%v", f, w)
 		}
 	})
 	t.Run("clerk off in test mode is quiet", func(t *testing.T) {
-		cfg := fullTwilio
+		cfg := healthy
 		cfg.TestMode = true
 		f, w := bootProblems(cfg, envMap(nil))
 		if len(f) != 0 || has(w, "nobody can sign in") {
@@ -219,29 +248,29 @@ func TestBootProblems(t *testing.T) {
 		}
 	})
 	t.Run("test mode on a deployed service is fatal", func(t *testing.T) {
-		cfg := fullTwilio
+		cfg := healthy
 		cfg.TestMode = true
 		f, _ := bootProblems(cfg, envMap(map[string]string{"RAILWAY_ENVIRONMENT_NAME": "production"}))
 		if !has(f, "TEST_MODE") {
 			t.Errorf("fatal=%v", f)
 		}
 	})
-	t.Run("missing twilio is a warning, not fatal", func(t *testing.T) {
-		f, w := bootProblems(Config{}, envMap(goodClerk))
-		if len(f) != 0 || !has(w, "SMS is OFF") {
+	t.Run("webhook url with no email secret warns", func(t *testing.T) {
+		f, w := bootProblems(Config{WebhookBaseURL: "https://x.example"}, envMap(goodClerk))
+		if len(f) != 0 || !has(w, "EMAIL_WEBHOOK_SECRET") {
 			t.Errorf("fatal=%v warnings=%v", f, w)
 		}
 	})
-	t.Run("webhook url with no auth token warns about forgeable signatures", func(t *testing.T) {
-		_, w := bootProblems(Config{WebhookBaseURL: "https://x.example"}, envMap(goodClerk))
-		if !has(w, "forged") {
-			t.Errorf("warnings=%v", w)
+	t.Run("webhook url with an email secret is quiet", func(t *testing.T) {
+		f, w := bootProblems(Config{WebhookBaseURL: "https://x.example", EmailWebhookSecret: "s"}, envMap(goodClerk))
+		if len(f) != 0 || len(w) != 0 {
+			t.Errorf("fatal=%v warnings=%v", f, w)
 		}
 	})
 }
 
 func TestIsAdmin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.config.AdminClerkUserIDs = []string{"user_owner", "user_other"}
 
 	// A phone-less owner, bound to a Clerk id on the allowlist.
@@ -256,10 +285,10 @@ func TestIsAdmin(t *testing.T) {
 		s    Session
 		want bool
 	}{
-		{"admin phone", Session{UserID: "plain-1", PhoneNumber: server.config.AdminPhone}, true},
+		{"old session phone equal to the former admin phone", Session{UserID: "plain-1", PhoneNumber: testAdminPhone}, false},
 		{"clerk id on allowlist, no phone", Session{UserID: "owner-1"}, true},
 		{"clerk id not on allowlist", Session{UserID: "rando-1"}, false},
-		{"no clerk id, not admin phone", Session{UserID: "plain-1", PhoneNumber: "5550001111"}, false},
+		{"no clerk id", Session{UserID: "plain-1", PhoneNumber: "5550001111"}, false},
 		{"unknown user", Session{UserID: "ghost"}, false},
 		{"empty session", Session{}, false},
 	}
@@ -271,13 +300,6 @@ func TestIsAdmin(t *testing.T) {
 		})
 	}
 
-	t.Run("empty admin phone never matches an empty session phone", func(t *testing.T) {
-		server.config.AdminPhone = ""
-		if server.isAdmin(Session{UserID: "plain-1", PhoneNumber: ""}) {
-			t.Error("empty == empty must not grant admin")
-		}
-	})
-
 	t.Run("allowlist is not consulted when empty", func(t *testing.T) {
 		server.config.AdminClerkUserIDs = nil
 		if server.isAdmin(Session{UserID: "owner-1"}) {
@@ -287,7 +309,7 @@ func TestIsAdmin(t *testing.T) {
 }
 
 func TestIsAdmin_RequireAdminAndMe(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.config.AdminClerkUserIDs = []string{"user_owner"}
 	server.db.Exec("INSERT INTO users (id, clerk_user_id) VALUES ('owner-1', 'user_owner')")
 	server.db.Exec("INSERT INTO users (id, clerk_user_id) VALUES ('rando-1', 'user_rando')")
@@ -316,43 +338,6 @@ func TestIsAdmin_RequireAdminAndMe(t *testing.T) {
 	}
 }
 
-func TestNewTwilioClient(t *testing.T) {
-	creds := Config{TwilioAccountSID: "AC1", TwilioAuthToken: "tok", TwilioPhoneNumber: "+15550000000"}
-
-	t.Run("test mode logs only, even with real credentials", func(t *testing.T) {
-		cfg := creds
-		cfg.TestMode = true
-		c := newTwilioClient(cfg)
-		if _, real := c.(*RealTwilioClient); real {
-			t.Fatal("test mode must never construct the real client")
-		}
-		var err error
-		out := captureLog(func() { err = c.SendSMS("+15550000000", "+12125550101", "hello secret body") })
-		if err != nil {
-			t.Fatalf("SendSMS: %v", err)
-		}
-		if !strings.Contains(out, "[TEST MODE] would send SMS to") {
-			t.Errorf("log: %q", out)
-		}
-		if strings.Contains(out, "2125550101") || strings.Contains(out, "secret body") {
-			t.Errorf("log must mask the number and omit the body: %q", out)
-		}
-	})
-	t.Run("credentials give the real client", func(t *testing.T) {
-		if _, real := newTwilioClient(creds).(*RealTwilioClient); !real {
-			t.Error("want the real client")
-		}
-	})
-	t.Run("no credentials give a clear error and no network call", func(t *testing.T) {
-		for _, cfg := range []Config{{}, {TwilioAccountSID: "AC1", TwilioAuthToken: "tok"}, {TwilioAuthToken: "tok", TwilioPhoneNumber: "+1555"}} {
-			err := newTwilioClient(cfg).SendSMS("a", "+12125550101", "b")
-			if err == nil || !strings.Contains(err.Error(), "SMS is not configured") {
-				t.Errorf("err = %v", err)
-			}
-		}
-	})
-}
-
 func TestAppBaseURL(t *testing.T) {
 	cases := []struct {
 		name string
@@ -374,7 +359,7 @@ func TestAppBaseURL(t *testing.T) {
 }
 
 func TestRetiredAuth_AnyMethodAndNoRedirect(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	mux := newAuthMux(server)
 	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
 		rr := doRequestMux(mux, method, "/auth/email/magic-verify?token=abc", nil, nil)
@@ -387,8 +372,8 @@ func TestRetiredAuth_AnyMethodAndNoRedirect(t *testing.T) {
 	}
 }
 
-func TestLoginTestMode_RecordsConsentAndMeReportsPhone(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+func TestLoginTestMode_MeReportsNoPhone(t *testing.T) {
+	server := newTestServer(t)
 	server.config.TestMode = true
 	mux := newAuthMux(server)
 
@@ -396,38 +381,20 @@ func TestLoginTestMode_RecordsConsentAndMeReportsPhone(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d (%s)", rr.Code, rr.Body.String())
 	}
-	id := parseJSON(rr)["user_id"]
 	cookie := getSessionCookie(rr)
-
-	var consent int
-	server.db.QueryRow("SELECT COUNT(*) FROM users WHERE id = ? AND sms_consent_at IS NOT NULL", id).Scan(&consent)
-	if consent != 1 {
-		t.Errorf("sms_consent_at must be set")
-	}
-
 	me := parseJSON(doRequestMux(mux, http.MethodGet, "/auth/me", nil, []*http.Cookie{cookie}))
-	if me["needs_sms_consent"] != false {
-		t.Errorf("needs_sms_consent: %v", me["needs_sms_consent"])
+	for _, k := range []string{"needs_sms_consent", "phone_number"} {
+		if _, ok := me[k]; ok {
+			t.Errorf("/auth/me must not carry %q: %v", k, me)
+		}
 	}
-	if me["phone_number"] != "2125550101" {
-		t.Errorf("phone_number: %v", me["phone_number"])
-	}
-
-	// Idempotent: same user, one user row, one household.
-	rr2 := doRequestMux(mux, http.MethodPost, "/auth/test-login", map[string]string{"phone_number": "2125550101"}, nil)
-	if parseJSON(rr2)["user_id"] != id {
-		t.Error("second call must return the same user_id")
-	}
-	if n := countRows(t, server, "SELECT COUNT(*) FROM users"); n != 1 {
-		t.Errorf("users: got %d want 1", n)
-	}
-	if n := countRows(t, server, "SELECT COUNT(*) FROM households"); n != 1 {
-		t.Errorf("households: got %d want 1", n)
+	if me["name"] != "Pat" {
+		t.Errorf("name: %v", me["name"])
 	}
 }
 
 func TestMe_Contract(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	mux := newAuthMux(server)
 
 	t.Run("no session is 401", func(t *testing.T) {
@@ -449,12 +416,17 @@ func TestMe_Contract(t *testing.T) {
 			t.Fatalf("got %d", rr.Code)
 		}
 		me := parseJSON(rr)
-		for _, k := range []string{"logged_in", "user_id", "phone_number", "name", "login_count", "needs_sms_consent", "is_admin", "auth_methods"} {
+		for _, k := range []string{"phone_number", "needs_sms_consent"} {
+			if _, ok := me[k]; ok {
+				t.Errorf("/auth/me must not carry %q: %v", k, me)
+			}
+		}
+		for _, k := range []string{"logged_in", "user_id", "name", "login_count", "is_admin", "can_submit_feedback", "auth_methods"} {
 			if _, ok := me[k]; !ok {
 				t.Errorf("missing key %q in %v", k, me)
 			}
 		}
-		if me["logged_in"] != true || me["phone_number"] != "5551234567" || me["name"] != "Pat" {
+		if me["logged_in"] != true || me["name"] != "Pat" {
 			t.Errorf("body: %v", me)
 		}
 	})
@@ -469,7 +441,7 @@ func TestMe_Contract(t *testing.T) {
 }
 
 func TestLogout_ClearsCookieAndRowAndIsRepeatable(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	mux := newAuthMux(server)
 	cookie, _ := loginUser(t, server, "5551234567")
 
@@ -493,10 +465,10 @@ func TestLogout_ClearsCookieAndRowAndIsRepeatable(t *testing.T) {
 }
 
 func TestSettingsPatch_PhoneCannotBeSet(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
-	for _, target := range []string{"5559998888", server.config.AdminPhone, "+1" + server.config.AdminPhone, ""} {
+	for _, target := range []string{"5559998888", testAdminPhone, "+1" + testAdminPhone, ""} {
 		doRequest(server.handleSettings, http.MethodPatch, "/api/settings", map[string]string{"phone": target, "name": "Pat"}, []*http.Cookie{cookie})
 		var phone, name string
 		server.db.QueryRow("SELECT phone, name FROM users WHERE id = ?", userID).Scan(&phone, &name)
@@ -512,7 +484,7 @@ func TestSettingsPatch_PhoneCannotBeSet(t *testing.T) {
 		t.Error("user must not have become admin")
 	}
 	var holders int
-	server.db.QueryRow("SELECT COUNT(*) FROM users WHERE phone = ?", server.config.AdminPhone).Scan(&holders)
+	server.db.QueryRow("SELECT COUNT(*) FROM users WHERE phone = ?", testAdminPhone).Scan(&holders)
 	if holders != 0 {
 		t.Errorf("nobody may hold the admin phone; got %d", holders)
 	}

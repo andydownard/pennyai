@@ -52,10 +52,10 @@ describe('LoginScreen', () => {
     }
   })
 
-  it('keeps SMS consent wording off the screen', async () => {
+  it('keeps texting wording off the screen', async () => {
     const { container } = renderLogin()
     await screen.findByRole('button', { name: 'Continue with Rally' })
-    expect(container.textContent).not.toMatch(/SMS|STOP|Msg &|data rates/i)
+    expect(container.textContent).not.toMatch(/SMS|\btext(s|ing)?\b|STOP|Msg &|data rates/i)
   })
 
   it('follows the vocabulary rules', async () => {

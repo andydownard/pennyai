@@ -12,12 +12,13 @@ test.describe('Penny settings screen', () => {
     await expect(page.getByText('Penny remembers your brand preferences')).toBeVisible()
   })
 
-  test('shows text with Penny toggle', async ({ page }) => {
+  test('offers no texting settings', async ({ page }) => {
     await page.goto('/penny')
-    await expect(page.getByText('I want to SMS with Penny')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('Learn from my choices')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText(/SMS|text me|via text|Daily list summary/i)).toHaveCount(0)
   })
 
-  test('shows Penny contact section', async ({ page }) => {
+  test('shows the email link for Penny', async ({ page }) => {
     await page.goto('/penny')
     await expect(page.getByText('Learn from my choices')).toBeVisible({ timeout: 10_000 })
   })

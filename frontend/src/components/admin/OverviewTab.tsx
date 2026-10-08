@@ -50,8 +50,7 @@ export function OverviewTab({
         adminData.leaderboard.map((entry, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
             <div>
-              <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text)' }}>{entry.name || entry.phone}</div>
-              {entry.name && <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)' }}>{entry.phone}</div>}
+              <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text)' }}>{entry.name || 'Anonymous'}</div>
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontFamily: FONT, fontSize: '15px', fontWeight: 600, color: 'var(--brand)' }}>{entry.points} pts</div>
@@ -75,7 +74,7 @@ export function OverviewTab({
               <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)' }}>{new Date(resp.created_at).toLocaleDateString()}</div>
             </div>
             {resp.comment && <div style={{ fontFamily: FONT, fontSize: '15px', color: 'var(--text)', marginTop: '4px' }}>{resp.comment}</div>}
-            <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{resp.user_name || resp.user_phone}</div>
+            <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{resp.user_name || 'Anonymous'}</div>
           </div>
         ))
       )}
@@ -108,7 +107,7 @@ export function OverviewTab({
             <div key={p.user_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontFamily: FONT, fontSize: '14px', color: 'var(--text)', fontWeight: 500 }}>{p.name || 'No name'} — ${(p.total_cents / 100).toFixed(2)}</div>
-                <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)' }}>{p.phone || p.email || 'No contact'} · {p.swap_count} swap{p.swap_count !== 1 ? 's' : ''} · since {new Date(p.oldest_swap).toLocaleDateString()}</div>
+                <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)' }}>{p.email || 'No contact'} · {p.swap_count} swap{p.swap_count !== 1 ? 's' : ''} · since {new Date(p.oldest_swap).toLocaleDateString()}</div>
               </div>
               <button
                 onClick={async () => {

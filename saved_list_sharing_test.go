@@ -42,7 +42,7 @@ func createTestSavedList(t *testing.T, server *Server, userID, name string, item
 // --- POST /api/saved-lists/:id/share ---
 
 func TestSavedListShare_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	listID := createTestSavedList(t, server, userID, "Costco Run", []itemData{
@@ -73,7 +73,7 @@ func TestSavedListShare_Success(t *testing.T) {
 }
 
 func TestSavedListShare_NotFound(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5551234567")
 
 	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists/99999/share", nil, []*http.Cookie{cookie})
@@ -83,7 +83,7 @@ func TestSavedListShare_NotFound(t *testing.T) {
 }
 
 func TestSavedListShare_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleSavedLists, "POST", "/api/saved-lists/1/share", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", rr.Code)
@@ -93,7 +93,7 @@ func TestSavedListShare_RequiresAuth(t *testing.T) {
 // --- GET /api/shared/:code (saved list) ---
 
 func TestSharedSavedListView_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	// Set user name
@@ -156,7 +156,7 @@ func TestSharedSavedListView_Success(t *testing.T) {
 }
 
 func TestSharedSavedListView_BrandFidelity(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID := loginUser(t, server, "5551234567")
 
 	listID := createTestSavedList(t, server, userID, "Weekly Shop", []itemData{
@@ -199,7 +199,7 @@ func TestSharedSavedListView_BrandFidelity(t *testing.T) {
 // --- POST /api/shared/:code/copy (Save as My List) ---
 
 func TestSharedSavedList_Copy(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userA := loginUser(t, server, "5551234567")
 	cookieB, _ := loginUser(t, server, "5559999999")
 
@@ -254,7 +254,7 @@ func TestSharedSavedList_Copy(t *testing.T) {
 }
 
 func TestSharedSavedList_Copy_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userA := loginUser(t, server, "5551234567")
 
 	listID := createTestSavedList(t, server, userA, "My List", []itemData{
@@ -278,7 +278,7 @@ func TestSharedSavedList_Copy_RequiresAuth(t *testing.T) {
 // --- POST /api/shared/:code/add-to-list (Merge into active list) ---
 
 func TestSharedSavedList_AddToList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userA := loginUser(t, server, "5551234567")
 	cookieB, userB := loginUser(t, server, "5559999999")
 
@@ -329,7 +329,7 @@ func TestSharedSavedList_AddToList(t *testing.T) {
 }
 
 func TestSharedSavedList_AddToList_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userA := loginUser(t, server, "5551234567")
 
 	listID := createTestSavedList(t, server, userA, "My List", []itemData{
@@ -353,7 +353,7 @@ func TestSharedSavedList_AddToList_RequiresAuth(t *testing.T) {
 // --- Expired link ---
 
 func TestSharedSavedList_ExpiredLink(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5551234567")
 
 	listID := createTestSavedList(t, server, userID, "Old List", []itemData{
@@ -378,7 +378,7 @@ func TestSharedSavedList_ExpiredLink(t *testing.T) {
 // --- Fork/copy model: changes to original don't propagate ---
 
 func TestSharedSavedList_ForkModel(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookieA, userA := loginUser(t, server, "5551234567")
 	cookieB, _ := loginUser(t, server, "5559999999")
 
@@ -413,7 +413,7 @@ func TestSharedSavedList_ForkModel(t *testing.T) {
 // --- Schema: saved_list_id column exists ---
 
 func TestSchema_SharedLinks_HasSavedListIDColumn(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Create a user for FK constraint
 	server.db.Exec("INSERT OR IGNORE INTO users (id, phone) VALUES ('schema-test-user', '5550000000')")

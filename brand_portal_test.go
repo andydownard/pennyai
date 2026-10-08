@@ -17,7 +17,7 @@ import (
 
 
 func TestBrandPortal_RegisterAndLogin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Register
 	rr := doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
@@ -74,7 +74,7 @@ func TestBrandPortal_RegisterAndLogin(t *testing.T) {
 }
 
 func TestBrandPortal_Me(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "me@brand.com", "password1234", "MyCo Inc")
 
 	rr := doRequest(server.handleBrandMe, "GET", "/brand/me", nil, []*http.Cookie{cookie})
@@ -103,7 +103,7 @@ func TestBrandPortal_Me(t *testing.T) {
 }
 
 func TestBrandPortal_Logout(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "logout@brand.com", "password1234", "LogoutCo")
 
 	// Logout
@@ -120,7 +120,7 @@ func TestBrandPortal_Logout(t *testing.T) {
 }
 
 func TestBrandPortal_DuplicateEmail(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// First registration succeeds
 	rr := doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
@@ -149,7 +149,7 @@ func TestBrandPortal_DuplicateEmail(t *testing.T) {
 }
 
 func TestBrandPortal_CreateDeal(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "deals@brand.com", "password1234", "DealCo")
 
 	// Create a deal
@@ -207,7 +207,7 @@ func TestBrandPortal_CreateDeal(t *testing.T) {
 }
 
 func TestBrandPortal_DealPauseResume(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "pause@brand.com", "password1234", "PauseCo")
 	dealID := createTestDeal(t, server, cookie)
 
@@ -249,7 +249,7 @@ func TestBrandPortal_DealPauseResume(t *testing.T) {
 }
 
 func TestBrandPortal_DeleteDeal(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "delete@brand.com", "password1234", "DeleteCo")
 	dealID := createTestDeal(t, server, cookie)
 
@@ -276,7 +276,7 @@ func TestBrandPortal_DeleteDeal(t *testing.T) {
 }
 
 func TestBrandPortal_Dashboard(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "dash@brand.com", "password1234", "DashCo")
 
 	// Create 2 deals
@@ -312,7 +312,7 @@ func TestBrandPortal_Dashboard(t *testing.T) {
 }
 
 func TestBrandPortal_DashboardDaysFilter(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, brandUserID := brandRegister(t, server, "filter@brand.com", "password1234", "FilterCo")
 
 	// Create a deal owned by this brand user
@@ -349,7 +349,7 @@ func TestBrandPortal_DashboardDaysFilter(t *testing.T) {
 }
 
 func TestBrandPortal_Deposit(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "deposit@brand.com", "password1234", "DepositCo")
 
 	// Deposit $100 (10000 cents)
@@ -387,7 +387,7 @@ func TestBrandPortal_Deposit(t *testing.T) {
 }
 
 func TestBrandPortal_DepositMinimum(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "mindepo@brand.com", "password1234", "MinDepoCo")
 
 	// Try to deposit $49.99 (4999 cents) - below $50 minimum
@@ -422,7 +422,7 @@ func TestBrandPortal_DepositMinimum(t *testing.T) {
 }
 
 func TestBrandPortal_StripeWebhookIdempotent(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, brandUserID := brandRegister(t, server, "stripe@brand.com", "password1234", "StripeCo")
 
 	// Build a payment_intent.succeeded webhook payload
@@ -501,7 +501,7 @@ func stripeWebhookPayload(piID string, amountCents, brandUserID int) string {
 // COUNT-then-UPDATE check-then-act in handleStripeWebhook double-credits real
 // money when two deliveries interleave.
 func TestBrandPortal_StripeWebhookConcurrentDelivery(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, brandUserID := brandRegister(t, server, "race@brand.com", "password1234", "RaceCo")
 
 	payload := stripeWebhookPayload("pi_test_race_1", 25000, brandUserID)
@@ -539,7 +539,7 @@ func TestBrandPortal_StripeWebhookConcurrentDelivery(t *testing.T) {
 // to the hammer test above: the ledger row already exists, so the handler must
 // credit nothing and still return 200.
 func TestBrandPortal_StripeWebhookPreSeededLedgerRow(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, brandUserID := brandRegister(t, server, "seeded@brand.com", "password1234", "SeededCo")
 
 	// A prior delivery already landed the ledger row and credited the balance.
@@ -576,7 +576,7 @@ func TestBrandPortal_StripeWebhookPreSeededLedgerRow(t *testing.T) {
 // TestBrandPortal_StripeWebhookMissingBalanceRow proves a deposit is never
 // silently swallowed when the brand_balance row is absent.
 func TestBrandPortal_StripeWebhookMissingBalanceRow(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, brandUserID := brandRegister(t, server, "nobal@brand.com", "password1234", "NoBalCo")
 
 	if _, err := server.db.Exec("DELETE FROM brand_balance WHERE brand_user_id = ?", brandUserID); err != nil {
@@ -603,7 +603,7 @@ func TestBrandPortal_StripeWebhookMissingBalanceRow(t *testing.T) {
 // that makes the double-credit impossible at the storage layer. It is partial
 // because the dev/test deposit fallback inserts stripe_id = '' for every row.
 func TestBrandPortal_StripeWebhookUniqueIndexExists(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, brandUserID := brandRegister(t, server, "idx@brand.com", "password1234", "IdxCo")
 
 	ins := func(stripeID string) error {
@@ -630,7 +630,7 @@ func TestBrandPortal_StripeWebhookUniqueIndexExists(t *testing.T) {
 }
 
 func TestBrandPortal_CategoryIntel(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "intel@brand.com", "password1234", "IntelCo")
 
 	// Create a deal with "cola" in the competitor product
@@ -673,7 +673,7 @@ func TestBrandPortal_CategoryIntel(t *testing.T) {
 }
 
 func TestBugReport_Submit(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559991234")
 
 	rr := doRequest(server.handleBugReport, "POST", "/api/bug-report", map[string]string{
@@ -697,7 +697,7 @@ func TestBugReport_Submit(t *testing.T) {
 }
 
 func TestBugReport_EmptyDescription(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559991235")
 
 	// Empty description
@@ -725,7 +725,7 @@ func TestBugReport_EmptyDescription(t *testing.T) {
 }
 
 func TestBrandPortal_FoundingBadge(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Register the first 10 brand users — all should get "founding" badge
 	for i := 0; i < 10; i++ {
@@ -778,7 +778,7 @@ func TestBrandPortal_FoundingBadge(t *testing.T) {
 // =============================================================================
 
 func TestEarningsGet_Empty(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559991111")
 
 	rr := doRequest(server.handleEarnings, "GET", "/api/earnings", nil, []*http.Cookie{cookie})
@@ -799,7 +799,7 @@ func TestEarningsGet_Empty(t *testing.T) {
 }
 
 func TestEarningsGet_WithData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _, _, _ := setupEarningsTestData(t, server)
 
 	rr := doRequest(server.handleEarnings, "GET", "/api/earnings", nil, []*http.Cookie{cookie})
@@ -830,7 +830,7 @@ func TestEarningsGet_WithData(t *testing.T) {
 }
 
 func TestEarningsGet_FilterByDays(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, userID, _, _ := setupEarningsTestData(t, server)
 
 	// Insert an old rebate (100 days ago)
@@ -864,7 +864,7 @@ func TestEarningsGet_FilterByDays(t *testing.T) {
 }
 
 func TestEarningsGet_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleEarnings, "GET", "/api/earnings", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -873,7 +873,7 @@ func TestEarningsGet_RequiresAuth(t *testing.T) {
 }
 
 func TestEarningsGet_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559991112")
 
 	rr := doRequest(server.handleEarnings, "POST", "/api/earnings", nil, []*http.Cookie{cookie})
@@ -883,7 +883,7 @@ func TestEarningsGet_MethodNotAllowed(t *testing.T) {
 }
 
 func TestEarningsUpload_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _, _, rebateID := setupEarningsTestData(t, server)
 
 	// Build multipart request with explicit Content-Type
@@ -924,7 +924,7 @@ func TestEarningsUpload_Success(t *testing.T) {
 }
 
 func TestEarningsUpload_WrongUser(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, _, _, rebateID := setupEarningsTestData(t, server)
 
 	// Login as a different user
@@ -948,7 +948,7 @@ func TestEarningsUpload_WrongUser(t *testing.T) {
 }
 
 func TestEarningsUpload_NoAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	body := &bytes.Buffer{}
 	w := multipart.NewWriter(body)
@@ -967,7 +967,7 @@ func TestEarningsUpload_NoAuth(t *testing.T) {
 }
 
 func TestEarningsUpload_InvalidID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559991113")
 
 	body := &bytes.Buffer{}
@@ -988,7 +988,7 @@ func TestEarningsUpload_InvalidID(t *testing.T) {
 }
 
 func TestEarningsUpload_NotFound(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := loginUser(t, server, "5559991114")
 
 	body := &bytes.Buffer{}
@@ -1009,7 +1009,7 @@ func TestEarningsUpload_NotFound(t *testing.T) {
 }
 
 func TestEarningsUpload_InvalidType(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _, _, rebateID := setupEarningsTestData(t, server)
 
 	body := &bytes.Buffer{}
@@ -1033,7 +1033,7 @@ func TestEarningsUpload_InvalidType(t *testing.T) {
 }
 
 func TestEarningsUpload_NoFile(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _, _, rebateID := setupEarningsTestData(t, server)
 
 	body := &bytes.Buffer{}
@@ -1052,7 +1052,7 @@ func TestEarningsUpload_NoFile(t *testing.T) {
 }
 
 func TestEarningsGet_TransactionDetail(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _, _, _ := setupEarningsTestData(t, server)
 
 	rr := doRequest(server.handleEarnings, "GET", "/api/earnings", nil, []*http.Cookie{cookie})
@@ -1090,13 +1090,13 @@ func TestEarningsGet_TransactionDetail(t *testing.T) {
 // =============================================================================
 
 func TestBrandDigest_NoPendingDigests(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	// No brand users — should not panic
 	server.sendPendingBrandDigests()
 }
 
 func TestBrandDigest_OptedOut(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.config.SendGridAPIKey = "test-key"
 
 	// Create a brand user who opted out
@@ -1114,7 +1114,7 @@ func TestBrandDigest_OptedOut(t *testing.T) {
 }
 
 func TestBrandDigest_NoSendGridKey(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.config.SendGridAPIKey = "" // no API key
 
 	server.db.Exec(`INSERT INTO brand_users (id, email, password_hash, company_name)
@@ -1171,7 +1171,7 @@ func TestBrandDigest_HTMLGeneration(t *testing.T) {
 }
 
 func TestBrandDigest_RecentDigestSkipped(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	server.config.SendGridAPIKey = "test-key"
 
 	// Create a brand user with recent digest (2 days ago)
@@ -1191,7 +1191,7 @@ func TestBrandDigest_RecentDigestSkipped(t *testing.T) {
 }
 
 func TestBrandUnsubscribe_RequiresLogin(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleBrandUnsubscribe, "GET", "/brand/unsubscribe", nil, nil)
 	if rr.Code != http.StatusOK {
@@ -1207,7 +1207,7 @@ func TestBrandUnsubscribe_RequiresLogin(t *testing.T) {
 // =============================================================================
 
 func TestDealPerformance_Unauthenticated(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// No session -> 401
 	rr := doRequest(server.handleBrandDealPerformance, "GET", "/brand/deal-performance/1", nil, nil)
@@ -1217,7 +1217,7 @@ func TestDealPerformance_Unauthenticated(t *testing.T) {
 }
 
 func TestDealPerformance_WithBrandAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Register a brand
 	brandCookie, brandUserID := brandRegister(t, server, "perf@test.com", "password123", "PerfCo")
@@ -1266,7 +1266,7 @@ func TestDealPerformance_WithBrandAuth(t *testing.T) {
 }
 
 func TestDealPerformance_WrongBrand(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Register two brands
 	_, brandUserID1 := brandRegister(t, server, "brand1@test.com", "password123", "Brand1")
@@ -1286,7 +1286,7 @@ func TestDealPerformance_WrongBrand(t *testing.T) {
 }
 
 func TestDealPerformance_InvalidID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	brandCookie, _ := brandRegister(t, server, "test@brand.com", "password123", "TestBrand")
 
 	// Non-numeric ID -> 400
@@ -1341,7 +1341,7 @@ func TestCategoryPricingTiers_TableSeeded(t *testing.T) {
 }
 
 func TestGetCategoryPricingTier_ReturnsCorrectTier(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Get milk's category ID (Dairy → premium)
 	var milkCatID int
@@ -1363,7 +1363,7 @@ func TestGetCategoryPricingTier_ReturnsCorrectTier(t *testing.T) {
 }
 
 func TestGetCategoryPricingTier_UnknownCategory(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Unknown category falls back to economy
 	minCents, _, tier := getCategoryPricingTier(server.db, 99999)
@@ -1376,7 +1376,7 @@ func TestGetCategoryPricingTier_UnknownCategory(t *testing.T) {
 }
 
 func TestBrandDealCreation_EnforcesMinPricing(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "pricing@brand.com", "password1234", "PricingCo")
 
 	// Create deal with Milk product (Dairy → premium, min 250 cents)
@@ -1419,7 +1419,7 @@ func TestBrandDealCreation_EnforcesMinPricing(t *testing.T) {
 }
 
 func TestBrandDealCreation_EconomyTierAcceptsLowDiscount(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "econ@brand.com", "password1234", "EconCo")
 
 	// Uncategorized product → economy tier, min 100 cents
@@ -1448,7 +1448,7 @@ func TestBrandDealCreation_EconomyTierAcceptsLowDiscount(t *testing.T) {
 }
 
 func TestPricingTiers_Endpoint(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "tiers@brand.com", "password1234", "TiersCo")
 
 	rr := doRequest(server.handlePricingTiers, "GET", "/brand/pricing-tiers", nil, []*http.Cookie{cookie})
@@ -1473,7 +1473,7 @@ func TestPricingTiers_Endpoint(t *testing.T) {
 }
 
 func TestPricingTiers_RequiresBrandAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// No auth
 	rr := doRequest(server.handlePricingTiers, "GET", "/brand/pricing-tiers", nil, nil)
@@ -1487,7 +1487,7 @@ func TestPricingTiers_RequiresBrandAuth(t *testing.T) {
 // =============================================================================
 
 func TestCompetitiveIntel_RequiresBrandAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// No auth cookie — should get 401
 	rr := doRequest(server.handleCompetitiveIntel, "GET", "/brand/competitive-intel", nil, nil)
@@ -1504,7 +1504,7 @@ func TestCompetitiveIntel_RequiresBrandAuth(t *testing.T) {
 }
 
 func TestCompetitiveIntel_EmptyDeals(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "ci-empty@brand.com", "password1234", "EmptyCo")
 
 	rr := doRequest(server.handleCompetitiveIntel, "GET", "/brand/competitive-intel", nil, []*http.Cookie{cookie})
@@ -1531,7 +1531,7 @@ func TestCompetitiveIntel_EmptyDeals(t *testing.T) {
 }
 
 func TestCompetitiveIntel_ReturnsData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, brandUserID := brandRegister(t, server, "ci-data@brand.com", "password1234", "DataCo")
 
 	// Create a category so we can link deals to it
@@ -1681,7 +1681,7 @@ func TestCompetitiveIntel_ReturnsData(t *testing.T) {
 // =============================================================================
 
 func TestCategoryReport_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleCategoryReport, "GET", "/brand/category-report/Dairy", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -1690,7 +1690,7 @@ func TestCategoryReport_RequiresAuth(t *testing.T) {
 }
 
 func TestCategoryReport_FreeTier(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "cat-free@example.com", "password123", "FreeCo")
 
 	// Create a category and a deal linked to it
@@ -1738,7 +1738,7 @@ func TestCategoryReport_FreeTier(t *testing.T) {
 }
 
 func TestCategoryReport_PremiumTier(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, brandUserID := brandRegister(t, server, "cat-prem@example.com", "password123", "PremCo")
 
 	// Set subscription to premium
@@ -1828,7 +1828,7 @@ func TestCategoryReport_PremiumTier(t *testing.T) {
 }
 
 func TestBrandSubscription_GetAndSet(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "sub@example.com", "password123", "SubCo")
 
 	// GET — default tier should be free
@@ -1890,7 +1890,7 @@ func TestBrandSubscription_GetAndSet(t *testing.T) {
 // ── Dynamic Auction Pricing Tests ─────────────────────────────────────
 
 func TestBrandDealCreation_WithProductDescription(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Register brand user
 	rr := doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
@@ -1950,7 +1950,7 @@ func TestBrandDealCreation_WithProductDescription(t *testing.T) {
 // =============================================================================
 
 func TestBrandTransactions_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleBrandTransactions, "GET", "/brand/transactions", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -1959,7 +1959,7 @@ func TestBrandTransactions_RequiresAuth(t *testing.T) {
 }
 
 func TestBrandTransactions_EmptyList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "txn@brand.com", "password1234", "TxnCo")
 
 	rr := doRequest(server.handleBrandTransactions, "GET", "/brand/transactions", nil, []*http.Cookie{cookie})
@@ -1975,7 +1975,7 @@ func TestBrandTransactions_EmptyList(t *testing.T) {
 }
 
 func TestBrandTransactions_WithData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, brandUserID := brandRegister(t, server, "txn2@brand.com", "password1234", "TxnCo2")
 
 	// Insert a transaction
@@ -2004,7 +2004,7 @@ func TestBrandTransactions_WithData(t *testing.T) {
 }
 
 func TestBrandTransactions_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleBrandTransactions, "POST", "/brand/transactions", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
@@ -2017,7 +2017,7 @@ func TestBrandTransactions_MethodNotAllowed(t *testing.T) {
 // =============================================================================
 
 func TestBrandExport_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleBrandExport, "GET", "/brand/export", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -2026,7 +2026,7 @@ func TestBrandExport_RequiresAuth(t *testing.T) {
 }
 
 func TestBrandExport_CSVHeaders(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "export@brand.com", "password1234", "ExportCo")
 
 	rr := doRequest(server.handleBrandExport, "GET", "/brand/export?type=swaps", nil, []*http.Cookie{cookie})
@@ -2052,7 +2052,7 @@ func TestBrandExport_CSVHeaders(t *testing.T) {
 }
 
 func TestBrandExport_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleBrandExport, "POST", "/brand/export", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
@@ -2061,7 +2061,7 @@ func TestBrandExport_MethodNotAllowed(t *testing.T) {
 }
 
 func TestBrandExport_TransactionsCSV(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "export@brand.com", "password1234", "ExportCo")
 
 	// Get brand_user_id
@@ -2087,7 +2087,7 @@ func TestBrandExport_TransactionsCSV(t *testing.T) {
 }
 
 func TestBrandExport_DealsCSV(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "export@brand.com", "password1234", "ExportCo")
 
 	var brandUserID int
@@ -2111,7 +2111,7 @@ func TestBrandExport_DealsCSV(t *testing.T) {
 }
 
 func TestBrandExport_InvalidType(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "export@brand.com", "password1234", "ExportCo")
 
 	rr := doRequest(server.handleBrandExport, "GET", "/brand/export?type=invalid", nil, []*http.Cookie{cookie})
@@ -2121,7 +2121,7 @@ func TestBrandExport_InvalidType(t *testing.T) {
 }
 
 func TestBrandExport_DefaultType(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "export@brand.com", "password1234", "ExportCo")
 
 	// No type param should default to "swaps"
@@ -2141,7 +2141,7 @@ func TestBrandExport_DefaultType(t *testing.T) {
 // =============================================================================
 
 func TestBrandFeedback_SubmitHappyPath(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "fb@brand.com", "password1234", "FeedbackCo")
 
 	rr := doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]interface{}{
@@ -2166,7 +2166,7 @@ func TestBrandFeedback_SubmitHappyPath(t *testing.T) {
 }
 
 func TestBrandFeedback_EmptyBodyReturns400(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "empty@brand.com", "password1234", "EmptyCo")
 
 	// Empty body string
@@ -2189,7 +2189,7 @@ func TestBrandFeedback_EmptyBodyReturns400(t *testing.T) {
 }
 
 func TestBrandFeedback_NoAuthReturns401(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// POST with no cookie
 	rr := doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]interface{}{
@@ -2207,7 +2207,7 @@ func TestBrandFeedback_NoAuthReturns401(t *testing.T) {
 }
 
 func TestBrandFeedback_DefaultsInvalidTypeAndUrgency(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "defaults@brand.com", "password1234", "DefaultsCo")
 
 	// Submit with invalid type and urgency — should default to "feature" and "normal"
@@ -2240,7 +2240,7 @@ func TestBrandFeedback_DefaultsInvalidTypeAndUrgency(t *testing.T) {
 }
 
 func TestBrandFeedback_ListEmptyInitially(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "listempty@brand.com", "password1234", "ListEmptyCo")
 
 	rr := doRequest(server.handleBrandFeedback, "GET", "/brand/feedback", nil, []*http.Cookie{cookie})
@@ -2256,7 +2256,7 @@ func TestBrandFeedback_ListEmptyInitially(t *testing.T) {
 }
 
 func TestBrandFeedback_ListReturnsSubmittedItems(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "listfull@brand.com", "password1234", "ListFullCo")
 
 	// Submit two feedback items
@@ -2327,7 +2327,7 @@ func TestBrandFeedback_ListReturnsSubmittedItems(t *testing.T) {
 }
 
 func TestBrandFeedback_BodyTooLongReturns400(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "long@brand.com", "password1234", "LongCo")
 
 	longBody := strings.Repeat("a", 10001)
@@ -2349,7 +2349,7 @@ func TestBrandFeedback_BodyTooLongReturns400(t *testing.T) {
 }
 
 func TestBrandFeedback_RateLimit(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "ratelimit@brand.com", "password1234", "RateLimitCo")
 
 	// Submit 10 feedback items (the max per hour)
@@ -2399,7 +2399,7 @@ func TestBrandFeedback_RateLimit(t *testing.T) {
 // =============================================================================
 
 func TestResolveBrandAlternatives_NoAlternatives(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5551110001")
 
 	items := []ListItem{{ID: 1, Name: "Milk"}}
@@ -2412,7 +2412,7 @@ func TestResolveBrandAlternatives_NoAlternatives(t *testing.T) {
 }
 
 func TestResolveBrandAlternatives_ItemNotFound(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5551110002")
 
 	// items list doesn't include the parsed item
@@ -2426,7 +2426,7 @@ func TestResolveBrandAlternatives_ItemNotFound(t *testing.T) {
 }
 
 func TestResolveBrandAlternatives_NoPref_AskMode(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5551110003")
 
 	itemID := createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
@@ -2449,7 +2449,7 @@ func TestResolveBrandAlternatives_NoPref_AskMode(t *testing.T) {
 }
 
 func TestResolveBrandAlternatives_StrongPreference(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5551110004")
 
 	itemID := createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
@@ -2477,7 +2477,7 @@ func TestResolveBrandAlternatives_StrongPreference(t *testing.T) {
 }
 
 func TestResolveBrandAlternatives_AutoMode_WeakPreference(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5551110005")
 
 	itemID := createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
@@ -2504,7 +2504,7 @@ func TestResolveBrandAlternatives_AutoMode_WeakPreference(t *testing.T) {
 }
 
 func TestResolveBrandAlternatives_StalePreference(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5551110006")
 
 	itemID := createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
@@ -2529,7 +2529,7 @@ func TestResolveBrandAlternatives_StalePreference(t *testing.T) {
 }
 
 func TestResolveBrandAlternatives_GlobalDefaults(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5551110007")
 
 	itemID := createListItem(t, server.db, userID, "Ketchup", "Condiments")
@@ -2560,7 +2560,7 @@ func TestResolveBrandAlternatives_GlobalDefaults(t *testing.T) {
 }
 
 func TestResolveBrandAlternatives_PreferenceReordering(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5551110008")
 
 	itemID := createListItem(t, server.db, userID, "Milk", "Dairy & Eggs")
@@ -2589,7 +2589,7 @@ func TestResolveBrandAlternatives_PreferenceReordering(t *testing.T) {
 // =============================================================================
 
 func TestBrandUnsubscribe_AuthenticatedGET(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	brandCookie, _ := brandRegister(t, server, "unsub@test.com", "password123", "UnsubCo")
 
 	rr := doRequest(server.handleBrandUnsubscribe, "GET", "/brand/unsubscribe", nil, []*http.Cookie{brandCookie})
@@ -2606,7 +2606,7 @@ func TestBrandUnsubscribe_AuthenticatedGET(t *testing.T) {
 }
 
 func TestBrandUnsubscribe_AuthenticatedPOST(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	brandCookie, brandUserID := brandRegister(t, server, "unsub2@test.com", "password123", "UnsubCo2")
 
 	rr := doRequest(server.handleBrandUnsubscribe, "POST", "/brand/unsubscribe", nil, []*http.Cookie{brandCookie})
@@ -2632,7 +2632,7 @@ func TestBrandUnsubscribe_AuthenticatedPOST(t *testing.T) {
 // =============================================================================
 
 func TestRecordBrandChoice_NewPreference(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5554440001")
 
 	recordBrandChoice(server.db, userID, "Milk", "Horizon", "manual")
@@ -2660,7 +2660,7 @@ func TestRecordBrandChoice_NewPreference(t *testing.T) {
 }
 
 func TestRecordBrandChoice_SameBrandIncrementsStreak(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5554440002")
 
 	recordBrandChoice(server.db, userID, "Milk", "Horizon", "manual")
@@ -2678,7 +2678,7 @@ func TestRecordBrandChoice_SameBrandIncrementsStreak(t *testing.T) {
 }
 
 func TestRecordBrandChoice_DifferentBrandResetsStreak(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5554440003")
 
 	recordBrandChoice(server.db, userID, "Milk", "Horizon", "manual")
@@ -2700,7 +2700,7 @@ func TestRecordBrandChoice_DifferentBrandResetsStreak(t *testing.T) {
 }
 
 func TestRecordBrandChoice_CaseInsensitive(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5554440004")
 
 	recordBrandChoice(server.db, userID, "Milk", "Horizon", "manual")
@@ -2714,7 +2714,7 @@ func TestRecordBrandChoice_CaseInsensitive(t *testing.T) {
 }
 
 func TestRecordBrandChoice_EmptyInputs(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5554440005")
 
 	recordBrandChoice(server.db, userID, "", "Horizon", "manual")
@@ -2729,7 +2729,7 @@ func TestRecordBrandChoice_EmptyInputs(t *testing.T) {
 }
 
 func TestRecordBrandChoice_NormalizesCategory(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	_, userID := loginUser(t, server, "5554440006")
 
 	recordBrandChoice(server.db, userID, "  MILK  ", "Horizon", "manual")
@@ -2749,7 +2749,7 @@ func TestRecordBrandChoice_NormalizesCategory(t *testing.T) {
 // =============================================================================
 
 func TestBrandLogin_NonexistentEmail(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleBrandLogin, "POST", "/brand/login", map[string]string{
 		"email":    "nobody@example.com",
@@ -2766,7 +2766,7 @@ func TestBrandLogin_NonexistentEmail(t *testing.T) {
 }
 
 func TestBrandLogin_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleBrandLogin, "GET", "/brand/login", nil, nil)
 
@@ -2776,7 +2776,7 @@ func TestBrandLogin_WrongMethod(t *testing.T) {
 }
 
 func TestBrandLogin_EmptyBody(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Send a POST with empty JSON object — email will be empty, should hit the DB query
 	// which returns no rows → 401
@@ -2795,7 +2795,7 @@ func TestBrandLogin_EmptyBody(t *testing.T) {
 // =============================================================================
 
 func TestUpdateBrandDeal_NonexistentDeal(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "update-nonexist@test.com", "password123", "TestCo")
 
 	rr := doRequest(server.handleBrandDeals, "PUT", "/brand/deals/99999", map[string]interface{}{
@@ -2808,7 +2808,7 @@ func TestUpdateBrandDeal_NonexistentDeal(t *testing.T) {
 }
 
 func TestUpdateBrandDeal_WrongOwner(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Owner creates the deal
 	ownerCookie, _ := brandRegister(t, server, "deal-owner@test.com", "password123", "OwnerCo")
@@ -2826,7 +2826,7 @@ func TestUpdateBrandDeal_WrongOwner(t *testing.T) {
 }
 
 func TestUpdateBrandDeal_EmptyFields(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "update-empty@test.com", "password123", "TestCo")
 	dealID := createTestDeal(t, server, cookie)
 
@@ -2843,7 +2843,7 @@ func TestUpdateBrandDeal_EmptyFields(t *testing.T) {
 }
 
 func TestUpdateBrandDeal_SuccessfulUpdate(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "update-success@test.com", "password123", "TestCo")
 	dealID := createTestDeal(t, server, cookie)
 
@@ -2901,7 +2901,7 @@ func TestUpdateBrandDeal_SuccessfulUpdate(t *testing.T) {
 // =============================================================================
 
 func TestDeleteBrandDeal_NonexistentDeal(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "delete-nonexist@test.com", "password123", "TestCo")
 
 	rr := doRequest(server.handleBrandDeals, "DELETE", "/brand/deals/99999", nil, []*http.Cookie{cookie})
@@ -2912,7 +2912,7 @@ func TestDeleteBrandDeal_NonexistentDeal(t *testing.T) {
 }
 
 func TestDeleteBrandDeal_WrongOwner(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	// Owner creates the deal
 	ownerCookie, _ := brandRegister(t, server, "del-owner@test.com", "password123", "OwnerCo")
@@ -2931,7 +2931,7 @@ func TestDeleteBrandDeal_WrongOwner(t *testing.T) {
 // --- BrandRegister ---
 
 func TestBrandRegister_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleBrandRegister, "GET", "/brand/register", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d", rr.Code)
@@ -2939,7 +2939,7 @@ func TestBrandRegister_WrongMethod(t *testing.T) {
 }
 
 func TestBrandRegister_MissingFields(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
 		"email": "test@brand.com",
 	}, nil)
@@ -2949,7 +2949,7 @@ func TestBrandRegister_MissingFields(t *testing.T) {
 }
 
 func TestBrandRegister_ShortPassword(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleBrandRegister, "POST", "/brand/register", map[string]string{
 		"email":        "test@brand.com",
 		"password":     "short",
@@ -2961,7 +2961,7 @@ func TestBrandRegister_ShortPassword(t *testing.T) {
 }
 
 func TestBrandRegister_DuplicateEmail(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	// First registration
 	brandRegister(t, server, "dup@brand.com", "password1234", "FirstCo")
 	// Second with same email
@@ -2978,7 +2978,7 @@ func TestBrandRegister_DuplicateEmail(t *testing.T) {
 // --- LogoProxy ---
 
 func TestLogoProxy_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleLogoProxy, "POST", "/api/logo", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d", rr.Code)
@@ -2986,7 +2986,7 @@ func TestLogoProxy_WrongMethod(t *testing.T) {
 }
 
 func TestLogoProxy_MissingURL(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	req := httptest.NewRequest("GET", "/api/logo", nil)
 	rr := httptest.NewRecorder()
 	server.handleLogoProxy(rr, req)
@@ -2996,7 +2996,7 @@ func TestLogoProxy_MissingURL(t *testing.T) {
 }
 
 func TestLogoProxy_InvalidURL(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	req := httptest.NewRequest("GET", "/api/logo?url="+url.QueryEscape("not-a-url"), nil)
 	rr := httptest.NewRecorder()
 	server.handleLogoProxy(rr, req)
@@ -3009,7 +3009,7 @@ func TestLogoProxy_InvalidURL(t *testing.T) {
 // --- handleBrandDeals routing ---
 
 func TestBrandDeals_InvalidDealID(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "deals@brand.com", "password1234", "DealsCo")
 
 	req := httptest.NewRequest("PUT", "/brand/deals/notanumber", bytes.NewBuffer([]byte("{}")))
@@ -3023,7 +3023,7 @@ func TestBrandDeals_InvalidDealID(t *testing.T) {
 }
 
 func TestBrandDeals_UnsupportedMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "method@brand.com", "password1234", "MethodCo")
 
 	req := httptest.NewRequest("PATCH", "/brand/deals", bytes.NewBuffer(nil))
@@ -3036,7 +3036,7 @@ func TestBrandDeals_UnsupportedMethod(t *testing.T) {
 }
 
 func TestBrandDeals_GetEmptyList(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "empty@brand.com", "password1234", "EmptyCo")
 
 	rr := doRequest(server.handleBrandDeals, "GET", "/brand/deals", nil, []*http.Cookie{cookie})
@@ -3055,7 +3055,7 @@ func TestBrandDeals_GetEmptyList(t *testing.T) {
 // =============================================================================
 
 func TestPricingTiers_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handlePricingTiers, "POST", "/brand/pricing-tiers", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d", rr.Code)
@@ -3063,7 +3063,7 @@ func TestPricingTiers_WrongMethod(t *testing.T) {
 }
 
 func TestPricingTiers_NoAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handlePricingTiers, "GET", "/brand/pricing-tiers", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", rr.Code)
@@ -3071,7 +3071,7 @@ func TestPricingTiers_NoAuth(t *testing.T) {
 }
 
 func TestPricingTiers_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "tiers@brand.com", "password1234", "TiersCo")
 
 	rr := doRequest(server.handlePricingTiers, "GET", "/brand/pricing-tiers", nil, []*http.Cookie{cookie})
@@ -3088,7 +3088,7 @@ func TestPricingTiers_Success(t *testing.T) {
 }
 
 func TestCategoryReport_WrongMethod(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleCategoryReport, "POST", "/brand/category-report/Dairy", nil, nil)
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d", rr.Code)
@@ -3096,7 +3096,7 @@ func TestCategoryReport_WrongMethod(t *testing.T) {
 }
 
 func TestCategoryReport_NoAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleCategoryReport, "GET", "/brand/category-report/Dairy", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", rr.Code)
@@ -3104,7 +3104,7 @@ func TestCategoryReport_NoAuth(t *testing.T) {
 }
 
 func TestCategoryReport_MissingCategory(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "cat@brand.com", "password1234", "CatCo")
 
 	req := httptest.NewRequest("GET", "/brand/category-report/", nil)
@@ -3117,7 +3117,7 @@ func TestCategoryReport_MissingCategory(t *testing.T) {
 }
 
 func TestCategoryReport_FreeTierBasic(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "free@brand.com", "password1234", "FreeCo")
 
 	req := httptest.NewRequest("GET", "/brand/category-report/Dairy", nil)
@@ -3137,7 +3137,7 @@ func TestCategoryReport_FreeTierBasic(t *testing.T) {
 }
 
 func TestCategoryReport_PremiumTierFull(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, brandUserID := brandRegister(t, server, "premium@brand.com", "password1234", "PremiumCo")
 
 	// Give premium subscription
@@ -3163,7 +3163,7 @@ func TestCategoryReport_PremiumTierFull(t *testing.T) {
 // --- handleBrandDeals full CRUD ---
 
 func TestBrandDeals_CreateAndGet(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "crud@brand.com", "password1234", "CrudCo")
 
 	// Create a deal
@@ -3185,7 +3185,7 @@ func TestBrandDeals_CreateAndGet(t *testing.T) {
 }
 
 func TestBrandDeals_DeleteAndVerify(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "del@brand.com", "password1234", "DelCo")
 
 	dealID := createTestDeal(t, server, cookie)
@@ -3209,7 +3209,7 @@ func TestBrandDeals_DeleteAndVerify(t *testing.T) {
 }
 
 func TestBrandDeals_UpdateAndVerify(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "upd@brand.com", "password1234", "UpdCo")
 
 	dealID := createTestDeal(t, server, cookie)
@@ -3235,7 +3235,7 @@ func TestBrandDeals_UpdateAndVerify(t *testing.T) {
 }
 
 func TestBrandPortal_LogoUploadAndServe(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, brandUserID := brandRegister(t, server, "logo@brand.com", "password1234", "LogoCo")
 
 	// Upload a logo (1x1 red PNG as base64 data URI)
@@ -3284,7 +3284,7 @@ func TestBrandPortal_LogoUploadAndServe(t *testing.T) {
 }
 
 func TestBrandPortal_LogoUpload_NoAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleBrandLogoUpload, "POST", "/brand/logo", map[string]string{
 		"image": "data:image/png;base64,abc",
@@ -3295,7 +3295,7 @@ func TestBrandPortal_LogoUpload_NoAuth(t *testing.T) {
 }
 
 func TestBrandPortal_LogoUpload_TooLarge(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "big@brand.com", "password1234", "BigCo")
 
 	// Create a large base64 string (>500KB decoded)
@@ -3313,7 +3313,7 @@ func TestBrandPortal_LogoUpload_TooLarge(t *testing.T) {
 // =============================================================================
 
 func TestBrandFeedbackSubmit_Success(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "test@brand.com", "password123!", "TestCo")
 
 	rr := doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]string{
@@ -3336,7 +3336,7 @@ func TestBrandFeedbackSubmit_Success(t *testing.T) {
 }
 
 func TestBrandFeedbackSubmit_EmptyBody(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "test@brand.com", "password123!", "TestCo")
 
 	rr := doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]string{
@@ -3349,7 +3349,7 @@ func TestBrandFeedbackSubmit_EmptyBody(t *testing.T) {
 }
 
 func TestBrandFeedbackSubmit_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 
 	rr := doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]string{
 		"body": "test feedback",
@@ -3361,7 +3361,7 @@ func TestBrandFeedbackSubmit_RequiresAuth(t *testing.T) {
 }
 
 func TestBrandFeedbackSubmit_DefaultsType(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, brandUserID := brandRegister(t, server, "test@brand.com", "password123!", "TestCo")
 
 	rr := doRequest(server.handleBrandFeedback, "POST", "/brand/feedback", map[string]string{
@@ -3390,7 +3390,7 @@ func TestBrandFeedbackSubmit_DefaultsType(t *testing.T) {
 // =============================================================================
 
 func TestBrandFeedbackList_Empty(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "test@brand.com", "password123!", "TestCo")
 
 	rr := doRequest(server.handleBrandFeedback, "GET", "/brand/feedback", nil, []*http.Cookie{cookie})
@@ -3406,7 +3406,7 @@ func TestBrandFeedbackList_Empty(t *testing.T) {
 }
 
 func TestBrandFeedbackList_WithData(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "test@brand.com", "password123!", "TestCo")
 
 	// Submit two feedback items
@@ -3431,7 +3431,7 @@ func TestBrandFeedbackList_WithData(t *testing.T) {
 }
 
 func TestBrandFeedbackList_RequiresAuth(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	rr := doRequest(server.handleBrandFeedback, "GET", "/brand/feedback", nil, nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Status: got %d, want 401", rr.Code)
@@ -3439,7 +3439,7 @@ func TestBrandFeedbackList_RequiresAuth(t *testing.T) {
 }
 
 func TestBrandFeedback_MethodNotAllowed(t *testing.T) {
-	server := newTestServer(t, &MockTwilioClient{})
+	server := newTestServer(t)
 	cookie, _ := brandRegister(t, server, "test@brand.com", "password123!", "TestCo")
 
 	rr := doRequest(server.handleBrandFeedback, "DELETE", "/brand/feedback", nil, []*http.Cookie{cookie})

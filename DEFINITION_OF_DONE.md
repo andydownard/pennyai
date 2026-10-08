@@ -13,7 +13,7 @@ All must pass before code reaches main.
 - [ ] **No breaking API changes.** Endpoint paths, HTTP methods, JSON request/response shapes unchanged. If shape changes, add backward-compatibility test.
 - [ ] **Feature branch only.** Code on feature branch, never pushed to main/staging/production directly.
 - [ ] **Idempotency guards in place.** Every mutation handler (INSERT/UPDATE list, record item, process shopping trip) has dedup logic. Calling twice with same input = same result, no duplicates. Check before INSERT: "have we already created this record?"
-- [ ] **No duplicate notification/SMS paths.** Trace every code path that sends SMS (Twilio), email (SendGrid), or push notification. Verify: dedup guard OR idempotency key OR "already sent" flag. If you cannot prove no duplication, add a guard.
+- [ ] **No duplicate notification paths.** Trace every code path that sends email (SendGrid), or push notification. Verify: dedup guard OR idempotency key OR "already sent" flag. If you cannot prove no duplication, add a guard.
 - [ ] **Data isolation verified.** Every query filters by current user or household_id. Query audit: spot-check 5+ queries to confirm no cross-user leaks. Write a specific test: "User A cannot see User B's lists or household."
 - [ ] **Rate limits enforced server-side.** Rate limiting via `sync.Map` with sliding time windows. Limits non-bypassable from client. Trace: list creation, item addition, SMS submissions.
 - [ ] **Security rules not violated.** Read [SECURITY.md](./SECURITY.md). Confirm: no phone/email exposure across user boundary, no PII in logs (IDs only), Clerk sign-in intact and no legacy sign-in or Timpager call reintroduced.
@@ -30,7 +30,7 @@ All must pass before merge. Individual items can be follow-ups if panel approves
 - [ ] **No Penny personality behaviors removed.** Typewriter effect, chime-ins, idle reminders, personality quotes must still function. Check [PENNY_PROMPT.md](./PENNY_PROMPT.md) for full list.
 - [ ] **Brand logo caching system preserved.** 3-layer system (`brand_logos`, `brands`, `brand_owners`) still intact. Do NOT simplify away.
 - [ ] **Household sharing intact.** Invite, join, leave, members list all functional. No household removal, no shortcuts to skip shared context.
-- [ ] **Email and SMS inbound webhooks working.** Email parsing, SMS Twilio webhook processing, both still functional.
+- [ ] **Email inbound webhook working.** Email parsing still functional. (There is no SMS; the texting paths answer 410.)
 - [ ] **Panel review done.** See [PANEL_GOVERNANCE.md](./PANEL_GOVERNANCE.md). Minimum for user-facing changes: Customer Panel or Product Team sign-off. Micro auto-go. Small = 2 min, Medium = 10 min, Large = 30 min.
 - [ ] **CST checklist passed.** Review [CLAUDE.md](./CLAUDE.md) §CST Principles. Human Dignity: respects dietary needs without judgment. Common Good: works on shared devices, low bandwidth. Subsidiarity: strengthens household coordination. Solidarity: bridges dietary/cultural gaps. Preferential Option: if Tamika (single mom, one hand free, toddler) can use it, anyone can.
 - [ ] **Shipping Gates verified.** Gate 1 (first-5-minutes magic): new user adds first item in 90 sec, zero questions. Gate 2 (household coordination): feature serves "Did you get milk?" narrative. Gate 3 (data flywheel): feature generates data signal for Penny. If not serving all three, deprioritize unless Andy approves. See [11_STAR_NARRATIVE.md](./11_STAR_NARRATIVE.md) and [DATA_FLYWHEEL.md](./DATA_FLYWHEEL.md).

@@ -24,47 +24,13 @@ var (
 // githubHTTPClient has a 10-second timeout to avoid goroutine leaks if GitHub hangs.
 var githubHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
-// isFeedbackUser returns true if the user's phone is in the approved FeedbackPhones list.
-// Checks both the session phone and the user's phone in the users table (covers Google/email logins).
-func (s *Server) isFeedbackUser(session Session) bool {
-	if session.UserID == "" {
-		return false
-	}
-	// If no FEEDBACK_PHONES configured, no one gets the widget
-	if len(s.config.FeedbackPhones) == 0 {
-		return false
-	}
-
-	// Collect phone numbers to check: session phone + user table phone
-	phones := []string{}
-	if session.PhoneNumber != "" {
-		phones = append(phones, session.PhoneNumber)
-	}
-	// Also check the users table — session may not have phone if logged in via Google/email
-	var userPhone sql.NullString
-	if err := s.db.QueryRow("SELECT phone FROM users WHERE id = ?", session.UserID).Scan(&userPhone); err == nil && userPhone.Valid && userPhone.String != "" {
-		phones = append(phones, userPhone.String)
-	}
-
-	for _, phone := range phones {
-		// Strip +1 prefix for comparison (FEEDBACK_PHONES are stored without it)
-		normalized := strings.TrimPrefix(phone, "+1")
-		for _, p := range s.config.FeedbackPhones {
-			if normalized == p || phone == p {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// requireFeedbackUser checks for a valid session and feedback privileges.
+// requireFeedbackUser checks for a valid session and feedback privileges (admins only).
 func (s *Server) requireFeedbackUser(w http.ResponseWriter, r *http.Request) (Session, bool) {
 	session, ok := s.requireSession(w, r)
 	if !ok {
 		return Session{}, false
 	}
-	if !s.isFeedbackUser(session) {
+	if !s.isAdmin(session) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden"})
 		return Session{}, false
 	}
@@ -384,7 +350,7 @@ func (s *Server) handleAdminFeedback(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 		SELECT f.id, f.user_id, f.body, f.type, f.urgency, f.status, f.admin_notes, f.github_issue_url, f.created_at, COALESCE(f.updated_at, ''),
-			COALESCE(u.name, ''), COALESCE(u.phone, '')
+			COALESCE(u.name, '')
 		FROM feedback_requests f
 		LEFT JOIN users u ON u.id = f.user_id
 		WHERE 1=1
@@ -416,14 +382,13 @@ func (s *Server) handleAdminFeedback(w http.ResponseWriter, r *http.Request) {
 	items := make([]FeedbackRequest, 0)
 	for rows.Next() {
 		var f FeedbackRequest
-		var userName, userPhone sql.NullString
+		var userName sql.NullString
 		if err := rows.Scan(&f.ID, &f.UserID, &f.Body, &f.Type, &f.Urgency, &f.Status, &f.AdminNotes, &f.GitHubIssueURL, &f.CreatedAt, &f.UpdatedAt,
-			&userName, &userPhone); err != nil {
+			&userName); err != nil {
 			log.Printf("[warn] scanning admin feedback: %v", err)
 			continue
 		}
 		f.UserName = userName.String
-		f.UserPhone = userPhone.String
 		items = append(items, f)
 	}
 
