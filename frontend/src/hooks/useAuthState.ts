@@ -10,7 +10,7 @@
 // =============================================================================
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { clerkSignOut, setClerkExchangeHandler } from '../auth/clerkToken'
+import { clerkSignOut, setClerkExchangeHandler, setClerkResolving } from '../auth/clerkToken'
 
 /** GET /auth/me for a signed-in user. */
 export interface MeResponse {
@@ -96,6 +96,7 @@ export function useAuthState(options: UseAuthStateOptions) {
     setClerkExchangeHandler((exchangeError?: string) => {
       if (exchangeError) {
         setError(exchangeError)
+        setClerkResolving(false)
         return
       }
       fetch('/auth/me')
@@ -109,6 +110,8 @@ export function useAuthState(options: UseAuthStateOptions) {
           onSignedInRef.current(data)
         })
         .catch(() => setError(SIGN_IN_FAILED))
+        // Only now: the screen has already moved to the list on success.
+        .finally(() => setClerkResolving(false))
     })
     return () => setClerkExchangeHandler(null)
   }, [])

@@ -27,6 +27,8 @@ import {
   clerkExchangePending,
   runClerkExchange,
   setClerkExchangeHandler,
+  clerkResolving,
+  setClerkResolving,
 } from './clerkToken'
 
 const GUARD = 'groflo.clerk_exchanged:sess_1'
@@ -185,5 +187,50 @@ describe('ClerkSessionExchange', () => {
       await asked
       expect(fetchActionMock).toHaveBeenCalledTimes(1)
     })
+  })
+})
+
+// The loading screen stays up while Clerk decides; these pin when it stops.
+describe('ClerkSessionExchange resolving signal', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    _resetClerkTokenRegistry()
+    setClerkExchangeHandler(notified)
+    fetchActionMock.mockReset()
+    fetchActionMock.mockResolvedValue({ ok: true, status: 200 })
+    setClerkResolving(true)
+  })
+  afterEach(async () => {
+    await settle()
+    sessionStorage.clear()
+  })
+
+  it('stops resolving when Clerk loads with no session', async () => {
+    authState = { isLoaded: true, isSignedIn: false, sessionId: '' } as typeof authState
+    render(<ClerkSessionExchange />)
+    await waitFor(() => expect(clerkResolving()).toBe(false))
+    expect(fetchActionMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps resolving while Clerk is still loading', async () => {
+    authState = { isLoaded: false, isSignedIn: false, sessionId: '' } as typeof authState
+    render(<ClerkSessionExchange />)
+    await settle()
+    expect(clerkResolving()).toBe(true)
+  })
+
+  it('keeps resolving during a first exchange (the handler ends it after entering the app)', async () => {
+    authState = { isLoaded: true, isSignedIn: true, sessionId: 'sess_1' }
+    render(<ClerkSessionExchange />)
+    await waitFor(() => expect(fetchActionMock).toHaveBeenCalledTimes(1))
+    expect(clerkResolving()).toBe(true)
+  })
+
+  it('stops resolving when this session was already exchanged (signed out since)', async () => {
+    sessionStorage.setItem(GUARD, '1')
+    authState = { isLoaded: true, isSignedIn: true, sessionId: 'sess_1' }
+    render(<ClerkSessionExchange />)
+    await waitFor(() => expect(clerkResolving()).toBe(false))
+    expect(fetchActionMock).not.toHaveBeenCalled()
   })
 })

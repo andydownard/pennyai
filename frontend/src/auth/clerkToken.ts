@@ -22,6 +22,49 @@ let exchangeRunner: ExchangeRunner | null = null
 let exchangePending = false
 const pendingListeners = new Set<() => void>()
 
+// "Resolving" covers the moment after Rally sends the user back: the page has
+// loaded but Clerk has not yet said whether there is a session to exchange.
+// While it is true the app shows its loading screen instead of the login
+// screen, so a returning user goes straight to their list. It starts true only
+// when this build carries a Rally key; a cap keeps a failed Clerk load from
+// holding the loading screen forever.
+const RESOLVE_CAP_MS = 8000
+let resolving = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY && import.meta.env.VITE_CLERK_SIGN_IN_URL)
+const resolvingListeners = new Set<() => void>()
+let resolveTimer: ReturnType<typeof setTimeout> | null = resolving
+  ? setTimeout(() => setClerkResolving(false), RESOLVE_CAP_MS)
+  : null
+
+/** Called once Clerk has decided: no session, nothing to exchange, or the hand-off finished. */
+export function setClerkResolving(value: boolean) {
+  if (!value && resolveTimer) {
+    clearTimeout(resolveTimer)
+    resolveTimer = null
+  }
+  if (resolving === value) return
+  resolving = value
+  resolvingListeners.forEach(l => {
+    try {
+      l()
+    } catch {
+      // A listener throwing must not break the sign-in flow.
+    }
+  })
+}
+
+/** Whether Clerk is still deciding if a returning user is signed in. */
+export function clerkResolving(): boolean {
+  return resolving
+}
+
+/** useSyncExternalStore-shaped subscription to clerkResolving. */
+export function subscribeClerkResolving(listener: () => void): () => void {
+  resolvingListeners.add(listener)
+  return () => {
+    resolvingListeners.delete(listener)
+  }
+}
+
 /**
  * Whether this build carries a Rally (Clerk) key. Checked at the call site
  * rather than cached so tests can stub import.meta.env.
@@ -141,4 +184,8 @@ export function _resetClerkTokenRegistry() {
   exchangeRunner = null
   exchangePending = false
   pendingListeners.clear()
+  if (resolveTimer) clearTimeout(resolveTimer)
+  resolveTimer = null
+  resolving = false
+  resolvingListeners.clear()
 }
