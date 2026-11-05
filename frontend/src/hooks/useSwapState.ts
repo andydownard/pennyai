@@ -101,9 +101,8 @@ export function useSwapState(options: UseSwapStateOptions) {
     const swap = swapsByItemId[itemId]
     const offerBrand = swap?.offer_brand || ''
     const discountCents = swap?.discount_cents || 0
-    const oldSwaps = { ...swapsByItemId }
-    setSwapsByItemId(prev => { const next = { ...prev }; delete next[itemId]; return next })
-    optRef.current.typePennyHome('Nice swap!')
+    // The card stays (spinning, inactive) until the server answers; it is
+    // removed on success and simply tappable again on failure.
     try {
       const res = await fetch('/api/list/parse', {
         method: 'POST',
@@ -113,6 +112,8 @@ export function useSwapState(options: UseSwapStateOptions) {
       if (res.status === 401) { optRef.current.handleSessionExpired(); return }
       if (res.ok) {
         const data = await res.json()
+        setSwapsByItemId(prev => { const next = { ...prev }; delete next[itemId]; return next })
+        optRef.current.typePennyHome('Nice swap!')
         if (data.updated?.length > 0) {
           optRef.current.setItems(prev => {
             const map = new Map(prev.map(i => [i.id, i]))
@@ -138,12 +139,10 @@ export function useSwapState(options: UseSwapStateOptions) {
           setTimeout(() => setPostSwapShare(null), 8000)
         }
       } else {
-        setSwapsByItemId(oldSwaps)
         const err = await res.json().catch(() => null)
         optRef.current.showToast(err?.error || 'Couldn\'t accept the swap', 'error')
       }
     } catch {
-      setSwapsByItemId(oldSwaps)
       optRef.current.showToast('Connection error — try again', 'error')
     }
   }

@@ -2,6 +2,9 @@ import { PennyAvatar } from './PennyAvatar'
 import { UserAvatar } from './UserAvatar'
 import { FONT, FONT_BASE, FONT_SM } from '../styles'
 
+/** Penny's face and the user's face in the menu share one size. */
+const FACE = 56
+
 const BRAND_PORTAL_URL = import.meta.env.VITE_BRAND_PORTAL_URL || ''
 
 export type NavScreen = 'home' | 'saved-lists' | 'penny' | 'settings-share' | 'profile' | 'admin'
@@ -30,7 +33,7 @@ const menuItems: { key: NavScreen; label: string; icon: (color: string) => JSX.E
   },
   {
     key: 'penny', label: 'Penny',
-    icon: () => <PennyAvatar size={20} />,
+    icon: () => <PennyAvatar size={FACE} />,
   },
 ]
 
@@ -83,7 +86,7 @@ export function NavMenu({ open, active, isAdmin, userId, initials, displayName, 
             borderBottom: '1px solid var(--border)',
           }}
         >
-          <UserAvatar userId={userId} initials={initials} size={48} />
+          <UserAvatar userId={userId} initials={initials} size={FACE} />
           <span data-testid="profile-text" style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
             <span style={{ fontSize: FONT_BASE, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName || 'Profile'}</span>
             {email && (
@@ -188,7 +191,7 @@ export function AvatarMenuButton({ onClick, expanded, userId, initials }: {
         marginLeft: '-8px', marginRight: '4px',
       }}
     >
-      <UserAvatar userId={userId} initials={initials} size={36} />
+      <UserAvatar userId={userId} initials={initials} size={44} />
     </button>
   )
 }

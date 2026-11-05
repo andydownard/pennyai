@@ -68,7 +68,7 @@ const EmbedView = lazy(() => import('./components/EmbedView').then(m => ({ defau
 import {
   FONT, DEPARTMENTS, DEPT_ICONS,
   FONT_2XS, FONT_XS, FONT_SM, FONT_BASE, FONT_MD, FONT_LG, FONT_XL,
-  THEME_CSS, initTheme, getTheme, setTheme,
+  THEME_CSS, initTheme,
   layout, buttons, text,
 } from './styles'
 
@@ -363,14 +363,6 @@ function AppInner() {
 
   // --- Confirm modal state ---
   const { confirmModal, openConfirmModal, closeConfirmModal, runConfirmAction } = useConfirmModal()
-
-  // --- Theme state ---
-  const [darkMode, setDarkMode] = useState(() => getTheme() === 'dark')
-  const toggleDarkMode = () => {
-    const newTheme = darkMode ? 'light' : 'dark'
-    setDarkMode(!darkMode)
-    setTheme(newTheme)
-  }
 
   // --- Auth/session state ---
   const [loginCount, setLoginCount] = useState(0)
@@ -1839,7 +1831,6 @@ function AppInner() {
         `Screen: ${screen}`,
         `Viewport: ${window.innerWidth}x${window.innerHeight}`,
         `UA: ${navigator.userAgent}`,
-        `Dark: ${document.documentElement.getAttribute('data-theme')}`,
         `Items: ${items.length}`,
       ].join(' | ')
       const enrichedBody = `${body}\n\n---\n_Device: ${ctx}_`
@@ -2217,8 +2208,6 @@ function AppInner() {
         onSessionExpired={handleSessionExpired}
 
         placesReady={placesReady}
-        darkMode={darkMode}
-        onToggleDarkMode={toggleDarkMode}
         renderHeader={() => renderPageHeader('Profile', 'profile')}
 
         transitionStyle={transitionStyle}
@@ -2832,7 +2821,7 @@ function AppInner() {
           </div>
         )}
         {/* Non-blocking loading wash for commands (not adds). Adds show their
-            own shimmer rows below, so no wash is needed and the list stays
+            own spinner below, so no wash is needed and the list stays
             scrollable (pointerEvents: none). */}
         {chatLoading && pendingAdds.length === 0 && (
           <div style={{
@@ -2843,24 +2832,23 @@ function AppInner() {
             pointerEvents: 'none',
           }} />
         )}
-        {/* Optimistic "item arriving" rows: the typed items shown as shimmer
-            ghosts while Penny parses. Render-only; replaced by server result. */}
+        {/* While Penny parses typed items: one spinner, not a half-drawn list. */}
         {pendingAdds.length > 0 && (
-          <div style={{ padding: '4px 0' }} aria-live="polite" aria-label="Adding items">
-            {pendingAdds.map((name, i) => (
-              <div key={`pending-${i}`} style={{
-                display: 'flex', alignItems: 'center', padding: '12px 20px',
-                borderBottom: '1px solid var(--border)', opacity: 0.75,
-              }}>
-                <div className="skeleton-shimmer" style={{
-                  width: '22px', height: '22px', borderRadius: '50%',
-                  backgroundColor: 'var(--skeleton)', marginRight: '12px', flexShrink: 0,
-                }} />
-                <span style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text-secondary)', fontStyle: 'italic' }}>
-                  {name}
-                </span>
-              </div>
-            ))}
+          <div
+            role="status"
+            aria-live="polite"
+            aria-label="Adding items"
+            style={{ ...layout.rowCenter, padding: '28px 0' }}
+          >
+            <span
+              data-testid="adding-spinner"
+              aria-hidden="true"
+              style={{
+                width: '28px', height: '28px', borderRadius: '50%',
+                border: '3px solid var(--border)', borderTopColor: 'var(--brand)',
+                animation: 'spin 0.8s linear infinite',
+              }}
+            />
           </div>
         )}
         {listLoading && items.length === 0 ? (
@@ -2895,8 +2883,7 @@ function AppInner() {
           <div style={listStyles.emptyState}>
             {!hasEverAddedItems && loginCount <= 1 ? (
               <>
-                <PennyAvatar size={64} />
-                <p style={{ ...listStyles.emptyText, marginTop: '14px', fontSize: FONT_XL, fontWeight: 600 }}>Hey! I'm Penny</p>
+                <p style={{ ...listStyles.emptyText, fontSize: FONT_XL, fontWeight: 600 }}>Hey! I'm Penny</p>
                 <p style={listStyles.emptySubtext}>Type what you need — I'll organize it by aisle</p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '16px', justifyContent: 'center', maxWidth: '320px' }}>
                   {['milk eggs bread', 'bananas chicken rice', 'coffee creamer butter'].map(example => (
@@ -2909,8 +2896,7 @@ function AppInner() {
               </>
             ) : (
               <>
-                <PennyAvatar size={56} />
-                <p style={{ ...listStyles.emptyText, marginTop: '12px' }}>What can I add to your list?</p>
+                <p style={listStyles.emptyText}>What can I add to your list?</p>
                 <p style={listStyles.emptySubtext}>Type, paste a list, or snap a photo</p>
                 {usualListId !== null && (
                   <button
@@ -3838,18 +3824,6 @@ const globalCSS = `
 
   button, a, [role="button"] { -webkit-tap-highlight-color: transparent; }
 
-  /* Dark mode overrides for inline-styled elements */
-  [data-theme="dark"] body { background-color: var(--bg); color: var(--text); }
-  [data-theme="dark"] input, [data-theme="dark"] textarea {
-    background-color: var(--surface) !important;
-    color: var(--text) !important;
-    border-color: var(--border) !important;
-  }
-  [data-theme="dark"] input:focus {
-    border-color: var(--brand) !important;
-    box-shadow: 0 0 0 3px rgba(74, 148, 112, 0.25) !important;
-  }
-
   button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 
   .sr-only { position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0; }
@@ -3869,5 +3843,5 @@ const styleEl = document.createElement('style')
 styleEl.textContent = THEME_CSS + globalCSS
 document.head.appendChild(styleEl)
 
-// Initialize theme (light/dark) from user preference
+// Drop any dark-mode choice saved before dark mode was removed
 initTheme()

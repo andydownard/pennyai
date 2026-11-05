@@ -4,7 +4,7 @@
 // finds the new keys already present and removes the legacy ones).
 //
 // The rebrand's find-and-replace once turned LEGACY_PREFIX into 'groflo_' too,
-// so every page load deleted every groflo_ key (dark mode, dismissed prompts,
+// so every page load deleted every groflo_ key (saved choices, dismissed prompts,
 // and the invite/redirect links kept across the Rally sign-in redirect).
 // storageMigration.test.ts pins both prefixes.
 const LEGACY_PREFIX = 'thriftly_'

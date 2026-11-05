@@ -16,7 +16,7 @@ function renderProfile() {
       onAutoSave={vi.fn()}
       currentUserId={null} isAdmin={false}
       onNavigate={vi.fn()} showToast={vi.fn()} onSessionExpired={vi.fn()}
-      placesReady={false} darkMode={false} onToggleDarkMode={vi.fn()}
+      placesReady={false}
       renderHeader={() => null} transitionStyle={{}}
     />,
   )
@@ -45,7 +45,7 @@ describe('ProfileScreen', () => {
     expect(screen.queryByPlaceholderText('your@email.com')).toBeNull()
     expect(screen.getByPlaceholderText(/Start typing your address/)).toBeInTheDocument()
     expect(screen.getByText('Need Help?')).toBeInTheDocument()
-    expect(screen.getByText('Dark mode')).toBeInTheDocument()
+    expect(screen.queryByText('Dark mode')).not.toBeInTheDocument()
     expect(screen.queryByText(/sign out/i)).not.toBeInTheDocument()
   })
 

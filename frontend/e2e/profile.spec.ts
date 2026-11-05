@@ -6,19 +6,20 @@ test.describe('Profile screen', () => {
     await login(page)
   })
 
-  test('dark mode and other saved choices survive a reload', async ({ page }) => {
+  test('saved choices survive a reload, and a saved dark choice is dropped', async ({ page }) => {
     // Regression: a rebrand-era storage "migration" deleted every groflo_ key on
-    // each page load, so dark mode, dismissed prompts and pending invite links
-    // (kept across the Rally sign-in redirect) were lost.
+    // each page load, so dismissed prompts and pending invite links (kept across
+    // the Rally sign-in redirect) were lost. Dark mode is gone: an old saved
+    // choice must not linger or switch the theme.
     await page.goto('/')
     await page.evaluate(() => {
       localStorage.setItem('groflo_theme', 'dark')
       localStorage.setItem('groflo_install_dismissed', '1')
     })
     await page.reload({ waitUntil: 'domcontentloaded' })
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+    await expect(page.locator('html')).not.toHaveAttribute('data-theme', /.+/)
     expect(await page.evaluate(() => [localStorage.getItem('groflo_theme'), localStorage.getItem('groflo_install_dismissed')]))
-      .toEqual(['dark', '1'])
+      .toEqual([null, '1'])
   })
 
   test('shows profile fields (first name, last name, address) and no email field', async ({ page }) => {
