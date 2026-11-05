@@ -5,6 +5,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { LoginScreen } from './LoginScreen'
+import { LOGIN_MESSAGES } from '../hooks/useAuthState'
 import { RallyReadyContext } from '../auth/RallyReadyContext'
 
 const signInButtonRenders = vi.fn()
@@ -27,6 +28,13 @@ function renderLogin(opts: { rallyReady?: boolean; clerkEnabled?: boolean | null
 const UNAVAILABLE = 'Sign-in is briefly unavailable.'
 
 describe('LoginScreen', () => {
+  it('reserves room for the longest typewriter line so the button never moves', () => {
+    renderLogin()
+    const sizer = screen.getByTestId('penny-line-sizer')
+    expect(sizer).toHaveAttribute('aria-hidden', 'true')
+    expect(sizer.textContent).toBe(LOGIN_MESSAGES.reduce((a, b) => (b.length > a.length ? b : a)))
+  })
+
   it('renders Penny, the Rally button and the legal links', async () => {
     renderLogin()
     expect(await screen.findByRole('button', { name: 'Continue with Rally' })).toBeInTheDocument()

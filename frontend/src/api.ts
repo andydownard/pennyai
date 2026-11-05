@@ -73,6 +73,7 @@ export interface ActionResult {
 export async function fetchAction(
   url: string,
   options?: RequestInit,
+  { quiet401 = false }: { quiet401?: boolean } = {},
 ): Promise<ActionResult> {
   let res: Response
   try {
@@ -80,7 +81,10 @@ export async function fetchAction(
   } catch {
     return { ok: false, status: 0, error: 'Network error' }
   }
-  if (res.status === 401) { onSessionExpired(); return { ok: false, status: 401 } }
+  if (res.status === 401) {
+    if (!quiet401) onSessionExpired()
+    return { ok: false, status: 401 }
+  }
   if (!res.ok) {
     const errData = await res.json().catch(() => null)
     return { ok: false, status: res.status, error: errData?.error || `Error ${res.status}` }

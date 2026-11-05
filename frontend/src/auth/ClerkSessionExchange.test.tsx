@@ -18,7 +18,7 @@ vi.mock('@clerk/clerk-react', () => ({
 
 const fetchActionMock = vi.fn()
 vi.mock('../api', () => ({
-  fetchAction: (url: string, options?: RequestInit) => fetchActionMock(url, options),
+  fetchAction: (url: string, options?: RequestInit, extra?: unknown) => fetchActionMock(url, options, extra),
 }))
 
 import { ClerkSessionExchange } from './ClerkSessionExchange'
@@ -53,7 +53,7 @@ describe('ClerkSessionExchange', () => {
   it('posts once and notifies on success', async () => {
     render(<ClerkSessionExchange />)
     await waitFor(() => expect(fetchActionMock).toHaveBeenCalledTimes(1))
-    expect(fetchActionMock).toHaveBeenCalledWith('/auth/clerk/exchange', { method: 'POST' })
+    expect(fetchActionMock).toHaveBeenCalledWith('/auth/clerk/exchange', { method: 'POST' }, { quiet401: true })
     await waitFor(() => expect(notified).toHaveBeenCalledWith(undefined))
     expect(sessionStorage.getItem(GUARD)).not.toBeNull()
   })
@@ -99,8 +99,27 @@ describe('ClerkSessionExchange', () => {
   it('falls back to its own message when the server sends none', async () => {
     fetchActionMock.mockResolvedValue({ ok: false, status: 0 })
     render(<ClerkSessionExchange />)
-    await waitFor(() => expect(notified).toHaveBeenCalled())
+    await waitFor(() => expect(notified).toHaveBeenCalled(), { timeout: 3000 })
     expect(notified.mock.calls[0][0]).toMatch(/could not be completed/i)
+  })
+
+  it('retries a 401 before giving up: the Clerk token may not be ready at first', async () => {
+    fetchActionMock
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({ ok: true, status: 200 })
+    render(<ClerkSessionExchange />)
+    await waitFor(() => expect(fetchActionMock).toHaveBeenCalledTimes(2), { timeout: 3000 })
+    await waitFor(() => expect(notified).toHaveBeenCalledWith(undefined))
+    expect(notified).toHaveBeenCalledTimes(1)
+    // The automatic attempt must not trigger the app-wide "session expired" handling.
+    expect(fetchActionMock.mock.calls[0][2]).toEqual({ quiet401: true })
+  })
+
+  it('does not retry a 409: the server has answered', async () => {
+    fetchActionMock.mockResolvedValue({ ok: false, status: 409, error: 'Conflict' })
+    render(<ClerkSessionExchange />)
+    await waitFor(() => expect(notified).toHaveBeenCalledWith('Conflict'))
+    expect(fetchActionMock).toHaveBeenCalledTimes(1)
   })
 
   it('does nothing until Clerk has loaded', async () => {

@@ -3,11 +3,14 @@ import { PennyAvatar } from './PennyAvatar'
 import { LegalLinks } from './LegalLinks'
 import { SignInUnavailable } from './SignInUnavailable'
 import { RallyReadyContext } from '../auth/RallyReadyContext'
+import { LOGIN_MESSAGES } from '../hooks/useAuthState'
 import { FONT, authStyles, layout, text } from '../styles'
 
 // Lazy so the screen itself never imports Clerk: the button only loads once
 // RallyReadyContext says its provider is mounted.
 const ClerkSignInButton = lazy(() => import('../auth/ClerkSignInButton'))
+
+const LONGEST_LINE = LOGIN_MESSAGES.reduce((a, b) => (b.length > a.length ? b : a))
 
 interface LoginScreenProps {
   /** Penny's typewriter line. */
@@ -34,12 +37,17 @@ export function LoginScreen({ loginPennyText, clerkEnabled, error = '' }: LoginS
         {/* Penny hero */}
         <div style={{ ...layout.columnCenter, marginTop: 'auto', marginBottom: '28px', width: '100%' }}>
           <PennyAvatar size={130} />
+          {/* The longest line sits invisibly in the same grid cell, so the box is
+              always tall enough and the button below never moves as text wraps. */}
           <div style={{
             fontFamily: FONT, fontSize: '1.125rem', fontWeight: 500,
             color: 'var(--text)', lineHeight: 1.5, fontStyle: 'italic',
             textAlign: 'left', marginTop: '16px',
-            minHeight: '54px', maxWidth: '320px', width: '100%',
-          }}>{loginPennyText}<span style={{ opacity: 0.4 }} className="cursor-blink">|</span></div>
+            maxWidth: '320px', width: '100%', display: 'grid',
+          }}>
+            <span data-testid="penny-line-sizer" aria-hidden="true" style={{ gridArea: '1 / 1', visibility: 'hidden' }}>{LONGEST_LINE}</span>
+            <span style={{ gridArea: '1 / 1' }}>{loginPennyText}<span style={{ opacity: 0.4 }} className="cursor-blink">|</span></span>
+          </div>
         </div>
 
         {error && <p role="alert" style={{ ...authStyles.error, width: '100%', textAlign: 'center' }}>{error}</p>}

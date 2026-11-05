@@ -11,7 +11,10 @@
 // =============================================================================
 
 export function signInRedirectTarget(): string {
-  const { href } = window.location
+  const { href, origin, pathname } = window.location
+  // The login screen is not a destination: coming back to /login would leave a
+  // signed-in user on it. Send them to the app root instead.
+  if (pathname === '/login') return `${origin}/`
   const hash = href.indexOf('#')
   return hash === -1 ? href : href.slice(0, hash)
 }
