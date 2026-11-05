@@ -22,7 +22,9 @@ import { signInRedirectTarget } from './signInRedirect'
 import {
   clerkExchangePending,
   clerkSignOut,
+  clerkSigningOut,
   runClerkExchange,
+  subscribeClerkSigningOut,
   subscribeClerkExchangePending,
 } from './clerkToken'
 import { SignInUnavailable } from '../components/SignInUnavailable'
@@ -43,6 +45,7 @@ export function ClerkSignInButton() {
   const clerk = useClerk()
   const { isLoaded, isSignedIn } = useAuth()
   const exchanging = useSyncExternalStore(subscribeClerkExchangePending, clerkExchangePending)
+  const signingOut = useSyncExternalStore(subscribeClerkSigningOut, clerkSigningOut)
   const [timedOut, setTimedOut] = useState(false)
 
   useEffect(() => {
@@ -69,6 +72,13 @@ export function ClerkSignInButton() {
   }
 
   if (isSignedIn) {
+    if (signingOut) {
+      return (
+        <button type="button" disabled aria-busy="true" style={busyStyle}>
+          Continue with Rally
+        </button>
+      )
+    }
     if (exchanging) {
       return (
         <button type="button" disabled aria-busy="true" style={busyStyle}>

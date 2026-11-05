@@ -38,4 +38,9 @@ describe('signInRedirectTarget', () => {
     setHref('https://app.groflo.io/#')
     expect(signInRedirectTarget()).toBe('https://app.groflo.io/')
   })
+
+  it('sends someone on the login screen back to the app root, not to /login', () => {
+    setHref('https://groflo.rallytasks.com/login')
+    expect(signInRedirectTarget()).toBe('https://groflo.rallytasks.com/')
+  })
 })

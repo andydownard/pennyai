@@ -20,6 +20,8 @@ let signOutFn: SignOut | null = null
 let exchangeHandler: ExchangeHandler | null = null
 let exchangeRunner: ExchangeRunner | null = null
 let exchangePending = false
+let signingOut = false
+const signingOutListeners = new Set<() => void>()
 const pendingListeners = new Set<() => void>()
 
 // "Resolving" covers the moment after Rally sends the user back: the page has
@@ -106,10 +108,39 @@ export function setClerkSignOut(fn: SignOut | null) {
  */
 export async function clerkSignOut(): Promise<void> {
   if (!signOutFn) return
+  setSigningOut(true)
   try {
     await signOutFn()
+    // Stays true on success: Clerk is navigating to the login page, and until
+    // it does the login screen must not offer a signed-in Rally session.
   } catch {
     // Nothing to do: the local session is already gone.
+    setSigningOut(false)
+  }
+}
+
+function setSigningOut(value: boolean) {
+  if (signingOut === value) return
+  signingOut = value
+  signingOutListeners.forEach(l => {
+    try {
+      l()
+    } catch {
+      // A listener throwing must not break the sign-in flow.
+    }
+  })
+}
+
+/** Whether a Rally sign-out is under way. Pair with subscribeClerkSigningOut. */
+export function clerkSigningOut(): boolean {
+  return signingOut
+}
+
+/** useSyncExternalStore-shaped subscription to clerkSigningOut. */
+export function subscribeClerkSigningOut(listener: () => void): () => void {
+  signingOutListeners.add(listener)
+  return () => {
+    signingOutListeners.delete(listener)
   }
 }
 
@@ -183,6 +214,8 @@ export function _resetClerkTokenRegistry() {
   exchangeHandler = null
   exchangeRunner = null
   exchangePending = false
+  signingOut = false
+  signingOutListeners.clear()
   pendingListeners.clear()
   if (resolveTimer) clearTimeout(resolveTimer)
   resolveTimer = null

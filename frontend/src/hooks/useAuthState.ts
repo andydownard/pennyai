@@ -35,7 +35,7 @@ export interface UseAuthStateOptions {
 }
 
 // Login page typewriter messages
-const LOGIN_MESSAGES = [
+export const LOGIN_MESSAGES = [
   "Hi, I'm Penny. I keep your household's shopping list.",
   "Tell me what you need. I'll sort by aisle.",
   "I learn your brand preferences over time.",

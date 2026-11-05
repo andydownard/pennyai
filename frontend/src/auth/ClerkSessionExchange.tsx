@@ -30,6 +30,8 @@ import {
   setClerkResolving,
 } from './clerkToken'
 
+const RETRIES = 3
+const RETRY_DELAY_MS = 400
 const GUARD_PREFIX = 'groflo.clerk_exchanged:'
 
 function readGuard(key: string): boolean {
@@ -70,7 +72,15 @@ function exchange(guardKey: string): Promise<void> {
     try {
       // fetchAction attaches the Clerk Bearer header and reports the server's
       // own error text, which the 409 copy is written for.
-      const result = await fetchAction('/auth/clerk/exchange', { method: 'POST' })
+      // Right after Rally sends the user back, Clerk's token may not be ready:
+      // the first request then has no Bearer header and gets a 401 (or never
+      // reaches the server). Try a few times before telling the user; the 401
+      // is quiet so it does not read as an expired session.
+      let result = await fetchAction('/auth/clerk/exchange', { method: 'POST' }, { quiet401: true })
+      for (let i = 0; i < RETRIES && (result.status === 401 || result.status === 0); i++) {
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS))
+        result = await fetchAction('/auth/clerk/exchange', { method: 'POST' }, { quiet401: true })
+      }
       if (result.ok) {
         notifyClerkExchanged()
         return

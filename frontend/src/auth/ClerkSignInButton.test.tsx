@@ -16,6 +16,7 @@ vi.mock('@clerk/clerk-react', () => ({
 import ClerkSignInButton, { RALLY_LOAD_TIMEOUT_MS } from './ClerkSignInButton'
 import {
   _resetClerkTokenRegistry,
+  clerkSignOut,
   setClerkExchangePending,
   setClerkExchangeRunner,
   setClerkSignOut,
@@ -61,6 +62,29 @@ describe('ClerkSignInButton', () => {
 
     expect(buildSignInUrl).toHaveBeenCalledWith({ redirectUrl: 'https://app.groflo.io/join/ABC?x=1' })
     expect(window.location.assign).toHaveBeenCalledWith('https://primary.example/sign-in?built=1')
+  })
+
+  describe('while signing out', () => {
+    it('shows one disabled button, not the signed-in pair, until Rally has let go', async () => {
+      authState = { isLoaded: true, isSignedIn: true }
+      let finish: () => void = () => {}
+      setClerkSignOut(() => new Promise<void>(r => { finish = r }))
+      const pending = clerkSignOut()
+      render(<ClerkSignInButton />)
+      expect(screen.getAllByRole('button')).toHaveLength(1)
+      expect(screen.getByRole('button')).toBeDisabled()
+      expect(screen.queryByText('Use a different account')).not.toBeInTheDocument()
+      finish()
+      await pending
+    })
+
+    it('goes back to normal if signing out fails', async () => {
+      authState = { isLoaded: true, isSignedIn: true }
+      setClerkSignOut(() => Promise.reject(new Error('network')))
+      await clerkSignOut()
+      render(<ClerkSignInButton />)
+      expect(screen.getByText('Use a different account')).toBeInTheDocument()
+    })
   })
 
   describe('while Rally is loading', () => {
