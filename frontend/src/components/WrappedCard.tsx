@@ -3,8 +3,7 @@ import { appOrigin } from '../appUrl'
 import { track } from '../analytics'
 import { fetchAPI } from '../api'
 import { FONT, FONT_XS, FONT_BASE, FONT_MD, layout, text } from '../styles'
-// Uses CSS custom properties for dark mode reactivity
-
+// Uses CSS custom properties (var(--x)) for colour
 interface WrappedData {
   month: string
   total_savings_cents: number

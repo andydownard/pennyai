@@ -5,7 +5,7 @@ import type React from 'react'
 //
 // Theme support: colors are defined as CSS custom properties via injectThemeVars().
 // The exported constants here are static fallbacks for light mode. Components
-// that need dark mode reactivity should use the CSS var versions directly.
+// that need to follow the theme should use the CSS var versions directly.
 // =============================================================================
 
 // Light theme values (also used as static fallbacks)
@@ -33,7 +33,7 @@ export const SKELETON = '#E8E6E1'
 export const SKELETON_SHIMMER = '#F2F1ED'
 
 // =============================================================================
-// DARK MODE — CSS custom properties
+// THEME — CSS custom properties (light only)
 // =============================================================================
 
 export const THEME_CSS = `
@@ -60,57 +60,19 @@ export const THEME_CSS = `
     --checkbox-border: #6B7280;
     color-scheme: light;
   }
-
-  [data-theme="dark"] {
-    --brand: #377256;
-    --bg: #121212;
-    --text: #E8E6E1;
-    --text-secondary: #9CA3AF;
-    --text-tertiary: #8A8A8A;
-    --border: #2D2D2D;
-    --surface: #1E1E1E;
-    --checkbox-border: #D1D5DB;
-    --error: #F87171;
-    --error-bg: #2D1515;
-    --success: #4ADE80;
-    --success-bg: #14291A;
-    --warning: #F59E0B;
-    --warning-bg: #331F12;
-    --info: #93C5FD;
-    --info-bg: #1E3A5F;
-    --neutral-bg: #374151;
-    --skeleton: #2D2D2D;
-    --skeleton-shimmer: #3A3A3A;
-    --penny-bg: #1A1A1A;
-    color-scheme: dark;
-  }
 `
 
-// Light is the default for everyone. Dark only when the user chose it with the
-// Profile toggle; the device's own dark setting does not switch Groflo.
-export function getTheme(): 'light' | 'dark' {
-  if (typeof window === 'undefined') return 'light'
-  try {
-    if (localStorage.getItem('groflo_theme') === 'dark') return 'dark'
-  } catch {
-    // Storage blocked: fall through to the default.
-  }
-  return 'light'
-}
-
-export function setTheme(theme: 'light' | 'dark') {
-  localStorage.setItem('groflo_theme', theme)
-  document.documentElement.setAttribute('data-theme', theme)
-  // Update meta theme-color for browser chrome
-  const meta = document.querySelector('meta[name="theme-color"]')
-  if (meta) meta.setAttribute('content', theme === 'dark' ? '#121212' : '#35644F')
-}
-
+// Groflo is light only. Dark mode was removed: drop any choice saved while it
+// existed, so nobody is left holding a stale setting.
 export function initTheme() {
-  const theme = getTheme()
-  document.documentElement.setAttribute('data-theme', theme)
+  try {
+    localStorage.removeItem('groflo_theme')
+  } catch {
+    // Storage blocked: nothing to forget.
+  }
+  document.documentElement.removeAttribute('data-theme')
   const meta = document.querySelector('meta[name="theme-color"]')
-  if (meta) meta.setAttribute('content', theme === 'dark' ? '#121212' : '#35644F')
+  if (meta) meta.setAttribute('content', '#35644F')
 }
 
 // Font size scale (rem-based for system font size scaling)
@@ -398,7 +360,7 @@ export const CONFETTI_COLORS = [
 ]
 
 // Page-level layout styles shared across screens
-// Uses CSS custom properties (var(--x)) for dark mode reactivity.
+// Uses CSS custom properties (var(--x)).
 export const pageStyles = {
   page: {
     height: '100dvh',

@@ -1,6 +1,5 @@
 import { useState, useRef } from 'react'
 import { FloatingLabelField } from './FloatingLabelField'
-import { ToggleSwitch } from './ToggleSwitch'
 import { ScreenTransition } from './ScreenTransition'
 import { fetchAPI } from '../api'
 import { useAvatarVersion, bumpAvatarVersion, initialsOf } from '../avatarStore'
@@ -28,9 +27,6 @@ interface ProfileScreenProps {
   onSessionExpired: () => void
   // Address autocomplete
   placesReady: boolean
-  // Theme
-  darkMode: boolean
-  onToggleDarkMode: () => void
   // Header render prop
   renderHeader: () => React.ReactNode
   // Transition
@@ -44,7 +40,6 @@ export function ProfileScreen({
   currentUserId, isAdmin,
   onNavigate, showToast, onSessionExpired,
   placesReady,
-  darkMode, onToggleDarkMode,
   renderHeader, transitionStyle,
 }: ProfileScreenProps) {
   // Avatar state (profile-only)
@@ -258,18 +253,6 @@ export function ProfileScreen({
               Dashboard
             </button>
           )}
-
-          {/* Dark mode toggle */}
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '4px 0',
-          }}>
-            <div>
-              <div style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 500, color: 'var(--text)' }}>Dark mode</div>
-              <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)' }}>Easier on the eyes at night</div>
-            </div>
-            <ToggleSwitch value={darkMode} onChange={onToggleDarkMode} />
-          </div>
 
           <div style={{ height: '1px', backgroundColor: 'var(--border)', margin: '8px 0' }} />
 

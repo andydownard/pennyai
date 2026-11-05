@@ -201,18 +201,24 @@ export function PennyBar({
   // Hide Penny text when keyboard is open and no disambiguation active
   const hidePennyText = keyboardOpen && !hasDisambig && !pennyTyping
 
+  // Penny's face: twice the old size (28 → 56; 24 → 48 while typing).
+  const face = keyboardOpen ? 48 : 56
+
   return (
     <>
       {/* Penny text + brand disambiguation */}
       <div role="region" aria-label="Penny" style={{ flexShrink: 0, backgroundColor: bgColor, borderTop: '1px solid var(--border)', overflow: 'hidden', boxShadow: '0 -4px 16px rgba(0,0,0,0.08)', position: 'relative' as const, zIndex: 2 }}>
         {!hidePennyText && (
         <div style={{ padding: keyboardOpen ? '4px 12px' : '8px 14px', transition: 'padding 200ms ease' }}>
-          <div style={layout.rowGap}>
-            <PennyAvatar size={keyboardOpen ? 24 : 28} mood={pennyTyping ? 'thinking' : 'default'} />
+          <div style={{ ...layout.rowGap, alignItems: 'center' }}>
+            <PennyAvatar size={face} mood={pennyTyping ? 'thinking' : 'default'} />
             <span style={{
               flex: 1, fontFamily: FONT, fontSize: keyboardOpen ? FONT_2XS : FONT_XS,
+              // Room for two lines from Penny, so her words never move the bar.
+              lineHeight: 1.4, minHeight: '2.8em',
+              display: '-webkit-box' as const, alignContent: 'center',
               color: textColor, fontWeight: 500,
-              display: '-webkit-box' as const, WebkitLineClamp: 2,
+              WebkitLineClamp: 2,
               WebkitBoxOrient: 'vertical' as const, overflow: 'hidden',
               transition: 'font-size 200ms ease',
             }}>
@@ -230,7 +236,7 @@ export function PennyBar({
             <span className="sr-only" aria-live="polite">{pennyText}</span>
           )}
           {!hasDisambig && !keyboardOpen && !pennyTyping && buttons.length > 0 && (
-            <div style={{ display: 'flex', gap: '8px', marginTop: '8px', paddingLeft: keyboardOpen ? '36px' : '46px' }}>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '8px', paddingLeft: face + 18 }}>
               {buttons.map((btn, i) => (
                 <button key={i} onClick={btn.onClick} style={btnStyle}>{btn.label}</button>
               ))}
@@ -243,7 +249,7 @@ export function PennyBar({
           const isAuto = d.auto_assigned && !showAltsForAuto
           return (
             <div style={{ position: 'relative' }}>
-              <div style={{ display: 'flex', flexWrap: 'nowrap', overflowX: 'auto', gap: '6px', padding: keyboardOpen ? '4px 12px 6px 42px' : '4px 16px 10px 56px', WebkitOverflowScrolling: 'touch' as any, scrollbarWidth: 'none' as any, msOverflowStyle: 'none' as any }}>
+              <div style={{ display: 'flex', flexWrap: 'nowrap', overflowX: 'auto', gap: '6px', padding: keyboardOpen ? `4px 12px 6px ${face + 18}px` : `4px 16px 10px ${face + 28}px`, WebkitOverflowScrolling: 'touch' as any, scrollbarWidth: 'none' as any, msOverflowStyle: 'none' as any }}>
                 {isAuto ? (
                   <>
                     <button onClick={() => { setShowAltsForAuto(false); onBrandPick(d.current_brand) }} style={{ ...btnStyle, padding: keyboardOpen ? '4px 10px' : '5px 12px', flexShrink: 0 }}>OK</button>

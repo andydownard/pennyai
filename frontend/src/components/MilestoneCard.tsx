@@ -2,8 +2,7 @@ import { useState } from 'react'
 import { track } from '../analytics'
 import { fetchAPI } from '../api'
 import { FONT, FONT_2XS, FONT_XS, FONT_BASE, FONT_MD } from '../styles'
-// Uses CSS custom properties for dark mode reactivity
-
+// Uses CSS custom properties (var(--x)) for colour
 interface MilestoneData {
   cents: number
   dollars: string

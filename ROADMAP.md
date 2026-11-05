@@ -1010,7 +1010,7 @@ This is a **P2** initiative — do incrementally between feature sprints, not as
 
 ### Visual Design
 - **Design system** — Establish a formal design system: color palette, typography scale, spacing scale, shadow/elevation levels, border radii. Partially done: CSS variables for all semantic colors (brand, bg, text, border, surface, error, success, warning, info, neutral-bg), light/dark theme, border radius scale, shadow scale, z-index scale, animation durations in styles.ts.
-- [x] **Dark mode** — User-togglable dark mode. Panel consensus: 5/7 want it, especially for late-night grocery planning. ✅ Done: CSS variables, dark/light toggle in profile
+- [x] **Dark mode** (REMOVED 2026-11-04, owner decision: Groflo is light only) — was a user-togglable dark mode. Panel consensus: 5/7 want it, especially for late-night grocery planning. ✅ Done: CSS variables, dark/light toggle in profile
 - [x] **Loading states** — Skeleton loaders for list (shimmer animation). ✅ Done: home screen skeleton loaders
 - [x] **Empty states** — Improved empty states with illustrations and CTAs: SharedListScreen (emoji + context message), EarningsScreen (CTA to navigate to list). ✅ Done
 - [x] **Error states** — ErrorBoundary with reload CTA, offline detection banner, optimistic rollback with error toasts. ✅ Done

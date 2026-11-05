@@ -31,7 +31,8 @@ export interface SwapOffer {
 
 interface SwapCardProps {
   swap: SwapOffer
-  onAccept: (dealId: number, itemId: number) => void
+  /** The card spins and stays inactive until this settles (a rejection makes it tappable again). */
+  onAccept: (dealId: number, itemId: number) => void | Promise<void>
   onDecline: (dealId: number, itemId: number) => void
 }
 
@@ -79,12 +80,8 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
     e.stopPropagation()
     if (animState !== 'idle') return
     trackEvent('swap_cta_copy', 'swap_accepted', 1)
-    if (prefersReducedMotion()) {
-      onAccept(swap.deal_id, swap.item_id)
-      return
-    }
     setAnimState('accepting')
-  }, [animState, onAccept, swap.deal_id, swap.item_id])
+  }, [animState, swap.deal_id, swap.item_id])
 
   const handleDecline = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
@@ -101,7 +98,12 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
   // Capture dealId/itemId/callbacks at effect time to avoid re-triggering on parent re-renders.
   useEffect(() => {
     if (animState === 'accepting') {
-      const t = setTimeout(() => onAccept(swap.deal_id, swap.item_id), 400)
+      // Stay in 'accepting' (spinner, inactive) until the accept has settled.
+      const t = setTimeout(() => {
+        Promise.resolve(onAccept(swap.deal_id, swap.item_id))
+          .catch(() => {})
+          .finally(() => setAnimState('idle'))
+      }, prefersReducedMotion() ? 0 : 400)
       return () => clearTimeout(t)
     }
     if (animState === 'dismissing') {
@@ -309,6 +311,8 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
         }}>
           <button
             onClick={handleAccept}
+            disabled={animState !== 'idle'}
+            aria-busy={animState === 'accepting'}
             aria-label={`${isTrial ? 'Add Free Trial' : isBogo ? 'Get BOGO' : 'Swap'}: ${swap.offer_brand} ${swap.offer_product}, save ${formatPrice(swap.discount_cents)}`}
             style={{
               ...layout.columnCenter,
@@ -322,10 +326,22 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
               fontFamily: FONT,
               fontSize: FONT_SM,
               fontWeight: 600,
-              cursor: 'pointer',
+              cursor: animState === 'idle' ? 'pointer' : 'default',
+              opacity: animState === 'idle' ? 1 : 0.7,
               padding: '6px 12px',
             }}
           >
+            {animState === 'accepting' ? (
+              <span
+                data-testid="swap-spinner"
+                aria-hidden="true"
+                style={{
+                  width: '20px', height: '20px', borderRadius: '50%',
+                  border: '2.5px solid rgba(255,255,255,0.35)', borderTopColor: '#fff',
+                  animation: 'spin 0.8s linear infinite',
+                }}
+              />
+            ) : (<>
             <span>{isTrial ? 'Add Free Trial' : isBogo ? 'Get BOGO' : (
               ctaVariant === 'save_amount' ? `Save ${formatPrice(swap.discount_cents)}` :
               ctaVariant === 'swap' ? 'Swap' :
@@ -341,6 +357,7 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
                 Save {formatPrice(swap.discount_cents)}
               </span>
             )}
+            </>)}
           </button>
           <button
             onClick={handleDecline}

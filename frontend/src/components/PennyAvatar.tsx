@@ -1,5 +1,4 @@
-// Uses CSS custom properties for dark mode reactivity
-
+// Uses CSS custom properties (var(--x)) for colour
 export type PennyMood = 'default' | 'thinking' | 'happy' | 'excited'
 
 const moodStyles: Record<PennyMood, string> = {

@@ -33,7 +33,7 @@ interface ItemRowProps {
   onTap: (item: ListItem) => void
   onDelete: (id: number) => void
   onLongPress: (id: number) => void
-  onSwapAccept: (dealId: number, itemId: number) => void
+  onSwapAccept: (dealId: number, itemId: number) => void | Promise<void>
   onSwapDecline: (dealId: number, itemId: number) => void
 }
 
@@ -261,7 +261,7 @@ function ItemRowBase({ item, isNew, currentUserId, swap, onToggle, onTap, onDele
         {(item.urgent || item.claimed_by_id || item.swap_savings_cents > 0) && (
           <div style={{ ...layout.column, gap: '4px', alignItems: 'flex-end', flexShrink: 0, paddingRight: '12px' }}>
             {item.swap_savings_cents > 0 && (
-              <StatusBadge label={`Saved $${(item.swap_savings_cents / 100).toFixed(2)}`} variant="success" bordered />
+              <StatusBadge label={`Saving $${(item.swap_savings_cents / 100).toFixed(2)}`} variant="success" bordered />
             )}
             {item.urgent && (
               <StatusBadge label="🔥 Urgent" variant="error" bordered />
