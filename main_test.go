@@ -768,41 +768,6 @@ func TestLogo_PlaceholderUseBrandName(t *testing.T) {
 }
 
 
-func TestLogoInitials(t *testing.T) {
-	tests := []struct {
-		name, want string
-	}{
-		{"Kraft", "K"},
-		{"General Mills", "GM"},
-		{"Ben & Jerry's", "B&"},
-		{"", "?"},
-	}
-	for _, tt := range tests {
-		got := logoInitials(tt.name)
-		if got != tt.want {
-			t.Errorf("logoInitials(%q) = %q, want %q", tt.name, got, tt.want)
-		}
-	}
-}
-
-
-func TestLogoColor_Deterministic(t *testing.T) {
-	c1 := logoColor("Kraft")
-	c2 := logoColor("Kraft")
-	if c1 != c2 {
-		t.Errorf("logoColor should be deterministic: %q != %q", c1, c2)
-	}
-	c3 := logoColor("General Mills")
-	if c1 == c3 {
-		// Not guaranteed but very likely different
-		t.Log("Note: Kraft and General Mills have the same color (unlikely but possible)")
-	}
-	if !strings.HasPrefix(c1, "#") {
-		t.Errorf("Expected hex color, got %q", c1)
-	}
-}
-
-
 func TestFetchBrandLogo_EmptyToken(t *testing.T) {
 	data, ct := fetchBrandLogo("kraft.com", "", "")
 	if data != nil || ct != "" {
@@ -983,63 +948,6 @@ func TestSPARouting_UnknownPathsFallbackToIndex(t *testing.T) {
 				t.Errorf("GET %s: expected index.html fallback", path)
 			}
 		})
-	}
-}
-
-
-func TestLogoInitials_Empty(t *testing.T) {
-	got := logoInitials("")
-	if got != "?" {
-		t.Errorf("logoInitials empty: got %q, want %q", got, "?")
-	}
-}
-
-
-func TestLogoInitials_SingleWord(t *testing.T) {
-	got := logoInitials("Whole Foods")
-	if got != "WF" {
-		t.Errorf("logoInitials two words: got %q, want %q", got, "WF")
-	}
-}
-
-
-func TestLogoInitials_SingleWordOnly(t *testing.T) {
-	got := logoInitials("Costco")
-	if got != "C" {
-		t.Errorf("logoInitials single word: got %q, want %q", got, "C")
-	}
-}
-
-
-func TestLogoColor_ReturnsHex(t *testing.T) {
-	got := logoColor("Trader Joe's")
-	if len(got) == 0 || got[0] != '#' {
-		t.Errorf("logoColor: expected hex color starting with #, got %q", got)
-	}
-}
-
-
-func TestLogoColor_SameName_SameResult(t *testing.T) {
-	a := logoColor("Safeway")
-	b := logoColor("Safeway")
-	if a != b {
-		t.Errorf("logoColor should be deterministic: got %q and %q", a, b)
-	}
-}
-
-
-func TestLogoColor_DifferentNames(t *testing.T) {
-	// Not guaranteed to differ but extremely likely for these two
-	a := logoColor("Whole Foods")
-	b := logoColor("Trader Joe's")
-	_ = a
-	_ = b
-	// Just ensure neither panics and both are valid hex colors
-	if len(a) == 0 || a[0] != '#' {
-		t.Errorf("logoColor Whole Foods: got %q", a)
-	}
-	if len(b) == 0 || b[0] != '#' {
-		t.Errorf("logoColor Trader Joe's: got %q", b)
 	}
 }
 

@@ -10,27 +10,12 @@ import type React from 'react'
 
 // Light theme values (also used as static fallbacks)
 export const BRAND = '#35644F'
-export const BRAND_LIGHT = '#35644F15'
-export const BG = '#F7F6F3'
-export const TEXT = '#2A2A2A'
-export const TEXT_SECONDARY = '#525252'
-export const BORDER = '#E0DDD6'
-export const WHITE = '#FFFFFF'
 
 // Error / destructive
-export const ERROR_RED = '#C53030'
-export const ERROR_RED_DARK = '#991B1B'
-export const ERROR_RED_BG = '#FEF2F2'
-export const ERROR_RED_LIGHT = '#FEE2E2'
 
 // Success / positive
-export const SUCCESS_GREEN = '#276749'
-export const SUCCESS_GREEN_BG = '#F0FFF4'
-export const SUCCESS_GREEN_LIGHT = '#27674940'
 
 // Neutral / skeleton
-export const SKELETON = '#E8E6E1'
-export const SKELETON_SHIMMER = '#F2F1ED'
 
 // =============================================================================
 // THEME — CSS custom properties (light only)
@@ -85,35 +70,22 @@ export const FONT_MD = '1rem'        // 16px
 export const FONT_LG = '1.0625rem'   // 17px
 export const FONT_XL = '1.375rem'    // 22px
 export const FONT_2XL = '1.5rem'     // 24px
-export const FONT_3XL = '2rem'       // 32px
 
 // Border radius scale
-export const RADIUS_SM = '8px'
-export const RADIUS_MD = '10px'
 export const RADIUS_LG = '12px'
-export const RADIUS_XL = '14px'
-export const RADIUS_PILL = '999px'
+const RADIUS_PILL = '999px'
 
 // Shadows
 export const SHADOW_SM = '0 1px 3px rgba(0,0,0,0.08)'
-export const SHADOW_MD = '0 2px 8px rgba(0,0,0,0.12)'
 export const SHADOW_LG = '0 4px 20px rgba(0,0,0,0.15)'
 
 // Disabled / touch
-export const OPACITY_DISABLED = 0.4
-export const TOUCH_MIN = '44px'
+const TOUCH_MIN = '44px'
 
 // Animation durations
-export const DURATION_FAST = '150ms'
-export const DURATION_NORMAL = '250ms'
-export const DURATION_SLOW = '350ms'
 
 // Z-index scale
-export const Z_DROPDOWN = 100
-export const Z_STICKY = 200
-export const Z_OVERLAY = 9000
 export const Z_MODAL = 9500
-export const Z_TOAST = 9999
 
 // Avenir with system fallbacks for platforms that don't have it.
 export const FONT = "'Avenir', 'Avenir Next', -apple-system, 'Segoe UI', sans-serif"
@@ -729,57 +701,3 @@ export const text = {
 // CARD/CONTAINER UTILITIES
 // =============================================================================
 
-export const containers = {
-  /** Standard card: surface bg, rounded, padded */
-  card: {
-    backgroundColor: 'var(--surface)',
-    borderRadius: RADIUS_LG,
-    padding: '16px',
-  } as React.CSSProperties,
-
-  /** Card with border */
-  cardBordered: {
-    backgroundColor: 'var(--surface)',
-    borderRadius: RADIUS_LG,
-    padding: '16px',
-    border: '1px solid var(--border)',
-  } as React.CSSProperties,
-
-  /** Overlay backdrop */
-  overlay: {
-    position: 'fixed' as const,
-    inset: 0,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    display: 'flex',
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    zIndex: Z_OVERLAY,
-  } as React.CSSProperties,
-
-  /** Bottom sheet */
-  sheet: {
-    width: '100%',
-    maxWidth: '480px',
-    backgroundColor: 'var(--surface)',
-    borderRadius: '20px 20px 0 0',
-    padding: '16px 20px 40px',
-    maxHeight: '82svh',
-    overflowY: 'auto' as const,
-    display: 'flex',
-    flexDirection: 'column' as const,
-  } as React.CSSProperties,
-
-  /** Input field: standard text input */
-  input: {
-    width: '100%',
-    padding: '12px 16px',
-    fontSize: FONT_MD,
-    fontFamily: FONT,
-    color: 'var(--text)',
-    backgroundColor: 'var(--surface)',
-    border: '1.5px solid var(--border)',
-    borderRadius: RADIUS_LG,
-    outline: 'none',
-    boxSizing: 'border-box' as const,
-  } as React.CSSProperties,
-}
