@@ -25,6 +25,10 @@ There is no Penny item in the menu and no separate Penny screen; `/penny` and `/
 
 Autotune ON → slider hidden. Autotune OFF → slider appears with CSS transition (max-height 0.3s + opacity 0.25s). Do NOT use display:none toggling.
 
+### Edit Item (short form)
+
+Full-height sheet opened by tapping an item name. Top to bottom: brand (64px logo, name at 24px; tap to change it), Name, Size and Qty, then one quiet row each for Department, Priority (Normal or Urgent, applied at once, red when Urgent) and "I'll get it", then "More details" (Notes), History (only when there is history), Save, Delete item. Priority is a select, not a three-button bar: the backend has one urgent flag, so there is no Low. Design source: Edit item in the Claude Design prototype.
+
 ### Auth Screens
 
 - There is one sign-in screen (`LoginScreen.tsx`): PennyAvatar, Penny's text, "Continue with Rally", legal links. It collects no credentials; Rally (Clerk) hosts them. Phone-code, Google, email/password and magic-link screens were removed 2026-10-03. SMS consent is not asked on this screen.

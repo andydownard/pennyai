@@ -1,12 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BrandLogo } from './BrandLogo'
 import { FloatingLabelField } from './FloatingLabelField'
 import { SectionHeader } from './ActionSheet'
 import { type ListItem } from './ItemRow'
-import { DEPARTMENTS, FONT, FONT_SM, layout, buttons, text } from '../styles'
+import { DEPARTMENTS, FONT, FONT_SM, FONT_BASE, FONT_2XL, layout, buttons, text } from '../styles'
 import { type ItemModification } from '../types'
-
-type PriorityLevel = 'low' | 'normal' | 'urgent'
 
 interface EditForm {
   name: string
@@ -45,6 +43,16 @@ interface ItemEditSheetProps {
   QuantityControl: React.ComponentType<{ value: number; onChange: (v: number) => void }>
 }
 
+const quietRow: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+  minHeight: '48px', borderBottom: '1px solid var(--border)',
+}
+const quietSelect: React.CSSProperties = {
+  border: 0, background: 'transparent', fontFamily: FONT, fontSize: FONT_BASE,
+  color: 'var(--text-secondary)', textAlign: 'right', textAlignLast: 'right',
+  minHeight: '44px', padding: '0 4px', cursor: 'pointer',
+}
+
 export function ItemEditSheet({
   item, editForm, setEditForm, displayBrand, setDisplayBrand,
   editLoading, currentUserId, itemHistory,
@@ -52,6 +60,8 @@ export function ItemEditSheet({
   setSelectedItem, openConfirmModal, listStyles,
   ToggleSwitch, QuantityControl,
 }: ItemEditSheetProps) {
+  const [showMore, setShowMore] = useState(false)
+  const [editBrand, setEditBrand] = useState(false)
   // Focus-restore: capture trigger element on mount, restore on unmount
   const triggerRef = useRef<Element | null>(null)
   useEffect(() => {
@@ -78,22 +88,31 @@ export function ItemEditSheet({
         </div>
         {/* Scrollable content */}
         <div style={{ ...layout.column, flex: 1, minHeight: 0, overflowY: 'auto' as const, overscrollBehavior: 'contain' as const, WebkitOverflowScrolling: 'touch' as any, padding: '20px', gap: '14px' }}>
-        {/* Brand field with logo */}
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px' }}>
-          <div style={{ flex: 1 }}>
-            <FloatingLabelField label="Brand">
-              <input
-                type="text"
-                value={editForm.brand}
-                onChange={e => setEditForm(f => ({ ...f, brand: e.target.value }))}
-                onBlur={() => setDisplayBrand(editForm.brand)}
-                placeholder="Optional"
-                style={listStyles.floatingInput}
-              />
-            </FloatingLabelField>
-          </div>
-          <BrandLogo brand={displayBrand || undefined} size={52} itemName={editForm.name} department={editForm.dept} emoji={item.emoji} />
-        </div>
+        {/* Brand leads the form: large logo and name; tap to change it */}
+        <button
+          onClick={() => setEditBrand(v => !v)}
+          aria-expanded={editBrand}
+          aria-label="Change brand"
+          style={{ ...buttons.reset, ...layout.row, gap: '14px', textAlign: 'left', minHeight: '64px', width: '100%' }}
+        >
+          <BrandLogo brand={displayBrand || undefined} size={64} itemName={editForm.name} department={editForm.dept} emoji={item.emoji} />
+          <span style={{ ...layout.column, flex: 1, minWidth: 0, gap: '2px' }}>
+            <span style={{ ...text.caption, textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>Brand</span>
+            <span style={{ ...text.heading, fontSize: FONT_2XL }}>{displayBrand || 'Any brand'}</span>
+          </span>
+        </button>
+        {editBrand && (
+          <FloatingLabelField label="Brand">
+            <input
+              type="text"
+              value={editForm.brand}
+              onChange={e => setEditForm(f => ({ ...f, brand: e.target.value }))}
+              onBlur={() => setDisplayBrand(editForm.brand)}
+              placeholder="Optional"
+              style={listStyles.floatingInput}
+            />
+          </FloatingLabelField>
+        )}
 
         <FloatingLabelField label="Name">
           <input
@@ -104,16 +123,6 @@ export function ItemEditSheet({
             style={listStyles.floatingInput}
             autoFocus
           />
-        </FloatingLabelField>
-
-        <FloatingLabelField label="Department">
-          <select
-            value={editForm.dept}
-            onChange={e => setEditForm(f => ({ ...f, dept: e.target.value }))}
-            style={listStyles.floatingSelect}
-          >
-            {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
         </FloatingLabelField>
 
         <div style={listStyles.sheetRow}>
@@ -141,72 +150,38 @@ export function ItemEditSheet({
           </div>
         </div>
 
-        <FloatingLabelField label="Notes">
-          <input
-            type="text"
-            value={editForm.notes}
-            onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
-            placeholder="e.g. Tangerine flavor, organic"
-            style={listStyles.floatingInput}
-          />
-        </FloatingLabelField>
-
-        {/* Priority selector: low / normal / urgent */}
-        <div style={{ padding: '12px 0', borderTop: '1px solid var(--border)', marginTop: '4px' }}>
-          <span style={{ ...text.body, display: 'block', marginBottom: '8px' }}>Priority</span>
-          <div style={{ display: 'flex', gap: '0px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border)' }}>
-            {(['low', 'normal', 'urgent'] as PriorityLevel[]).map((level) => {
-              const currentPriority: PriorityLevel = item.urgent ? 'urgent' : 'normal'
-              const isActive = currentPriority === level
-              const labelMap: Record<PriorityLevel, string> = { low: 'Low', normal: 'Normal', urgent: 'Urgent' }
-              const emojiMap: Record<PriorityLevel, string> = { low: '↓', normal: '—', urgent: '🔥' }
-              const activeBgMap: Record<PriorityLevel, string> = {
-                low: 'var(--info-bg)',
-                normal: 'var(--brand)',
-                urgent: 'var(--error)',
-              }
-              const activeColorMap: Record<PriorityLevel, string> = {
-                low: 'var(--info)',
-                normal: '#fff',
-                urgent: '#fff',
-              }
-              return (
-                <button
-                  key={level}
-                  onClick={() => {
-                    // Map to backend boolean: only 'urgent' = true
-                    const shouldBeUrgent = level === 'urgent'
-                    if (item.urgent !== shouldBeUrgent) {
-                      onUrgentToggle(item.id)
-                      setSelectedItem(prev => prev ? { ...prev, urgent: shouldBeUrgent } : prev)
-                    }
-                  }}
-                  style={{
-                    flex: 1,
-                    padding: '8px 4px',
-                    fontFamily: FONT,
-                    fontSize: FONT_SM,
-                    fontWeight: isActive ? 600 : 400,
-                    color: isActive ? activeColorMap[level] : 'var(--text-secondary)',
-                    backgroundColor: isActive ? activeBgMap[level] : 'var(--surface)',
-                    border: 'none',
-                    borderRight: level !== 'urgent' ? '1px solid var(--border)' : 'none',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '4px',
-                    transition: 'background-color 0.15s, color 0.15s',
-                  }}
-                  aria-label={`Set priority to ${level}`}
-                  aria-pressed={isActive}
-                >
-                  <span>{emojiMap[level]}</span>
-                  <span>{labelMap[level]}</span>
-                </button>
-              )
-            })}
-          </div>
+        {/* One quiet row per setting */}
+        <div>
+          <label style={quietRow}>
+            <span style={text.body}>Department</span>
+            <select
+              aria-label="Department"
+              value={editForm.dept}
+              onChange={e => setEditForm(f => ({ ...f, dept: e.target.value }))}
+              style={quietSelect}
+            >
+              {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </label>
+          <label style={quietRow}>
+            <span style={text.body}>Priority</span>
+            <select
+              aria-label="Priority"
+              value={item.urgent ? 'urgent' : 'normal'}
+              onChange={e => {
+                // The backend has one flag: only 'urgent' is true
+                const shouldBeUrgent = e.target.value === 'urgent'
+                if (item.urgent !== shouldBeUrgent) {
+                  onUrgentToggle(item.id)
+                  setSelectedItem(prev => prev ? { ...prev, urgent: shouldBeUrgent } : prev)
+                }
+              }}
+              style={{ ...quietSelect, ...(item.urgent ? { color: 'var(--error)', fontWeight: 600 } : null) }}
+            >
+              <option value="normal">Normal</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </label>
         </div>
 
         {/* Claim UI */}
@@ -231,6 +206,27 @@ export function ItemEditSheet({
             />
           )}
         </div>
+
+        <button
+          onClick={() => setShowMore(v => !v)}
+          aria-expanded={showMore}
+          style={{ ...buttons.reset, ...layout.row, gap: '6px', minHeight: '44px', fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)' }}
+        >
+          {showMore ? 'Fewer details' : 'More details'}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ transform: showMore ? 'rotate(180deg)' : 'none' }}><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        {showMore && (
+          <FloatingLabelField label="Notes">
+            <input
+              type="text"
+              aria-label="Notes"
+              value={editForm.notes}
+              onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
+              placeholder="e.g. Tangerine flavor, organic"
+              style={listStyles.floatingInput}
+            />
+          </FloatingLabelField>
+        )}
 
         {itemHistory.length > 0 && (
           <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
