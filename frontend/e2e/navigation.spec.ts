@@ -56,7 +56,7 @@ test.describe('Navigation', () => {
     await expect(page.getByPlaceholder('First')).toBeVisible({ timeout: 10_000 })
   })
 
-  test('deep link to /penny works when logged in', async ({ page }) => {
+  test('deep link to /penny lands on Profile with Penny's settings', async ({ page }) => {
     await page.goto('/penny')
     await expect(page.getByText('Learn from my choices')).toBeVisible({ timeout: 10_000 })
   })

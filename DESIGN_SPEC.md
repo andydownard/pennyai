@@ -13,12 +13,14 @@ New user must add first item within 90 seconds with zero clarifying questions.
 
 ## UI/UX Rules
 
-### Penny Settings Page Layout (top to bottom)
+### Penny Settings (a section of the Profile screen)
 
-1. Contact section — Penny avatar + name, icon-only action buttons (text, email, add to contacts)
+There is no Penny item in the menu and no separate Penny screen; `/penny` and `/settings` open Profile. Penny's settings sit in Profile below the name and address fields, top to bottom:
+
+1. Penny avatar (40px) + name, with an email button
 2. Divider (1px separator)
-3. "I want to SMS with Penny" toggle (only if user has phone)
-4. "Learn from my choices" toggle
+3. "Learn from my choices" toggle
+4. "Reorder list by how I shop" toggle
 5. Convenience/savings slider (only when autotune OFF, at bottom)
 
 Autotune ON → slider hidden. Autotune OFF → slider appears with CSS transition (max-height 0.3s + opacity 0.25s). Do NOT use display:none toggling.

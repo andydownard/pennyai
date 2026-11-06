@@ -2,11 +2,10 @@ import { useRef, useState } from 'react'
 import { PennyAvatar } from './PennyAvatar'
 import { PennyInsightsCard } from './PennyInsightsCard'
 import { ToggleSwitch } from './ToggleSwitch'
-import { ScreenTransition } from './ScreenTransition'
 import { fetchAPI } from '../api'
 import { FONT, FONT_2XS, FONT_XS, FONT_SM, FONT_MD, pageStyles } from '../styles'
 
-interface PennySettingsScreenProps {
+interface PennySettingsProps {
   pennySlider: number
   pennyAutotune: boolean
   storeOrderEnabled: boolean
@@ -14,17 +13,14 @@ interface PennySettingsScreenProps {
   onAutotuneToggle: () => void
   onStoreOrderToggle: () => void
   track: (event: string, props?: Record<string, unknown>) => void
-  renderHeader: () => React.ReactNode
-  renderToast: () => React.ReactNode
-  transitionStyle: React.CSSProperties
 }
 
-export function PennySettingsScreen({
+/** Penny's settings, a section of the Profile screen (no page chrome of its own). */
+export function PennySettings({
   pennySlider, pennyAutotune, storeOrderEnabled,
   onSliderChange, onAutotuneToggle, onStoreOrderToggle,
   track,
-  renderHeader, renderToast, transitionStyle,
-}: PennySettingsScreenProps) {
+}: PennySettingsProps) {
   const sliderSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [showInsights, setShowInsights] = useState(false)
 
@@ -42,15 +38,11 @@ export function PennySettingsScreen({
   }
 
   return (
-    <ScreenTransition style={transitionStyle}>
-    <div style={pageStyles.page}>
-      {renderHeader()}
-      <div style={pageStyles.listArea}>
-        <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
           {/* Penny (top) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <PennyAvatar size={52} />
+            <PennyAvatar size={40} />
             <div>
               <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600, color: 'var(--text)' }}>Penny</div>
               <div style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--text-secondary)', marginTop: '2px' }}>Your household's shopping list</div>
@@ -169,9 +161,5 @@ export function PennySettingsScreen({
           </div>
 
         </div>
-      </div>
-      {renderToast()}
-    </div>
-    </ScreenTransition>
   )
 }

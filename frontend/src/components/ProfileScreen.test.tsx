@@ -8,7 +8,7 @@ import { ProfileScreen } from './ProfileScreen'
 const fetchMock = vi.fn()
 vi.stubGlobal('fetch', fetchMock)
 
-function renderProfile() {
+function renderProfile(extra: Partial<React.ComponentProps<typeof ProfileScreen>> = {}) {
   return render(
     <ProfileScreen
       firstName="Tamika" lastName="Jones" address=""
@@ -18,11 +18,20 @@ function renderProfile() {
       onNavigate={vi.fn()} showToast={vi.fn()} onSessionExpired={vi.fn()}
       placesReady={false}
       renderHeader={() => null} transitionStyle={{}}
+      {...extra}
     />,
   )
 }
 
 describe('ProfileScreen', () => {
+  it('shows Penny\'s settings when given them, and nothing when not', () => {
+    const { unmount } = renderProfile({ pennySettings: <div>penny-settings-slot</div> })
+    expect(screen.getByText('penny-settings-slot')).toBeInTheDocument()
+    unmount()
+    renderProfile()
+    expect(screen.queryByText('penny-settings-slot')).not.toBeInTheDocument()
+  })
+
   it('shows no phone number and offers no field for one', () => {
     const { container } = renderProfile()
     expect(screen.queryByTestId('profile-phone')).not.toBeInTheDocument()
