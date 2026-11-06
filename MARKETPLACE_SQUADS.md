@@ -38,7 +38,7 @@
 
 **Team:** PM Priya (growth hacker), UX Felix (social product), Architect Tomoko (ML/AI), Staff Dev Diego (mobile-first fullstack)
 
-**Thesis:** The product already works. The bottleneck is incentive to share. Guild (earn 30% of revenue) turns every user into a paid distribution channel, collapsing CAC to zero at scale.
+**Thesis:** The product already works. The bottleneck is incentive to share. Guild (earn 30% of revenue; the 30% share was removed by owner decision 2026-11-05) turns every user into a paid distribution channel, collapsing CAC to zero at scale.
 
 **Sequencing:**
 - Week 1-2: Fix sharing, add referral attribution tracking, deep linking

@@ -3127,6 +3127,7 @@ function AppInner() {
         buttons={homePennyBtns}
         toastError={toast?.type === 'error'}
         keyboardOpen={keyboardOpen}
+        showFace={items.length > 0}
         disambig={pennyDisambig.map(d => ({ product_category: d.product_category, current_brand: d.current_brand, alternatives: d.alternatives, auto_assigned: d.auto_assigned }))}
         disambigIndex={pennyDisambigIndex}
         onBrandPick={handleBrandPick}
