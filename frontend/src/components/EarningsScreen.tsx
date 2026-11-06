@@ -3,7 +3,7 @@ import { PennyAvatar } from './PennyAvatar'
 import { BrandLogo } from './BrandLogo'
 import { StatusBadge } from './StatusBadge'
 import { fetchAPI } from '../api'
-import { FONT, FONT_2XS, FONT_XS, FONT_BASE, FONT_MD, FONT_3XL, layout, text } from '../styles'
+import { FONT, FONT_2XS, FONT_XS, FONT_BASE, FONT_MD, FONT_2XL, layout, text } from '../styles'
 
 interface EarningTransaction {
   id: number
@@ -108,8 +108,8 @@ export function EarningsScreen({ onViewReceipts, onGoToList, onEarningsLoaded }:
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
-  const STATUS_MAP: Record<string, { label: string; variant: 'warning' | 'info' | 'success' }> = {
-    pending: { label: 'Pending', variant: 'warning' },
+  const STATUS_MAP: Record<string, { label: string; variant: 'neutral' | 'info' | 'success' }> = {
+    pending: { label: 'Coming', variant: 'neutral' },
     issued: { label: 'Issued', variant: 'info' },
     paid: { label: 'Paid', variant: 'success' },
   }
@@ -139,33 +139,37 @@ export function EarningsScreen({ onViewReceipts, onGoToList, onEarningsLoaded }:
       {/* Summary — Total is the hero; Pending and Paid are quiet context */}
       <div style={{ margin: '16px 0' }}>
         <div style={{
-          padding: '20px 16px', borderRadius: '12px', backgroundColor: 'var(--surface)',
-          textAlign: 'center' as const, border: '1px solid var(--border)',
+          padding: '16px', borderRadius: '12px', backgroundColor: 'var(--surface)',
+          border: '1px solid var(--border)',
         }}>
-          <div style={{ fontFamily: FONT, fontSize: FONT_3XL, fontWeight: 800, color: 'var(--text)', lineHeight: 1.1 }}>
-            ${((data?.total_cents || 0) / 100).toFixed(2)}
-          </div>
-          <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '4px' }}>
+          <div style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--text-secondary)' }}>
             Total earned
+          </div>
+          <div data-total style={{ fontFamily: FONT, fontSize: FONT_2XL, fontWeight: 600, color: 'var(--brand)', lineHeight: 1.2, fontVariantNumeric: 'tabular-nums' }}>
+            ${((data?.total_cents || 0) / 100).toFixed(2)}
           </div>
         </div>
         <div style={{ ...layout.rowGap, marginTop: '8px' }}>
           {[
-            { label: 'Pending', cents: data?.pending_cents || 0, color: 'var(--warning)' },
-            { label: 'Paid', cents: data?.paid_cents || 0, color: 'var(--success)' },
+            { label: 'Coming', cents: data?.pending_cents || 0, color: 'var(--text-secondary)', icon: <circle cx="12" cy="12" r="10" /> , extra: <polyline points="12 6 12 12 16 14" /> },
+            { label: 'Paid', cents: data?.paid_cents || 0, color: 'var(--brand)', icon: <polyline points="20 6 9 17 4 12" />, extra: null },
           ].map(card => (
             <div key={card.label} style={{
-              flex: 1, padding: '10px 8px', borderRadius: '10px', backgroundColor: 'var(--surface)',
-              textAlign: 'center' as const, border: '1px solid var(--border)',
+              flex: 1, padding: '12px', borderRadius: '12px', backgroundColor: 'var(--surface)',
+              border: '1px solid var(--border)',
             }}>
-              <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600, color: card.color }}>
-                ${(card.cents / 100).toFixed(2)}
-              </div>
-              <div style={{ fontFamily: FONT, fontSize: FONT_2XS, color: 'var(--text-secondary)', marginTop: '2px' }}>
+              <div style={{ ...layout.row, gap: '4px', fontFamily: FONT, fontSize: FONT_2XS, color: card.color }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{card.icon}{card.extra}</svg>
                 {card.label}
+              </div>
+              <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 600, color: card.color, fontVariantNumeric: 'tabular-nums' }}>
+                ${(card.cents / 100).toFixed(2)}
               </div>
             </div>
           ))}
+        </div>
+        <div style={{ ...text.caption, padding: '8px 4px 0' }}>
+          Paid monthly by Venmo. Coming money can change if a trip is cancelled.
         </div>
       </div>
 
@@ -281,16 +285,6 @@ export function EarningsScreen({ onViewReceipts, onGoToList, onEarningsLoaded }:
               </div>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* Info note */}
-      {!isEmpty && (
-        <div style={{
-          ...text.caption, textAlign: 'center',
-          padding: '16px 0 8px', lineHeight: '1.5',
-        }}>
-          Swap one item and I'll log your rebate here. No other grocery app does this. Payouts sent monthly via Venmo.
         </div>
       )}
 
