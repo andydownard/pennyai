@@ -39,7 +39,7 @@ Groflo is an AI-powered grocery shopping list app with personality-driven assist
 
 ## Revenue Rules
 
-- 30% community share is non-negotiable. NEVER change without all panels.
+- No community share. Owner decision 2026-11-05 (panels waived): the 30% share is removed. No UI copy promises a share of brand revenue back to users, and nothing computes one. NEVER reintroduce a revenue share to users without Andy.
 - Stripe metadata MUST include `source: "pennyai"` on all charges.
 - Brand deals and swap rebates tracked via `brand_deals` table and `swap_events` table. Distribution must sum exactly; remainder to last recipient.
 - NEVER distribute more than revenue share allows. NEVER update wallet balances outside same transaction as distribution INSERT.

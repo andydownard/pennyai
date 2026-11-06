@@ -195,10 +195,10 @@ export function EarningsScreen({ onViewReceipts, onGoToList, onEarningsLoaded }:
         }}>
           <PennyAvatar size={48} />
           <div style={{ ...text.heading, fontSize: FONT_MD, textAlign: 'center' }}>
-            Try a deal and get paid. No one else does this.
+            Try a deal and get paid.
           </div>
           <div style={{ ...text.secondary, textAlign: 'center', lineHeight: '1.5', maxWidth: '280px' }}>
-            Brands pay me to reach you. In addition to a rebate, 30% of what they pay me comes back to you — real cash.
+            Swap one item and I'll log your rebate here.
           </div>
           {onGoToList && (
             <button
@@ -290,7 +290,7 @@ export function EarningsScreen({ onViewReceipts, onGoToList, onEarningsLoaded }:
           ...text.caption, textAlign: 'center',
           padding: '16px 0 8px', lineHeight: '1.5',
         }}>
-          Brands pay me to reach you. In addition to a rebate, 30% of what they pay me comes back to you — real cash. No other grocery app does this. Payouts sent monthly via Venmo.
+          Swap one item and I'll log your rebate here. No other grocery app does this. Payouts sent monthly via Venmo.
         </div>
       )}
 
