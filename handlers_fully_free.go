@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -271,56 +270,3 @@ func (s *Server) handleFullyFreeRebates(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// getBrandFullyFreeStats returns fully_free campaign stats for a brand deal.
-func (s *Server) getBrandFullyFreeStats(dealID int) map[string]interface{} {
-	var accepted, pendingPurchase, pendingVerification, verified, paid int
-
-	rows, err := s.db.Query(
-		"SELECT status, COUNT(*) FROM swap_rebates WHERE deal_id = ? GROUP BY status",
-		dealID,
-	)
-	if err != nil {
-		return map[string]interface{}{}
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var status string
-		var count int
-		if rows.Scan(&status, &count) == nil {
-			switch status {
-			case "pending_purchase":
-				pendingPurchase = count
-			case "pending_verification":
-				pendingVerification = count
-			case "verified":
-				verified = count
-			case "paid":
-				paid = count
-			case "pending":
-				// legacy pending from other deal types
-			}
-		}
-	}
-
-	// Count total accepts from swap_events
-	s.db.QueryRow("SELECT COUNT(*) FROM swap_events WHERE deal_id = ? AND action = 'accepted'", dealID).Scan(&accepted)
-
-	var totalSpent int
-	s.db.QueryRow("SELECT budget_spent_cents FROM brand_deals WHERE id = ?", dealID).Scan(&totalSpent)
-
-	return map[string]interface{}{
-		"accepted":             accepted,
-		"pending_purchase":     pendingPurchase,
-		"pending_verification": pendingVerification,
-		"verified":             verified,
-		"paid":                 paid,
-		"total_spent_cents":    totalSpent,
-	}
-}
-
-// encodeFreeTrialStats encodes fully_free stats into the deal metrics response.
-func encodeFreeTrialStats(stats map[string]interface{}) string {
-	b, _ := json.Marshal(stats)
-	return string(b)
-}
