@@ -29,6 +29,10 @@ Autotune ON → slider hidden. Autotune OFF → slider appears with CSS transiti
 
 Full-height sheet opened by tapping an item name. Top to bottom: brand (64px logo, name at 24px; tap to change it), Name, Size and Qty, then one quiet row each for Department, Priority (Normal or Urgent, applied at once, red when Urgent) and "I'll get it", then "More details" (Notes), History (only when there is history), Save, Delete item. Priority is a select, not a three-button bar: the backend has one urgent flag, so there is no Low. Design source: Edit item in the Claude Design prototype.
 
+### Balance (Earnings screen)
+
+Total earned: a 14px label above the total (24px, brand green). Beneath it two tiles: Coming (unverified money; quiet grey, clock icon) and Paid (brand green, check icon). One line says "Paid monthly by Venmo." and that coming money can change. A row's badge says Coming, Issued or Paid. Amber "Pending" is retired. Not built, pending backend: Cash out, an Available balance, expected-by dates, one Upload receipt for every swap. The 30% share is removed (owner decision 2026-11-05).
+
 ### Auth Screens
 
 - There is one sign-in screen (`LoginScreen.tsx`): PennyAvatar, Penny's text, "Continue with Rally", legal links. It collects no credentials; Rally (Clerk) hosts them. Phone-code, Google, email/password and magic-link screens were removed 2026-10-03. SMS consent is not asked on this screen.
