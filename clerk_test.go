@@ -773,53 +773,6 @@ func TestVerifyClerkRequest_ResolverEdges(t *testing.T) {
 // clerkForbiddenSecrets — pennyai must never hold a Clerk secret
 // =====================================================================
 
-func TestClerkForbiddenSecrets(t *testing.T) {
-	t.Run("none set", func(t *testing.T) {
-		t.Setenv("CLERK_SECRET_KEY", "")
-		t.Setenv("CLERK_WEBHOOK_SIGNING_SECRET", "")
-		if got := clerkForbiddenSecrets(); len(got) != 0 {
-			t.Errorf("got %#v want none", got)
-		}
-	})
-
-	t.Run("secret key set", func(t *testing.T) {
-		t.Setenv("CLERK_SECRET_KEY", "sk_test_whatever")
-		t.Setenv("CLERK_WEBHOOK_SIGNING_SECRET", "")
-		got := clerkForbiddenSecrets()
-		if len(got) != 1 || got[0] != "CLERK_SECRET_KEY" {
-			t.Errorf("got %#v want [CLERK_SECRET_KEY]", got)
-		}
-	})
-
-	t.Run("webhook secret set", func(t *testing.T) {
-		t.Setenv("CLERK_SECRET_KEY", "")
-		t.Setenv("CLERK_WEBHOOK_SIGNING_SECRET", "whsec_whatever")
-		got := clerkForbiddenSecrets()
-		if len(got) != 1 || got[0] != "CLERK_WEBHOOK_SIGNING_SECRET" {
-			t.Errorf("got %#v want [CLERK_WEBHOOK_SIGNING_SECRET]", got)
-		}
-	})
-
-	t.Run("both set", func(t *testing.T) {
-		t.Setenv("CLERK_SECRET_KEY", "sk_test_whatever")
-		t.Setenv("CLERK_WEBHOOK_SIGNING_SECRET", "whsec_whatever")
-		got := clerkForbiddenSecrets()
-		if len(got) != 2 || got[0] != "CLERK_SECRET_KEY" || got[1] != "CLERK_WEBHOOK_SIGNING_SECRET" {
-			t.Errorf("got %#v want both, secret key first", got)
-		}
-	})
-
-	t.Run("refused even when the kill switch is off", func(t *testing.T) {
-		// Holding the secret IS the misconfiguration; the flag is irrelevant.
-		t.Setenv("CLERK_ENABLED", "0")
-		t.Setenv("CLERK_SECRET_KEY", "sk_test_whatever")
-		t.Setenv("CLERK_WEBHOOK_SIGNING_SECRET", "")
-		if got := clerkForbiddenSecrets(); len(got) != 1 {
-			t.Errorf("got %#v — the check must not depend on CLERK_ENABLED", got)
-		}
-	})
-}
-
 // =====================================================================
 // Kill switch hot-read
 // =====================================================================

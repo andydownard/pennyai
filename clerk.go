@@ -8,7 +8,7 @@ package main
 //  1. NO CLERK SECRET. pennyai verifies session JWTs against the issuer's
 //     PUBLIC JWKS and never touches Clerk's Backend API. The server refuses to
 //     boot if CLERK_SECRET_KEY or CLERK_WEBHOOK_SIGNING_SECRET is present
-//     (see clerkForbiddenSecrets, wired into main()).
+//     (see bootProblems in server.go).
 //
 //  2. COOKIE-BLIND. Clerk's published convention is a `__session` cookie on the
 //     apex domain. pennyai never reads it. Only an `Authorization: Bearer`
@@ -170,22 +170,6 @@ func clerkConfigFrom(getenv func(string) string) (clerkSatelliteConfig, error) {
 	}
 
 	return clerkSatelliteConfig{Issuer: issuer, AuthorizedParties: parties}, nil
-}
-
-// clerkForbiddenSecrets returns the names of Clerk secrets that are set but
-// must never exist on this service. Pure, so main() can refuse to boot on it
-// (log.Fatalf is not unit-testable; this function is).
-//
-// Note the check is independent of CLERK_ENABLED: holding the secret is itself
-// the misconfiguration, whether or not the feature is on.
-func clerkForbiddenSecrets() []string {
-	var found []string
-	for _, name := range []string{"CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET"} {
-		if strings.TrimSpace(os.Getenv(name)) != "" {
-			found = append(found, name)
-		}
-	}
-	return found
 }
 
 // -------- JWKS source (test seam) --------
