@@ -27,6 +27,8 @@ interface ProfileScreenProps {
   onSessionExpired: () => void
   // Address autocomplete
   placesReady: boolean
+  /** Penny's settings, shown as a section of the profile. */
+  pennySettings?: React.ReactNode
   // Header render prop
   renderHeader: () => React.ReactNode
   // Transition
@@ -39,7 +41,7 @@ export function ProfileScreen({
   onAutoSave,
   currentUserId, isAdmin,
   onNavigate, showToast, onSessionExpired,
-  placesReady,
+  placesReady, pennySettings,
   renderHeader, transitionStyle,
 }: ProfileScreenProps) {
   // Avatar state (profile-only)
@@ -223,6 +225,8 @@ export function ProfileScreen({
 
           {/* Divider */}
           <div style={pageStyles.divider} />
+
+          {pennySettings}
 
           {/* Need Help? */}
           <button onClick={() => onNavigate('help')} style={{

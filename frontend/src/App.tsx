@@ -58,7 +58,7 @@ const EarningsScreen = lazy(() => import('./components/EarningsScreen').then(m =
 const ReceiptScreen = lazy(() => import('./components/ReceiptScreen').then(m => ({ default: m.ReceiptScreen })))
 const ProfileScreen = lazy(() => import('./components/ProfileScreen').then(m => ({ default: m.ProfileScreen })))
 const HelpScreen = lazy(() => import('./components/HelpScreen').then(m => ({ default: m.HelpScreen })))
-const PennySettingsScreen = lazy(() => import('./components/PennySettingsScreen').then(m => ({ default: m.PennySettingsScreen })))
+const PennySettings = lazy(() => import('./components/PennySettingsScreen').then(m => ({ default: m.PennySettings })))
 const ShareScreen = lazy(() => import('./components/ShareScreen').then(m => ({ default: m.ShareScreen })))
 const AdminScreen = lazy(() => import('./components/AdminScreen').then(m => ({ default: m.AdminScreen })))
 const SharedListScreen = lazy(() => import('./components/SharedListScreen').then(m => ({ default: m.SharedListScreen })))
@@ -79,7 +79,7 @@ import {
 // =============================================================================
 
 // The screens the app can show
-type Screen = 'login' | 'home' | 'penny' | 'profile' | 'settings-share' | 'admin' | 'shared-list' | 'help' | 'earnings' | 'receipts' | 'saved-lists'
+type Screen = 'login' | 'home' | 'profile' | 'settings-share' | 'admin' | 'shared-list' | 'help' | 'earnings' | 'receipts' | 'saved-lists'
 
 // Declare gtag for TypeScript
 declare function gtag(...args: unknown[]): void
@@ -91,7 +91,6 @@ declare function gtag(...args: unknown[]): void
 const SCREEN_PATHS: Record<Screen, string> = {
   login: '/login',
   home: '/',
-  penny: '/penny',
   profile: '/profile',
   'settings-share': '/share',
   admin: '/admin',
@@ -105,7 +104,6 @@ const SCREEN_PATHS: Record<Screen, string> = {
 const SCREEN_TITLES: Record<Screen, string> = {
   login: 'Sign In — Groflo',
   home: 'Shopping List — Groflo',
-  penny: 'Penny — Groflo',
   profile: 'Profile — Groflo',
   'settings-share': 'Share & Earn — Groflo',
   admin: 'Admin — Groflo',
@@ -119,10 +117,10 @@ const SCREEN_TITLES: Record<Screen, string> = {
 const PATH_TO_SCREEN: Record<string, Screen> = {
   '/login': 'login',
   '/': 'home',
-  '/penny': 'penny',
+  '/penny': 'profile',
   '/profile': 'profile',
   '/share': 'settings-share',
-  '/settings': 'penny',
+  '/settings': 'profile',
   '/settings/profile': 'profile',
   '/settings/saved': 'profile',
   '/admin': 'admin',
@@ -2010,7 +2008,6 @@ function AppInner() {
     switch (s) {
       case 'home': case 'earnings': case 'receipts': return 'home'
       case 'saved-lists': return 'saved-lists'
-      case 'penny': return 'penny'
       case 'settings-share': return 'settings-share'
       case 'admin': return 'admin'
       default: return 'profile'
@@ -2080,7 +2077,6 @@ function AppInner() {
 
   const pageIcons: Record<string, React.ReactNode> = {
     'Shopping List': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>,
-    'Penny': <PennyAvatar size={16} />,
     'Share & Earn': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>,
     'Settings': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l1.09 3.26L16.36 6l-2.6 2.14L14.53 12 12 9.77 9.47 12l.77-3.86L7.64 6l3.27-.74z"/><path d="M5 18l.7 2.1L8 20.8l-1.6 1.32.47 2.38L5 23.27 3.13 24.5l.47-2.38L2 20.8l2.3-.7z"/><path d="M19 15l.53 1.58 1.72.53-1.23.99.35 1.79L19 19.06l-1.37.83.35-1.79-1.23-.99 1.72-.53z"/></svg>,
     'Dashboard': <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/></svg>,
@@ -2163,31 +2159,6 @@ function AppInner() {
   }
 
   // =========================================================================
-  // PENNY SETTINGS (merged: Penny + Profile + Saved Lists + Sign Out)
-  // =========================================================================
-
-  if (screen === 'penny') {
-    return withFeedbackFAB(
-      <><PennySettingsScreen
-        pennySlider={pennySlider}
-        pennyAutotune={pennyAutotune}
-        storeOrderEnabled={storeOrderEnabled}
-        onSliderChange={setPennySlider}
-        onAutotuneToggle={toggleAutotune}
-        onStoreOrderToggle={toggleStoreOrder}
-
-        track={track}
-        renderHeader={() => renderPageHeader('Penny', 'penny')}
-        renderToast={renderPennyToast}
-
-        transitionStyle={transitionStyle}
-      />
-      {renderNavMenu()}
-      </>
-    )
-  }
-
-  // =========================================================================
   // PROFILE PAGE
   // =========================================================================
 
@@ -2208,6 +2179,17 @@ function AppInner() {
         onSessionExpired={handleSessionExpired}
 
         placesReady={placesReady}
+        pennySettings={
+          <PennySettings
+            pennySlider={pennySlider}
+            pennyAutotune={pennyAutotune}
+            storeOrderEnabled={storeOrderEnabled}
+            onSliderChange={setPennySlider}
+            onAutotuneToggle={toggleAutotune}
+            onStoreOrderToggle={toggleStoreOrder}
+            track={track}
+          />
+        }
         renderHeader={() => renderPageHeader('Profile', 'profile')}
 
         transitionStyle={transitionStyle}
