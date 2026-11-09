@@ -39,6 +39,7 @@ import { track, identify } from './analytics'
 import { TripPlannerSheet, type ShoppingTrip } from './components/TripPlannerSheet'
 import { ItemEditSheet } from './components/ItemEditSheet'
 import { SettingsScreen } from './components/SettingsScreen'
+import { SavingsBadge } from './components/SavingsBadge'
 import { ReviewSheet } from './components/ReviewSheet'
 import { WrappedCard } from './components/WrappedCard'
 import { MilestoneCard } from './components/MilestoneCard'
@@ -2096,7 +2097,7 @@ function AppInner() {
     const isSubScreen = SUB_SCREENS.includes(active)
     return (
       <div style={{ flexShrink: 0, backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ ...layout.row, padding: '12px 20px' }}>
+        <div style={{ ...layout.row, padding: '12px 20px', position: 'relative' }}>
           {isSubScreen ? (
             <button
               onClick={() => setScreen(active === 'earnings' || active === 'receipts' ? 'home' : active === 'admin' ? 'profile' : 'profile')}
@@ -2118,45 +2119,10 @@ function AppInner() {
             display: 'flex',
             alignItems: 'center',
             gap: '6px',
+            position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', maxWidth: '60%', whiteSpace: 'nowrap', margin: 0,
           }}>{pageIcons[pageName]}{pageName}</span>
           {/* Savings badge — upper right */}
-          <span
-            style={{
-              ...layout.column,
-              marginLeft: 'auto',
-              cursor: 'pointer',
-              alignItems: 'center',
-              lineHeight: 1,
-              backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)',
-              borderRadius: '12px',
-              padding: '6px 12px',
-            }}
-            onClick={() => setScreen('earnings')}
-            aria-label="View savings"
-          >
-            {potentialSavingsCents > 0 ? (
-              <>
-                <span style={{ fontFamily: FONT, fontSize: FONT_XL, fontWeight: 700, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-                  ${(potentialSavingsCents / 100).toFixed(2)}
-                </span>
-                <span style={{ fontFamily: FONT, fontSize: '0.625rem', color: 'var(--text-secondary)', marginTop: '1px' }}>save</span>
-              </>
-            ) : earningsTotalCents > 0 ? (
-              <>
-                <span style={{ fontFamily: FONT, fontSize: FONT_XL, fontWeight: 700, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-                  ${(earningsTotalCents / 100).toFixed(2)}
-                </span>
-                <span style={{ fontFamily: FONT, fontSize: '0.625rem', color: 'var(--text-secondary)', marginTop: '1px' }}>saved</span>
-              </>
-            ) : (
-              <>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-                <span style={{ fontFamily: FONT, fontSize: '0.625rem', color: 'var(--text-secondary)', marginTop: '1px' }}>deals</span>
-              </>
-            )}
-          </span>
+          <SavingsBadge potentialSavingsCents={potentialSavingsCents} earningsTotalCents={earningsTotalCents} onOpen={() => setScreen('earnings')} />
         </div>
       </div>
     )
@@ -2478,7 +2444,7 @@ function AppInner() {
       <ConfirmModal open={!!confirmModal} title={confirmModal?.title || ''} message={confirmModal?.message} confirmLabel={confirmModal?.confirmLabel} destructive={confirmModal?.destructive} onConfirm={runConfirmAction} onCancel={closeConfirmModal} />
       {/* Fixed header — compact */}
       <div style={{ flexShrink: 0, backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ ...layout.row, padding: '12px 20px' }}>
+        <div style={{ ...layout.row, padding: '12px 20px', position: 'relative' }}>
           {renderAvatarButton()}
           {editingListName ? (
             <input
@@ -2516,48 +2482,13 @@ function AppInner() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
+                position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', maxWidth: '60%', whiteSpace: 'nowrap', margin: 0,
                 cursor: 'pointer',
               }}
             >{pageIcons['Shopping List']} {listName || 'Shopping List'}</span>
           )}
           {/* Savings badge — upper right */}
-          <span
-            style={{
-              ...layout.column,
-              marginLeft: 'auto',
-              cursor: 'pointer',
-              alignItems: 'center',
-              lineHeight: 1,
-              backgroundColor: 'color-mix(in srgb, var(--brand) 8%, transparent)',
-              borderRadius: '12px',
-              padding: '6px 12px',
-            }}
-            onClick={() => setScreen('earnings')}
-            aria-label="View savings"
-          >
-            {potentialSavingsCents > 0 ? (
-              <>
-                <span style={{ fontFamily: FONT, fontSize: FONT_XL, fontWeight: 700, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-                  ${(potentialSavingsCents / 100).toFixed(2)}
-                </span>
-                <span style={{ fontFamily: FONT, fontSize: '0.625rem', color: 'var(--text-secondary)', marginTop: '1px' }}>save</span>
-              </>
-            ) : earningsTotalCents > 0 ? (
-              <>
-                <span style={{ fontFamily: FONT, fontSize: FONT_XL, fontWeight: 700, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-                  ${(earningsTotalCents / 100).toFixed(2)}
-                </span>
-                <span style={{ fontFamily: FONT, fontSize: '0.625rem', color: 'var(--text-secondary)', marginTop: '1px' }}>saved</span>
-              </>
-            ) : (
-              <>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-                <span style={{ fontFamily: FONT, fontSize: '0.625rem', color: 'var(--text-secondary)', marginTop: '1px' }}>deals</span>
-              </>
-            )}
-          </span>
+          <SavingsBadge potentialSavingsCents={potentialSavingsCents} earningsTotalCents={earningsTotalCents} onOpen={() => setScreen('earnings')} />
         </div>
         {/* Progress bar */}
         {items.length > 0 && (() => {
@@ -3025,8 +2956,28 @@ function AppInner() {
       )}
 
       {/* "You're done!" overlay */}
-      {showDoneOverlay && (() => {
+      {showDoneOverlay && !showDoneSummary && (() => {
         const tripSavings = items.reduce((s, i) => s + (i.swap_savings_cents || 0), 0)
+        if (tripSavings > 0) {
+          // A solid card with a next step. It stays until dismissed or acted on.
+          return (
+            <div style={{ position: 'fixed', inset: 0, zIndex: 9998, backgroundColor: 'var(--overlay, rgba(0,0,0,0.4))', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+              <div role="dialog" aria-label="Trip done" style={{ width: '100%', maxWidth: '360px', backgroundColor: 'var(--brand)', color: '#fff', borderRadius: '20px', padding: '28px 24px', display: 'flex', flexDirection: 'column', gap: '12px', fontFamily: FONT, textAlign: 'left' }}>
+                <div style={{ fontSize: FONT_XS, fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase' }}>Saved this trip</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 600, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>${(tripSavings / 100).toFixed(2)}</div>
+                <div style={{ fontSize: FONT_BASE, lineHeight: 1.4 }}>You're done! Snap your receipt to claim your savings.</div>
+                <button
+                  onClick={() => { setShowDoneOverlay(false); setPendingReceiptMode(true); receiptInputRef.current?.click() }}
+                  style={{ minHeight: '44px', marginTop: '4px', border: 'none', borderRadius: '12px', backgroundColor: 'var(--surface)', color: 'var(--brand)', fontFamily: FONT, fontSize: FONT_LG, fontWeight: 600, cursor: 'pointer' }}
+                >Snap receipt</button>
+                <button
+                  onClick={() => setShowDoneOverlay(false)}
+                  style={{ minHeight: '44px', border: 'none', background: 'none', color: '#fff', fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, cursor: 'pointer' }}
+                >Later</button>
+              </div>
+            </div>
+          )
+        }
         return (
           <div
             style={{
@@ -3145,7 +3096,6 @@ function AppInner() {
         buttons={homePennyBtns}
         toastError={toast?.type === 'error'}
         keyboardOpen={keyboardOpen}
-        showFace={items.length > 0}
         disambig={pennyDisambig.map(d => ({ product_category: d.product_category, current_brand: d.current_brand, alternatives: d.alternatives, auto_assigned: d.auto_assigned }))}
         disambigIndex={pennyDisambigIndex}
         onBrandPick={handleBrandPick}

@@ -180,6 +180,14 @@ export function SwapCard({ swap, onAccept, onDecline }: SwapCardProps) {
             letterSpacing: '0.3px',
           }}>{deadlineText}</span>
         )}
+        {swap.discount_cents > 0 && (
+          <span style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+            <span style={{ fontFamily: FONT, fontSize: '1.5rem', fontWeight: 600, color: 'var(--brand)', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>
+              {formatPrice(swap.discount_cents)}
+            </span>
+            <span style={{ ...text.caption }}>you save</span>
+          </span>
+        )}
       </div>
 
       {/* Card content */}

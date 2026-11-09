@@ -1,5 +1,4 @@
-// Penny's face sits in her bar while there is a list. On an empty list the
-// bar keeps her words but not her face.
+// Penny's face always sits in her bar, beside her words, including on an empty list.
 
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
@@ -27,9 +26,8 @@ describe('PennyBar face', () => {
     expect(screen.getByAltText('Penny')).toBeInTheDocument()
   })
 
-  it('hides her face but keeps her words when showFace is false', () => {
-    renderBar({ showFace: false })
-    expect(screen.queryByAltText('Penny')).not.toBeInTheDocument()
+  it('shows her words beside her face', () => {
+    renderBar()
     expect(screen.getAllByText('What can I add?').length).toBeGreaterThan(0)
   })
 })

@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, memo } from 'react'
 import { BrandLogo } from './BrandLogo'
+import { MoneyChip } from './MoneyChip'
 import { StatusBadge } from './StatusBadge'
 import { SwapCard, type SwapOffer } from './SwapCard'
 import { FONT, FONT_2XS, FONT_XS, FONT_BASE, layout, buttons, text } from '../styles'
@@ -258,11 +259,13 @@ function ItemRowBase({ item, isNew, currentUserId, swap, onToggle, onTap, onDele
             </span>
           )}
         </div>
-        {(item.urgent || item.claimed_by_id || item.swap_savings_cents > 0) && (
+        {(item.urgent || item.claimed_by_id || item.swap_savings_cents > 0 || (swap && !item.checked && swap.discount_cents > 0)) && (
           <div style={{ ...layout.column, gap: '4px', alignItems: 'flex-end', flexShrink: 0, paddingRight: '12px' }}>
-            {item.swap_savings_cents > 0 && (
-              <StatusBadge label={`Saving $${(item.swap_savings_cents / 100).toFixed(2)}`} variant="success" bordered />
-            )}
+            {item.swap_savings_cents > 0 ? (
+              <MoneyChip kind="taken" cents={item.swap_savings_cents} />
+            ) : swap && !item.checked && swap.discount_cents > 0 ? (
+              <MoneyChip kind="offer" cents={swap.discount_cents} />
+            ) : null}
             {item.urgent && (
               <StatusBadge label="🔥 Urgent" variant="error" bordered />
             )}
