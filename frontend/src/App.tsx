@@ -38,6 +38,7 @@ import { NPSSurveyModal } from './components/NPSSurveyModal'
 import { track, identify } from './analytics'
 import { TripPlannerSheet, type ShoppingTrip } from './components/TripPlannerSheet'
 import { ItemEditSheet } from './components/ItemEditSheet'
+import { SettingsScreen } from './components/SettingsScreen'
 import { ReviewSheet } from './components/ReviewSheet'
 import { WrappedCard } from './components/WrappedCard'
 import { MilestoneCard } from './components/MilestoneCard'
@@ -79,7 +80,7 @@ import {
 // =============================================================================
 
 // The screens the app can show
-type Screen = 'login' | 'home' | 'profile' | 'settings-share' | 'admin' | 'shared-list' | 'help' | 'earnings' | 'receipts' | 'saved-lists'
+type Screen = 'login' | 'home' | 'profile' | 'settings' | 'settings-share' | 'admin' | 'shared-list' | 'help' | 'earnings' | 'receipts' | 'saved-lists'
 
 // Declare gtag for TypeScript
 declare function gtag(...args: unknown[]): void
@@ -92,6 +93,7 @@ const SCREEN_PATHS: Record<Screen, string> = {
   login: '/login',
   home: '/',
   profile: '/profile',
+  settings: '/settings',
   'settings-share': '/share',
   admin: '/admin',
   'shared-list': '/shared',
@@ -105,6 +107,7 @@ const SCREEN_TITLES: Record<Screen, string> = {
   login: 'Sign In — Groflo',
   home: 'Shopping List — Groflo',
   profile: 'Profile — Groflo',
+  settings: 'Settings — Groflo',
   'settings-share': 'Share & Earn — Groflo',
   admin: 'Admin — Groflo',
   'shared-list': 'Shared List — Groflo',
@@ -117,10 +120,10 @@ const SCREEN_TITLES: Record<Screen, string> = {
 const PATH_TO_SCREEN: Record<string, Screen> = {
   '/login': 'login',
   '/': 'home',
-  '/penny': 'profile',
+  '/penny': 'settings',
   '/profile': 'profile',
   '/share': 'settings-share',
-  '/settings': 'profile',
+  '/settings': 'settings',
   '/settings/profile': 'profile',
   '/settings/saved': 'profile',
   '/admin': 'admin',
@@ -2008,6 +2011,7 @@ function AppInner() {
     switch (s) {
       case 'home': case 'earnings': case 'receipts': return 'home'
       case 'saved-lists': return 'saved-lists'
+      case 'settings': return 'settings'
       case 'settings-share': return 'settings-share'
       case 'admin': return 'admin'
       default: return 'profile'
@@ -2179,21 +2183,35 @@ function AppInner() {
         onSessionExpired={handleSessionExpired}
 
         placesReady={placesReady}
-        pennySettings={
-          <PennySettings
-            pennySlider={pennySlider}
-            pennyAutotune={pennyAutotune}
-            storeOrderEnabled={storeOrderEnabled}
-            onSliderChange={setPennySlider}
-            onAutotuneToggle={toggleAutotune}
-            onStoreOrderToggle={toggleStoreOrder}
-            track={track}
-          />
-        }
         renderHeader={() => renderPageHeader('Profile', 'profile')}
 
         transitionStyle={transitionStyle}
       />
+      {renderNavMenu()}
+      </>
+    )
+  }
+
+  // =========================================================================
+  // SETTINGS PAGE (Penny's settings)
+  // =========================================================================
+
+  if (screen === 'settings') {
+    return withFeedbackFAB(
+      <><SettingsScreen
+        renderHeader={() => renderPageHeader('Settings', 'settings')}
+        transitionStyle={transitionStyle}
+      >
+        <PennySettings
+          pennySlider={pennySlider}
+          pennyAutotune={pennyAutotune}
+          storeOrderEnabled={storeOrderEnabled}
+          onSliderChange={setPennySlider}
+          onAutotuneToggle={toggleAutotune}
+          onStoreOrderToggle={toggleStoreOrder}
+          track={track}
+        />
+      </SettingsScreen>
       {renderNavMenu()}
       </>
     )

@@ -24,12 +24,9 @@ function renderProfile(extra: Partial<React.ComponentProps<typeof ProfileScreen>
 }
 
 describe('ProfileScreen', () => {
-  it('shows Penny\'s settings when given them, and nothing when not', () => {
-    const { unmount } = renderProfile({ pennySettings: <div>penny-settings-slot</div> })
-    expect(screen.getByText('penny-settings-slot')).toBeInTheDocument()
-    unmount()
+  it('does not hold Penny\'s settings; they live in Settings', () => {
     renderProfile()
-    expect(screen.queryByText('penny-settings-slot')).not.toBeInTheDocument()
+    expect(screen.queryByText('Learn from my choices')).not.toBeInTheDocument()
   })
 
   it('shows no phone number and offers no field for one', () => {

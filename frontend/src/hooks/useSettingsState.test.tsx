@@ -50,7 +50,7 @@ describe('useSettingsState initial state', () => {
 })
 
 describe('useSettingsState loading', () => {
-  it.each(['penny', 'profile', 'settings-share'])('loads settings on %s', async screen => {
+  it.each(['settings', 'profile', 'settings-share'])('loads settings on %s', async screen => {
     routes({ '/api/settings': settingsBody, '/api/referral': { code: 'ABC', friends: [] } })
     const r = setup(screen)
     await waitFor(() => expect(r.result.current.settingsEmail).toBe('ada@example.com'))
@@ -141,7 +141,7 @@ describe('useSettingsState loading', () => {
     routes({ '/api/settings': settingsBody })
     const r = setup('home')
     expect(api).not.toHaveBeenCalled()
-    r.rerender({ screen: 'penny' })
+    r.rerender({ screen: 'settings' })
     await waitFor(() => expect(api).toHaveBeenCalledWith('/api/settings'))
   })
 })
