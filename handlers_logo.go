@@ -152,47 +152,6 @@ func fetchBrandLogo(domain, secretKey, publicToken string) ([]byte, string) {
 	return nil, ""
 }
 
-// servePlaceholderLogo returns an SVG with the brand's initials in a deterministic color.
-func (s *Server) servePlaceholderLogo(w http.ResponseWriter, name string) {
-	initials := logoInitials(name)
-	color := logoColor(name)
-	// Escape initials for safe SVG embedding
-	safeInitials := strings.NewReplacer("<", "&lt;", ">", "&gt;", "&", "&amp;", "\"", "&quot;").Replace(initials)
-	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="16" fill="%s"/>
-  <text x="64" y="64" dominant-baseline="central" text-anchor="middle"
-        font-family="system-ui,sans-serif" font-weight="600" font-size="48" fill="white">%s</text>
-</svg>`, color, safeInitials)
-	w.Header().Set("Content-Type", "image/svg+xml")
-	// Short cache for placeholders so real logos replace them on next fetch
-	w.Header().Set("Cache-Control", "public, max-age=3600")
-	w.Write([]byte(svg))
-}
-
-func logoInitials(name string) string {
-	words := strings.Fields(name)
-	if len(words) == 0 {
-		return "?"
-	}
-	if len(words) == 1 {
-		r := []rune(words[0])
-		return strings.ToUpper(string(r[0:1]))
-	}
-	return strings.ToUpper(string([]rune(words[0])[0:1]) + string([]rune(words[1])[0:1]))
-}
-
-func logoColor(name string) string {
-	colors := []string{"#4F46E5", "#7C3AED", "#DB2777", "#DC2626", "#EA580C", "#CA8A04", "#16A34A", "#0891B2"}
-	h := 0
-	for _, c := range name {
-		h = h*31 + int(c)
-	}
-	if h < 0 {
-		h = -h
-	}
-	return colors[h%len(colors)]
-}
-
 // warmLogoCache pre-fetches logos for brands missing from the brand_logos table.
 // Runs in the background after server starts.
 func (s *Server) warmLogoCache() {

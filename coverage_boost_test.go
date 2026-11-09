@@ -1800,10 +1800,6 @@ func TestCov2_AdminDB_NilReportDB(t *testing.T) {
 	}
 }
 
-func TestCov2_AdminDB_WithReportDB(t *testing.T) {
-	t.Skip("reportDB removed — reporting now uses the primary database")
-}
-
 // --- handleStores (78.4%) ---
 // Uncovered: chain filter, search query filter, custom limit, stores with lat/lng.
 
