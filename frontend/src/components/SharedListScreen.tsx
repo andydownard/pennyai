@@ -1,5 +1,5 @@
 import { PennyAvatar } from './PennyAvatar'
-import { FONT, FONT_XS, FONT_SM, FONT_BASE } from '../styles'
+import { FONT, FONT_XS, FONT_SM, FONT_BASE, FONT_LG } from '../styles'
 
 interface SharedItem {
   name: string
@@ -49,10 +49,10 @@ export function SharedListScreen({
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px' }}>
           <PennyAvatar size={48} />
         </div>
-        <div style={{ fontFamily: FONT, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text)' }}>
+        <div style={{ fontFamily: FONT, fontSize: '1.5rem', fontWeight: 600, color: 'var(--text)' }}>
           {sharedData ? (sharedData.sharer_name ? `${sharedData.sharer_name}'s Shopping List` : 'Shopping List') : 'Shopping List'}
         </div>
-        <div style={{ fontFamily: FONT, fontSize: FONT_XS, color: 'var(--brand)', fontWeight: 600, letterSpacing: '-0.3px', marginTop: '4px' }}>Groflo</div>
+        <div style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--brand)', fontWeight: 600, marginTop: '4px' }}>Groflo</div>
       </div>
 
       {/* Expiry banner */}
@@ -72,8 +72,8 @@ export function SharedListScreen({
 
         {sharedError === 'expired' && (
           <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>⏰</div>
-            <h2 style={{ fontFamily: FONT, fontSize: '1.25rem', color: 'var(--text)', margin: '0 0 8px' }}>This link has expired</h2>
+            <div style={{ fontSize: '1.5rem', marginBottom: '8px' }}>⏰</div>
+            <h2 style={{ fontFamily: FONT, fontSize: FONT_LG, fontWeight: 600, color: 'var(--text)', margin: '0 0 8px' }}>This link has expired</h2>
             <p style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text-secondary)', margin: '0 0 24px' }}>
               Share links are valid for 48 hours. Ask the sender to share again.
             </p>
@@ -88,8 +88,8 @@ export function SharedListScreen({
 
         {sharedError === 'not_found' && (
           <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔗</div>
-            <h2 style={{ fontFamily: FONT, fontSize: '1.25rem', color: 'var(--text)', margin: '0 0 8px' }}>Link not found</h2>
+            <div style={{ fontSize: '1.5rem', marginBottom: '8px' }}>🔗</div>
+            <h2 style={{ fontFamily: FONT, fontSize: FONT_LG, fontWeight: 600, color: 'var(--text)', margin: '0 0 8px' }}>Link not found</h2>
             <p style={{ fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text-secondary)', margin: '0 0 24px' }}>
               This share link doesn't exist. Check the URL and try again.
             </p>
@@ -106,8 +106,8 @@ export function SharedListScreen({
           <>
             {sharedData.items.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-                <div style={{ fontSize: '48px', marginBottom: '16px' }}>📝</div>
-                <h2 style={{ fontFamily: FONT, fontSize: '1.125rem', color: 'var(--text)', margin: '0 0 8px' }}>
+                <div style={{ fontSize: '1.5rem', marginBottom: '8px' }}>📝</div>
+                <h2 style={{ fontFamily: FONT, fontSize: FONT_LG, fontWeight: 600, color: 'var(--text)', margin: '0 0 8px' }}>
                   Nothing on this list yet
                 </h2>
                 <p style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', margin: 0, lineHeight: '1.5' }}>
@@ -128,7 +128,7 @@ export function SharedListScreen({
                       backgroundColor: item.checked ? 'var(--brand)' : 'transparent',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
-                      {item.checked && <span style={{ color: '#fff', fontSize: '14px', fontWeight: 700 }}>✓</span>}
+                      {item.checked && <span style={{ color: '#fff', fontSize: '14px', fontWeight: 600 }}>✓</span>}
                     </div>
                     <span style={{
                       fontFamily: FONT, fontSize: FONT_BASE, color: 'var(--text)', flex: 1,
