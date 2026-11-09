@@ -45,11 +45,17 @@ describe('NavMenu', () => {
     const labels = within(screen.getByRole('navigation')).getAllByRole('button').map(b => b.textContent || '')
     expect(labels[0]).toContain('Tamika Jones')
     expect(labels[0]).toContain('tamika@example.com')
-    expect(labels.slice(1, -1)).toEqual(['Shopping List', 'My Lists', 'Dashboard'])
+    expect(labels.slice(1, -1)).toEqual(['Shopping List', 'My Lists', 'Settings', 'Dashboard'])
     expect(labels[labels.length - 1]).toBe('Sign out')
   })
 
-  it('has no Penny item; her settings live in Profile', () => {
+  it('opens Settings, where Penny\'s settings live', () => {
+    const p = renderMenu()
+    fireEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Settings' }))
+    expect(p.onNavigate).toHaveBeenCalledWith('settings')
+  })
+
+  it('has no Penny item; her settings live in Settings', () => {
     renderMenu({ isAdmin: false })
     const nav = within(screen.getByRole('navigation'))
     expect(nav.queryByRole('button', { name: 'Penny' })).not.toBeInTheDocument()

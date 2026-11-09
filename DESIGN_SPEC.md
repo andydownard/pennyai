@@ -13,9 +13,9 @@ New user must add first item within 90 seconds with zero clarifying questions.
 
 ## UI/UX Rules
 
-### Penny Settings (a section of the Profile screen)
+### Settings (Penny's settings)
 
-There is no Penny item in the menu and no separate Penny screen; `/penny` and `/settings` open Profile. Penny's settings sit in Profile below the name and address fields, top to bottom:
+Settings is its own screen, reached from the Settings item in the menu (gear icon). `/settings` and the old `/penny` address open it. Profile holds only the name, photo, address and help link; Penny's settings are not there (owner decision 2026-11-08). Settings shows, top to bottom:
 
 1. Penny avatar (40px) + name, with an email button
 2. Divider (1px separator)
@@ -46,4 +46,4 @@ Total earned: a 14px label above the total (24px, brand green). Beneath it two t
 
 ### Navigation Menu Order
 
-1. Shopping List → 2. My Lists → 3. Share & Earn → 4. Penny → ── divider ── → 5. Profile → 6. Dashboard (admin only, always last)
+Profile (the name row, first) → 1. Shopping List → 2. My Lists → 3. Settings → 4. Dashboard (admin only) → Sign out (last). Share & Earn is reached by address only.

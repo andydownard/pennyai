@@ -8,7 +8,7 @@ import { useRef, useEffect, useState, type ReactNode, type CSSProperties } from 
 //   ScreenTransition — wrapper component that applies the style
 // =============================================================================
 
-type Screen = 'login' | 'home' | 'penny' | 'profile' | 'settings-share'
+type Screen = 'login' | 'home' | 'settings' | 'profile' | 'settings-share'
   | 'admin' | 'shared-list' | 'help' | 'earnings' | 'receipts'
   | 'saved-lists'
 
@@ -21,7 +21,7 @@ const SUB_SCREEN_PARENTS: Partial<Record<Screen, Screen>> = {
 }
 
 // The four main tab screens
-const TAB_SCREENS: Set<Screen> = new Set(['home', 'penny', 'settings-share', 'profile'])
+const TAB_SCREENS: Set<Screen> = new Set(['home', 'settings', 'settings-share', 'profile'])
 
 type TransitionType = 'fade' | 'slide-in' | 'slide-out' | 'none'
 

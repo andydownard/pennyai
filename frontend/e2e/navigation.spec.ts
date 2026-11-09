@@ -8,7 +8,7 @@ test.describe('Navigation', () => {
 
   test('navigation menu lists every screen', async ({ page }) => {
     const nav = await openNavMenu(page)
-    for (const label of ['Shopping List', 'My Lists', 'Profile']) {
+    for (const label of ['Shopping List', 'My Lists', 'Settings', 'Profile']) {
       await expect(nav.getByRole('button', { name: label })).toBeVisible()
     }
     await expect(nav.getByRole('button', { name: 'Penny' })).toHaveCount(0)
@@ -16,9 +16,12 @@ test.describe('Navigation', () => {
     await expect(nav.getByText('Groflo', { exact: true })).toHaveCount(0)
   })
 
-  test('Penny settings are on the Profile screen', async ({ page }) => {
-    await navigateTo(page, 'Profile')
+  test('Penny settings are on the Settings screen, not Profile', async ({ page }) => {
+    await navigateTo(page, 'Settings')
     await expect(page.getByText('Learn from my choices')).toBeVisible()
+    await navigateTo(page, 'Profile')
+    await expect(page.getByPlaceholder('First')).toBeVisible()
+    await expect(page.getByText('Learn from my choices')).toHaveCount(0)
   })
 
   test('the share screen is still reachable by its address', async ({ page }) => {
@@ -57,7 +60,9 @@ test.describe('Navigation', () => {
     await expect(page.getByPlaceholder('First')).toBeVisible({ timeout: 10_000 })
   })
 
-  test("deep link to /penny lands on Profile with Penny's settings", async ({ page }) => {
+  test("deep links to /penny and /settings land on Settings with Penny's settings", async ({ page }) => {
+    await page.goto('/settings')
+    await expect(page.getByText('Learn from my choices')).toBeVisible({ timeout: 10_000 })
     await page.goto('/penny')
     await expect(page.getByText('Learn from my choices')).toBeVisible({ timeout: 10_000 })
   })

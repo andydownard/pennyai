@@ -212,7 +212,7 @@ export function useSettingsState(options: UseSettingsStateOptions) {
 
   // Load settings when entering penny, profile, or share screens
   useEffect(() => {
-    if (screen !== 'penny' && screen !== 'profile' && screen !== 'settings-share') return
+    if (screen !== 'settings' && screen !== 'profile' && screen !== 'settings-share') return
     loadSettings()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen])
