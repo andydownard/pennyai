@@ -207,7 +207,9 @@ func (s *Server) warmLogoCache() {
 			s.logoCache.Store(strings.ToLower(mb.domain), &cachedLogo{data: data, contentType: ct})
 			log.Printf("[logos] fetched logo for %s (%s)", mb.name, mb.domain)
 		}
-		time.Sleep(500 * time.Millisecond) // rate limit
+		if s.config.LogoDevToken != "" {
+			time.Sleep(500 * time.Millisecond) // rate limit the Logo.dev calls actually made
+		}
 	}
 	log.Printf("[logos] warm-up complete")
 }

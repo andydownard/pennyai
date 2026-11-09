@@ -466,6 +466,14 @@ describe('useListState offline queue', () => {
 })
 
 describe('useListState urgent and claim', () => {
+  it('chimes sensibly even if the server returns no item name', async () => {
+    const r = setup()
+    await load(r, [mk(1, 'Milk')])
+    api.mockResolvedValueOnce(mk(1, '', { urgent: true }) as never)
+    await act(async () => { await r.result.current.handleUrgentToggle(1) })
+    expect(r.opts.showChimeIn).toHaveBeenLastCalledWith('Marked it as urgent!', 3000)
+  })
+
   it('urgent flips, chimes with the server name, and reverts on failure', async () => {
     const r = setup()
     await load(r, [mk(1, 'Milk')])

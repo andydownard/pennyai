@@ -156,11 +156,7 @@ export function useListState(options: UseListStateOptions) {
         optRef.current.setLastAdded(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i))
       }
       if (deletedId) {
-        optRef.current.setLastAdded(prev => {
-          const remaining = prev.filter(i => i.id !== deletedId)
-          if (remaining.length === 0 && optRef.current.lastSkipped.length === 0) return remaining
-          return remaining
-        })
+        optRef.current.setLastAdded(prev => prev.filter(i => i.id !== deletedId))
         optRef.current.setLastSkipped(prev => prev.filter(s => s.existing_id !== deletedId))
       }
       // Reopen review if there are still items to review
@@ -323,7 +319,8 @@ export function useListState(options: UseListStateOptions) {
       if (data) {
         const updated = data as ListItem
         updateItem(updated.id, updated)
-        optRef.current.showChimeIn(updated.urgent ? `Marked ${updated.name} as urgent!` : `${updated.name} back to normal`, 3000)
+        const label = updated.name || 'it'
+        optRef.current.showChimeIn(updated.urgent ? `Marked ${label} as urgent!` : `${label} back to normal`, 3000)
       } else {
         updateItem(id, { urgent: was })
         optRef.current.showToast('Couldn\'t update that item — please try again', 'error')

@@ -159,9 +159,9 @@ describe('FeedbackWidget', () => {
     const f = mockHistory([item(1)])
     await sendWithFakeTimers(() => openWidget())
     expect(screen.getByText('Body 1')).toBeInTheDocument()
-    // Note: the auto-transition calls fetchHistory() and the tab effect calls it again,
-    // so the (read-only) history GET fires twice. Reported, not fixed.
-    expect(f).toHaveBeenCalledWith('/api/feedback')
+    // The tab change loads History once; the timer must not fetch it a second time.
+    const historyGets = f.mock.calls.filter(c => c[0] === '/api/feedback' && !c[1])
+    expect(historyGets).toHaveLength(1)
   })
 
   it('the form is blank after a successful send', async () => {

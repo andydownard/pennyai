@@ -91,12 +91,11 @@ export function FeedbackWidget({ onSubmit }: FeedbackWidgetProps) {
     if (sent) {
       const t = setTimeout(() => {
         setSent(false)
-        setTab('history')
-        fetchHistory()
+        setTab('history') // the tab effect loads History
       }, 2000)
       return () => clearTimeout(t)
     }
-  }, [sent, fetchHistory])
+  }, [sent])
 
   const handleSubmit = async () => {
     if (!body.trim() || sending) return
