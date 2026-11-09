@@ -26,7 +26,7 @@ Groflo is an AI-powered grocery shopping list app with personality-driven assist
 | Household | `household` | group, family, team, members |
 | Saved list | `saved_list` | template, preset, favorite |
 | Shopping trip | `shopping_trip` | cart, receipt, purchase |
-| Brand swap / Deal | `brand_deal`, `swap_event` | swap, offer, promotion |
+| Swap / Deal | `brand_deal`, `swap_event` | offer, promotion (owner decision 2026-11-08: "swap" is allowed) |
 | Share & Earn | `referral` | referral program, affiliate |
 
 ## Top 5 Damage Risks
