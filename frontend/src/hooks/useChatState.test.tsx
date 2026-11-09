@@ -276,12 +276,36 @@ describe('sending a message', () => {
     expect(result.current.homePennyText).toBe('Working on it...')
   })
 
-  // The comment in the source says chatLoading stays true after a 202 until the
-  // SSE result arrives, but the `finally` block clears it. Documented as a bug.
-  it.fails('keeps loading after a 202 until the streamed result arrives', async () => {
+  // A 202 means the result arrives later over the stream, so loading stays on.
+  it('keeps loading after a 202 until the streamed result arrives', async () => {
     fetchMock.mockResolvedValue(jsonRes(202, { message: 'On it...' }))
     const { result } = setup()
     await send(result, 'recipe')
+    expect(result.current.chatLoading).toBe(true)
+    run(() => result.current.processParseResult({ action: 'add', items: [] }))
+    expect(result.current.chatLoading).toBe(false)
+  })
+
+  it('releases loading after a 202 if the streamed result never comes', async () => {
+    fetchMock.mockResolvedValue(jsonRes(202, { message: 'On it...' }))
+    const { result } = setup()
+    await send(result, 'recipe')
+    expect(result.current.chatLoading).toBe(true)
+    await act(async () => { vi.advanceTimersByTime(60_000) })
+    expect(result.current.chatLoading).toBe(false)
+  })
+
+  it('a late safety timer from an earlier 202 does not clear a newer send', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonRes(202, { message: 'On it...' }))
+      .mockResolvedValueOnce(jsonRes(202, { message: 'Still on it...' }))
+    const { result } = setup()
+    await send(result, 'recipe')
+    run(() => result.current.processParseResult({ action: 'add', items: [] }))
+    await act(async () => { vi.advanceTimersByTime(30_000) })
+    await send(result, 'another')
+    expect(result.current.chatLoading).toBe(true)
+    await act(async () => { vi.advanceTimersByTime(35_000) })
     expect(result.current.chatLoading).toBe(true)
   })
 

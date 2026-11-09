@@ -56,10 +56,7 @@ describe('BottomSheet', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  // KNOWN BUG (reported, not fixed): useFocusTrap's effect depends only on isActive and runs
-  // before the panel is mounted (BottomSheet mounts it one render later), so ref.current is
-  // null and the trap never engages. it.fails flips to a failure once the bug is fixed.
-  it.fails('moves focus into the sheet and traps Tab at both ends', () => {
+  it('moves focus into the sheet and traps Tab at both ends', () => {
     render(<BottomSheet open onClose={vi.fn()}><button>first</button><button>last</button></BottomSheet>)
     const first = screen.getByRole('button', { name: 'first' })
     const last = screen.getByRole('button', { name: 'last' })
@@ -70,7 +67,7 @@ describe('BottomSheet', () => {
     expect(first).toHaveFocus()
   })
 
-  it.fails('restores focus to the trigger when it unmounts (trap never engaged, see above)', () => {
+  it('restores focus to the trigger when it unmounts', () => {
     const trigger = document.createElement('button')
     document.body.appendChild(trigger)
     trigger.focus()

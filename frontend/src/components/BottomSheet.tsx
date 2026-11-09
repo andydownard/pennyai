@@ -61,8 +61,9 @@ export function BottomSheet({
   sheetStyle,
   ariaLabel,
 }: BottomSheetProps) {
-  const trapRef = useFocusTrap(open)
   const [visible, setVisible] = useState(false)
+  // The panel mounts one render after `open`; the trap needs the mounted node.
+  const trapRef = useFocusTrap(open && visible)
   const [animateIn, setAnimateIn] = useState(false)
 
   // Escape key handler

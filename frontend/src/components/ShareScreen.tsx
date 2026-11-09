@@ -116,7 +116,7 @@ export function ShareScreen({
     // Try native share (mobile), fall back to download
     if (navigator.share && navigator.canShare?.({ files: [new File([blob], 'penny-referral.png', { type: 'image/png' })] })) {
       const file = new File([blob], 'penny-referral.png', { type: 'image/png' })
-      navigator.share({ files: [file], title: 'Try Penny AI' }).catch(() => {})
+      navigator.share({ files: [file], title: 'Try Penny' }).catch(() => {})
     } else {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -131,7 +131,7 @@ export function ShareScreen({
   const handleEmailInvite = useCallback(() => {
     const subject = encodeURIComponent('Try Penny — the household shopping list')
     const body = encodeURIComponent(
-      `Hey!\n\nI've been using Penny to manage my grocery list. She organizes everything, suggests brands, and keeps the whole family in sync.\n\nTry it: ${referralLink(referralCode)}\n\nText, email, or type your list — Penny handles the rest.`
+      `Hey!\n\nI've been using Penny to manage my grocery list. She organizes everything, suggests brands, and keeps the whole family in sync.\n\nTry it: ${referralLink(referralCode)}\n\nEmail or type your list — Penny handles the rest.`
     )
     window.open(`mailto:?subject=${subject}&body=${body}`, '_self')
   }, [referralCode])

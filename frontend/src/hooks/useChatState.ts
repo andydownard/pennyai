@@ -79,6 +79,9 @@ export function useChatState(options: UseChatStateOptions) {
   // --- Chat input state ---
   const [chatText, setChatText] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
+  // A 202 hands the result to the stream; if it never arrives, release the box.
+  const asyncLoadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearAsyncLoadTimer = () => { if (asyncLoadTimerRef.current) { clearTimeout(asyncLoadTimerRef.current); asyncLoadTimerRef.current = null } }
   // Optimistic "item arriving" rows: the typed items shown as shimmer ghosts
   // while the server parses. Render-only — never added to `items`, never
   // persisted or deduped client-side. Cleared when the result arrives (in
@@ -446,6 +449,7 @@ export function useChatState(options: UseChatStateOptions) {
     }
 
     // Clear loading state (for async SSE results)
+    clearAsyncLoadTimer()
     setChatLoading(false)
   }
 
@@ -543,6 +547,8 @@ export function useChatState(options: UseChatStateOptions) {
     optRef.current.hasReviewedRef.current = false
     optRef.current.setPennyDisambig([])
     optRef.current.setPennyDisambigIndex(0)
+    clearAsyncLoadTimer()
+    let keepLoading = false
     try {
       const payload = JSON.stringify({ text: chatPayloadText, images: chatPayloadImages })
 
@@ -576,7 +582,11 @@ export function useChatState(options: UseChatStateOptions) {
       if (res.status === 202) {
         const data = await res.json()
         typePennyHome(data.message || 'Working on it...')
-        // Keep chatLoading true — SSE command-result handler will clear it
+        // Keep chatLoading true — processParseResult clears it when the stream delivers.
+        // If the stream drops, the timer releases the box so the user is never stuck.
+        keepLoading = true
+        clearAsyncLoadTimer()
+        asyncLoadTimerRef.current = setTimeout(() => { asyncLoadTimerRef.current = null; setChatLoading(false) }, 60_000)
         return
       }
 
@@ -624,7 +634,7 @@ export function useChatState(options: UseChatStateOptions) {
         },
       ])
     }
-    finally { setChatLoading(false) }
+    finally { if (!keepLoading) setChatLoading(false) }
   }
 
   return {

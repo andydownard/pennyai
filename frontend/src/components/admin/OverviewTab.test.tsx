@@ -126,6 +126,20 @@ describe('OverviewTab', () => {
       expect(p.showToast).toHaveBeenCalledWith('Marked $12.50 as paid for Pat')
     })
 
+    it('a double-click on Mark Paid sends one request', async () => {
+      let release: (v: Response) => void = () => {}
+      const f = vi.fn(() => new Promise<Response>(r => { release = r }))
+      vi.stubGlobal('fetch', f)
+      setup({ payouts: [payout()] })
+      const btn = screen.getByRole('button', { name: 'Mark Paid' })
+      fireEvent.click(btn)
+      fireEvent.click(btn)
+      expect(f).toHaveBeenCalledTimes(1)
+      expect(screen.getByRole('button', { name: 'Marking…' })).toBeDisabled()
+      release({ ok: true } as Response)
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Marking…' })).toBeNull())
+    })
+
     it('a failed Mark Paid toasts an error and keeps the row', async () => {
       stubFetch(() => ({ ok: false }))
       const p = setup({ payouts: [payout()] })
@@ -174,14 +188,27 @@ describe('OverviewTab', () => {
       expect(JSON.parse(f.mock.calls[0][1]!.body as string).status).toBe('active')
     })
 
-    it('Del sends the delete once and refreshes', async () => {
+    it('Del asks first, then sends the delete once and refreshes', async () => {
       const f = stubFetch(() => ({ ok: true, body: [] }))
       const p = setup({ deals: [deal({ id: 8 })] })
       fireEvent.click(screen.getByRole('button', { name: 'Del' }))
+      expect(f.mock.calls.filter(c => c[1]?.method === 'DELETE')).toHaveLength(0)
+      const confirm = screen.getByRole('button', { name: 'Confirm delete' })
+      fireEvent.click(confirm)
+      fireEvent.click(confirm)
       await waitFor(() => expect(p.onDealsChange).toHaveBeenCalledWith([]))
       const del = f.mock.calls.filter(c => c[1]?.method === 'DELETE')
       expect(del).toHaveLength(1)
       expect(JSON.parse(del[0][1]!.body as string)).toEqual({ id: 8 })
+    })
+
+    it('Cancel after Del keeps the deal and sends nothing', () => {
+      const f = stubFetch(() => ({ ok: true, body: [] }))
+      setup({ deals: [deal({ id: 8 })] })
+      fireEvent.click(screen.getByRole('button', { name: 'Del' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(screen.getByRole('button', { name: 'Del' })).toBeInTheDocument()
+      expect(f).not.toHaveBeenCalled()
     })
 
     it('does not replace the list when the refresh fails', async () => {

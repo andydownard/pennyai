@@ -137,6 +137,20 @@ describe('ShareScreen', () => {
       expect(target).toBe('_self')
       open.mockRestore()
     })
+
+    it('does not mention texting, which Groflo no longer does', () => {
+      setup()
+      const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+      fireEvent.click(screen.getByRole('button', { name: 'Email a friend' }))
+      const body = decodeURIComponent((open.mock.calls[0] as [string])[0])
+      expect(body).not.toMatch(/\btext\b/i)
+      open.mockRestore()
+    })
+  })
+
+  it('never calls Penny an AI in the share title', async () => {
+    const src = (await import('./ShareScreen?raw')).default as string
+    expect(src).not.toMatch(/Try Penny AI/)
   })
 
   describe('Save QR as image', () => {

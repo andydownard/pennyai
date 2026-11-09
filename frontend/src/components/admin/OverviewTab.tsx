@@ -18,6 +18,9 @@ export function OverviewTab({
   onDealsChange, onPayoutsChange, onDeepDive, showToast,
 }: OverviewTabProps) {
   const [showDealForm, setShowDealForm] = useState(false)
+  const [paying, setPaying] = useState<Set<number>>(new Set())
+  const [confirmDelId, setConfirmDelId] = useState<number | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
   const [dealForm, setDealForm] = useState(EMPTY_FORM)
   const [editingDealId, setEditingDealId] = useState<number | null>(null)
 
@@ -110,15 +113,22 @@ export function OverviewTab({
                 <div style={{ fontFamily: FONT, fontSize: '12px', color: 'var(--text-secondary)' }}>{p.email || 'No contact'} · {p.swap_count} swap{p.swap_count !== 1 ? 's' : ''} · since {new Date(p.oldest_swap).toLocaleDateString()}</div>
               </div>
               <button
+                disabled={paying.has(p.user_id)}
                 onClick={async () => {
-                  const res = await fetch('/api/admin/payouts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: p.user_id }) })
-                  if (res.ok) {
-                    onPayoutsChange(prev => prev.filter(x => x.user_id !== p.user_id))
-                    showToast(`Marked $${(p.total_cents / 100).toFixed(2)} as paid for ${p.name || 'user'}`)
-                  } else { showToast('Failed to mark as paid', 'error') }
+                  if (paying.has(p.user_id)) return
+                  setPaying(prev => new Set(prev).add(p.user_id))
+                  try {
+                    const res = await fetch('/api/admin/payouts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: p.user_id }) })
+                    if (res.ok) {
+                      onPayoutsChange(prev => prev.filter(x => x.user_id !== p.user_id))
+                      showToast(`Marked $${(p.total_cents / 100).toFixed(2)} as paid for ${p.name || 'user'}`)
+                    } else { showToast('Failed to mark as paid', 'error') }
+                  } finally {
+                    setPaying(prev => { const n = new Set(prev); n.delete(p.user_id); return n })
+                  }
                 }}
-                style={{ fontSize: '12px', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--brand)', backgroundColor: 'var(--surface)', cursor: 'pointer', fontFamily: FONT, color: 'var(--brand)', fontWeight: 600, flexShrink: 0 }}
-              >Mark Paid</button>
+                style={{ fontSize: '12px', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--brand)', backgroundColor: 'var(--surface)', cursor: paying.has(p.user_id) ? 'default' : 'pointer', opacity: paying.has(p.user_id) ? 0.5 : 1, fontFamily: FONT, color: 'var(--brand)', fontWeight: 600, flexShrink: 0 }}
+              >{paying.has(p.user_id) ? 'Marking…' : 'Mark Paid'}</button>
             </div>
           ))}
         </>
@@ -261,14 +271,35 @@ export function OverviewTab({
               }}
               style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', cursor: 'pointer', fontFamily: FONT, color: 'var(--text)' }}
             >Edit</button>
-            <button
-              onClick={async () => {
-                await fetch('/api/admin/deals', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: deal.id }) })
-                const res = await fetch('/api/admin/deals')
-                if (res.ok) onDealsChange(await res.json())
-              }}
-              style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: '1px solid color-mix(in srgb, var(--error) 25%, transparent)', backgroundColor: 'var(--error-bg)', cursor: 'pointer', fontFamily: FONT, color: 'var(--error)' }}
-            >Del</button>
+            {confirmDelId === deal.id ? (
+              <>
+                <button
+                  disabled={deletingId === deal.id}
+                  onClick={async () => {
+                    if (deletingId === deal.id) return
+                    setDeletingId(deal.id)
+                    try {
+                      await fetch('/api/admin/deals', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: deal.id }) })
+                      const res = await fetch('/api/admin/deals')
+                      if (res.ok) onDealsChange(await res.json())
+                    } finally {
+                      setDeletingId(null)
+                      setConfirmDelId(null)
+                    }
+                  }}
+                  style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--error)', backgroundColor: 'var(--error)', cursor: 'pointer', fontFamily: FONT, color: '#fff', fontWeight: 600 }}
+                >Confirm delete</button>
+                <button
+                  onClick={() => setConfirmDelId(null)}
+                  style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', cursor: 'pointer', fontFamily: FONT, color: 'var(--text)' }}
+                >Cancel</button>
+              </>
+            ) : (
+              <button
+                onClick={() => setConfirmDelId(deal.id)}
+                style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: '1px solid color-mix(in srgb, var(--error) 25%, transparent)', backgroundColor: 'var(--error-bg)', cursor: 'pointer', fontFamily: FONT, color: 'var(--error)' }}
+              >Del</button>
+            )}
           </div>
         </div>
       ))}
