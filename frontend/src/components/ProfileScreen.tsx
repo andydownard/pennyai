@@ -141,7 +141,7 @@ export function ProfileScreen({
               style={{
                 width: 80, height: 80, borderRadius: '50%',
                 backgroundColor: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontFamily: FONT, fontSize: '1.75rem', fontWeight: 700, color: '#fff',
+                fontFamily: FONT, fontSize: '1.5rem', fontWeight: 600, color: '#fff',
                 cursor: 'pointer', position: 'relative', overflow: 'hidden',
               }}
               aria-label="Change profile photo"
@@ -228,7 +228,7 @@ export function ProfileScreen({
           {/* Need Help? */}
           <button onClick={() => onNavigate('help')} style={{
             background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-            fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 500, color: 'var(--brand)',
+            fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 400, color: 'var(--brand)',
             textAlign: 'left' as const,
             display: 'flex', alignItems: 'center', gap: '8px',
           }}>
@@ -244,7 +244,7 @@ export function ProfileScreen({
           {isAdmin && (
             <button onClick={() => onNavigate('admin')} style={{
               background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-              fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 500, color: 'var(--brand)',
+              fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 400, color: 'var(--brand)',
               textAlign: 'left' as const,
               display: 'flex', alignItems: 'center', gap: '8px',
             }}>
