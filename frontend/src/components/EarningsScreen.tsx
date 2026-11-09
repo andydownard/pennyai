@@ -244,7 +244,7 @@ export function EarningsScreen({ onViewReceipts, onGoToList, onEarningsLoaded }:
                   </div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 700, color: 'var(--brand)' }}>
+                  <div style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: tx.status === 'pending' ? 'var(--text-secondary)' : 'var(--brand)', fontVariantNumeric: 'tabular-nums' }}>
                     ${(tx.amount_cents / 100).toFixed(2)}
                   </div>
                   <div style={{ marginTop: '4px' }}><StatusBadge label={(STATUS_MAP[tx.status] || STATUS_MAP.pending).label} variant={(STATUS_MAP[tx.status] || STATUS_MAP.pending).variant} /></div>
