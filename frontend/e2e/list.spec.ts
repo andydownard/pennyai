@@ -10,6 +10,8 @@ test.describe('List operations', () => {
     // A brand-new user (first login, never added an item) gets Penny's intro.
     await expect(page.getByText("Hey! I'm Penny", { exact: true })).toBeVisible()
     await expect(page.getByText("Type what you need — I'll organize it by aisle")).toBeVisible()
+    // Her face sits in the bottom bar beside the words she types.
+    await expect(page.getByRole('region', { name: 'Penny' }).getByAltText('Penny')).toBeVisible()
   })
 
   test('add item via API and it appears in list', async ({ page }) => {

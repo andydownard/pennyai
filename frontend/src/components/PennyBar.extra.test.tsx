@@ -339,9 +339,9 @@ describe('PennyBar brand disambiguation', () => {
     expect(screen.getByRole('button', { name: 'Skip brand selection' })).toBeInTheDocument()
   })
 
-  it('without a face the text still renders', () => {
-    setup({ showFace: false, disambig: [d()] })
-    expect(screen.queryByAltText('Penny')).not.toBeInTheDocument()
+  it('shows her face beside the brand question', () => {
+    setup({ disambig: [d()] })
+    expect(screen.getByAltText('Penny')).toBeInTheDocument()
     expect(screen.getByText('Milk (Horizon) — which brand?')).toBeInTheDocument()
   })
 })

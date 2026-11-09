@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ScreenTransition } from './ScreenTransition'
-import { FONT, FONT_SM, FONT_BASE, FONT_MD, pageStyles } from '../styles'
+import { FONT, FONT_SM, FONT_BASE, FONT_MD, FONT_LG, pageStyles } from '../styles'
 
 interface HelpScreenProps {
   showToast: (msg: string, type?: 'success' | 'error') => void
@@ -60,7 +60,7 @@ export function HelpScreen({
 
           {/* FAQ Section */}
           <div>
-            <h2 style={{ fontFamily: FONT, fontSize: '1.125rem', fontWeight: 700, color: 'var(--text)', marginBottom: '16px' }}>
+            <h2 style={{ fontFamily: FONT, fontSize: FONT_LG, fontWeight: 600, color: 'var(--text)', marginBottom: '16px' }}>
               Frequently Asked Questions
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0px', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--border)' }}>
@@ -72,9 +72,9 @@ export function HelpScreen({
                     style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                       width: '100%', padding: '14px 16px',
-                      backgroundColor: openFaq === i ? 'color-mix(in srgb, var(--brand) 3%, transparent)' : 'var(--surface)',
+                      backgroundColor: openFaq === i ? 'var(--brand-tint)' : 'var(--surface)',
                       border: 'none', cursor: 'pointer', textAlign: 'left',
-                      fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 500, color: 'var(--text)',
+                      fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 400, color: 'var(--text)',
                       gap: '12px',
                     }}
                   >
@@ -98,7 +98,7 @@ export function HelpScreen({
                     <div style={{
                       padding: '0 16px 14px 16px',
                       fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', lineHeight: 1.5,
-                      backgroundColor: openFaq === i ? 'color-mix(in srgb, var(--brand) 3%, transparent)' : 'var(--surface)',
+                      backgroundColor: openFaq === i ? 'var(--brand-tint)' : 'var(--surface)',
                     }}>
                       {faq.a}
                     </div>
@@ -113,7 +113,7 @@ export function HelpScreen({
 
           {/* Bug Report Section */}
           <div>
-            <h2 style={{ fontFamily: FONT, fontSize: '1.125rem', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
+            <h2 style={{ fontFamily: FONT, fontSize: FONT_LG, fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
               Report a Bug
             </h2>
             <p style={{ fontFamily: FONT, fontSize: FONT_SM, color: 'var(--text-secondary)', marginBottom: '16px' }}>
@@ -122,9 +122,9 @@ export function HelpScreen({
             {bugSubmitted ? (
               <div style={{
                 padding: '20px', borderRadius: '12px',
-                backgroundColor: 'color-mix(in srgb, var(--brand) 6%, transparent)', textAlign: 'center',
+                backgroundColor: 'var(--brand-tint)', textAlign: 'center',
               }}>
-                <p style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 500, color: 'var(--brand)' }}>
+                <p style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--brand)' }}>
                   Thanks for your report! I'll look into it.
                 </p>
                 <button

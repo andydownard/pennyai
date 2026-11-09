@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, memo } from 'react'
 import { BrandLogo } from './BrandLogo'
+import { MoneyChip } from './MoneyChip'
 import { StatusBadge } from './StatusBadge'
 import { SwapCard, type SwapOffer } from './SwapCard'
 import { FONT, FONT_2XS, FONT_XS, FONT_BASE, layout, buttons, text } from '../styles'
@@ -103,6 +104,7 @@ const REDUCED_MOTION = typeof window !== 'undefined' && window.matchMedia?.('(pr
 function ItemRowBase({ item, isNew, currentUserId, swap, onToggle, onTap, onDelete, onLongPress, onSwapAccept, onSwapDecline }: ItemRowProps) {
   const ts = relativeTimestamp(item.created_at)
   const [swipeX, setSwipeX] = useState(0)
+  const [swapOpen, setSwapOpen] = useState(true)
   const touchRef = useRef<{ startX: number; startY: number; swiping: boolean } | null>(null)
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const longPressFired = useRef(false)
@@ -258,11 +260,13 @@ function ItemRowBase({ item, isNew, currentUserId, swap, onToggle, onTap, onDele
             </span>
           )}
         </div>
-        {(item.urgent || item.claimed_by_id || item.swap_savings_cents > 0) && (
+        {(item.urgent || item.claimed_by_id || item.swap_savings_cents > 0 || (swap && !item.checked && swap.discount_cents > 0)) && (
           <div style={{ ...layout.column, gap: '4px', alignItems: 'flex-end', flexShrink: 0, paddingRight: '12px' }}>
-            {item.swap_savings_cents > 0 && (
-              <StatusBadge label={`Saving $${(item.swap_savings_cents / 100).toFixed(2)}`} variant="success" bordered />
-            )}
+            {item.swap_savings_cents > 0 ? (
+              <MoneyChip kind="taken" cents={item.swap_savings_cents} />
+            ) : swap && !item.checked && swap.discount_cents > 0 ? (
+              <MoneyChip kind="offer" cents={swap.discount_cents} expanded={swapOpen} onToggle={() => setSwapOpen(o => !o)} />
+            ) : null}
             {item.urgent && (
               <StatusBadge label="🔥 Urgent" variant="error" bordered />
             )}
@@ -280,7 +284,7 @@ function ItemRowBase({ item, isNew, currentUserId, swap, onToggle, onTap, onDele
           </div>
         )}
       </div>
-      {swap && !item.checked && (
+      {swap && !item.checked && swapOpen && (
         <div style={{ padding: '0 8px 4px 8px' }}>
           <SwapCard
             swap={swap}

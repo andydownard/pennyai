@@ -79,8 +79,6 @@ interface PennyBarProps {
   toastError: boolean
   // Keyboard
   keyboardOpen: boolean
-  /** Penny's face beside her words. False on an empty list. Default true. */
-  showFace?: boolean
   // Brand disambiguation
   disambig: DisambigItem[]
   disambigIndex: number
@@ -141,7 +139,7 @@ const chatSendStyle = (active: boolean): React.CSSProperties => ({
 
 export function PennyBar({
   pennyText, pennyTyping, buttons, toastError,
-  keyboardOpen, showFace = true, disambig, disambigIndex, onBrandPick, onSkipDisambig,
+  keyboardOpen, disambig, disambigIndex, onBrandPick, onSkipDisambig,
   pendingImages, onRemoveImage,
   chatText, onChatTextChange, chatLoading, onSend, onPaste, onAddPhoto, onOpenCamera,
   autoSubmitEnabled = true,
@@ -205,8 +203,8 @@ export function PennyBar({
 
   // Penny's face: twice the old size (28 → 56; 24 → 48 while typing).
   const face = keyboardOpen ? 48 : 56
-  // Where text and buttons start: past her face, or at the bar's edge without it.
-  const indent = (extra: number) => (showFace ? face + extra : extra - 4)
+  // Where text and buttons start: past her face.
+  const indent = (extra: number) => face + extra
 
   return (
     <>
@@ -215,7 +213,7 @@ export function PennyBar({
         {!hidePennyText && (
         <div style={{ padding: keyboardOpen ? '4px 12px' : '8px 14px', transition: 'padding 200ms ease' }}>
           <div style={{ ...layout.rowGap, alignItems: 'center' }}>
-            {showFace && <PennyAvatar size={face} mood={pennyTyping ? 'thinking' : 'default'} />}
+            <PennyAvatar size={face} mood={pennyTyping ? 'thinking' : 'default'} />
             <span style={{
               flex: 1, fontFamily: FONT, fontSize: keyboardOpen ? FONT_2XS : FONT_XS,
               // Room for two lines from Penny, so her words never move the bar.

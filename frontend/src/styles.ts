@@ -24,6 +24,9 @@ export const BRAND = '#35644F'
 export const THEME_CSS = `
   :root {
     --brand: #35644F;
+    --on-brand: #FFFFFF;
+    --brand-tint: #35644F15;
+    --overlay: rgba(0, 0, 0, 0.4);
     --bg: #F7F6F3;
     --text: #2A2A2A;
     --text-secondary: #525252;
