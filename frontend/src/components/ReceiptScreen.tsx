@@ -379,7 +379,7 @@ export function ReceiptScreen({ onSnapReceipt, hasAcceptedSwaps = true }: Receip
               </div>
               <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '12px' }}>
                 {receipt.total_cents > 0 && (
-                  <div style={{ fontFamily: FONT, fontSize: FONT_MD, fontWeight: 700, color: 'var(--text)' }}>
+                  <div style={{ fontFamily: FONT, fontSize: FONT_BASE, fontWeight: 600, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>
                     {formatPrice(receipt.total_cents)}
                   </div>
                 )}
