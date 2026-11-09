@@ -8,15 +8,16 @@ test.describe('Navigation', () => {
 
   test('navigation menu lists every screen', async ({ page }) => {
     const nav = await openNavMenu(page)
-    for (const label of ['Shopping List', 'My Lists', 'Penny', 'Profile']) {
+    for (const label of ['Shopping List', 'My Lists', 'Profile']) {
       await expect(nav.getByRole('button', { name: label })).toBeVisible()
     }
+    await expect(nav.getByRole('button', { name: 'Penny' })).toHaveCount(0)
     await expect(nav.getByRole('button', { name: 'Share & Earn' })).toHaveCount(0)
     await expect(nav.getByText('Groflo', { exact: true })).toHaveCount(0)
   })
 
-  test('navigate to Penny settings', async ({ page }) => {
-    await navigateTo(page, 'Penny')
+  test('Penny settings are on the Profile screen', async ({ page }) => {
+    await navigateTo(page, 'Profile')
     await expect(page.getByText('Learn from my choices')).toBeVisible()
   })
 
@@ -56,7 +57,7 @@ test.describe('Navigation', () => {
     await expect(page.getByPlaceholder('First')).toBeVisible({ timeout: 10_000 })
   })
 
-  test('deep link to /penny lands on Profile with Penny's settings', async ({ page }) => {
+  test("deep link to /penny lands on Profile with Penny's settings", async ({ page }) => {
     await page.goto('/penny')
     await expect(page.getByText('Learn from my choices')).toBeVisible({ timeout: 10_000 })
   })
