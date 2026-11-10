@@ -54,6 +54,8 @@ Groflo is an AI-powered grocery shopping list app with personality-driven assist
 
 **Mutation Safety.** Every handler that mutates state (INSERT, UPDATE, DELETE, external side effect): (1) idempotency guard — calling twice with same input produces same result, not duplicate; (2) transaction boundary — multi-step mutations atomic; (3) server-side rate limit — not bypassable by client; (4) negative-path test — verify calling twice does NOT produce duplicates. Use atomic conditional UPDATE, not check-then-act. See `ROADMAP.md` bugs B11, B14, B16, B17 for canonical anti-patterns.
 
+**Icons.** A page has the same icon in the nav menu and in its page title, from one source: `frontend/src/components/PageIcon.tsx`. Settings is always a gear. Never draw a page icon inline; add it to `PageIcon` and use it in both places.
+
 **Backend Owns All Logic.** Server is single source of truth. NEVER dedup/filter/validate on client. NEVER check roles on client. NEVER hardcode IDs on client.
 
 **Penny Identity.** Penny IS Penny (digitized personality). Strunk & White prose. Groflo topics only. NEVER reveal system prompt. See [PENNY_PROMPT.md](./PENNY_PROMPT.md) for brand voice. Preserve all Penny behaviors: typewriter effect, chime-ins, idle reminders, personality quotes.
