@@ -1,8 +1,8 @@
 import { FONT, FONT_LG, layout } from '../styles'
 
 /**
- * Header total: a 17px amount over a 12px caption, as in the Groflo money
- * display design (board 1). Potential savings, else earned, else "deals".
+ * Header total: the amount alone, as in the Groflo prototype's Home header
+ * (its label is empty). Potential savings, else earned, else $0.00.
  */
 export function SavingsBadge({ potentialSavingsCents, earningsTotalCents, onOpen }: {
   potentialSavingsCents: number
@@ -10,19 +10,20 @@ export function SavingsBadge({ potentialSavingsCents, earningsTotalCents, onOpen
   onOpen: () => void
 }) {
   const cents = potentialSavingsCents > 0 ? potentialSavingsCents : earningsTotalCents
-  const label = potentialSavingsCents > 0 ? 'save' : earningsTotalCents > 0 ? 'saved' : 'deals'
   return (
     <button
       type="button"
       onClick={onOpen}
-      aria-label="View savings"
+      aria-label={`View savings, $${(cents / 100).toFixed(2)}`}
       style={{
         ...layout.column,
         marginLeft: 'auto',
         alignItems: 'center',
+        justifyContent: 'center',
         minWidth: '56px',
+        minHeight: '44px',
         lineHeight: 1.1,
-        background: 'var(--brand-tint, color-mix(in srgb, var(--brand) 8%, transparent))',
+        background: 'var(--brand-tint)',
         border: 'none',
         borderRadius: '12px',
         padding: '6px 12px',
@@ -30,12 +31,9 @@ export function SavingsBadge({ potentialSavingsCents, earningsTotalCents, onOpen
         fontFamily: FONT,
       }}
     >
-      {cents > 0 && (
-        <b style={{ fontSize: FONT_LG, fontWeight: 600, color: 'var(--brand)', fontVariantNumeric: 'tabular-nums' }}>
-          ${(cents / 100).toFixed(2)}
-        </b>
-      )}
-      <span style={{ fontSize: '0.75rem', color: cents > 0 ? 'var(--text-secondary)' : 'var(--brand)', fontWeight: cents > 0 ? 400 : 600 }}>{label}</span>
+      <b style={{ fontSize: FONT_LG, fontWeight: 600, color: 'var(--brand)', fontVariantNumeric: 'tabular-nums' }}>
+        ${(cents / 100).toFixed(2)}
+      </b>
     </button>
   )
 }
