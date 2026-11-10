@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	neturl "net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -205,7 +206,7 @@ func (s *Server) handlePlacesDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	url := fmt.Sprintf("https://places.googleapis.com/v1/places/%s", placeID)
+	url := "https://places.googleapis.com/v1/places/" + neturl.PathEscape(placeID)
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("X-Goog-Api-Key", s.config.GooglePlacesAPIKey)
 	req.Header.Set("X-Goog-FieldMask", "formattedAddress")
